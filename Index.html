@@ -2287,6 +2287,94 @@
     .stat-song-item { font-size: 0.75rem; }
     .stat-song-item:hover { transform: translateX(2px); }
 
+    /* The usage badge is a button, so it has to be told not to look like one. */
+    .stat-usage-badge {
+      border: 1px solid transparent;
+      cursor: pointer;
+      font: inherit;
+      line-height: 1.1;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .stat-usage-badge:hover { background: rgba(251, 191, 36, 0.45); }
+    .stat-usage-badge:focus-visible {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.85);
+    }
+    .stat-usage-sb { opacity: 0.75; }
+
+    /* ==================== "WHERE IS THIS SONG USED" CARD ====================
+       On <body> and fixed, because the statistics list it belongs to is a
+       320px scroller and would clip it. Positioned from JS. */
+    #sfUsageCard {
+      position: fixed;
+      z-index: 9400;
+      width: 266px;
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid rgba(12, 48, 26, 0.12);
+      box-shadow: 0 18px 40px rgba(12, 48, 26, 0.22);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateX(-6px);
+      transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+    }
+    #sfUsageCard.show { opacity: 1; visibility: visible; transform: translateX(0); }
+    .sf-uc-head {
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: var(--brand-deep, #0b2a14);
+      padding: 0 4px 6px;
+      border-bottom: 1px solid rgba(12, 48, 26, 0.08);
+      margin-bottom: 6px;
+    }
+    .sf-uc-group {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      padding: 6px 4px 3px;
+    }
+    .sf-uc-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      padding: 6px 7px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      cursor: pointer;
+      color: var(--ink, #1f2933);
+      font: inherit;
+      transition: background 0.14s ease;
+    }
+    .sf-uc-row:hover, .sf-uc-row:focus-visible {
+      background: rgba(24, 142, 68, 0.10);
+      outline: none;
+    }
+    .sf-uc-row > i:first-child { color: var(--brand, #188e44); font-size: 0.75rem; flex-shrink: 0; }
+    .sf-uc-row > span { flex: 1; min-width: 0; }
+    .sf-uc-row b {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sf-uc-row small { display: block; font-size: 0.65rem; color: #64748b; }
+    .sf-uc-go { font-size: 0.65rem; color: #94a3b8; flex-shrink: 0; }
+    .sf-uc-row:hover .sf-uc-go { color: var(--brand, #188e44); }
+    .sf-uc-empty { font-size: 0.72rem; color: #94a3b8; padding: 8px 4px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      #sfUsageCard { transition: none; }
+    }
+
     /* ==================== CLICKABLE SONG TITLE (NEW) ==================== */
     .song-title-link {
       cursor: pointer;
@@ -18687,7 +18775,12 @@ window.loadEditSongData = function(song) {
     lyricsSlideIndex: 0,
     lyricsEditMode: false,
     currentStatTab: 'frequent',
-    usageStats: { counts: {}, lastUsed: {} }   // populated from order_items
+    usageStats: { counts: {}, lastUsed: {} },  // order counts, from SBQ.getSongUsageIndex
+    // The full index: which orders and songbooks each song is in. The
+    // sidebar, the home page and the hover card all read this one object,
+    // so none of them can disagree about a song. null until it arrives --
+    // distinct from {}, which means "loaded, and nothing is used yet".
+    usageIndex: null
   };
 
   // ============================================================
@@ -21574,6 +21667,41 @@ window.loadEditSongData = function(song) {
     window.setTimeout(function() { target.classList.remove('sf-suggestion-target'); }, 2200);
   }
 
+  // Picking a song from the search dropdown.
+  //
+  // This used to filter the catalogue behind whatever was on screen and then
+  // scroll the matching card into view. That reads correctly from the
+  // catalogue, and not at all from a song page: the song workspace is a modal
+  // over the list, so searching for a second song from inside the first one
+  // re-filtered a list nobody could see and left the original song open. The
+  // search appeared to do nothing.
+  //
+  // If a song is already open, the pick replaces it. Otherwise the old
+  // behaviour stands -- filter, then highlight the card.
+  function _sfOpenFromSuggestion(song, container) {
+    var searchInput = $('searchInput');
+    if (searchInput) searchInput.value = song.title;
+    STATE.filters.q = song.title;
+    if (container) { container.classList.remove('show'); container.innerHTML = ''; }
+    renderSongs(true);
+    if (searchInput) searchInput.blur();
+
+    // currentLyricsPreviewSong is what the workspace itself reads, so it is
+    // the honest test of "a song is open" -- STATE.lyricsCurrentSong is set
+    // on open but survives the close.
+    var modal = document.getElementById('lyricsPreviewModal');
+    var isOpen = !!(modal && modal.classList.contains('show') && window.currentLyricsPreviewSong);
+    if (isOpen && typeof openLyricsPreviewModal === 'function') {
+      if (window.currentLyricsPreviewSong.id === song.id) return;  // already there
+      openLyricsPreviewModal(song);
+      return;
+    }
+
+    // Allow the mobile keyboard and the freshly-rendered catalogue to
+    // settle before bringing the exact selected card into view.
+    window.setTimeout(function() { focusSongCardFromSuggestion(song.id, 4); }, window.innerWidth <= 768 ? 180 : 20);
+  }
+
   function renderSearchSuggestions(query) {
     var container = $('searchSuggestions');
     if (!container) return;
@@ -21612,18 +21740,7 @@ window.loadEditSongData = function(song) {
     container.querySelectorAll('.suggestion-item').forEach(function(item) {
       item.onclick = function() {
         var song = STATE.songs.find(function(s) { return s.id === item.dataset.id; });
-        if (song) {
-          var searchInput = $('searchInput');
-          searchInput.value = song.title;
-          STATE.filters.q = song.title;
-          container.classList.remove('show');
-          container.innerHTML = '';
-          renderSongs(true);
-          searchInput.blur();
-          // Allow the mobile keyboard and the freshly-rendered catalogue to
-          // settle before bringing the exact selected card into view.
-          window.setTimeout(function() { focusSongCardFromSuggestion(song.id, 4); }, window.innerWidth <= 768 ? 180 : 20);
-        }
+        if (song) _sfOpenFromSuggestion(song, container);
       };
     });
   }
@@ -21669,6 +21786,169 @@ window.loadEditSongData = function(song) {
     }
   }
 
+  // ============================================================
+  // 11A) "WHERE IS THIS SONG USED" HOVER CARD
+  //
+  // Hovering a song in the statistics list shows the actual orders and
+  // songbooks it was added to, and each one is a link that opens it.
+  //
+  // Three things force the shape of this:
+  //
+  //   The list scrolls inside a 320px box. A card parented to the row would
+  //   be clipped by that overflow, so there is ONE card on <body>, fixed,
+  //   positioned from the row's bounding rect.
+  //
+  //   The pointer has to travel from the row to the card without the card
+  //   vanishing underneath it. Hence a delayed hide that the card's own
+  //   mouseenter cancels.
+  //
+  //   Hover alone would make this mouse-only. The usage badge is a button:
+  //   focusing or clicking it opens the same card, so a keyboard or a phone
+  //   gets there too.
+  // ============================================================
+  var _sfUsageCardEl = null;
+  var _sfUsageCardTimer = null;
+  var _sfUsageCardFor = null;
+
+  function _sfUsageCard() {
+    if (_sfUsageCardEl) return _sfUsageCardEl;
+    var el = document.createElement('div');
+    el.id = 'sfUsageCard';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', 'Where this song is used');
+    el.addEventListener('mouseenter', function() { _sfCancelHideUsageCard(); });
+    el.addEventListener('mouseleave', function() { _sfHideUsageCard(160); });
+    document.body.appendChild(el);
+    _sfUsageCardEl = el;
+    return el;
+  }
+
+  function _sfCancelHideUsageCard() {
+    if (_sfUsageCardTimer) { clearTimeout(_sfUsageCardTimer); _sfUsageCardTimer = null; }
+  }
+
+  function _sfHideUsageCard(delay) {
+    _sfCancelHideUsageCard();
+    _sfUsageCardTimer = setTimeout(function() {
+      if (_sfUsageCardEl) _sfUsageCardEl.classList.remove('show');
+      _sfUsageCardFor = null;
+      _sfUsageCardTimer = null;
+    }, delay || 0);
+  }
+
+  function _sfShowUsageCard(anchorEl, songId) {
+    _sfCancelHideUsageCard();
+    var idx = STATE.usageIndex || {};
+    var u = idx[songId];
+    var song = (STATE.songs || []).find(function(s) { return s.id === songId; });
+    if (!u || !song) return;
+
+    var el = _sfUsageCard();
+    _sfUsageCardFor = songId;
+
+    var h = '<div class="sf-uc-head">' + escapeHtml(song.title) + '</div>';
+
+    if (u.orders.length) {
+      h += '<div class="sf-uc-group">In ' + (u.orders.length === 1 ? '1 order' : u.orders.length + ' orders') + '</div>';
+      u.orders.forEach(function(o) {
+        h += '<button type="button" class="sf-uc-row" data-kind="order" data-id="' + escapeHtml(o.id) + '">' +
+             '<i class="fa-solid fa-calendar-days" aria-hidden="true"></i>' +
+             '<span><b>' + escapeHtml(o.title) + '</b>' +
+             (o.serviceDate ? '<small>' + escapeHtml(o.serviceDate) + '</small>' : '') + '</span>' +
+             '<i class="fa-solid fa-arrow-right sf-uc-go" aria-hidden="true"></i></button>';
+      });
+    }
+
+    if (u.songbooks.length) {
+      h += '<div class="sf-uc-group">In ' + (u.songbooks.length === 1 ? '1 songbook' : u.songbooks.length + ' songbooks') + '</div>';
+      u.songbooks.forEach(function(b) {
+        h += '<button type="button" class="sf-uc-row" data-kind="songbook" data-id="' + escapeHtml(b.id) + '">' +
+             '<i class="fa-solid fa-book-open" aria-hidden="true"></i>' +
+             '<span><b>' + escapeHtml(b.name) + '</b></span>' +
+             '<i class="fa-solid fa-arrow-right sf-uc-go" aria-hidden="true"></i></button>';
+      });
+    }
+
+    if (!u.orders.length && !u.songbooks.length) {
+      h += '<div class="sf-uc-empty">Not in any order or songbook.</div>';
+    }
+
+    el.innerHTML = h;
+
+    el.querySelectorAll('.sf-uc-row').forEach(function(row) {
+      row.onclick = function(e) {
+        e.stopPropagation();
+        _sfHideUsageCard(0);
+        _sfOpenUsageTarget(row.dataset.kind, row.dataset.id);
+      };
+    });
+
+    // Measured after the content is in, or the height is last song's.
+    el.classList.add('show');
+    var r = anchorEl.getBoundingClientRect();
+    var cw = el.offsetWidth, ch = el.offsetHeight;
+    var gap = 10;
+    // Beside the sidebar by preference; flipped to its left if there is no
+    // room, which is what happens on a narrow window.
+    var left = r.right + gap;
+    if (left + cw > window.innerWidth - 8) left = Math.max(8, r.left - cw - gap);
+    var top = r.top + (r.height / 2) - (ch / 2);
+    top = Math.max(8, Math.min(top, window.innerHeight - ch - 8));
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(top) + 'px';
+  }
+
+  // Opening the thing the card names. Both of these already exist and are
+  // what the app's own deep links call, so there is no second way in here.
+  function _sfOpenUsageTarget(kind, id) {
+    if (!id) return;
+    if (kind === 'order') {
+      setActiveView('worshipOrderView');
+      setTimeout(function() {
+        if (window.WO && WO.loadOrder) WO.loadOrder(id);
+        else showToast('Worship Orders is still loading', 'info');
+      }, 120);
+    } else if (kind === 'songbook') {
+      setActiveView('songFinderView');
+      setTimeout(function() {
+        if (window.WO && WO.openSongbookStandalone) WO.openSongbookStandalone(id);
+        else showToast('Songbooks are still loading', 'info');
+      }, 120);
+    }
+  }
+
+  function _sfBindUsageCard(item) {
+    var songId = item.dataset.id;
+    item.addEventListener('mouseenter', function() { _sfShowUsageCard(item, songId); });
+    item.addEventListener('mouseleave', function() { _sfHideUsageCard(160); });
+    var badge = item.querySelector('.stat-usage-badge');
+    if (!badge) return;
+    // Clicking the badge must not also run the row's "search for this song".
+    badge.onclick = function(e) {
+      e.stopPropagation();
+      if (_sfUsageCardFor === songId && _sfUsageCardEl && _sfUsageCardEl.classList.contains('show')) {
+        _sfHideUsageCard(0);
+      } else {
+        _sfShowUsageCard(item, songId);
+      }
+    };
+    badge.addEventListener('focus', function() { _sfShowUsageCard(item, songId); });
+    badge.addEventListener('blur', function() { _sfHideUsageCard(160); });
+  }
+
+  // A card pinned open by a click has to close on an outside click, and it
+  // must not survive a scroll that moves the row out from under it.
+  document.addEventListener('click', function(e) {
+    if (!_sfUsageCardEl || !_sfUsageCardEl.classList.contains('show')) return;
+    if (_sfUsageCardEl.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.stat-song-item')) return;
+    _sfHideUsageCard(0);
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') _sfHideUsageCard(0);
+  });
+  window.addEventListener('scroll', function() { _sfHideUsageCard(0); }, true);
+
   function renderSongStats() {
     var container = $('songStatsContainer');
     if (!container) return;
@@ -21679,41 +21959,37 @@ window.loadEditSongData = function(song) {
     var html = '';
 
     if (STATE.currentStatTab === 'frequent') {
-      // Top 15 most ADDED: real membership across orders (order_items) plus
-      // songbooks (songIds) — no legacy useCount guesswork.
-      var sbCounts = window._sfSongbookCounts;
-      if (!sbCounts && window.SBQ_SONGBOOKS && SBQ_SONGBOOKS.loadAll && !window._sfSongbookCountsLoading) {
-        window._sfSongbookCountsLoading = true;
-        SBQ_SONGBOOKS.loadAll().then(function(books) {
-          var counts = {};
-          (books || []).forEach(function(b) { (b.songIds || []).forEach(function(id) { counts[id] = (counts[id] || 0) + 1; }); });
-          window._sfSongbookCounts = counts;
-          window._sfSongbookCountsLoading = false;
-          renderSongStats();
-        }).catch(function() { window._sfSongbookCountsLoading = false; });
+      // Top 10 songs by how many ORDERS they have been added to.
+      //
+      // This used to be `orders + songbooks`, where "orders" came from a
+      // count that already included the `standalone_sb_*` pseudo-order each
+      // songbook creates. Songbook membership was therefore counted twice,
+      // and a song in one songbook and no service at all reported "3 times"
+      // and sat at the top of the list. See SBQ.getSongUsageIndex.
+      var usage = STATE.usageIndex;
+      if (!usage) {
+        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">Counting usage\u2026</div>';
+        return;
       }
-      var ranked = songs.map(function(s) {
-        var inOrders = usageCounts[s.id] || 0;
-        var inBooks = (sbCounts && sbCounts[s.id]) || 0;
-        return { song: s, count: inOrders + inBooks, inOrders: inOrders, inBooks: inBooks };
-      }).filter(function(x) { return x.count > 0; })
-        .sort(function(a, b) { return b.count - a.count || a.song.title.localeCompare(b.song.title); })
-        .slice(0, 15);
+      var ranked = _sfRankByOrders(songs, usage, 10);
 
       if (!ranked.length) {
-        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No usage data yet. Add songs to orders or songbooks to see trending.</div>';
+        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No song has been added to an order yet.</div>';
         return;
       }
 
       ranked.forEach(function(x, idx) {
-        var times = x.count === 1 ? '1 time' : x.count + ' times';
-        var breakdown = x.inOrders + ' order' + (x.inOrders === 1 ? '' : 's') + ' + ' + x.inBooks + ' songbook' + (x.inBooks === 1 ? '' : 's');
-        html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(x.song.id) + '">';
+        var times = x.orderCount === 1 ? '1 order' : x.orderCount + ' orders';
+        html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(x.song.id) + '" data-usage="1">';
         html += '<div class="flex items-center gap-2 min-w-0">';
         html += '<span class="text-[0.65rem] text-white/50 w-4 flex-shrink-0">' + (idx + 1) + '</span>';
         html += '<span class="text-xs text-white truncate">' + escapeHtml(x.song.title) + '</span>';
         html += '</div>';
-        html += '<span class="text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0" title="' + breakdown + '">' + times + '</span>';
+        // The badge is a real button so the list is reachable without a mouse:
+        // hover opens the card, and so does Enter on this.
+        html += '<button type="button" class="stat-usage-badge text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0" aria-label="Show where ' + escapeHtml(x.song.title) + ' is used">' + times;
+        if (x.songbookCount) html += ' <span class="stat-usage-sb">+' + x.songbookCount + '\u00A0\ud83d\udcd6</span>';
+        html += '</button>';
         html += '</div>';
       });
 
@@ -21751,14 +22027,17 @@ window.loadEditSongData = function(song) {
     } else if (STATE.currentStatTab === 'newest') {
       // Songs used 1–5 times in orders — sorted ascending (1st use → 5th use)
       // Songs at exactly 6 uses get a "Graduated" callout at the bottom
+      // Order counts, from the same index as the Trending tab. This read
+      // `usageCounts[id] || s.useCount`, and use_count is 0 on every row in
+      // the library, so the fallback only ever contributed zero.
       var newSongs = songs.map(function(s) {
-        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+        return { song: s, count: usageCounts[s.id] || 0 };
       }).filter(function(x) { return x.count >= 1 && x.count <= 5; })
         .sort(function(a, b) { return a.count - b.count || a.song.title.localeCompare(b.song.title); })
         .slice(0, 20);
 
       var graduated = songs.map(function(s) {
-        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+        return { song: s, count: usageCounts[s.id] || 0 };
       }).filter(function(x) { return x.count === 6; })
         .sort(function(a, b) { return a.song.title.localeCompare(b.song.title); });
 
@@ -21805,6 +22084,7 @@ window.loadEditSongData = function(song) {
           renderSongs(true);
         }
       };
+      if (item.dataset.usage) _sfBindUsageCard(item);
     });
   }
 
@@ -23535,12 +23815,25 @@ window.loadEditSongData = function(song) {
         }
       }
 
-      // Load usage stats from order_items in background (non-blocking)
-      if (typeof SBQ !== 'undefined' && SBQ.getSongUsageStats) {
-        SBQ.getSongUsageStats().then(function(stats) {
-          STATE.usageStats = stats || { counts: {}, lastUsed: {} };
-          renderSongStats(); // re-render sidebar with real order-based counts
-        }).catch(function() {});
+      // Which orders and songbooks each song is in. Background, non-blocking.
+      // Both lists that rank songs are redrawn from it: the sidebar and the
+      // home page's Trending card, which used to rank by the `use_count`
+      // column -- zero on every row in the library, so it silently fell back
+      // to listing the newest songs and badging all of them "New".
+      if (typeof SBQ !== 'undefined' && SBQ.getSongUsageIndex) {
+        SBQ.getSongUsageIndex().then(function(idx) {
+          STATE.usageIndex = idx || {};
+          var counts = {}, lastUsed = {};
+          Object.keys(STATE.usageIndex).forEach(function(id) {
+            var e = STATE.usageIndex[id];
+            if (!e.orderCount) return;
+            counts[id] = e.orderCount;
+            lastUsed[id] = (e.orders[0] && e.orders[0].at) || '';
+          });
+          STATE.usageStats = { counts: counts, lastUsed: lastUsed };
+          renderSongStats();
+          if (typeof renderHomeTrendingSongs === 'function') renderHomeTrendingSongs();
+        }).catch(function() { STATE.usageIndex = STATE.usageIndex || {}; });
       }
     }).catch(function(err) {
       console.error('Failed to load songs:', err);
@@ -24430,34 +24723,50 @@ window.loadEditSongData = function(song) {
 
     var songs = (STATE.songs || []).slice();
 
-    // Count how many times each song appears in orders
-    var orderUsage = {};
-    (STATE.orders || []).forEach(function(order) {
-      // orders loaded via getOrders may not have items, so use useCount as primary
-    });
+    // Ranked by the same index, through the same function, as the sidebar's
+    // Trending tab -- the two are the same list and have to agree.
+    //
+    // This used to sort by the `use_count` column, which is 0 on every row in
+    // the library, so nothing passed the filter and it fell through to the
+    // "newest songs" fallback below. That fallback sorts by dateAdded, which
+    // is also unset, so the sort was a no-op and the card showed the first
+    // eight songs alphabetically, each badged "New". It looked like a
+    // trending list and was an alphabetical one.
+    var ranked = (STATE.usageIndex && typeof _sfRankByOrders === 'function')
+      ? _sfRankByOrders(songs, STATE.usageIndex, 8)
+      : [];
 
-    // Top 8 by useCount
-    var trending = songs.filter(function(s) { return (s.useCount || 0) > 0; })
-      .sort(function(a, b) { return (b.useCount || 0) - (a.useCount || 0); })
-      .slice(0, 8);
-
-    // Fallback: newest songs if no usage data
-    if (!trending.length) {
-      trending = songs.slice().sort(function(a, b) {
-        return (b.dateAdded || '').localeCompare(a.dateAdded || '');
-      }).slice(0, 8);
+    if (!ranked.length && STATE.usageIndex === null) {
+      container.innerHTML = '<div style="font-size:0.85rem;color:#94a3b8;text-align:center;padding:24px 0;">Counting usage\u2026</div>';
+      return;
     }
 
-    if (!trending.length) {
+    // Nothing in any order yet is a real answer, not an error -- but an empty
+    // card is useless, so the newest songs stand in, labelled as what they are.
+    var isFallback = false;
+    if (!ranked.length) {
+      isFallback = true;
+      ranked = songs.slice().sort(function(a, b) {
+        return String(b.dateAdded || '').localeCompare(String(a.dateAdded || ''));
+      }).slice(0, 8).map(function(s) { return { song: s, orderCount: 0, songbookCount: 0 }; });
+    }
+
+    if (!ranked.length) {
       container.innerHTML = '<div style="font-size:0.85rem;color:#94a3b8;text-align:center;padding:24px 0;">No songs in library yet</div>';
       return;
     }
 
+    var trending = ranked;
+
     var html = '';
-    trending.forEach(function(song, idx) {
+    trending.forEach(function(entry, idx) {
+      var song = entry.song;
       var rank = idx + 1;
       var rankClass = rank <= 3 ? ' top3' : '';
-      var badgeText = song.useCount ? song.useCount + 'x' : 'New';
+      // The number is how many ORDERS the song has been added to, which is
+      // what the sidebar badge counts too.
+      var badgeText = isFallback ? 'New'
+        : (entry.orderCount === 1 ? '1 order' : entry.orderCount + ' orders');
       var metaParts = [];
       if (song.key) metaParts.push(song.key);
       if (song.category || song.style) metaParts.push(song.category || song.style);
@@ -26880,6 +27189,7 @@ var SBQ = {
   deleteOrder: function(id) {
     var sb = SBQ._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    SBQ.invalidateUsageIndex();   // its songs lose an order
     var owned = [];
     // Read what the order points at BEFORE any of it is removed.
     return Promise.all([
@@ -26965,6 +27275,7 @@ var SBQ = {
   syncItems: function(orderId, snapshots) {
     var sb = SBQ._sb();
     if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
+    SBQ.invalidateUsageIndex();   // the songs in this order may have changed
     var now = new Date().toISOString();
     var snaps = snapshots.filter(function(snap) { return !!snap.id; });
     if (!snaps.length) return Promise.resolve();
@@ -27192,83 +27503,182 @@ SBQ.mediaLinks = {
 };
 
 // ================================================================
-// SBQ.getSongUsageStats — count how many times each song has been
-// added across ALL orders. Returns { counts:{songId:N}, lastUsed:{songId:isoDate} }
+// SONG USAGE -- one index, read by everything.
+//
+// There used to be two answers to "how often is this song used", and on the
+// Song Finder screen both were on display at once, disagreeing.
+//
+//   getSongUsageStats counted raw `order_items` rows. The `orders` table
+//   holds two kinds of row: real worship orders and the `standalone_sb_*`
+//   pseudo-orders a songbook creates to store its annotations. Counting
+//   both means songbook membership is counted as order usage.
+//
+//   The sidebar then added songbook membership ON TOP of that number. So a
+//   song sitting in one songbook and in no order at all was reported as
+//   used three times -- and outranked every song actually sung in worship.
+//   That was the whole top of the Trending list.
+//
+//   getSongUsage, which fills the song page, already excluded the
+//   pseudo-orders, so the same song on the same screen read "3 times" in
+//   the sidebar and "Used in 0 orders" in its own header.
+//
+// There is now ONE index and everything derives from it, so the sidebar,
+// the home page and the song page cannot drift apart again. The rules, in
+// one place:
+//
+//   An ORDER counts once, however many times the song appears inside it.
+//   Adding a song to a service twice is one service, not two.
+//   `standalone_sb_*` rows are songbooks wearing an order's clothes.
+//   A row pointing at an order that no longer exists counts for nothing.
+//   Songbook membership comes from `songbooks.song_ids`, which is
+//   canonical: some `standalone_sb_*` rows outlive the book they were
+//   made for, which is why counting those rows instead reads high.
+//
+// No new table: all of this is derived from rows that already exist.
 // ================================================================
-SBQ.getSongUsageStats = function() {
-  var sb = getSupabaseClient();
-  if (!sb) return Promise.resolve({ counts: {}, lastUsed: {} });
-  return sb.from('order_items')
-    .select('source_id, last_edited')
-    .eq('item_type', 'song')
-    .then(function(res) {
-      if (res.error) { console.warn('[LHC] getSongUsageStats:', res.error.message); return { counts: {}, lastUsed: {} }; }
-      var counts = {}, lastUsed = {};
-      (res.data || []).forEach(function(row) {
-        if (!row.source_id) return;
-        counts[row.source_id] = (counts[row.source_id] || 0) + 1;
-        if (!lastUsed[row.source_id] || (row.last_edited && row.last_edited > lastUsed[row.source_id])) {
-          lastUsed[row.source_id] = row.last_edited || '';
-        }
-      });
-      return { counts: counts, lastUsed: lastUsed };
+
+// Pure: rows in, index out. Split from the fetch on purpose -- the
+// double-count above was found by running this against made-up rows, which
+// is impossible when the counting is tangled up with the network call.
+// tools/song-usage-stats-harness.js slices this very function out and runs it.
+function _sfBuildUsageIndex(items, orders, books) {
+  var orderById = {};
+  (orders || []).forEach(function(o) { if (o && o.id) orderById[o.id] = o; });
+
+  var bySong = {};
+  function entry(id) {
+    if (!bySong[id]) bySong[id] = { orders: [], songbooks: [], orderCount: 0, songbookCount: 0 };
+    return bySong[id];
+  }
+
+  var seen = {};
+  (items || []).forEach(function(it) {
+    if (!it || it.item_type !== 'song' || !it.source_id || !it.order_id) return;
+    if (/^standalone_/.test(it.order_id)) return;          // a songbook, not an order
+    var o = orderById[it.order_id];
+    if (!o) return;                                        // the order has been deleted
+    var pair = it.source_id + '\u0000' + it.order_id;
+    if (seen[pair]) return;                                // same order, counted once
+    seen[pair] = true;
+    entry(it.source_id).orders.push({
+      id: o.id,
+      title: o.title || 'Untitled order',
+      serviceDate: o.service_date || '',
+      at: it.last_edited || o.last_edited || ''
     });
-};
+  });
 
-// ================================================================
-// SBQ.getSongUsage — where ONE song is actually used.
+  (books || []).forEach(function(b) {
+    if (!b) return;
+    (b.song_ids || b.songIds || []).forEach(function(id) {
+      if (!id) return;
+      entry(id).songbooks.push({ id: b.id, name: b.name || 'Untitled songbook' });
+    });
+  });
+
+  Object.keys(bySong).forEach(function(id) {
+    var e = bySong[id];
+    e.orders.sort(function(a, b) { return String(b.at).localeCompare(String(a.at)); });
+    e.orderCount = e.orders.length;
+    e.songbookCount = e.songbooks.length;
+  });
+
+  return bySong;
+}
+SBQ._buildUsageIndex = _sfBuildUsageIndex;
+
+// Pure: the one ranking the sidebar and the home page both use. Two sorts
+// written separately is how those two lists came to show different songs, in
+// a different order, under the same word -- "trending".
 //
-// The `orders` table holds two kinds of row: real worship orders (`order_*`)
-// and songbook-backed pseudo-orders (`standalone_sb_*`). getSongUsageStats
-// above counts both, so its "usage" number reads high -- a song sitting only
-// in a songbook is reported as order usage. This separates them, and takes
-// songbook membership from `songbooks.song_ids`, which is the canonical list
-// (some `standalone_sb_*` rows outlive the songbook they were created for).
-//
-// No new table: everything here is derived from rows that already exist.
-// ================================================================
-SBQ.getSongUsage = function(songId) {
+// Ranked by how many ORDERS a song has been added to, which is the question
+// being asked. Songbooks are shown alongside but do not rank: a songbook is
+// a document somebody compiled, not a service anybody sang.
+function _sfRankByOrders(songs, index, limit) {
+  var idx = index || {};
+  return (songs || []).map(function(s) {
+    var u = idx[s.id] || { orderCount: 0, songbookCount: 0, orders: [], songbooks: [] };
+    return { song: s, orderCount: u.orderCount, songbookCount: u.songbookCount,
+             orders: u.orders || [], songbooks: u.songbooks || [] };
+  }).filter(function(x) { return x.orderCount > 0; })
+    .sort(function(a, b) {
+      return (b.orderCount - a.orderCount)
+          || (b.songbookCount - a.songbookCount)
+          || String(a.song.title || '').localeCompare(String(b.song.title || ''));
+    })
+    .slice(0, limit || 10);
+}
+SBQ.rankSongsByOrders = _sfRankByOrders;
+
+// Fetch once, hand the same index to every caller. `force` refetches, which
+// is what happens after a song is added to an order.
+SBQ._usageIndex = null;
+SBQ._usageIndexPromise = null;
+SBQ.getSongUsageIndex = function(force) {
+  if (force) { SBQ._usageIndex = null; SBQ._usageIndexPromise = null; }
+  if (SBQ._usageIndex) return Promise.resolve(SBQ._usageIndex);
+  if (SBQ._usageIndexPromise) return SBQ._usageIndexPromise;
+
   var sb = getSupabaseClient();
-  var empty = { orders: [], songbooks: [], orderCount: 0, songbookCount: 0 };
-  if (!sb || !songId) return Promise.resolve(empty);
+  if (!sb) return Promise.resolve({});
 
-  return Promise.all([
-    sb.from('order_items').select('order_id,last_edited').eq('item_type', 'song').eq('source_id', songId),
+  SBQ._usageIndexPromise = Promise.all([
+    sb.from('order_items').select('order_id,source_id,item_type,last_edited').eq('item_type', 'song'),
     sb.from('orders').select('id,title,service_date,last_edited'),
     sb.from('songbooks').select('id,name,song_ids')
   ]).then(function(res) {
-    var items = (res[0] && res[0].data) || [];
-    var orders = (res[1] && res[1].data) || [];
-    var books  = (res[2] && res[2].data) || [];
+    var idx = _sfBuildUsageIndex(
+      (res[0] && res[0].data) || [],
+      (res[1] && res[1].data) || [],
+      (res[2] && res[2].data) || []);
+    SBQ._usageIndex = idx;
+    SBQ._usageIndexPromise = null;
+    return idx;
+  }).catch(function(e) {
+    console.warn('[LHC] getSongUsageIndex:', e && e.message);
+    SBQ._usageIndexPromise = null;
+    return {};
+  });
+  return SBQ._usageIndexPromise;
+};
 
-    var orderById = {};
-    orders.forEach(function(o) { orderById[o.id] = o; });
+// Throw the CACHED FETCH away, so the next read of the index goes back to
+// the database. Anything that changes which songs are in which orders or
+// songbooks calls this: syncItems (an order's contents), deleteOrder, and a
+// songbook save. Every higher-level path funnels through one of those.
+//
+// It deliberately leaves STATE.usageIndex alone, so the lists keep showing
+// the numbers they have until a fresh set arrives on the next load. Blanking
+// it instead would be worse than a slightly stale count: syncItems runs on
+// autosave, and nothing refetches on that path, so the sidebar would sit on
+// "Counting usage..." for the rest of the session.
+SBQ.invalidateUsageIndex = function() {
+  SBQ._usageIndex = null;
+  SBQ._usageIndexPromise = null;
+};
 
-    var seen = {}, usedInOrders = [];
-    items.forEach(function(it) {
-      var o = orderById[it.order_id];
-      // Only real orders, and only ones that still exist.
-      if (!o || /^standalone_/.test(it.order_id) || seen[it.order_id]) return;
-      seen[it.order_id] = true;
-      usedInOrders.push({
-        id: o.id,
-        title: o.title || 'Untitled order',
-        serviceDate: o.service_date || '',
-        at: it.last_edited || o.last_edited || ''
-      });
-    });
-    usedInOrders.sort(function(a, b) { return String(b.at).localeCompare(String(a.at)); });
-
-    var inBooks = books.filter(function(b) { return (b.song_ids || []).indexOf(songId) !== -1; })
-      .map(function(b) { return { id: b.id, name: b.name || 'Untitled songbook' }; });
-
-    return {
-      orders: usedInOrders,
-      songbooks: inBooks,
-      orderCount: usedInOrders.length,
-      songbookCount: inBooks.length
-    };
+// Where ONE song is used. Reads the shared index, so the song page and the
+// sidebar can no longer report different numbers for the same song.
+SBQ.getSongUsage = function(songId) {
+  var empty = { orders: [], songbooks: [], orderCount: 0, songbookCount: 0 };
+  if (!songId) return Promise.resolve(empty);
+  return SBQ.getSongUsageIndex().then(function(idx) {
+    return (idx && idx[songId]) || empty;
   }).catch(function() { return empty; });
+};
+
+// Back-compat shape, for callers that want only the numbers.
+SBQ.getSongUsageStats = function() {
+  return SBQ.getSongUsageIndex().then(function(idx) {
+    var counts = {}, lastUsed = {};
+    Object.keys(idx || {}).forEach(function(id) {
+      var e = idx[id];
+      if (!e.orderCount) return;
+      counts[id] = e.orderCount;
+      lastUsed[id] = (e.orders[0] && e.orders[0].at) || '';
+    });
+    return { counts: counts, lastUsed: lastUsed };
+  }).catch(function() { return { counts: {}, lastUsed: {} }; });
 };
 
 // ================================================================
@@ -28662,6 +29072,7 @@ var SBQ_SONGBOOKS = {
   },
 
   save: function(sbObj) {
+    SBQ.invalidateUsageIndex();   // song_ids is where songbook membership lives
     var sb = SBQ_SONGBOOKS._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     var row = {

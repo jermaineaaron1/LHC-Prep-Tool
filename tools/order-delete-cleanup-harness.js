@@ -152,13 +152,16 @@ function build(tables, opts) {
     console: { warn: () => {}, log: () => {}, error: () => {} },
     Promise, Object, JSON, String, Error
   };
-  env.SBQ = { _sb: () => client };
+  // deleteOrder drops the cached song-usage index on its way out: an order
+  // that no longer exists must stop counting towards its songs' totals.
+  const invalidated = [];
+  env.SBQ = { _sb: () => client, invalidateUsageIndex: () => invalidated.push(1) };
   const keys = Object.keys(env);
   const body = [pathsIn, readAll, cleanup].filter(Boolean).map(x => x.text).join('\n') +
     '\n; return { pathsIn: _storagePathsIn, readAll: _readAllRows, cleanup: _deleteUnreferencedUploads' +
     (delOrder ? ', SBQ: { _sb: SBQ._sb, ' + delOrder.text + ' }' : '') + ' };';
   const api = new Function(...keys, body)(...keys.map(k => env[k]));
-  return { api, removed, deletes };
+  return { api, removed, deletes, invalidated };
 }
 
 (async () => {
@@ -235,7 +238,7 @@ function build(tables, opts) {
         lhc_backgrounds: [], projection_versions: [], projection_settings: [],
         order_media_links: [], song_recordings: []
       };
-      const { api, removed, deletes } = build(base);
+      const { api, removed, deletes, invalidated } = build(base);
       const out = await api.SBQ.deleteOrder('order_1');
       const tables = deletes.map(d => d.table);
       check('it reports success', out, { success: true });
@@ -245,6 +248,11 @@ function build(tables, opts) {
       const ps = deletes.find(d => d.table === 'projection_settings');
       check('keyed on owner_id, which IS the order id', ps && ps.filters.owner_id, 'order_1');
       check('and its unreferenced upload goes', removed, ['orders/images/123_a.png']);
+      // The songs that were in it must stop counting it. Leaving the cached
+      // index in place would keep a deleted service in the Trending numbers
+      // and in the "where is this song used" card, naming an order that is
+      // no longer there.
+      check('and the cached song-usage counts are dropped', invalidated.length, 1);
     }
     {
       // A cleanup failure must not look like a failed delete.
