@@ -83,6 +83,17 @@ const TMP = path.join(os.tmpdir(), 'lhc-mutant-' + process.pid + '.html');
 // The cleanup line, as it appears after each of those comments.
 const CLEANUP = '\r\n    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });';
 
+// Source fragments the cases below replace. Kept up here because each must
+// match the RAW file, CRLF and comment alignment included, and a near-miss
+// would silently mutate nothing and report the harness as asleep.
+const SKIP_PSEUDO = "    if (/^standalone_/.test(it.order_id)) return;          // a songbook, not an order";
+const SKIP_SEEN   = '    if (seen[pair]) return;                                // same order, counted once';
+const ORDER_CMP   = '      return (b.orderCount - a.orderCount)\r\n          || (b.songbookCount - a.songbookCount)';
+const SB_CLEANUP_HEAD = "      return SBQ.deleteOrder('standalone_' + id).catch(function(e) {";
+const SB_CLEANUP_ALL  = SB_CLEANUP_HEAD +
+  "\r\n        console.warn('Songbook ' + id + ': its stored work was not removed:', e && e.message);" +
+  '\r\n      });';
+
 const CASES = [
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
@@ -323,7 +334,33 @@ const CASES = [
                    "from('projection_settings').select('owner_id').eq('owner_id', id)")],
 
   ['memories-harness.js', 'notes inside folders stop being read',
-    s => s.replace('      Object.keys(d.folders || {}).forEach(function(fid) {', '      [].forEach(function(fid) {')]
+    s => s.replace('      Object.keys(d.folders || {}).forEach(function(fid) {', '      [].forEach(function(fid) {')],
+
+  // Song usage. The sidebar counted songbook membership as worship usage AND
+  // counted it twice, so four songs nobody had ever sung led the Trending
+  // list. Each case below is one half of that bug put back.
+  ['song-usage-stats-harness.js', 'songbook membership is added back into the order count',
+    s => s.replace('    e.orderCount = e.orders.length;',
+                   '    e.orderCount = e.orders.length + e.songbooks.length;')],
+  ['song-usage-stats-harness.js', 'a songbook pseudo-order counts as a worship service',
+    s => s.replace(SKIP_PSEUDO, '    if (false) return;')],
+  ['song-usage-stats-harness.js', 'one order counts twice if the song is in it twice',
+    s => s.replace(SKIP_SEEN, '    if (false) return;')],
+  // The subtle one. Every song with no order is filtered out before the sort,
+  // so adding the two counts together leaves most orderings untouched -- it
+  // takes a song that IS in an order and in enough songbooks to overtake one
+  // with more orders. The harness needed a fixture built for exactly that.
+  ['song-usage-stats-harness.js', 'songbooks are allowed to outrank services',
+    s => s.replace(ORDER_CMP,
+                   '      return ((b.orderCount + b.songbookCount) - (a.orderCount + a.songbookCount))')],
+
+  // Deleting a songbook must take its standalone_<id> pseudo-order with it,
+  // and must delete the songbook FIRST -- the other order would leave a
+  // songbook whose annotations had already been thrown away.
+  ['songbook-delete-cleanup-harness.js', 'deleting a songbook leaves its stored work behind',
+    s => s.replace(SB_CLEANUP_HEAD, '      return Promise.resolve().then(function(e) {')],
+  ['songbook-delete-cleanup-harness.js', 'a failed cleanup is reported as a failed delete',
+    s => s.replace(SB_CLEANUP_ALL, "      return SBQ.deleteOrder('standalone_' + id);")]
 ];
 
 let caught = 0, missed = 0, stale = 0;
