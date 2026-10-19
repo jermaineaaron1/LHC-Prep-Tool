@@ -71,6 +71,165 @@
       window.__SHARE_INBOX_TEXT  = p.get('shareText')    || '';
     })();
 
+    // ── What IS this shared link? One table, read from four places ──
+    //
+    // This answer lived in four copies: the share handler that runs on a cold
+    // start, the one that runs when the app is already open, the share picker,
+    // and the idea inbox. They had already drifted -- the same video read as
+    // "YouTube Video" in three of them and "YT Playlist"/"▶️" with a different
+    // icon in the fourth -- and that is the harmless version of the problem.
+    // The real one is that adding a platform to some copies and not others
+    // makes one link behave differently depending on how it reached the app,
+    // which is unreproducible from the user's side and invisible from the code.
+    //
+    // Order matters: the most specific pattern for a site must come first, or
+    // the generic one swallows it.
+    window.LHC_LINK_TYPES = [
+      { re: /youtube\.com\/playlist/i,                        type:'youtube-playlist', icon:'📋', label:'YouTube Playlist', playlist:true  },
+      { re: /(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i,  type:'youtube-playlist', icon:'📋', label:'YouTube Playlist', playlist:true  },
+      { re: /youtube\.com|youtu\.be/i,                        type:'youtube',          icon:'▶',  label:'YouTube Video',    playlist:false },
+      { re: /open\.spotify\.com\/playlist/i,                  type:'spotify-playlist', icon:'🎵', label:'Spotify Playlist', playlist:true  },
+      { re: /open\.spotify\.com\/album/i,                     type:'spotify-album',    icon:'💿', label:'Spotify Album',    playlist:true  },
+      { re: /open\.spotify\.com\/track/i,                     type:'spotify-track',    icon:'🎵', label:'Spotify Track',    playlist:false },
+      { re: /open\.spotify\.com\/artist/i,                    type:'spotify-artist',   icon:'🎤', label:'Spotify Artist',   playlist:false },
+      { re: /spotify\.com/i,                                  type:'spotify',          icon:'🎵', label:'Spotify',          playlist:true  },
+      // Facebook and Instagram, because that is where a good half of what gets
+      // posted to the chat group actually comes from.
+      { re: /(facebook\.com\/reel|fb\.watch)/i,               type:'facebook-video',   icon:'📘', label:'Facebook Reel',    playlist:false },
+      { re: /facebook\.com\/.*\/videos|facebook\.com\/watch/i, type:'facebook-video', icon:'📘', label:'Facebook Video',   playlist:false },
+      { re: /facebook\.com|fb\.com/i,                         type:'facebook',         icon:'📘', label:'Facebook Post',    playlist:false },
+      { re: /instagram\.com\/(reel|reels)/i,                  type:'instagram-video',  icon:'📸', label:'Instagram Reel',   playlist:false },
+      { re: /instagram\.com\/(tv|p)\//i,                      type:'instagram',        icon:'📸', label:'Instagram Post',   playlist:false },
+      { re: /instagram\.com/i,                                type:'instagram',        icon:'📸', label:'Instagram',        playlist:false },
+      { re: /docs\.google\.com\/document/i,                   type:'gdoc',             icon:'📄', label:'Google Doc',       playlist:false },
+      { re: /docs\.google\.com\/presentation/i,               type:'gslides',          icon:'📊', label:'Google Slides',    playlist:false },
+      { re: /docs\.google\.com\/spreadsheets/i,               type:'gsheet',           icon:'📋', label:'Google Sheet',     playlist:false },
+      { re: /drive\.google\.com/i,                            type:'gdrive',           icon:'☁',  label:'Google Drive',     playlist:false },
+      { re: /canva\.com/i,                                    type:'canva',            icon:'🎨', label:'Canva Design',     playlist:false }
+    ];
+
+    window.lhcDetectLink = function(url) {
+      var u = url || '';
+      for (var i = 0; i < window.LHC_LINK_TYPES.length; i++) {
+        var t = window.LHC_LINK_TYPES[i];
+        if (t.re.test(u)) return { type:t.type, icon:t.icon, label:t.label, playlist:t.playlist };
+      }
+      return { type:'link', icon:'🔗', label:'Web Link', playlist:false };
+    };
+
+    // Is this a single piece of music one person performed -- the thing that can
+    // become a song in the library? A playlist is a list of them and an artist
+    // page is nobody in particular, so neither offers to become a song.
+
+    // ── Turning a shared link into a song's name ──
+    window.lhcSongTitle = {
+      // A video title is not a song title. "Be Still (Official Lyric Video) [HD]"
+      // is the same song as "Be Still", and leaving the decoration on means the
+      // library fills with near-duplicates that no search will line up.
+      clean: function(t) {
+        var s = String(t || '');
+        // Bracketed asides that are about the VIDEO, not the song. Anything
+        // else in brackets is left alone -- "(Reprise)" and "(Live at Bethel)"
+        // tell a musician something real and are part of how people refer to it.
+        var noise = /\s*[\(\[]\s*(official\s*)?(music\s*)?(lyric[s]?\s*)?(video|audio|visualizer|visualiser|mv|hd|hq|4k|1080p|720p|full\s*song|with\s*lyrics|lyrics)\s*[\)\]]/gi;
+        s = s.replace(noise, '');
+        s = s.replace(/\s*[\(\[]\s*(official|lyrics?|hd|hq|4k)\s*[\)\]]/gi, '');
+        // Trailing bare decorations after a dash or pipe.
+        s = s.replace(/\s*[|\u2013\u2014-]\s*(official\s*(music\s*)?video|lyric[s]?\s*video|official\s*audio|lyrics?)\s*$/i, '');
+        return s.replace(/\s+/g, ' ').trim();
+      },
+
+      // Two titles are "the same song" for naming purposes when they match once
+      // decoration, case, punctuation and a leading "the" are set aside.
+      norm: function(t) {
+        return String(t || '').toLowerCase()
+          .replace(/[\u2018\u2019\u201c\u201d'"`]/g, '')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/^the\s+/, '')
+          .replace(/\s+/g, ' ').trim();
+      },
+
+      similar: function(a, b) {
+        var x = this.norm(a), y = this.norm(b);
+        if (!x || !y) return false;
+        if (x === y) return true;
+        // One inside the other, but only when the shorter is substantial --
+        // otherwise "Grace" claims to be "Amazing Grace" and every song with a
+        // common word in it collides.
+        var shorter = x.length <= y.length ? x : y, longer = x.length <= y.length ? y : x;
+        if (longer.indexOf(shorter) !== -1 && shorter.length >= 10) return true;
+        // A typo or a stray apostrophe, on titles short enough for a two-letter
+        // difference to still mean the same song.
+        if (Math.max(x.length, y.length) <= 24) {
+          var m = [], i, j;
+          for (i = 0; i <= x.length; i++) m[i] = [i];
+          for (j = 0; j <= y.length; j++) m[0][j] = j;
+          for (i = 1; i <= x.length; i++) {
+            for (j = 1; j <= y.length; j++) {
+              m[i][j] = Math.min(m[i-1][j] + 1, m[i][j-1] + 1,
+                                 m[i-1][j-1] + (x.charAt(i-1) === y.charAt(j-1) ? 0 : 1));
+            }
+          }
+          if (m[x.length][y.length] <= 2) return true;
+        }
+        return false;
+      },
+
+      // Every library song whose title would be confused with this one.
+      clashes: function(title) {
+        var self = this;
+        var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+        return songs.filter(function(s) { return self.similar(s.title, title); });
+      },
+
+      // The rule: the song's own name, unless the library already has one by
+      // that name -- then the band goes after it, which is how a musician would
+      // tell the two apart out loud.
+      disambiguate: function(title, artist) {
+        var hits = this.clashes(title);
+        if (!hits.length) return { name: title, clashes: [] };
+        if (!artist) return { name: title, clashes: hits };
+        return { name: title + ' \u2014 ' + artist, clashes: hits };
+      },
+
+      // Title and performer for a shared link. YouTube answers without a key;
+      // everything else goes through noembed, which this app already uses for
+      // exactly this. Facebook and Instagram usually answer with nothing useful
+      // -- Meta closed public oEmbed -- so those resolve to an empty draft the
+      // person fills in, rather than a wrong guess.
+      resolveMeta: function(url) {
+        var isYT = /youtube\.com|youtu\.be/i.test(url);
+        var endpoint = isYT
+          ? 'https://www.youtube.com/oembed?url=' + encodeURIComponent(url) + '&format=json'
+          : 'https://noembed.com/embed?url=' + encodeURIComponent(url);
+        return fetch(endpoint).then(function(r) {
+          if (!r.ok) throw new Error('oembed ' + r.status);
+          return r.json();
+        }).then(function(j) {
+          if (j && j.error) throw new Error(j.error);
+          return {
+            title: window.lhcSongTitle.clean(j && j.title),
+            artist: (j && (j.author_name || j.author)) || '',
+            raw: (j && j.title) || ''
+          };
+        }).catch(function() { return { title: '', artist: '', raw: '' }; });
+      }
+    };
+
+    // Which shared links can be transcribed, as opposed to merely filed? Only
+    // a public YouTube video: it is the one thing the model can fetch for
+    // itself. Facebook and Instagram cannot be read at all, so they never
+    // offer the button rather than offering it and failing.
+    window.lhcLinkIsTranscribable = function(url) {
+      return /^https?:\/\/(www\.|m\.)?(youtube\.com\/watch\?|youtu\.be\/|youtube\.com\/shorts\/)/i.test(url || '');
+    };
+
+    window.lhcLinkIsSongCandidate = function(url) {
+      var t = window.lhcDetectLink(url).type;
+      return t === 'youtube' || t === 'spotify-track' ||
+             t === 'facebook-video' || t === 'instagram-video';
+    };
+
     // ── Helper: normalise a songs row from Supabase to app format ──
     function _normSong(row) {
       return {
@@ -15510,6 +15669,16 @@ function _asmApplyScan(d) {
     _asmSetChordNote(d);
   }
 
+  if (d.__videoUrl) {
+    if (!window.songData) window.songData = {};
+    if (!window.songData.new) window.songData.new = { youtube: [], attachments: [], lyrics: '' };
+    if (window.songData.new.youtube.indexOf(d.__videoUrl) === -1) {
+      window.songData.new.youtube.push(d.__videoUrl);
+    }
+    if (typeof renderYoutubeLinks === 'function') renderYoutubeLinks('new');
+    filled.push('the link');
+  }
+
   // Keep the photographs as the song's documents. Added after the form has
   // been cleared, or the clear would drop them. They save with the song, so
   // the sheet music is one tap away on the song page afterwards -- which in
@@ -15558,7 +15727,43 @@ function _asmApplyScan(d) {
       + ' attached to this song. Only the title and key were read off '
       + (_scanUrls.length === 1 ? 'it' : 'them') + '.');
   } else {
-    bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
+    if (d.__videoUrl) {
+    var _vl = d.__videoLabel || 'shared link';
+    bits.push('<b>Started from ' + (/^[aeiou]/i.test(_vl) ? 'an ' : 'a ') +
+      escapeHtml(_vl) + '.</b> Check every field before saving.');
+    // The uploader's title is not the song's title, and the channel is not
+    // always the band. Showing what was actually read makes a wrong guess
+    // obvious instead of plausible.
+    if (d.__rawTitle && d.__rawTitle !== d.title) {
+      bits.push('<span class="asm-scan-filled">The link is called &ldquo;' +
+        escapeHtml(d.__rawTitle) + '&rdquo;.</span>');
+    }
+    if (d.__titleClashes && d.__titleClashes.length) {
+      bits.push('<span class="asm-scan-warn">The library already has ' +
+        escapeHtml(d.__titleClashes.join(', ')) +
+        '. The band has been added to this one to tell them apart &mdash; ' +
+        'if it is the same song, close this and add the link to that song instead.</span>');
+    }
+    if (!d.title) {
+      bits.push('<span class="asm-scan-suggested">That platform would not say what the ' +
+        'link is called, so the title and artist are blank for you to fill in.</span>');
+    }
+    // Words read off the screen and words heard off a recording are not the
+    // same claim, and the difference decides how hard this needs checking.
+    if (d.__transcribed && d.lyrics) {
+      if (d.lyricsSource === 'screen') {
+        bits.push('<span class="asm-scan-filled">The words were read off the screen.</span>');
+      } else {
+        bits.push('<span class="asm-scan-warn">The words were transcribed <b>by ear</b> from the ' +
+          'recording, not read off the screen. Expect mistakes, especially in the verses.</span>');
+      }
+    }
+    if (d.__transcribed && !d.lyrics) {
+      bits.push('<span class="asm-scan-warn">No words could be made out from that video.</span>');
+    }
+  } else {
+  bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
+  }
   }
   bits.push('<span class="asm-scan-filled">Filled: ' + (filled.length ? escapeHtml(filled.join(', ')) : 'nothing legible') + '</span>');
   if (_docMode) {
@@ -15568,6 +15773,9 @@ function _asmApplyScan(d) {
     // An out-of-key chord in a suggestion is a mistake rather than a choice,
     // and it is named so the reviewer knows where to look first.
     if (d.outOfKey && d.outOfKey.length) bits.push('<span class="asm-scan-warn">Check these especially, they sit outside the key: ' + escapeHtml(d.outOfKey.join(', ')) + '.</span>');
+  } else if (d.__videoUrl) {
+    // A link has no sheet. Telling someone nothing was printed on a page they
+    // never showed you reads as a malfunction.
   } else if (!d.chordsFound) {
     bits.push('<span class="asm-scan-warn">No chord symbols were printed on this sheet, so none were added.</span>');
   }
@@ -25358,50 +25566,15 @@ window.loadEditSongData = function(song) {
       var _siTitle = (window.__SHARE_INBOX_TITLE || '').trim();
       var _siText  = (window.__SHARE_INBOX_TEXT  || '').trim();
 
-      // Detect link type — granular (matches SharePickerModal._detectType logic)
-      var _siTypeMap = [
-        { re: /youtube\.com\/playlist/i,            type: 'youtube-playlist' },
-        { re: /(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i, type: 'youtube-playlist' },
-        { re: /youtube\.com|youtu\.be/i,            type: 'youtube'          },
-        { re: /open\.spotify\.com\/playlist/i,      type: 'spotify-playlist' },
-        { re: /open\.spotify\.com\/album/i,         type: 'spotify-album'    },
-        { re: /open\.spotify\.com\/track/i,         type: 'spotify-track'    },
-        { re: /open\.spotify\.com\/artist/i,        type: 'spotify-artist'   },
-        { re: /spotify\.com/i,                      type: 'spotify'          },
-        { re: /docs\.google\.com\/document/i,       type: 'gdoc'             },
-        { re: /docs\.google\.com\/presentation/i,   type: 'gslides'          },
-        { re: /docs\.google\.com\/spreadsheets/i,   type: 'gsheet'           },
-        { re: /drive\.google\.com/i,                type: 'gdrive'           },
-        { re: /canva\.com/i,                        type: 'canva'            },
-      ];
-      var _siType = 'link';
-      for (var _i = 0; _i < _siTypeMap.length; _i++) {
-        if (_siTypeMap[_i].re.test(_siUrl)) { _siType = _siTypeMap[_i].type; break; }
-      }
-
-      // Map type to icon + label for _pendingShareItem
-      var _siIconMap = {
-        'youtube-playlist': { icon:'📋', label:'YouTube Playlist' },
-        'youtube':          { icon:'▶',  label:'YouTube Video'    },
-        'spotify-playlist': { icon:'🎵', label:'Spotify Playlist' },
-        'spotify-album':    { icon:'💿', label:'Spotify Album'    },
-        'spotify-track':    { icon:'🎵', label:'Spotify Track'    },
-        'spotify-artist':   { icon:'🎤', label:'Spotify Artist'   },
-        'spotify':          { icon:'🎵', label:'Spotify'          },
-        'gdoc':             { icon:'📄', label:'Google Doc'       },
-        'gslides':          { icon:'📊', label:'Google Slides'    },
-        'gsheet':           { icon:'📋', label:'Google Sheet'     },
-        'gdrive':           { icon:'☁',  label:'Google Drive'     },
-        'canva':            { icon:'🎨', label:'Canva'            },
-        'link':             { icon:'🔗', label:'Link'             }
-      };
-      var _siMeta = _siIconMap[_siType] || _siIconMap['link'];
+      // One table, defined near the top of the file -- see LHC_LINK_TYPES.
+      var _siMeta = window.lhcDetectLink(_siUrl);
+      var _siType = _siMeta.type;
 
       // Set _pendingShareItem BEFORE navigating so renderSavedOrders sees it
       window._pendingShareItem = {
         url: _siUrl, title: _siTitle || _siUrl, text: _siText,
         type: _siType, icon: _siMeta.icon, label: _siMeta.label,
-        playlist: (_siType.indexOf('playlist') !== -1 || _siType === 'spotify-album'),
+        playlist: _siMeta.playlist,
         addedAt: new Date().toISOString()
       };
 
@@ -25435,40 +25608,12 @@ window.loadEditSongData = function(song) {
         var _siUrl2 = window.__SHARE_INBOX_URL;
         if (!_siUrl2) return;
         // Trigger the same share flow as on cold start
-        var _det2 = (function(url) {
-          var _m = [
-            [/youtube\.com\/playlist/i,'youtube-playlist'],
-            [/(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i,'youtube-playlist'],
-            [/youtube\.com|youtu\.be/i,'youtube'],
-            [/open\.spotify\.com\/playlist/i,'spotify-playlist'],
-            [/open\.spotify\.com\/album/i,'spotify-album'],
-            [/open\.spotify\.com\/track/i,'spotify-track'],
-            [/open\.spotify\.com\/artist/i,'spotify-artist'],
-            [/spotify\.com/i,'spotify'],
-            [/docs\.google\.com\/document/i,'gdoc'],
-            [/drive\.google\.com/i,'gdrive'],
-            [/canva\.com/i,'canva']
-          ];
-          for (var i=0;i<_m.length;i++) { if (_m[i][0].test(url)) return _m[i][1]; }
-          return 'link';
-        })(_siUrl2);
-        var _meta2 = {
-          'youtube-playlist':{icon:'📋',label:'YouTube Playlist'},
-          'youtube':{icon:'▶',label:'YouTube Video'},
-          'spotify-playlist':{icon:'🎵',label:'Spotify Playlist'},
-          'spotify-album':{icon:'💿',label:'Spotify Album'},
-          'spotify-track':{icon:'🎵',label:'Spotify Track'},
-          'spotify-artist':{icon:'🎤',label:'Spotify Artist'},
-          'spotify':{icon:'🎵',label:'Spotify'},
-          'gdoc':{icon:'📄',label:'Google Doc'},
-          'gdrive':{icon:'☁',label:'Drive'},
-          'canva':{icon:'🎨',label:'Canva'},
-          'link':{icon:'🔗',label:'Link'}
-        }[_det2] || {icon:'🔗',label:'Link'};
+        // One table, defined near the top of the file -- see LHC_LINK_TYPES.
+        var _det2 = window.lhcDetectLink(_siUrl2);
         window._pendingShareItem = {
           url: _siUrl2, title: window.__SHARE_INBOX_TITLE || _siUrl2,
-          type: _det2, icon: _meta2.icon, label: _meta2.label,
-          playlist: (_det2.indexOf('playlist')!==-1||_det2==='spotify-album'),
+          type: _det2.type, icon: _det2.icon, label: _det2.label,
+          playlist: _det2.playlist,
           addedAt: new Date().toISOString()
         };
         setActiveView('worshipOrderView');
@@ -25542,21 +25687,23 @@ window.loadEditSongData = function(song) {
   var ShareInbox = (function() {
     var STORAGE_KEY = 'lhc_share_inbox';
 
-    var TYPE_MAP = [
-      { re: /youtube\.com|youtu\.be/i,             type: 'youtube', label: 'YouTube Video',   icon: '▶️', playlist: true  },
-      { re: /spotify\.com/i,                        type: 'spotify', label: 'Spotify',         icon: '🎵', playlist: true  },
-      { re: /docs\.google\.com\/document/i,         type: 'gdoc',    label: 'Google Doc',      icon: '📄', playlist: false },
-      { re: /docs\.google\.com\/presentation/i,     type: 'gslides', label: 'Google Slides',   icon: '📊', playlist: false },
-      { re: /docs\.google\.com\/spreadsheets/i,     type: 'gsheet',  label: 'Google Sheet',    icon: '📋', playlist: false },
-      { re: /drive\.google\.com/i,                  type: 'gdrive',  label: 'Google Drive',    icon: '☁️', playlist: false },
-      { re: /canva\.com/i,                          type: 'canva',   label: 'Canva Design',    icon: '🎨', playlist: false },
-    ];
+    // Something to listen to or watch, as opposed to something to read. This
+    // is what the `playlist` flag has always decided HERE -- which section of
+    // the order the link lands in -- and it is a different question from the
+    // one the same flag answers in the share picker, where it means the link
+    // is a collection rather than a single song. Kept apart deliberately: a
+    // single YouTube video is media (true here) and not a collection (false
+    // there), and merging the two would have rerouted every shared song.
+    var MEDIA_TYPES = {
+      'youtube': 1, 'youtube-playlist': 1,
+      'spotify': 1, 'spotify-playlist': 1, 'spotify-album': 1,
+      'spotify-track': 1, 'spotify-artist': 1,
+      'facebook-video': 1, 'instagram-video': 1
+    };
 
     function detectType(url) {
-      for (var i = 0; i < TYPE_MAP.length; i++) {
-        if (TYPE_MAP[i].re.test(url)) return TYPE_MAP[i];
-      }
-      return { type: 'link', label: 'Web Link', icon: '🔗', playlist: false };
+      var t = window.lhcDetectLink(url);
+      return { type: t.type, label: t.label, icon: t.icon, playlist: !!MEDIA_TYPES[t.type] };
     }
 
     function _getAll()        { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { return {}; } }
@@ -25784,25 +25931,8 @@ window.loadEditSongData = function(song) {
       return m ? m[1] : null;
     }
 
-    function _detectType(url) {
-      // YouTube — playlist first (URL contains list= param), then single video
-      if (/youtube\.com\/playlist/i.test(url))                                    return { type:'youtube-playlist', label:'YouTube Playlist', icon:'📋', playlist:true  };
-      if (/(youtube\.com\/watch|youtu\.be\/).*([\?&]list=)/i.test(url))           return { type:'youtube-playlist', label:'YouTube Playlist', icon:'📋', playlist:true  };
-      if (/youtube\.com|youtu\.be/i.test(url))                                    return { type:'youtube',          label:'YouTube Video',    icon:'▶',  playlist:false };
-      // Spotify — specific types first
-      if (/open\.spotify\.com\/playlist/i.test(url))                              return { type:'spotify-playlist', label:'Spotify Playlist', icon:'🎵', playlist:true  };
-      if (/open\.spotify\.com\/album/i.test(url))                                 return { type:'spotify-album',    label:'Spotify Album',    icon:'💿', playlist:true  };
-      if (/open\.spotify\.com\/track/i.test(url))                                 return { type:'spotify-track',    label:'Spotify Track',    icon:'🎵', playlist:false };
-      if (/open\.spotify\.com\/artist/i.test(url))                                return { type:'spotify-artist',   label:'Spotify Artist',   icon:'🎤', playlist:false };
-      if (/spotify\.com/i.test(url))                                              return { type:'spotify',          label:'Spotify',          icon:'🎵', playlist:true  };
-      // Google & others
-      if (/docs\.google\.com\/document/i.test(url))                               return { type:'gdoc',             label:'Google Doc',       icon:'📄', playlist:false };
-      if (/docs\.google\.com\/presentation/i.test(url))                           return { type:'gslides',          label:'Google Slides',    icon:'📊', playlist:false };
-      if (/docs\.google\.com\/spreadsheets/i.test(url))                           return { type:'gsheet',           label:'Google Sheet',     icon:'📋', playlist:false };
-      if (/drive\.google\.com/i.test(url))                                        return { type:'gdrive',           label:'Google Drive',     icon:'☁',  playlist:false };
-      if (/canva\.com/i.test(url))                                                return { type:'canva',            label:'Canva Design',     icon:'🎨', playlist:false };
-      return                                                                              { type:'link',             label:'Web Link',         icon:'🔗', playlist:false };
-    }
+    // One table, defined near the top of the file -- see LHC_LINK_TYPES.
+    function _detectType(url) { return window.lhcDetectLink(url); }
 
     function _detectFileType(f) {
       var mime = (f.mimeType || '').toLowerCase();
@@ -28437,31 +28567,8 @@ var WO_Inbox = (function() {
   var _open  = false;
   var _items = [];   // cached pending items
 
-  var TYPE_MAP = [
-    // YouTube — playlist before generic
-    { re: /youtube\.com\/playlist/i,                           type:'youtube-playlist', icon:'📋', label:'YT Playlist',     playlist:true  },
-    { re: /(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i,    type:'youtube-playlist', icon:'📋', label:'YT Playlist',     playlist:true  },
-    { re: /youtube\.com|youtu\.be/i,                           type:'youtube',          icon:'▶️', label:'YouTube Video',   playlist:false },
-    // Spotify — specific types first
-    { re: /open\.spotify\.com\/playlist/i,                     type:'spotify-playlist', icon:'🎵', label:'Spotify Playlist',playlist:true  },
-    { re: /open\.spotify\.com\/album/i,                        type:'spotify-album',    icon:'💿', label:'Spotify Album',   playlist:true  },
-    { re: /open\.spotify\.com\/track/i,                        type:'spotify-track',    icon:'🎵', label:'Spotify Track',   playlist:false },
-    { re: /open\.spotify\.com\/artist/i,                       type:'spotify-artist',   icon:'🎤', label:'Spotify Artist',  playlist:false },
-    { re: /spotify\.com/i,                                     type:'spotify',          icon:'🎵', label:'Spotify',         playlist:true  },
-    // Google & others
-    { re: /docs\.google\.com\/document/i,                      type:'gdoc',             icon:'📄', label:'Google Doc',      playlist:false },
-    { re: /docs\.google\.com\/presentation/i,                  type:'gslides',          icon:'📊', label:'Slides',          playlist:false },
-    { re: /docs\.google\.com\/spreadsheets/i,                  type:'gsheet',           icon:'📋', label:'Google Sheet',    playlist:false },
-    { re: /drive\.google\.com/i,                               type:'gdrive',           icon:'☁️', label:'Drive',           playlist:false },
-    { re: /canva\.com/i,                                       type:'canva',            icon:'🎨', label:'Canva',           playlist:false },
-  ];
-
-  function _detect(url) {
-    for (var i = 0; i < TYPE_MAP.length; i++) {
-      if (TYPE_MAP[i].re.test(url)) return TYPE_MAP[i];
-    }
-    return { type:'link', icon:'🔗', label:'Link', playlist:false };
-  }
+  // One table, defined near the top of the file -- see LHC_LINK_TYPES.
+  function _detect(url) { return window.lhcDetectLink(url); }
 
   function _timeAgo(iso) {
     if (!iso) return '';
@@ -28522,6 +28629,16 @@ var WO_Inbox = (function() {
         +     '<button class="wo-inbox-assign-btn" data-iid="' + safeId + '">'
         +       '<i class="fa-solid fa-link"></i> Add to Order'
         +     '</button>'
+        +     (window.lhcLinkIsSongCandidate(item.url || '')
+                 ? '<button class="wo-inbox-song-btn" data-sid="' + safeId + '">'
+                   + '<i class="fa-solid fa-music"></i> Add as Song'
+                   + '</button>'
+                 : '')
+        +     (window.lhcLinkIsTranscribable(item.url || '')
+                 ? '<button class="wo-inbox-scribe-btn" data-tid="' + safeId + '">'
+                   + '<i class="fa-solid fa-wand-magic-sparkles"></i> Transcribe'
+                   + '</button>'
+                 : '')
         +     (item.url ? '<a class="wo-inbox-open-btn" href="' + _esc(item.url) + '" target="_blank" rel="noopener">'
         +       '<i class="fa-solid fa-arrow-up-right-from-square"></i> Open'
         +     '</a>' : '')
@@ -28538,9 +28655,16 @@ var WO_Inbox = (function() {
     list.querySelectorAll('.wo-inbox-dismiss-btn').forEach(function(btn) {
       btn.onclick = function() { dismiss(btn.getAttribute('data-did')); };
     });
+    list.querySelectorAll('.wo-inbox-song-btn').forEach(function(btn) {
+      btn.onclick = function() { addAsSong(btn.getAttribute('data-sid')); };
+    });
+    list.querySelectorAll('.wo-inbox-scribe-btn').forEach(function(btn) {
+      btn.onclick = function() { transcribeToSong(btn.getAttribute('data-tid')); };
+    });
   }
 
   // ── Public: load pending items from Supabase ──
+  // (addAsSong and transcribeToSong are reached from the rendered buttons.)
   function load() {
     SBQ_INBOX.getPending().then(function(items) {
       _items = items || [];
@@ -28555,6 +28679,91 @@ var WO_Inbox = (function() {
     var panel = document.getElementById('woInboxPanel');
     if (panel) panel.style.display = _open ? '' : 'none';
     if (_open) _render();
+  }
+
+  // ── Public: open the Add Song form from a shared link ──
+  //
+  // Nothing is written here. It fills the form the same way a scanned photo
+  // does and stops, because a song created straight from a video title would
+  // put whatever the uploader called it into the library under that name.
+  function addAsSong(id) {
+    var item = _items.find(function(i) { return i.id === id; });
+    if (!item || !item.url) return;
+    var T = window.lhcSongTitle;
+
+    if (typeof showToast === 'function') showToast('Looking up that link\u2026', 'info');
+    T.resolveMeta(item.url).then(function(meta) {
+      // The shared title is the fallback when the platform will not say -- it
+      // is what the person saw when they shared it.
+      var title = meta.title || T.clean(item.title) || '';
+      var artist = meta.artist || '';
+      var out = T.disambiguate(title, artist);
+
+      if (typeof openAddSongForm !== 'function') {
+        if (typeof showToast === 'function') showToast('Could not open the song form.', 'error');
+        return;
+      }
+      openAddSongForm({
+        title: out.name,
+        artist: artist,
+        confidence: meta.title ? 'medium' : 'low',
+        __videoUrl: item.url,
+        __videoLabel: window.lhcDetectLink(item.url).label,
+        __titleClashes: out.clashes.map(function(s) { return s.title; }),
+        __rawTitle: meta.raw
+      });
+    });
+  }
+
+  // ── Public: watch the video and fill the song form from it ──
+  //
+  // The same destination as Add as Song and as a scanned photo: the form,
+  // filled, with the person still holding the pen. It does not write to the
+  // library, and that is a decision rather than an omission -- a transcription
+  // that saved itself would put a machine's reading of a recording into the
+  // shared library under the song's real name, where the next person to open
+  // it has no way of telling it apart from one a musician typed.
+  function transcribeToSong(id) {
+    var item = _items.find(function(i) { return i.id === id; });
+    if (!item || !item.url) return;
+    if (typeof showLoader === 'function') showLoader(true);
+    if (typeof showToast === 'function') showToast('Watching the video\u2026 this takes a moment.', 'info');
+
+    var meta = (window.LHC_STATE && LHC_STATE.songMeta) || {};
+    fetch('/api/parse-song-sheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videoUrl: item.url,
+        vocab: {
+          keys: meta.keys || [], tempos: meta.tempos || [], styles: meta.styles || [],
+          seasons: meta.seasons || [], themes: meta.themes || []
+        }
+      })
+    }).then(function(r) {
+      return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+    }).then(function(out) {
+      if (typeof showLoader === 'function') showLoader(false);
+      if (!out.ok) throw new Error(out.body && out.body.error ? out.body.error : 'transcription failed');
+      var draft = out.body || {};
+      var T = window.lhcSongTitle;
+      // The model reads the title off the video; the library's own naming rule
+      // still applies to it, exactly as it does to a title read from a link.
+      var titled = T.disambiguate(T.clean(draft.title) || T.clean(item.title) || '', draft.artist || '');
+      draft.title = titled.name;
+      draft.__titleClashes = titled.clashes.map(function(s) { return s.title; });
+      draft.__videoUrl = item.url;
+      draft.__videoLabel = window.lhcDetectLink(item.url).label;
+      draft.__transcribed = true;
+      if (typeof openAddSongForm === 'function') openAddSongForm(draft);
+    }).catch(function(err) {
+      if (typeof showLoader === 'function') showLoader(false);
+      if (typeof showToast === 'function') {
+        showToast('Could not transcribe that video: ' + ((err && err.message) || 'unknown error'), 'error');
+      }
+      // A failed transcription still leaves the simpler path open.
+      addAsSong(id);
+    });
   }
 
   // ── Public: show order picker for a given inbox item ──
