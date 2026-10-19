@@ -92,10 +92,16 @@ const RESPONSE_SCHEMA = {
     hasMusicNotation: { type: Type.BOOLEAN, description: 'True if the page shows actual music notation -- five-line staves with note heads. False for a page of words only, whether typed, printed or handwritten.' },
     versesOnPage: { type: Type.INTEGER, description: 'How many numbered verses are printed on the page. Count the verse numbers you can see (1. 2. 3.) even when they share a staff. 0 if the verses are not numbered.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
+    // Deliberately NOT in  below. A photo scan is a tuned path --
+    // fixed temperature, model fallback, an eval harness behind it -- and its
+    // prompt says nothing about this field. Forcing every sheet scan to emit
+    // one more answer for the benefit of the video path is a change to the
+    // photo path, however small, and the video prompt asks for it explicitly
+    // anyway. Absent, it defaults server-side.
     lyricsSource: { type: Type.STRING, description: 'For a video: "screen" if the words were read off the screen, "audio" if transcribed by ear, "none" if not obtained. Use "screen" for a photograph of a sheet.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'lyricsSource', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a

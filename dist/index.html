@@ -15769,7 +15769,14 @@ function _asmApplyScan(d) {
   if (_docMode) {
     // Nothing below applies: no chords were sought, so none are missing.
   } else if (d.chordsSuggested) {
+    if (d.__videoUrl) {
+      bits.push('<span class="asm-scan-suggested">The chords below were <b>not</b> read off the ' +
+        'screen. They were either worked out from the key' + (d.key ? ' of ' + escapeHtml(d.key) : '') +
+        ' or picked up from the recording, and the difference is not something this can tell you. ' +
+        'Play them through before you use them.</span>');
+    } else {
     bits.push('<span class="asm-scan-suggested">The chords below were <b>not</b> on the sheet' + (d.key ? ' &mdash; they were worked out from the key of ' + escapeHtml(d.key) : '') + '. Play them through before you use them.</span>');
+    }
     // An out-of-key chord in a suggestion is a mistake rather than a choice,
     // and it is named so the reviewer knows where to look first.
     if (d.outOfKey && d.outOfKey.length) bits.push('<span class="asm-scan-warn">Check these especially, they sit outside the key: ' + escapeHtml(d.outOfKey.join(', ')) + '.</span>');
