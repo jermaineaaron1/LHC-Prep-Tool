@@ -29097,6 +29097,28 @@ var SBQ_SONGBOOKS = {
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     return sb.from('songbooks').delete().eq('id', id).then(function(r) {
       if (r.error) throw new Error(r.error.message);
+    }).then(function() {
+      // Opening a songbook creates an `orders` row called
+      // standalone_<songbookId>, to hold what a songbook has no column for:
+      // annotations, transposes, custom lyrics, the projection deck.
+      // Deleting the songbook never dropped it, so by October 2026 six of
+      // them existed for two songbooks, and until the usage index landed
+      // they were counted as real order usage -- which is how songs nobody
+      // had ever sung came to lead the Trending list.
+      //
+      // SBQ.deleteOrder rather than a second cleanup written here: it
+      // already removes the order_items, the projection_settings keyed on
+      // owner_id, and any upload nothing else references. A missing row is
+      // a no-op in PostgREST, so a songbook that was never opened -- and so
+      // never had a pseudo-order -- costs two harmless deletes.
+      //
+      // AFTER the songbook row, never before. If that delete fails the
+      // songbook still exists and its annotations must still be there; a
+      // failure here only leaves behind the orphan that the old code left
+      // every single time.
+      return SBQ.deleteOrder('standalone_' + id).catch(function(e) {
+        console.warn('Songbook ' + id + ': its stored work was not removed:', e && e.message);
+      });
     });
   }
 };
