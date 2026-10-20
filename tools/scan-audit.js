@@ -59,7 +59,11 @@ const KEY = (HTML.match(/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[A-Za-z0-9._-]+/)
 const FIXED_KEYS = eval((HTML.match(/var FIXED_KEYS = (\[[^\]]*\])/) || [])[1] || '[]');
 
 // The route's own chord-line test, so this agrees with what the app believes.
-const ts = require(path.join(ROOT, 'node_modules', 'typescript'));
+// Resolved by name, not by path: a git worktree has no node_modules of its
+// own and finds the checkout's by walking up, which an absolute path defeats.
+// scan-text-tests.js had already learned this; this file had not, so the
+// scanner could not be audited from a worktree at all.
+const ts = require('typescript');
 const SRC = fs.readFileSync(path.join(ROOT, 'app/api/parse-song-sheet/route.ts'), 'utf8');
 const grab = (a, b) => { const i = SRC.indexOf(a); const j = SRC.indexOf(b, i); return SRC.slice(i, j + b.length); };
 const compiled = ts.transpileModule(
