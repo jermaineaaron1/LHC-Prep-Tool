@@ -142,9 +142,15 @@
       // Two titles are "the same song" for naming purposes when they match once
       // decoration, case, punctuation and a leading "the" are set aside.
       norm: function(t) {
-        return String(t || '').toLowerCase()
+        return String(t || '')
+          // Latin diacritics only (U+0300-U+036F). Tamil and Devanagari vowel
+          // signs are combining marks too, but they live elsewhere and they
+          // change the word -- stripping those would merge titles that differ.
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
           .replace(/[\u2018\u2019\u201c\u201d'"`]/g, '')
-          .replace(/[^a-z0-9]+/g, ' ')
+          // Any script's letters and digits, not just English ones.
+          .replace(/[^\p{L}\p{N}]+/gu, ' ')
           .replace(/^the\s+/, '')
           .replace(/\s+/g, ' ').trim();
       },
@@ -153,14 +159,18 @@
         var x = this.norm(a), y = this.norm(b);
         if (!x || !y) return false;
         if (x === y) return true;
+        if (x.replace(/ /g, '') === y.replace(/ /g, '')) return true;
         // One inside the other, but only when the shorter is substantial --
         // otherwise "Grace" claims to be "Amazing Grace" and every song with a
         // common word in it collides.
         var shorter = x.length <= y.length ? x : y, longer = x.length <= y.length ? y : x;
         if (longer.indexOf(shorter) !== -1 && shorter.length >= 10) return true;
         // A typo or a stray apostrophe, on titles short enough for a two-letter
-        // difference to still mean the same song.
-        if (Math.max(x.length, y.length) <= 24) {
+        // difference to still mean the same song -- and only where a letter is
+        // a small part of the meaning. In Chinese a four-character title with
+        // one character changed is a different song, not a misspelling.
+        var typoable = /^[a-z0-9 ]+$/;
+        if (typoable.test(x) && typoable.test(y) && Math.max(x.length, y.length) <= 24) {
           var m = [], i, j;
           for (i = 0; i <= x.length; i++) m[i] = [i];
           for (j = 0; j <= y.length; j++) m[0][j] = j;
@@ -221,6 +231,7 @@
     // itself. Facebook and Instagram cannot be read at all, so they never
     // offer the button rather than offering it and failing.
     window.lhcLinkIsTranscribable = function(url) {
+      if (!window.lhcLinkIsSongCandidate(url)) return false;
       return /^https?:\/\/(www\.|m\.)?(youtube\.com\/watch\?|youtu\.be\/|youtube\.com\/shorts\/)/i.test(url || '');
     };
 
