@@ -9,11 +9,13 @@
     --line:#dedad0; --line-soft:#eeeae0;
     --warn:#b45309; --warn-soft:#fdf3e3;
     --alarm:#b91c1c; --alarm-soft:#fceded;
+    --aqua:#0891b2; --aqua-soft:#ecfeff;
     --shadow:0 2px 3px rgba(10,63,52,.05), 0 10px 28px rgba(10,63,52,.08);
   }
   @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
     --paper:#0f1513; --card:#19231f; --ink:#e9efec; --muted:#9bafa8;
     --deep:#0d5044; --green:#12866e; --teal:#2dd4bf; --teal-soft:#153029;
+    --aqua:#67e8f9; --aqua-soft:#10323a;
     --gold:#e0ad52; --gold-soft:#2b2415;
     --point:#ff7a63; --point-soft:#331915;
     --line:#2b3a35; --line-soft:#222e2a;
@@ -24,6 +26,7 @@
   :root[data-theme="dark"]{
     --paper:#0f1513; --card:#19231f; --ink:#e9efec; --muted:#9bafa8;
     --deep:#0d5044; --green:#12866e; --teal:#2dd4bf; --teal-soft:#153029;
+    --aqua:#67e8f9; --aqua-soft:#10323a;
     --gold:#e0ad52; --gold-soft:#2b2415;
     --point:#ff7a63; --point-soft:#331915;
     --line:#2b3a35; --line-soft:#222e2a;
@@ -288,8 +291,9 @@
     <p class="why">Most cells are plain. A coloured one is telling you something.</p>
 
     <button class="snap" type="button" data-full="screens/roster-cells.png">
-      <img src="screens/roster-cells.png" width="500" height="298" alt="Roster cells, with the Liturgist row outlined in red dashes.">
-      <span class="pin up" style="--x:23%; --y:76%; --w:30%; --h:22%"><i>Doing two duties</i></span>
+      <img src="screens/roster-cells.png" width="500" height="548" alt="Roster cells. Andrew Pillai is shaded aqua on both Liturgist and Communion Assistant 1 for Oct 4, with a faint line joining the two.">
+      <span class="pin" style="--x:26%; --y:18%; --w:24%; --h:5.5%"><i>Same person &hellip;</i></span>
+      <span class="pin up" style="--x:26%; --y:74.5%; --w:24%; --h:5.5%"><i>&hellip; and here is the other duty</i></span>
     </button>
 
     <div class="key">
@@ -297,8 +301,10 @@
         <span><strong>Yellow</strong> &mdash; not confirmed yet. Still might change, and nothing has gone to anyone's calendar.</span></div>
       <div><span class="sw" style="background:var(--teal-soft); border:1px solid var(--teal); display:flex; align-items:center; justify-content:center; color:var(--teal); font-weight:900">&#10003;</span>
         <span><strong>Tick</strong> &mdash; confirmed. Treat it as final.</span></div>
-      <div><span class="sw" style="background:var(--alarm-soft); border:1.5px dashed var(--alarm)"></span>
-        <span><strong>Red dashed</strong> &mdash; that person has two duties in the same service. Allowed, but worth a look.</span></div>
+      <div><span class="sw" style="background:var(--aqua-soft); border:1px dotted var(--aqua)"></span>
+        <span><strong>Aqua, with a clock</strong> &mdash; that person has two duties in the same service and the two <em>can</em> be held together, like Liturgist and Communion Assistant. Not a problem; just worth knowing.</span></div>
+      <div><span class="sw" style="background:var(--aqua-soft); border:1px solid var(--aqua); display:flex; align-items:center; justify-content:center; color:var(--aqua); font-weight:900; font-size:13px">&#8597;</span>
+        <span><strong>A faint line between two aqua cells</strong> &mdash; it joins the two duties that <em>same person</em> is doing, with an arrowhead at each end. On a long month several people double up, and the line saves you reading down the column to find the other half.</span></div>
       <div><span class="sw" style="background:var(--alarm-soft); border:1.5px solid var(--alarm)"></span>
         <span><strong>Solid red</strong> &mdash; a real clash. Someone is double-booked and it needs fixing.</span></div>
     </div>
@@ -538,6 +544,30 @@
       Auto-Suggest stops picking them. Their name shows struck through with an <strong>&#9888; Away</strong> badge in the name list, and any cell that already holds them gets flagged. It never removes anyone from a duty by itself &mdash; that stays your call.</div>
   </div>
 
+  <!-- P6 -->
+  <div class="task">
+    <h3><span class="n">6</span> Teach Auto-Suggest your rules</h3>
+    <p class="why">Auto-Suggest used to have the church's habits written into the app, so changing one meant asking for a new version. They are yours to set now, and they hold for every PIC.</p>
+
+    <p class="cap">Sign in as a PIC, then open <kbd>Auto-Suggest settings</kbd>. Pick a duty on the left; everything on the right applies to that duty.</p>
+
+    <div class="key" style="gap:13px">
+      <div><span style="font-weight:700; min-width:104px; flex:none">Runs on this service</span><span>Untick it and Auto-Suggest skips the duty on those Sundays and leaves the cell blank, instead of reporting a duty it could not fill.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Who it may pick</span><span>A ticked list is a <em>restriction</em>, not a preference. If none of them are free the cell is left blank and reported, rather than filled with somebody you did not approve for that duty.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Most times a month</span><span>How often it will come back to the same person for this duty. Blank uses two. It gives way when nobody fresher is free, and says so in the summary.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Doing two duties</span><span>Tick every duty one person may hold <em>as well as</em> this one. Anything unticked shows red on the roster &mdash; this setting is what decides aqua against red in the colour key above.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Who goes with them</span><span>&ldquo;When Ruth Danker leads, the pianist should be Samuel Rajan or Esther Wong.&rdquo; <kbd>Should be</kbd> means it reaches for them first and falls back rather than leaving a blank; <kbd>must be</kbd> means only them, and a blank if none are free.</span></div>
+    </div>
+
+    <div class="tip"><b>Singers who sing together</b>
+      Tick several names, tick <kbd>and they pair with each other</kbd>, and choose the duty &mdash; the rule is written for all of them at once, each pointing at the others. That is how &ldquo;whichever of Miriam Lok, Clara Tan or Naomi Selvam is on Singer 1, one of the other two is on Singer 2&rdquo; gets set in one go instead of three.</div>
+
+    <div class="tip"><b>Two things worth knowing</b>
+      A change here is saved for <em>every</em> PIC, not just your phone &mdash; the note under the buttons says which happened, and it will tell you plainly if it only saved locally.
+      <br><br>
+      A rule can only act on a duty Auto-Suggest has not already filled. Duties fill in the order they appear down the roster, so a rule pointing <em>back</em> up the list &mdash; say, from Singer 1 to Preacher &mdash; only applies if that cell was filled in by hand first. Those rules carry a note saying so.</div>
+  </div>
+
   <div class="part">
     <h2>Sunday's order</h2>
     <div class="who"><span class="tagpill pic">Worship team</span> Building the service, and driving the screen on the day.</div>
@@ -654,7 +684,40 @@
 
   <!-- S2 -->
   <div class="task">
-    <h3><span class="n">2</span> Add a song, or fix one</h3>
+    <h3><span class="n">2</span> Send a song in from YouTube</h3>
+    <p class="why">Finding a song on YouTube and posting it to the chat group is how most songs actually turn up. This puts it in the app instead, with the link already attached.</p>
+
+    <ol class="do">
+      <li><strong>On Android:</strong> tap <kbd>Share</kbd> in YouTube, Facebook or Instagram and choose <strong>LHC Worship Prep</strong> from the list.</li>
+      <li><strong>On iPhone:</strong> tap <kbd>Share</kbd> &rarr; <kbd>Copy link</kbd>, then paste it into the <strong>Media &amp; Links</strong> box on the order. Apple does not let apps appear in that share list, so the copy-and-paste route is the one you have.</li>
+      <li>The link lands in the app's <strong>ideas</strong> list, where it waits until you do something with it.</li>
+    </ol>
+
+    <p class="cap">From there each link offers up to three things:</p>
+
+    <div class="key" style="gap:13px">
+      <div><span style="font-weight:700; min-width:104px; flex:none">Add to Order</span><span>Park it against a Sunday. Nothing is added to the library.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Add as Song</span><span>Opens the Add Song window with the title, the band and the link already filled in. You still press Save.</span></div>
+      <div><span style="font-weight:700; min-width:104px; flex:none">Transcribe</span><span>YouTube only. Watches the video and fills the words in as well. Give it a moment.</span></div>
+    </div>
+
+    <div class="tip"><b>It fills the form; it never saves</b>
+      Everything above stops at the Add Song window with the fields filled in, exactly like scanning a photo of a sheet. Read it before you press Save &mdash; whatever the uploader called the video is not always what the song is called, and the channel is not always the band.</div>
+
+    <div class="tip"><b>When we already have that song</b>
+      The band gets added to the end of the name &mdash; <em>10,000 Reasons (Bless the Lord) &mdash; Matt Redman</em> &mdash; and a note tells you which song it looks like. If it <em>is</em> the same song, close the window and add the link to the one we already have instead of making a second.</div>
+
+    <div class="tip"><b>What Transcribe will and will not claim</b>
+      Words shown on screen are read off the screen. Words that are not are transcribed by ear, and it tells you which &mdash; by ear is worth checking line by line.
+      <br><br>
+      Chords are only taken when they are <em>printed on the screen</em>. It will not work them out by listening, on purpose: a chord guessed from a recording looks exactly like one that was read, and nobody holding the sheet could tell the difference. Where no chords are shown you get none, or a plain set worked out from the key and labelled as such.
+      <br><br>
+      Facebook and Instagram cannot be transcribed at all &mdash; they do not let anything read them &mdash; and those links usually arrive with the title blank for you to type.</div>
+  </div>
+
+  <!-- S3 -->
+  <div class="task">
+    <h3><span class="n">3</span> Add a song, or fix one</h3>
     <p class="why">Same five steps either way. Do it properly once and it is ready for every future service.</p>
 
     <button class="snap" type="button" data-full="screens/add-song.png">
