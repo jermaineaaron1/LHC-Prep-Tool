@@ -762,7 +762,11 @@ async function rest() {
   } else {
     const rt = fs.readFileSync(ROUTE, 'utf8');
 
-    check('it accepts a page list', /const \{ url, urls, vocab, mode \} = await req\.json\(\)/.test(rt), true);
+    // Named fields rather than the whole list: what this guards is that a page
+    // list reaches the route, and that stays true when an unrelated field is
+    // added beside it -- as videoUrl was. Pinning the exact destructure made
+    // this fail for a change that did not touch paging at all.
+    check('it accepts a page list', /const \{[^}]*\burls\b[^}]*\} = await req\.json\(\)/.test(rt), true);
     check('  and still accepts the single url it always did',
       /\(typeof url === 'string' && url \? \[url\] : \[\]\)/.test(rt), true);
     check('a page cap exists', /const MAX_PAGES = \d+;/.test(rt), true);

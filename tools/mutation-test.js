@@ -94,7 +94,33 @@ const SB_CLEANUP_ALL  = SB_CLEANUP_HEAD +
   "\r\n        console.warn('Songbook ' + id + ': its stored work was not removed:', e && e.message);" +
   '\r\n      });';
 
+const CRLF = SRC.includes('\r\n') ? '\r\n' : '\n';
+const BSL = String.fromCharCode(92);
+
+// Shared link -> song. Two of these are not hypothetical: they were real
+// fixes, made by hand and never written down, and both were silently lost
+// when the work was rebuilt on a newer master. Nothing went red.
+const DESPACED   = "        if (x.replace(/ /g, '') === y.replace(/ /g, '')) return true;" + CRLF;
+const SCRIBE_GUARD = '      if (!window.lhcLinkIsSongCandidate(url)) return false;' + CRLF;
+const ANY_SCRIPT = "          .replace(/[^" + BSL + "p{L}" + BSL + "p{N}]+/gu, ' ')";
+const TYPO_LATIN = "        var typoable = /^[a-z0-9 ]+$/;" + CRLF +
+  '        if (typoable.test(x) && typoable.test(y) && Math.max(x.length, y.length) <= 24) {';
+const CLEAN_NOISE = "        s = s.replace(noise, '');";
+
 const CASES = [
+  ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
+    s => s.replace(DESPACED, '')],
+  ['share-link-song-harness.js', 'Transcribe offers itself on links Add as Song refuses',
+    s => s.replace(SCRIBE_GUARD, '')],
+  ['share-link-song-harness.js', 'only English letters survive normalising a title',
+    s => s.replace(ANY_SCRIPT, "          .replace(/[^a-z0-9]+/g, ' ')")],
+  ['share-link-song-harness.js', 'two-letter typo tolerance reaches Mandarin again',
+    s => s.replace(TYPO_LATIN, '        if (Math.max(x.length, y.length) <= 24) {')],
+  ['share-link-song-harness.js', 'video decoration is left on the song title',
+    s => s.replace(CLEAN_NOISE, '')],
+  ['share-link-song-harness.js', 'a Facebook reel stops being recognised',
+    s => s.replace(/[^\n]*type:'facebook-video',[^\n]*label:'Facebook Reel'[^\n]*\r?\n/, '')],
+
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
                    '#songbookLiveModal .wo-lyrics-lyric-line{color:#334155!important')],
