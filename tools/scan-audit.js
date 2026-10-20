@@ -40,6 +40,15 @@
 //   node tools/scan-audit.js --only alas     fixtures whose file name matches
 //   node tools/scan-audit.js --repeat 3      scan each sheet N times, all must pass
 //   node tools/scan-audit.js --gap 9000      ms between scans (default 9000)
+//   node tools/scan-audit.js --endpoint https://...   somewhere other than production
+//
+// WHY --endpoint EXISTS
+// The prompt this audits lives in a route, and a route only runs where it is
+// deployed. With production hardcoded, a prompt change could be written but
+// never measured before merging -- which is precisely backwards for a file
+// whose whole purpose is to prove a correction helped. Point it at a preview
+// deployment, or at a local server with the key set, and the change can be
+// measured on the branch that makes it.
 //
 // Scanning back to back trips the provider's rate limit, so the gap is generous
 // by default. One Gemini call per sheet per repeat; nothing is written anywhere.
@@ -51,7 +60,12 @@ const ROOT = path.resolve(__dirname, '..');
 const TRUTH_DIR = path.join(__dirname, 'scan-truth');
 const BUCKET = 'Liturgy Files';
 const PREFIX = 'song-scans';
-const ENDPOINT = 'https://lhc-prep-tool.vercel.app';
+const PROD_ENDPOINT = 'https://lhc-prep-tool.vercel.app';
+const ENDPOINT = (() => {
+  const i = process.argv.indexOf('--endpoint');
+  const v = i >= 0 ? process.argv[i + 1] : null;
+  return v ? v.replace(/\/+$/, '') : PROD_ENDPOINT;
+})();
 
 const HTML = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
 const SB = (HTML.match(/https:\/\/[a-z0-9]+\.supabase\.co/) || [])[0];
@@ -153,6 +167,7 @@ function judge(expect, d) {
 async function main() {
   const argv = process.argv.slice(2);
   const flag = (n) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : null; };
+  if (ENDPOINT !== PROD_ENDPOINT) console.log('endpoint: ' + ENDPOINT);
   const only = flag('only');
   const repeat = Math.max(1, Number(flag('repeat')) || 1);
   const gap = Math.max(0, Number(flag('gap')) || 9000);
