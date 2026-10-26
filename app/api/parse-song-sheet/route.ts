@@ -1,5 +1,11 @@
 // POST /api/parse-song-sheet
 //
+// Two sources, one route: photographs of a song sheet, or a YouTube link
+// somebody shared. Everything after the model answers -- the vocabulary clamp,
+// the chord-provenance check, the out-of-key test, the learned rules -- is the
+// same work for both, and a second route would be a second copy of all of it,
+// drifting from this one the first time either was touched.
+//
 // Takes a public URL to a PHOTO of a chord/lyrics sheet (uploaded client-side
 // via the existing uploadToSupabase() helper) and asks Gemini to read it into
 // the fields the Add Song form needs: title, artist, key, and the lyrics with
@@ -86,6 +92,13 @@ const RESPONSE_SCHEMA = {
     hasMusicNotation: { type: Type.BOOLEAN, description: 'True if the page shows actual music notation -- five-line staves with note heads. False for a page of words only, whether typed, printed or handwritten.' },
     versesOnPage: { type: Type.INTEGER, description: 'How many numbered verses are printed on the page. Count the verse numbers you can see (1. 2. 3.) even when they share a staff. 0 if the verses are not numbered.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
+    // Deliberately NOT in  below. A photo scan is a tuned path --
+    // fixed temperature, model fallback, an eval harness behind it -- and its
+    // prompt says nothing about this field. Forcing every sheet scan to emit
+    // one more answer for the benefit of the video path is a change to the
+    // photo path, however small, and the video prompt asks for it explicitly
+    // anyway. Absent, it defaults server-side.
+    lyricsSource: { type: Type.STRING, description: 'For a video: "screen" if the words were read off the screen, "audio" if transcribed by ear, "none" if not obtained. Use "screen" for a photograph of a sheet.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
   required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'notes'],
@@ -638,23 +651,39 @@ export async function POST(req: NextRequest) {
   const attempts: Array<{ model: string; ms: number; ok: boolean; err?: string }> = [];
   let escalation: { attempted: boolean; ms: number; taken: boolean } = { attempted: false, ms: 0, taken: false };
   try {
-    const { url, urls, vocab, mode } = await req.json();
+    const { url, urls, videoUrl, vocab, mode } = await req.json();
+    const isVideo = typeof videoUrl === 'string' && videoUrl.trim() !== '';
 
     // One song, several photographs of it. `urls` is the page list in reading
     // order; `url` is the single-page form every caller used before this and
     // still works unchanged.
-    const pageUrls: string[] = Array.isArray(urls) && urls.length
+    const pageUrls: string[] = isVideo ? [] : Array.isArray(urls) && urls.length
       ? urls.filter((u: unknown): u is string => typeof u === 'string' && !!u)
       : (typeof url === 'string' && url ? [url] : []);
 
-    if (!pageUrls.length) {
-      return NextResponse.json({ error: 'url is required' }, { status: 400 });
+    if (!isVideo && !pageUrls.length) {
+      return NextResponse.json({ error: 'url, urls or videoUrl is required' }, { status: 400 });
+    }
+
+    // Gemini fetches a video by URL and only a public YouTube one -- it cannot
+    // reach Facebook or Instagram. Refused here, with the reason, rather than
+    // failing somewhere inside the model call.
+    //
+    // Before the API-key check on purpose: what the caller sent is wrong on any
+    // server, while a missing key is this server's problem. Told "not
+    // configured" after sharing a Facebook link, you would go looking in
+    // entirely the wrong place.
+    if (isVideo && !/^https?:\/\/(www\.|m\.)?(youtube\.com\/watch\?|youtu\.be\/|youtube\.com\/shorts\/)/i.test(videoUrl.trim())) {
+      return NextResponse.json(
+        { error: 'Only a public YouTube link can be transcribed. Facebook and Instagram do not allow it.' },
+        { status: 400 }
+      );
     }
 
     // Four pages is already a long hymn, and each one is a whole image the
     // model has to read inside a 54 second budget. The cap is here rather
     // than only in the browser because the browser is not the only caller.
-    if (pageUrls.length > MAX_PAGES) {
+    if (!isVideo && pageUrls.length > MAX_PAGES) {
       return NextResponse.json(
         { error: `That is ${pageUrls.length} pages. Scan up to ${MAX_PAGES} at a time -- beyond that the read runs out of time and you lose the lot.` },
         { status: 400 }
@@ -784,7 +813,9 @@ export async function POST(req: NextRequest) {
       'and a blank field costs them less than a wrong one.',
     ].join('\n');
 
-    const chordPrompt = [
+    // The two sources differ in what can be trusted and in nothing else, so the
+    // preamble changes and every rule after it stays exactly where it was.
+    const sheetPreamble = [
       ...pagesPreamble,
       'You are reading a photograph of a worship song sheet for a Lutheran church.',
       'It is usually a chord sheet: lyrics with chord symbols printed above the words.',
@@ -793,6 +824,35 @@ export async function POST(req: NextRequest) {
       'Transcribe what is actually on the page. Do not complete a song from memory,',
       'do not correct the wording, and do not add verses that are not shown.',
       '',
+    ];
+    const videoPreamble = [
+      'You are watching a YouTube video of a worship song for a Lutheran church.',
+      'It may be a lyric video with the words on screen, a chord-and-lyric video',
+      'that also shows chord symbols, or a plain performance showing neither.',
+      '',
+      'Read whatever is SHOWN ON SCREEN. Words on screen are the reliable source;',
+      'prefer them to the words you hear. Where nothing is shown, transcribe the',
+      'words you hear. Do not complete the song from memory, do not correct the',
+      'wording, and do not add verses the video does not contain.',
+      '',
+      'CHORDS -- READ THEM OR LEAVE THEM, NEVER HEAR THEM:',
+      '  * If chord symbols appear on screen, transcribe them and set chordsFound',
+      '    true. That is a reading, and it can be trusted.',
+      '  * If no chord symbols are shown, do NOT work them out from the audio.',
+      '    Set chordsFound false. Either propose a plain diatonic accompaniment',
+      '    from the key under the rules below, setting chordsSuggested true, or',
+      '    return no chords at all.',
+      '  * A chord guessed from a recording is worse than no chord, because it',
+      '    arrives looking exactly like one that was transcribed, and the',
+      '    musician holding it has no way to tell which they have.',
+      '',
+      'Set lyricsSource to "screen" if you read the words off the screen,',
+      '"audio" if you transcribed them by ear, "none" if you could not get them.',
+      'If some came from each, say "audio".',
+      '',
+    ];
+    const chordPrompt = [
+      ...(isVideo ? videoPreamble : sheetPreamble),
       'LINE BREAKS FOLLOW THE MUSIC, NOT THE PAGE:',
       '  * Each line of lyrics covers TWO BARS. In 4/4 that is eight beats; in',
       '    3/4, six. Start a new line at every second barline.',
@@ -993,6 +1053,10 @@ export async function POST(req: NextRequest) {
         // the parts in sequence, so page order here IS the reading order the
         // continuation rules above refer to.
         parts: [
+          // Gemini fetches the video itself; nothing is downloaded here, and
+          // nothing from YouTube is stored by this app. For a photo scan this
+          // contributes nothing and the page parts below are unchanged.
+          ...(isVideo ? [{ fileData: { fileUri: videoUrl.trim() } }] : []),
           ...pageFiles.map(f => ({
             inlineData: { mimeType: f.mime, data: f.buf.toString('base64') },
           })),
@@ -1280,6 +1344,10 @@ export async function POST(req: NextRequest) {
       ...(outOfKey.length ? { outOfKey } : {}),
       chordLines: joined.split(/\r?\n/).filter(isChordLine).length,
       confidence: typeof result.confidence === 'string' ? result.confidence : 'low',
+      // Where the words came from decides how hard the reviewer has to look,
+      // so it travels with them rather than being inferred at the other end.
+      lyricsSource: typeof result.lyricsSource === 'string' ? result.lyricsSource : (isVideo ? 'audio' : 'screen'),
+      fromVideo: isVideo,
       notes: typeof result.notes === 'string' ? result.notes.trim() : null,
       ...(dropped.length ? { droppedFields: dropped } : {}),
     });
