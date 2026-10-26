@@ -88321,6 +88321,70 @@ function filterLiturgyItems() {
   .liturgy-item-file-info { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #6b7280; margin-bottom: 8px; padding: 4px 8px; background: #f3f4f6; border-radius: 6px; width: fit-content; }
   .liturgy-item-file-info i { font-size: 1rem; }
 
+  /* ==================== LITURGY ON A PHONE ====================
+     Every panel on this page was sized for a desktop column and then let
+     through to a 375px screen unchanged. Measured on 375x812:
+
+       side padding     28px a side, leaving a 299px content column
+       header           52px icon tile beside a 28px title, 205px tall
+       action buttons   43-45px, and 88px in the Library where three
+                        labels will not fit one row and wrap to two lines
+       empty states     a 64px icon in 120px of padding, so a panel with
+                        nothing in it filled the screen saying so
+
+     None of it is wrong at 1200px, which is why it survived. 640px rather
+     than 768px: a tablet has the width these sizes assume. */
+  @media (max-width: 640px) {
+    /* The inline style attributes on the headers are why these say
+       !important -- the sizes are written on the elements themselves. */
+    .lit-welcome-header   { padding: 15px 15px !important; }
+    .lit-lectionary-body,
+    .lit-welcome-body     { padding: 16px 14px !important; }
+    .lit-occ-panel-header { padding: 14px 15px !important; }
+    .lit-library-header   { padding: 12px 14px !important; gap: 10px !important; }
+    .lit-mem-body         { padding: 0 14px 20px !important; }
+
+    .lit-welcome-header-inner { gap: 11px; }
+    .lit-welcome-header h1 { font-size: 1.16rem !important; }
+    .lit-welcome-header p  { font-size: 0.76rem !important; }
+    .lit-welcome-cross-icon { width: 40px; height: 40px; font-size: 1.1rem; border-radius: 12px; }
+    .lit-mem-title { font-size: 1.16rem !important; }
+
+    /* Wrapping to two lines is what made these 88px. Smaller text fits
+       the row; the tap target stays above 34px. */
+    .lit-welcome-actions { gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+    .liturgy-action-btn { padding: 7px 12px !important; font-size: 0.76rem !important; }
+    .lit-occ-add-item-btn { padding: 6px 11px; font-size: 0.72rem; }
+    .lit-reading-slots-actions { gap: 6px; }
+
+    /* The four tabs on a service measure 490px laid end to end. The row is
+       355px and does not wrap, so Checklist was simply unreachable -- cut
+       off at the edge with nothing to scroll. Same treatment as the section
+       strip above: let it scroll, and take the height down with it. */
+    .lit-occ-tabs {
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      padding: 0 8px;
+    }
+    .lit-occ-tabs::-webkit-scrollbar { display: none; }
+    .lit-occ-tab {
+      flex: 0 0 auto; white-space: nowrap;
+      padding: 9px 11px !important; font-size: 0.72rem !important;
+    }
+
+    /* Search plus two icon buttons came to 349px in a 307px row, so the
+       second button dropped to a line of its own. The search field is the
+       part that can give. */
+    .lit-occ-search-row { flex-wrap: nowrap; }
+    .lit-occ-search-row .liturgy-search { flex: 1 1 auto; min-width: 0; }
+    .lit-occ-search-row-icon-btn { flex: 0 0 auto; }
+
+    /* An empty state is a message, not a feature. */
+    .liturgy-empty-state { padding: 26px 16px; }
+    .liturgy-empty-state i { font-size: 2.3rem; margin-bottom: 11px; }
+    .liturgy-empty-state h3 { font-size: 1.02rem; }
+    .liturgy-empty-state p { font-size: 0.8rem; }
+  }
+
   /* ==================== PRINT STYLES - ROSTER TABLE ONLY ==================== */
   @media print {
     /* Reset page */
