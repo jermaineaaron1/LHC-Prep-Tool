@@ -72565,7 +72565,12 @@ var LiturgyModule = (function() {
     var allActive = !_libraryTagFilter || _libraryTagFilter.mode === 'all';
     var allChip = '<button type="button" class="lit-content-type-chip' + (allActive ? ' active' : '') +
       '" onclick="LiturgyModule.openLibraryFilter(\'library\')">All</button>';
+    var groupChip = '<button type="button" class="lit-content-type-chip lit-group-chip' +
+      (_libGrouped ? ' active' : '') + '" onclick="LiturgyModule.toggleLibraryGrouping()" ' +
+      'title="Group by service, year and type \u2014 or show one flat list">' +
+      '<i class="fa-solid fa-layer-group"></i> ' + (_libGrouped ? 'By service' : 'Flat list') + '</button>';
     row.innerHTML = '<span class="lit-filter-row-label">Show:</span>' + allChip + kindChips +
+      '<span class="lit-filter-row-sep"></span>' + groupChip +
       '<span class="lit-filter-row-sep"></span>' +
       '<span class="lit-filter-row-label">Season:</span>' + seasonChips +
       '<span class="lit-filter-row-sep"></span>' + favChip;
@@ -73590,108 +73595,11 @@ var LiturgyModule = (function() {
   }
 
   // Render items grid
-  function renderItems(searchQuery) {
-    var grid = document.getElementById('liturgyItemsGrid');
-    var hint = document.getElementById('liturgyHint');
-    if (!grid) return;
-
-    var items = getFilteredItems(searchQuery);
-
-    // Map General Library folder IDs → old category type names (for folder storage compat)
-    var GEN_TO_CAT = {
-      'gen-prayers': 'prayer', 'gen-announcements': 'announcements',
-      'gen-liturgies': 'liturgy', 'gen-media': 'media',
-      'gen-planning': 'planning', 'gen-other': 'documents'
-    };
-
-    // Build folder cards (Google Drive style - per screenshot 260)
-    var visibleFolders = [];
-    if (!searchQuery) {
-      if (currentNavigatedFolder) {
-        // Show subfolders of current folder
-        Object.keys(liturgyFolders).forEach(function(cat) {
-          liturgyFolders[cat].forEach(function(f) {
-            if (f.parentId === currentNavigatedFolder) visibleFolders.push(f);
-          });
-        });
-      } else if (_currentGeneralFolder) {
-        // Show only folders belonging to the current General Library folder
-        var genCat = GEN_TO_CAT[_currentGeneralFolder];
-        if (genCat) {
-          visibleFolders = getFoldersForCategory(genCat).filter(function(f) { return !f.parentId; });
-        }
-      } else if (currentFilter !== 'all') {
-        // Show root folders for current category
-        visibleFolders = getFoldersForCategory(currentFilter).filter(function(f) { return !f.parentId; });
-      }
-      // "all" view shows no folders — user must navigate into a specific category
-    }
-
-    // Build "New Folder" card — shown inside a general folder or category tab
-    var newFolderCardHtml = '';
-    if (_currentGeneralFolder || (currentFilter && currentFilter !== 'all') || currentNavigatedFolder) {
-      var nfCat = _currentGeneralFolder ? (GEN_TO_CAT[_currentGeneralFolder] || 'documents') : (currentFilter !== 'all' ? currentFilter : 'documents');
-      if (currentNavigatedFolder) {
-        Object.keys(liturgyFolders).forEach(function(cat) {
-          liturgyFolders[cat].forEach(function(f) {
-            if (f.id === currentNavigatedFolder) nfCat = cat;
-          });
-        });
-      }
-      var nfParent = currentNavigatedFolder ? "'" + currentNavigatedFolder + "'" : 'null';
-      newFolderCardHtml = '<div class="liturgy-folder-card new-folder-card" onclick="LiturgyModule.promptCreateFolder(\'' + nfCat + '\', ' + nfParent + ')">' +
-        '<div class="liturgy-folder-card-icon" style="color:#94a3b8;"><i class="fa-solid fa-folder-plus"></i></div>' +
-        '<div class="liturgy-folder-card-name">New Folder</div>' +
-      '</div>';
-    }
-
-    var folderCardsHtml = visibleFolders.map(function(folder) {
-      var count = getCountForFolder(folder.id);
-      // Count subfolders too
-      var subCount = 0;
-      Object.keys(liturgyFolders).forEach(function(cat) {
-        liturgyFolders[cat].forEach(function(f) { if (f.parentId === folder.id) subCount++; });
-      });
-      var subtitle = count + ' item' + (count !== 1 ? 's' : '') + (subCount > 0 ? ', ' + subCount + ' folder' + (subCount !== 1 ? 's' : '') : '');
-      return '<div class="liturgy-folder-card" data-folder-id="' + folder.id + '" ' +
-        'onclick="LiturgyModule.navigateToFolder(\'' + folder.id + '\')" ' +
-        'ondragover="event.preventDefault(); this.classList.add(\'drag-over\')" ' +
-        'ondragleave="this.classList.remove(\'drag-over\')" ' +
-        'ondrop="event.stopPropagation(); LiturgyModule.handleFolderDrop(event, \'' + folder.id + '\')">' +
-        '<div class="liturgy-folder-card-icon"><i class="fa-solid fa-folder"></i></div>' +
-        '<div class="liturgy-folder-card-name">' + escapeHtml(folder.name) + '</div>' +
-        '<div class="liturgy-folder-card-count">' + subtitle + '</div>' +
-        '<div class="liturgy-folder-card-actions" onclick="event.stopPropagation();">' +
-          '<button class="folder-card-action-btn" onclick="LiturgyModule.promptRenameFolder(\'' + folder.id + '\')" title="Rename"><i class="fa-solid fa-pen fa-xs"></i></button>' +
-          '<button class="folder-card-action-btn folder-card-delete-btn" onclick="LiturgyModule.confirmDeleteFolder(\'' + folder.id + '\')" title="Delete"><i class="fa-solid fa-trash fa-xs"></i></button>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-
-    if (items.length === 0 && visibleFolders.length === 0 && !newFolderCardHtml) {
-      grid.innerHTML = '<div class="liturgy-empty-state">' +
-        '<i class="fa-solid fa-book-open"></i>' +
-        '<h3>No items found</h3>' +
-        '<p>' + (searchQuery ? 'Try a different search term' : currentNavigatedFolder ? 'This folder is empty. Drag items here or create new ones.' : 'Add your first liturgy item to get started') + '</p>' +
-        '</div>';
-      if (hint) hint.style.display = 'none';
-      return;
-    }
-
-    // If empty folder but has New Folder card, show it with a hint
-    if (items.length === 0 && visibleFolders.length === 0 && newFolderCardHtml) {
-      grid.innerHTML = newFolderCardHtml +
-        '<div class="liturgy-empty-state" style="grid-column:1/-1;">' +
-          '<p style="color:#9ca3af; font-size:0.85rem;">This folder is empty. Drag items here or create subfolders.</p>' +
-        '</div>';
-      if (hint) hint.style.display = 'none';
-      return;
-    }
-
-    // Show hint when there are items
-    if (hint) hint.style.display = items.length > 0 ? 'block' : 'none';
-
-    var html = items.map(function(item) {
+  // One library card. Extracted from renderItems' map so the grouped
+  // view can draw the same card rather than keeping a second copy of a
+  // hundred lines of markup, which would drift the first time either
+  // was touched.
+  function _libItemCard(item) {
       // Show first 50 characters as preview (per screenshot 88)
       var previewText = item.content ? item.content.substring(0, 30) + (item.content.length > 30 ? '...' : '') : '';
       // content:/collection: prefixed entries are internal metadata (Content
@@ -73804,8 +73712,262 @@ var LiturgyModule = (function() {
           '</div>' +
         '</div>' +
       '</div>';
+  }
+
+  // ── The library, grouped the way the church thinks about it ──────────
+  //
+  // A flat grid showed four cards called "Confession & Absolution" and two
+  // called "Invocation", which reads as duplication and is not: each belongs
+  // to a different service. What the grid never showed is the thing that
+  // tells them apart -- which service, and which year.
+  //
+  // So: one ribbon per liturgical event, in the order the church year runs
+  // rather than alphabetically, and inside it the years the library already
+  // keeps (liturgy_occ_folders), and inside those the item types. Nothing is
+  // re-filed to do this; it is the same items read along the grouping the
+  // data already carries.
+  var _libGrouped = true;   // the default: the flat list is the fallback
+  var _libFoldersRequested = false;   // one fetch of the year names, not one per paint
+
+  function toggleLibraryGrouping() {
+    _libGrouped = !_libGrouped;
+    renderLibraryFilterRow();
+    renderItems(document.getElementById('librarySearchInput') ? document.getElementById('librarySearchInput').value : '');
+  }
+
+  // Items by the year folder they sit in, newest first, then by type, then
+  // by title.
+  //
+  // An item can name a folder that no longer exists. Measured 2026-10-26:
+  // items referenced 22 folder ids and only 16 of those folders were there,
+  // so 15 references pointed at nothing -- every Good Friday item among
+  // them. Keyed on the raw id, that produced six separate blocks all headed
+  // the same way, which looks like a rendering fault and is a filing one.
+  //
+  // So anything whose folder cannot be resolved collapses into ONE bucket.
+  // Six identical headings tell you less than a single honest one, and the
+  // bucket is named for what is actually true of those items: nobody has
+  // said which year they belong to any more.
+  function _libGroupByYear(items) {
+    var occId = items.length ? items[0].occasionId : null;
+    var folders = occId ? (getOccFoldersForOccasion(occId) || []) : [];
+    var byId = {};
+    folders.forEach(function(f) { byId[f.id] = f; });
+
+    var byKey = {};
+    items.forEach(function(it) {
+      var f = it.occasionFolderId ? byId[it.occasionFolderId] : null;
+      var k = f ? f.id : '__noyear__';
+      (byKey[k] = byKey[k] || { label: f ? f.name : 'Year not set', items: [] }).items.push(it);
+    });
+
+    return Object.keys(byKey).map(function(k) {
+      return { key: k, label: byKey[k].label, items: byKey[k].items };
+    }).sort(function(a, b) {
+      if (a.key === '__noyear__') return 1;
+      if (b.key === '__noyear__') return -1;
+      // numeric, so 2024 sorts under 2026 rather than beside it as text
+      return String(b.label).localeCompare(String(a.label), undefined, { numeric: true });
+    });
+  }
+
+  var _LIB_TYPE_LABEL = { liturgy: 'Liturgies', documents: 'Documents', media: 'Media',
+                          planning: 'Planning notes', prayer: 'Prayers', announcements: 'Announcements' };
+
+  function _libGroupByType(items) {
+    var byType = {};
+    items.forEach(function(it) {
+      var k = it.type || it.category || 'documents';
+      (byType[k] = byType[k] || []).push(it);
+    });
+    return Object.keys(byType).sort().map(function(k) {
+      return {
+        key: k,
+        label: _LIB_TYPE_LABEL[k] || (k.charAt(0).toUpperCase() + k.slice(1)),
+        items: byType[k].sort(function(a, b) { return String(a.title || '').localeCompare(String(b.title || '')); })
+      };
+    });
+  }
+
+  function renderLibraryGrouped(items) {
+    var byOcc = {};
+    items.forEach(function(it) {
+      var k = it.occasionId || '__unfiled__';
+      (byOcc[k] = byOcc[k] || []).push(it);
+    });
+
+    // OCCASIONS is already in the order the church year runs, which is the
+    // order these should read in. Anything filed to an occasion this app no
+    // longer lists still gets a ribbon, named by its id, rather than being
+    // silently dropped from the library.
+    var order = OCCASIONS.map(function(o) { return o.id; });
+    var known = order.filter(function(id) { return byOcc[id]; });
+    var strays = Object.keys(byOcc).filter(function(id) {
+      return id !== '__unfiled__' && order.indexOf(id) === -1;
+    }).sort();
+    var ribbons = known.concat(strays);
+    if (byOcc.__unfiled__) ribbons.push('__unfiled__');
+
+    if (!ribbons.length) {
+      return '<div class="liturgy-empty-state"><i class="fa-solid fa-book-open"></i>' +
+        '<h3>Nothing here yet</h3><p>Upload documents or create liturgy items to get started.</p></div>';
+    }
+
+    return ribbons.map(function(occId) {
+      var occ = (occId === '__unfiled__') ? null : getOccasionById(occId);
+      var mine = byOcc[occId];
+      var head = (occId === '__unfiled__')
+        ? { label: 'Not filed to a service', icon: 'fa-inbox', gradient: 'linear-gradient(135deg,#64748b,#94a3b8)' }
+        : (occ || { label: occId, icon: 'fa-circle-question', gradient: 'linear-gradient(135deg,#64748b,#94a3b8)' });
+
+      var years = _libGroupByYear(mine).map(function(y) {
+        var types = _libGroupByType(y.items).map(function(t) {
+          return '<div class="lib-type-block">' +
+              '<div class="lib-type-label">' + escapeHtml(t.label) + ' <span>' + t.items.length + '</span></div>' +
+              '<div class="liturgy-items-grid lib-type-grid">' + t.items.map(_libItemCard).join('') + '</div>' +
+            '</div>';
+        }).join('');
+        return '<div class="lib-year-block">' +
+            '<div class="lib-year-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i>' +
+              escapeHtml(y.label) + '</div>' + types +
+          '</div>';
+      }).join('');
+
+      return '<section class="lib-ribbon">' +
+          '<header class="lib-ribbon-head" style="background:' + head.gradient + ';">' +
+            '<i class="fa-solid ' + head.icon + '" aria-hidden="true"></i>' +
+            '<h3>' + escapeHtml(head.label) + '</h3>' +
+            '<span class="lib-ribbon-count">' + mine.length + ' item' + (mine.length === 1 ? '' : 's') + '</span>' +
+          '</header>' + years +
+        '</section>';
+    }).join('');
+  }
+
+  function renderItems(searchQuery) {
+    var grid = document.getElementById('liturgyItemsGrid');
+    var hint = document.getElementById('liturgyHint');
+    if (!grid) return;
+
+    var items = getFilteredItems(searchQuery);
+
+    // Map General Library folder IDs → old category type names (for folder storage compat)
+    var GEN_TO_CAT = {
+      'gen-prayers': 'prayer', 'gen-announcements': 'announcements',
+      'gen-liturgies': 'liturgy', 'gen-media': 'media',
+      'gen-planning': 'planning', 'gen-other': 'documents'
+    };
+
+    // Build folder cards (Google Drive style - per screenshot 260)
+    var visibleFolders = [];
+    if (!searchQuery) {
+      if (currentNavigatedFolder) {
+        // Show subfolders of current folder
+        Object.keys(liturgyFolders).forEach(function(cat) {
+          liturgyFolders[cat].forEach(function(f) {
+            if (f.parentId === currentNavigatedFolder) visibleFolders.push(f);
+          });
+        });
+      } else if (_currentGeneralFolder) {
+        // Show only folders belonging to the current General Library folder
+        var genCat = GEN_TO_CAT[_currentGeneralFolder];
+        if (genCat) {
+          visibleFolders = getFoldersForCategory(genCat).filter(function(f) { return !f.parentId; });
+        }
+      } else if (currentFilter !== 'all') {
+        // Show root folders for current category
+        visibleFolders = getFoldersForCategory(currentFilter).filter(function(f) { return !f.parentId; });
+      }
+      // "all" view shows no folders — user must navigate into a specific category
+    }
+
+    // Build "New Folder" card — shown inside a general folder or category tab
+    var newFolderCardHtml = '';
+    if (_currentGeneralFolder || (currentFilter && currentFilter !== 'all') || currentNavigatedFolder) {
+      var nfCat = _currentGeneralFolder ? (GEN_TO_CAT[_currentGeneralFolder] || 'documents') : (currentFilter !== 'all' ? currentFilter : 'documents');
+      if (currentNavigatedFolder) {
+        Object.keys(liturgyFolders).forEach(function(cat) {
+          liturgyFolders[cat].forEach(function(f) {
+            if (f.id === currentNavigatedFolder) nfCat = cat;
+          });
+        });
+      }
+      var nfParent = currentNavigatedFolder ? "'" + currentNavigatedFolder + "'" : 'null';
+      newFolderCardHtml = '<div class="liturgy-folder-card new-folder-card" onclick="LiturgyModule.promptCreateFolder(\'' + nfCat + '\', ' + nfParent + ')">' +
+        '<div class="liturgy-folder-card-icon" style="color:#94a3b8;"><i class="fa-solid fa-folder-plus"></i></div>' +
+        '<div class="liturgy-folder-card-name">New Folder</div>' +
+      '</div>';
+    }
+
+    var folderCardsHtml = visibleFolders.map(function(folder) {
+      var count = getCountForFolder(folder.id);
+      // Count subfolders too
+      var subCount = 0;
+      Object.keys(liturgyFolders).forEach(function(cat) {
+        liturgyFolders[cat].forEach(function(f) { if (f.parentId === folder.id) subCount++; });
+      });
+      var subtitle = count + ' item' + (count !== 1 ? 's' : '') + (subCount > 0 ? ', ' + subCount + ' folder' + (subCount !== 1 ? 's' : '') : '');
+      return '<div class="liturgy-folder-card" data-folder-id="' + folder.id + '" ' +
+        'onclick="LiturgyModule.navigateToFolder(\'' + folder.id + '\')" ' +
+        'ondragover="event.preventDefault(); this.classList.add(\'drag-over\')" ' +
+        'ondragleave="this.classList.remove(\'drag-over\')" ' +
+        'ondrop="event.stopPropagation(); LiturgyModule.handleFolderDrop(event, \'' + folder.id + '\')">' +
+        '<div class="liturgy-folder-card-icon"><i class="fa-solid fa-folder"></i></div>' +
+        '<div class="liturgy-folder-card-name">' + escapeHtml(folder.name) + '</div>' +
+        '<div class="liturgy-folder-card-count">' + subtitle + '</div>' +
+        '<div class="liturgy-folder-card-actions" onclick="event.stopPropagation();">' +
+          '<button class="folder-card-action-btn" onclick="LiturgyModule.promptRenameFolder(\'' + folder.id + '\')" title="Rename"><i class="fa-solid fa-pen fa-xs"></i></button>' +
+          '<button class="folder-card-action-btn folder-card-delete-btn" onclick="LiturgyModule.confirmDeleteFolder(\'' + folder.id + '\')" title="Delete"><i class="fa-solid fa-trash fa-xs"></i></button>' +
+        '</div>' +
+      '</div>';
     }).join('');
 
+    if (items.length === 0 && visibleFolders.length === 0 && !newFolderCardHtml) {
+      grid.innerHTML = '<div class="liturgy-empty-state">' +
+        '<i class="fa-solid fa-book-open"></i>' +
+        '<h3>No items found</h3>' +
+        '<p>' + (searchQuery ? 'Try a different search term' : currentNavigatedFolder ? 'This folder is empty. Drag items here or create new ones.' : 'Add your first liturgy item to get started') + '</p>' +
+        '</div>';
+      if (hint) hint.style.display = 'none';
+      return;
+    }
+
+    // If empty folder but has New Folder card, show it with a hint
+    if (items.length === 0 && visibleFolders.length === 0 && newFolderCardHtml) {
+      grid.innerHTML = newFolderCardHtml +
+        '<div class="liturgy-empty-state" style="grid-column:1/-1;">' +
+          '<p style="color:#9ca3af; font-size:0.85rem;">This folder is empty. Drag items here or create subfolders.</p>' +
+        '</div>';
+      if (hint) hint.style.display = 'none';
+      return;
+    }
+
+    // Show hint when there are items
+    if (hint) hint.style.display = items.length > 0 ? 'block' : 'none';
+
+    var html = items.map(_libItemCard).join('');
+
+    // Grouped view replaces the flat grid, but only at the top level: once
+    // the operator has navigated into a folder or a general-library section
+    // they have already chosen a narrower place to look, and re-grouping
+    // what is left would be answering a question they did not ask.
+    if (_libGrouped && !currentNavigatedFolder && !_currentGeneralFolder) {
+      grid.innerHTML = renderLibraryGrouped(items);
+      grid.classList.add('is-grouped');
+      // The year names live in a table the Library never had reason to read
+      // before. Fetched once, then one repaint -- guarded, or the repaint
+      // would ask again and loop.
+      if (!_occFoldersLoaded && !_libFoldersRequested) {
+        _libFoldersRequested = true;
+        Promise.resolve(loadOccFolders()).then(function() {
+          if (_libGrouped && !currentNavigatedFolder && !_currentGeneralFolder) {
+            var g = document.getElementById('liturgyItemsGrid');
+            if (g) g.innerHTML = renderLibraryGrouped(items);
+          }
+        });
+      }
+      return;
+    }
+    grid.classList.remove('is-grouped');
     grid.innerHTML = newFolderCardHtml + folderCardsHtml + html;
   }
 
@@ -76145,13 +76307,18 @@ var LiturgyModule = (function() {
 
   var _occFoldersLoaded = false; // Guard: never save before load completes
 
+  // Returns a promise so a caller can draw once the names are in. The
+  // grouped library needs that: it was only ever called on entering a
+  // service, so opening the Library found occFolders empty and labelled
+  // every year "Year not set" -- correct for what it could see, and wrong
+  // about the data.
   function loadOccFolders() {
     // Supabase only — no localStorage
     _occFoldersLoaded = false;
     occFolders = {};
     var sb = SBQ_LITURGY._sb();
-    if (!sb) return;
-    sb.from('liturgy_occ_folders').select('*').order('sort_order')
+    if (!sb) return Promise.resolve();
+    return sb.from('liturgy_occ_folders').select('*').order('sort_order')
       .then(function(r) {
         if (r.error) {
           console.warn('occFolders Supabase load failed:', r.error.message);
@@ -80001,6 +80168,7 @@ var LiturgyModule = (function() {
     saveMemoryNote: saveMemoryNote,
     deleteMemoryNote: deleteMemoryNote,
     openLibraryFilter: openLibraryFilter,
+    toggleLibraryGrouping: toggleLibraryGrouping,
     // Occasion year/folder system (434)
     selectOccFolder: selectOccFolder,
     promptCreateOccFolder: promptCreateOccFolder,
@@ -86869,6 +87037,44 @@ function filterLiturgyItems() {
   .lit-reading-slot.changed-from-source { border-color: rgba(234,179,8,0.45); }
 
   /* ===== ONE SERVICE: ACTIONS AND LINKS ===== */
+  /* ===== LIBRARY, GROUPED BY SERVICE ===== */
+  .liturgy-items-grid.is-grouped { display: block; }
+  .lib-ribbon { margin: 0 0 22px; border: 1px solid rgba(12,48,26,0.10); border-radius: 14px; overflow: hidden; background: #fff; }
+  .lib-ribbon-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 16px; color: #fff;
+  }
+  .lib-ribbon-head i { font-size: 0.9rem; opacity: 0.9; }
+  .lib-ribbon-head h3 {
+    margin: 0; font-family: 'Cinzel', serif; font-size: 0.98rem; font-weight: 700;
+    color: #fff; letter-spacing: 0.01em;
+  }
+  .lib-ribbon-count {
+    margin-left: auto; font-size: 0.7rem; padding: 2px 10px;
+    border-radius: 999px; background: rgba(255,255,255,0.22);
+  }
+  .lib-year-block { padding: 2px 14px 10px; }
+  .lib-year-label {
+    display: flex; align-items: center; gap: 7px;
+    margin: 12px 0 6px; font-size: 0.78rem; font-weight: 700;
+    color: var(--brand-deep, #0b2a14);
+  }
+  .lib-year-label i { color: var(--brand, #188e44); font-size: 0.72rem; }
+  .lib-type-block { margin: 0 0 10px 4px; }
+  .lib-type-label {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; color: #64748b; margin: 0 0 6px;
+  }
+  .lib-type-label span {
+    display: inline-block; margin-left: 4px; padding: 0 6px;
+    border-radius: 999px; background: rgba(100,116,139,0.14); font-weight: 600;
+  }
+  .lib-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  @media (max-width: 768px) {
+    .lib-type-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .lib-year-block { padding: 2px 10px 8px; }
+  }
+
   .lit-occ-rowlabel {
     font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em;
     text-transform: uppercase; color: #64748b;
