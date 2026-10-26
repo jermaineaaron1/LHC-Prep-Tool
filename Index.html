@@ -8480,10 +8480,20 @@
               <button class="lit-occ-tab" data-tab="special-elements" onclick="LiturgyModule.switchOccasionTab('special-elements')">
                 <i class="fa-solid fa-star mr-1"></i> Checklist
               </button>
+              <!-- Only for the services that have one. Hidden by selectOccasion
+                   for everything else, rather than showing an empty tab. -->
+              <button class="lit-occ-tab" id="litOccTabPrepare" data-tab="prepare" style="display:none;" onclick="LiturgyModule.switchOccasionTab('prepare')">
+                <i class="fa-solid fa-circle-question mr-1"></i> How to prepare
+              </button>
             </div>
 
             <!-- Year/Folder bar (rendered by JS per occasion) -->
             <div id="litOccFolderBar" class="lit-occ-folder-bar"></div>
+
+            <!-- Tab: How to prepare -->
+            <div id="litTabPrepare" class="lit-tab-content" style="display:none;">
+              <div class="lit-tab-inner"><div id="litPrepareBody"></div></div>
+            </div>
 
             <!-- Tab: Liturgy Order -->
             <div id="litTabLiturgyOrder" class="lit-tab-content">
@@ -76346,6 +76356,107 @@ var LiturgyModule = (function() {
   // Everything in OCCASIONS that is not a point in the church year.
   function _occasionKind(o) { return (o && o.kind) || 'season'; }
 
+  // ── How to prepare for a service ────────────────────────────────────
+  //
+  // Baptisms, confirmations and funerals come round rarely enough that
+  // nobody remembers the whole of what has to happen, and they are the
+  // services where forgetting something matters most -- a register not
+  // signed, a font not filled, a family not called.
+  //
+  // WHERE THIS TEXT CAME FROM, AND WHAT THAT MEANS
+  // It was drafted from general Lutheran practice, NOT from anything Luther
+  // House Chapel has written down. Practice differs between Lutheran bodies
+  // and between congregations, and some of what follows will be wrong for
+  // this church -- who may preside, whether the confirmed commune that day,
+  // what the funeral provides. It is a starting point to be corrected, and
+  // the screen says so in those words until somebody marks it reviewed.
+  //
+  // Every section is editable and saved per occasion, so correcting it is
+  // the ordinary way to use it rather than a special operation.
+  var PREPARATION_GUIDES = {
+    baptism: {
+      blurb: 'Holy Baptism, whether within the Sunday service or on its own.',
+      sections: [
+        { id: 'before', title: 'Before the day', icon: 'fa-calendar-check', body:
+          'The family speaks with the pastor well in advance, and the date is agreed and put on the roster.\n\n' +
+          'Record the names of the candidate, the parents and the sponsors exactly as they should appear on the certificate \u2014 spelling is hard to correct afterwards.\n\n' +
+          'Sponsors are normally baptised Christians who will keep in touch with the candidate.\n\n' +
+          'Tell the congregation in the notices the Sunday before, so they come expecting to welcome someone.' },
+        { id: 'liturgy', title: 'The liturgy', icon: 'fa-book-bible', body:
+          'Baptism normally takes place within the main service rather than privately, so that the congregation witnesses it and renews its own baptismal promises.\n\n' +
+          'The order commonly runs: presentation of the candidate \u00b7 renunciation and profession of faith in the words of the Apostles\u2019 Creed \u00b7 thanksgiving over the water \u00b7 the baptism itself, in the name of the Father and of the Son and of the Holy Spirit \u00b7 prayer with the laying on of hands \u00b7 welcome by the congregation.\n\n' +
+          'Who presides, and where in the service this sits, follow this congregation\u2019s practice \u2014 check before planning around it.' },
+        { id: 'setup', title: 'Setting up', icon: 'fa-hands-holding-circle', body:
+          'Font filled with clean, warm water before the service begins.\n\n' +
+          'Ewer or shell, and a towel.\n\n' +
+          'Paschal candle lit and standing by the font; a baptismal candle ready to give the family.\n\n' +
+          'Seats reserved at the front for the family and sponsors, and someone briefed to show them to them.' },
+        { id: 'music', title: 'Music and readings', icon: 'fa-music', body:
+          'A baptismal hymn, chosen early enough for the musicians to prepare it.\n\n' +
+          'The readings may be the day\u2019s lectionary or chosen for the occasion. Matthew 28:16-20, Romans 6:3-11 and Mark 10:13-16 are commonly used.\n\n' +
+          'If the service is being projected, the baptismal responses need to be on the slides \u2014 the congregation has a part and cannot say it from memory.' },
+        { id: 'after', title: 'Afterwards', icon: 'fa-file-signature', body:
+          'Entry in the baptismal register, and the certificate signed.\n\n' +
+          'Photographs, if the family wants them, and somebody asked in advance to take them.\n\n' +
+          'Note the date \u2014 a baptismal anniversary is worth remembering.' }
+      ]
+    },
+
+    confirmation: {
+      blurb: 'Affirmation of Baptism, after a period of instruction.',
+      sections: [
+        { id: 'before', title: 'Before the day', icon: 'fa-calendar-check', body:
+          'Instruction completed, and the date agreed far enough ahead that families can travel.\n\n' +
+          'Names collected for certificates, spelled as the confirmands want them.\n\n' +
+          'A rehearsal is worth the hour: where to stand, when to come forward, what they will be asked.' },
+        { id: 'liturgy', title: 'The liturgy', icon: 'fa-book-bible', body:
+          'Confirmation is an affirmation of what was done in Baptism, not a second baptism, and the service says so.\n\n' +
+          'It commonly includes: renewal of the baptismal promises \u00b7 profession of faith in the words of the Apostles\u2019 Creed \u00b7 prayer for the gift of the Holy Spirit with the laying on of hands \u00b7 a blessing for each confirmand by name.\n\n' +
+          'Whether the confirmands receive communion for the first time that day is a question of this congregation\u2019s practice. Ask rather than assume.' },
+        { id: 'setup', title: 'Setting up', icon: 'fa-hands-holding-circle', body:
+          'Red is widely used for Confirmation, but the season may govern instead \u2014 check which this church follows.\n\n' +
+          'Confirmands seated together at the front, in the order they will be called.\n\n' +
+          'Certificates ready and signed beforehand, not during the hymn.' },
+        { id: 'music', title: 'Music and readings', icon: 'fa-music', body:
+          'A hymn invoking the Holy Spirit is the usual choice.\n\n' +
+          'The confirmands can be given a part \u2014 a reading, or a verse each \u2014 if they are willing.' },
+        { id: 'after', title: 'Afterwards', icon: 'fa-file-signature', body:
+          'Register entry and certificates handed over.\n\n' +
+          'Photographs with the pastor and the families.\n\n' +
+          'Confirmation is a beginning rather than a graduation; some thought about what these young people are invited into next is part of preparing for the day.' }
+      ]
+    },
+
+    funeral: {
+      blurb: 'A service of thanksgiving and committal. Much of this is decided with the family.',
+      sections: [
+        { id: 'before', title: 'In the first days', icon: 'fa-phone', body:
+          'The pastor visits the family as soon as can be arranged. Everything below waits on that.\n\n' +
+          'Date, time and place agreed with the family, the church and the undertaker \u2014 and the building checked for clashes.\n\n' +
+          'Ask the family what they want: who speaks, who reads, which hymns, whether there is a eulogy and where it sits.\n\n' +
+          'Burial or cremation, and whether there is a wake, affects the shape of the day.' },
+        { id: 'liturgy', title: 'The liturgy', icon: 'fa-book-bible', body:
+          'The service commends the one who has died to God and comforts those who remain. Both, not one.\n\n' +
+          'It commonly includes: scripture \u00b7 a sermon \u00b7 prayers of thanksgiving and intercession \u00b7 the commendation. The committal follows at the graveside or the crematorium.\n\n' +
+          'Keep it within the time the family expects. Grief is tiring.' },
+        { id: 'setup', title: 'Setting up', icon: 'fa-hands-holding-circle', body:
+          'Paschal candle lit, at the head of the coffin.\n\n' +
+          'A pall, if this church uses one.\n\n' +
+          'Front rows kept for the family, and ushers briefed on who they are and where they sit.\n\n' +
+          'Order of service printed with enough spare copies \u2014 more people come than were expected.' },
+        { id: 'music', title: 'Music and readings', icon: 'fa-music', body:
+          'Hymns chosen with the family, and the musicians told early.\n\n' +
+          'Psalm 23, John 14:1-6, Romans 8:31-39 and Revelation 21:1-7 are commonly chosen.\n\n' +
+          'If a recording is to be played, test it on the actual system beforehand.' },
+        { id: 'after', title: 'Afterwards', icon: 'fa-file-signature', body:
+          'Register entry.\n\n' +
+          'The weeks after the funeral are harder than the day itself. Agree who is visiting, and when \u2014 the first month and the first anniversary both matter.' }
+      ]
+    }
+  };
+
+  function _hasPreparationGuide(occId) { return !!PREPARATION_GUIDES[occId]; }
+
   var SPECIAL_ELEMENTS_DEFAULTS = {
     'ordinary-traditional':  [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'confirmation',label:'Confirmation',icon:'fa-hands-praying'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'sunday-school',label:'Sunday School Slot',icon:'fa-children'},{id:'powerpoint',label:'PowerPoint / Media Slides',icon:'fa-display'},{id:'announcements',label:'Announcements Slide',icon:'fa-bullhorn'} ],
     'ordinary-contemporary': [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'dance',label:'Dance Presentation',icon:'fa-person-walking'},{id:'conversation',label:'Conversation / Drama',icon:'fa-comments'},{id:'sunday-school',label:'Sunday School Slot',icon:'fa-children'},{id:'powerpoint',label:'PowerPoint / Media Slides',icon:'fa-display'} ],
@@ -77947,6 +78058,8 @@ var LiturgyModule = (function() {
     loadOccFolders();
     renderOccFolderBar(occasionId); // auto-seeds current year if none exists
     // Reset to first tab
+    var prepTab = document.getElementById('litOccTabPrepare');
+    if (prepTab) prepTab.style.display = _hasPreparationGuide(occasionId) ? '' : 'none';
     switchOccasionTab('liturgy-order');
     renderOccasionItems('');
     // Load sticky notes
@@ -77959,10 +78072,11 @@ var LiturgyModule = (function() {
     document.querySelectorAll('.lit-occ-tab').forEach(function(t) {
       t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
     });
-    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'team-planning': 'litTabTeamPlanning', 'special-elements': 'litTabSpecialElements' };
+    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'team-planning': 'litTabTeamPlanning', 'special-elements': 'litTabSpecialElements', 'prepare': 'litTabPrepare' };
     document.querySelectorAll('.lit-tab-content').forEach(function(c) { c.style.display = 'none'; });
     var el = document.getElementById(tabMap[tabId]);
     if (el) el.style.display = '';
+    if (tabId === 'prepare') renderPreparationGuide(_currentOccasion);
   }
 
   // One service, everything it needs, no sorting hat.
@@ -78913,6 +79027,149 @@ var LiturgyModule = (function() {
   // Keep saveOccasionNotes as a no-op stub (called from old places, now handled by onNoteInput)
   function saveOccasionNotes(occasionId) {}
   function updateNotesCharCount() {}
+
+  // The guide for one service: the drafted text, or whatever has replaced it.
+  //
+  // Saved per occasion alongside the planning notes, so correcting it is an
+  // ordinary edit rather than a special operation. The draft banner stays up
+  // until somebody says they have checked it against what this church
+  // actually does -- the point of the banner is that nobody should act on
+  // this text believing the church wrote it.
+  function _guideData(occasionId) {
+    var def = PREPARATION_GUIDES[occasionId];
+    if (!def) return null;
+    var saved = (loadOccasionData(occasionId) || {}).guide || {};
+    return {
+      reviewed: !!saved.reviewed,
+      reviewedBy: saved.reviewedBy || '',
+      reviewedAt: saved.reviewedAt || '',
+      blurb: def.blurb,
+      sections: def.sections.map(function(s) {
+        return {
+          id: s.id, title: s.title, icon: s.icon,
+          body: (saved.sections && typeof saved.sections[s.id] === 'string') ? saved.sections[s.id] : s.body,
+          edited: !!(saved.sections && typeof saved.sections[s.id] === 'string')
+        };
+      })
+    };
+  }
+
+  function _saveGuide(occasionId, mutate) {
+    var data = loadOccasionData(occasionId) || {};
+    data.guide = data.guide || {};
+    data.guide.sections = data.guide.sections || {};
+    mutate(data.guide);
+    saveOccasionData(occasionId, data);
+  }
+
+  function renderPreparationGuide(occasionId) {
+    var host = document.getElementById('litPrepareBody');
+    if (!host) return;
+    var g = _guideData(occasionId);
+    if (!g) { host.innerHTML = ''; return; }
+    var occ = getOccasionById(occasionId);
+
+    var banner = g.reviewed
+      ? '<div class="lit-guide-banner is-reviewed">' +
+          '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>' +
+          '<div><strong>Checked against this church\u2019s practice</strong>' +
+            (g.reviewedBy ? '<span> \u00b7 ' + escapeHtml(g.reviewedBy) : '<span>') +
+            (g.reviewedAt ? ', ' + escapeHtml(String(g.reviewedAt).slice(0, 10)) : '') + '</span>' +
+          '</div>' +
+          '<button type="button" class="lit-guide-banner-btn" onclick="LiturgyModule.unreviewGuide()">Mark as draft again</button>' +
+        '</div>'
+      : '<div class="lit-guide-banner is-draft">' +
+          '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>' +
+          '<div><strong>Draft \u2014 not yet checked against this church\u2019s practice</strong>' +
+            '<span>Written from general Lutheran practice, not from anything Luther House Chapel has recorded. ' +
+            'Some of it will be wrong here \u2014 who may preside, what the rite includes, what the church provides. ' +
+            'Edit any section to correct it, then mark it checked.</span></div>' +
+          '<button type="button" class="lit-guide-banner-btn" onclick="LiturgyModule.reviewGuide()">I\u2019ve checked this</button>' +
+        '</div>';
+
+    host.innerHTML =
+      '<div class="lit-guide">' +
+        '<p class="lit-guide-blurb">' + escapeHtml(g.blurb) + '</p>' +
+        banner +
+        g.sections.map(function(s) {
+          return '<section class="lit-guide-section" data-sec="' + escapeHtml(s.id) + '">' +
+            '<header>' +
+              '<i class="fa-solid ' + s.icon + '" aria-hidden="true"></i>' +
+              '<h3>' + escapeHtml(s.title) + '</h3>' +
+              (s.edited ? '<span class="lit-guide-edited">edited here</span>' : '') +
+              '<button type="button" class="lit-guide-edit" onclick="LiturgyModule.editGuideSection(\'' + escapeHtml(s.id) + '\')">' +
+                '<i class="fa-solid fa-pen"></i> Edit</button>' +
+              (s.edited ? '<button type="button" class="lit-guide-edit" onclick="LiturgyModule.resetGuideSection(\'' + escapeHtml(s.id) + '\')" ' +
+                 'title="Put the drafted wording back">\u21ba</button>' : '') +
+            '</header>' +
+            '<div class="lit-guide-body">' + s.body.split('\n\n').map(function(p) {
+              return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+            }).join('') + '</div>' +
+          '</section>';
+        }).join('') +
+        '<p class="lit-guide-foot">Anything the church has written down \u2014 an order of service, a form, a register page \u2014 ' +
+          'belongs on the <button type="button" class="lit-guide-link" onclick="LiturgyModule.switchOccasionTab(\'liturgy-order\')">' +
+          (occ ? escapeHtml(occ.label) : 'service') + ' items</button> tab, where it sits beside this.</p>' +
+      '</div>';
+  }
+
+  function editGuideSection(sectionId) {
+    var occId = _currentOccasion;
+    var g = _guideData(occId);
+    if (!g) return;
+    var sec = g.sections.filter(function(s) { return s.id === sectionId; })[0];
+    if (!sec) return;
+    var el = document.querySelector('.lit-guide-section[data-sec="' + sectionId + '"] .lit-guide-body');
+    if (!el) return;
+    el.innerHTML = '<textarea class="lit-guide-editor" id="litGuideEditor">' + escapeHtml(sec.body) + '</textarea>' +
+      '<div class="lit-guide-editor-actions">' +
+        '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.renderPreparationGuide(LiturgyModule.currentOccasion())">Cancel</button>' +
+        '<button type="button" class="modal-btn modal-btn-primary" onclick="LiturgyModule.saveGuideSection(\'' + sectionId + '\')">Save</button>' +
+      '</div>';
+    var ta = document.getElementById('litGuideEditor');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  }
+
+  function saveGuideSection(sectionId) {
+    var ta = document.getElementById('litGuideEditor');
+    if (!ta) return;
+    var occId = _currentOccasion;
+    var text = ta.value;
+    _saveGuide(occId, function(guide) { guide.sections[sectionId] = text; });
+    renderPreparationGuide(occId);
+    if (typeof showToast === 'function') showToast('Saved', 'success');
+  }
+
+  // Back to the drafted wording. Deleting the override rather than writing
+  // the default in, so a later correction to the draft reaches this church
+  // too instead of being shadowed by a copy of the old text.
+  function resetGuideSection(sectionId) {
+    var occId = _currentOccasion;
+    _saveGuide(occId, function(guide) { delete guide.sections[sectionId]; });
+    renderPreparationGuide(occId);
+  }
+
+  function reviewGuide() {
+    var occId = _currentOccasion;
+    var who = (typeof window.customPrompt === 'function')
+      ? window.customPrompt('Checked by', 'Who checked this against what the church actually does?', '')
+      : Promise.resolve(window.prompt('Who checked this?') || '');
+    who.then(function(name) {
+      if (name === null) return;
+      _saveGuide(occId, function(guide) {
+        guide.reviewed = true;
+        guide.reviewedBy = String(name || '').trim();
+        guide.reviewedAt = new Date().toISOString();
+      });
+      renderPreparationGuide(occId);
+    });
+  }
+
+  function unreviewGuide() {
+    var occId = _currentOccasion;
+    _saveGuide(occId, function(guide) { guide.reviewed = false; });
+    renderPreparationGuide(occId);
+  }
 
   function renderSpecialElements(occasionId) {
     var list = document.getElementById('litSpecialElementsList');
@@ -80329,6 +80586,13 @@ var LiturgyModule = (function() {
     deleteOccFolder: deleteOccFolder,
     dropItemIntoFolder: dropItemIntoFolder,
     switchOccasionTab: switchOccasionTab,
+    renderPreparationGuide: renderPreparationGuide,
+    editGuideSection: editGuideSection,
+    saveGuideSection: saveGuideSection,
+    resetGuideSection: resetGuideSection,
+    reviewGuide: reviewGuide,
+    unreviewGuide: unreviewGuide,
+    currentOccasion: function() { return _currentOccasion; },
     searchOccasionItems: searchOccasionItems,
     toggleSpecialElement: toggleSpecialElement,
     addSpecialElement: addSpecialElement,
@@ -87191,6 +87455,71 @@ function filterLiturgyItems() {
   .lit-reading-slot.changed-from-source { border-color: rgba(234,179,8,0.45); }
 
   /* ===== ONE SERVICE: ACTIONS AND LINKS ===== */
+  /* ===== HOW TO PREPARE ===== */
+  .lit-guide { max-width: 860px; }
+  .lit-guide-blurb { font-size: 0.88rem; color: #475569; margin: 0 0 14px; font-style: italic; }
+
+  /* The draft warning is deliberately loud. Someone acting on liturgical
+     guidance in the belief their church wrote it is the failure this
+     feature could cause, so it stays until a person says otherwise. */
+  .lit-guide-banner {
+    display: flex; align-items: flex-start; gap: 11px;
+    padding: 13px 15px; border-radius: 12px; margin: 0 0 20px;
+    font-size: 0.82rem; line-height: 1.5;
+  }
+  .lit-guide-banner.is-draft { background: rgba(234,179,8,0.13); border: 1px solid rgba(234,179,8,0.45); color: #78350f; }
+  .lit-guide-banner.is-reviewed { background: rgba(24,142,68,0.10); border: 1px solid rgba(24,142,68,0.35); color: #0b2a14; }
+  .lit-guide-banner > i { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
+  .lit-guide-banner strong { display: block; margin-bottom: 2px; }
+  .lit-guide-banner span { display: block; opacity: 0.9; }
+  .lit-guide-banner-btn {
+    margin-left: auto; flex-shrink: 0; align-self: center;
+    border: 1px solid currentColor; background: transparent; color: inherit;
+    font-family: 'Poppins', sans-serif; font-size: 0.74rem; font-weight: 600;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  }
+  .lit-guide-banner-btn:hover { background: rgba(255,255,255,0.45); }
+
+  .lit-guide-section { border: 1px solid rgba(12,48,26,0.10); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+  .lit-guide-section > header {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 14px; background: rgba(24,142,68,0.05);
+    border-bottom: 1px solid rgba(12,48,26,0.07);
+  }
+  .lit-guide-section > header > i { color: var(--brand, #188e44); font-size: 0.82rem; }
+  .lit-guide-section h3 {
+    margin: 0; font-family: 'Cinzel', serif; font-size: 0.88rem;
+    font-weight: 700; color: var(--brand-deep, #0b2a14);
+  }
+  .lit-guide-edited {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: #0b5a2e; background: rgba(24,142,68,0.16); padding: 2px 8px; border-radius: 999px;
+  }
+  .lit-guide-edit {
+    margin-left: auto; border: none; background: transparent; cursor: pointer;
+    color: #64748b; font-family: 'Poppins', sans-serif; font-size: 0.73rem; padding: 4px 7px; border-radius: 7px;
+  }
+  .lit-guide-edit + .lit-guide-edit { margin-left: 0; }
+  .lit-guide-edit:hover { background: rgba(0,0,0,0.06); color: var(--brand-deep, #0b2a14); }
+  .lit-guide-body { padding: 12px 15px; }
+  .lit-guide-body p { margin: 0 0 9px; font-size: 0.85rem; line-height: 1.6; color: var(--ink, #1f2933); }
+  .lit-guide-body p:last-child { margin-bottom: 0; }
+  .lit-guide-editor {
+    width: 100%; min-height: 190px; box-sizing: border-box;
+    font-family: 'Poppins', sans-serif; font-size: 0.84rem; line-height: 1.6;
+    padding: 11px 13px; border: 1px solid rgba(12,48,26,0.22); border-radius: 9px; resize: vertical;
+  }
+  .lit-guide-editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .lit-guide-foot { font-size: 0.8rem; color: #64748b; margin-top: 18px; }
+  .lit-guide-link {
+    border: none; background: none; padding: 0; cursor: pointer;
+    color: var(--brand, #188e44); font: inherit; text-decoration: underline;
+  }
+  @media (max-width: 768px) {
+    .lit-guide-banner { flex-wrap: wrap; }
+    .lit-guide-banner-btn { margin-left: 0; width: 100%; }
+  }
+
   /* ===== MEMORIES, GROUPED BY SERVICE ===== */
   .lit-mem-section { margin-bottom: 26px; }
   .lit-mem-section-title {
