@@ -77370,7 +77370,6 @@ var LiturgyModule = (function() {
       '</div>' +
       '<div class="lit-lectionary-body">' +
         '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
-        '<div id="lectionarySourceChip" style="display:none;"></div>' +
         '<div id="lectionaryDayContext" class="lit-day-context"></div>' +
         '<div class="lit-reading-slots-panel">' +
           '<div class="lit-reading-slots-header">' +
@@ -77382,6 +77381,10 @@ var LiturgyModule = (function() {
             '</div>' +
           '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
+          // Provenance goes under the readings, not over them. "Where did
+          // this come from?" is asked after reading the references, and in
+          // the header the chip sat on top of the liturgical day.
+          '<div id="lectionarySourceChip" class="lect-source-foot" style="display:none;"></div>' +
         '</div>' +
       '</div>';
     renderReadingDateNav();
@@ -87562,6 +87565,14 @@ function filterLiturgyItems() {
 
   /* ===== SOURCE SECTION ===== */
   .lect-source-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 2px; }
+
+  /* As a footer under the readings: ruled off, pushed right, out of the way
+     of the references themselves. */
+  .lect-source-foot { margin-top: 15px; padding-top: 11px; border-top: 1px solid rgba(15,23,42,0.08); }
+  .lect-source-foot .lect-source-row { justify-content: flex-end; margin: 0; }
+  @media (max-width: 640px) {
+    .lect-source-foot .lect-source-row { justify-content: flex-start; }
+  }
   .lect-source-label {
     font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
     color: #64748b;
