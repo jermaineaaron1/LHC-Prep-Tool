@@ -72357,7 +72357,8 @@ var LiturgyModule = (function() {
   var _lectionaryPickerSlotIndex = null; // which slot openReadingSlotPicker() targets
   var _lectionaryPickerDate = null;      // and which DATE -- a month view can edit any of them
   var READING_SLOT_LABELS = ['1st Reading', 'Psalm', '2nd Reading', 'Gospel'];
-  var _serviceDatesCache = {};           // { 2026: ['2026-01-04', ...] }
+  var _serviceDatesCache = {};            // { 2026: ['2026-01-04', ...] }
+  var _serviceDatesPending = {};          // the same, while still in flight
   var _readingsWindowCache = {};         // { 'from|to': { iso: { role: ref } } }
   var _serviceMetaCache = {};            // { 'from|to': { iso: { day, color } } }
   var _readingRefsByDate = {};           // { iso: { role: ref } } -- flattened, for the reader
@@ -72476,6 +72477,35 @@ var LiturgyModule = (function() {
       return year + '-' + String(mi + 1).padStart(2, '0') + '-' + String(+m[2]).padStart(2, '0') + suffix;
     },
 
+    // Every row a query matches, not the first thousand.
+    //
+    // PostgREST caps a response at 1000 rows and says nothing about it: the
+    // reply is a perfectly ordinary array that happens to stop. Measured on
+    // this project, roster for 2026 is 1299 rows, so getServiceDates below
+    // was reading 77% of the year and reporting the rest as "no service on
+    // that date" -- which looks like a quiet month, not like a bug.
+    //
+    // `build` makes a FRESH query each call, because a Supabase builder is
+    // single-use: reusing one would re-send the first page forever.
+    //
+    // Ordered by id so the pages cannot overlap or skip. Without an order
+    // the server may return rows in any order it likes, and two pages of an
+    // unordered result can repeat a row and miss another.
+    _pageAll: function(build) {
+      var out = [];
+      var page = function(from) {
+        return Promise.resolve(build().order('id').range(from, from + 999))
+          .then(function(r) {
+            if (r.error) throw new Error(r.error.message);
+            var rows = r.data || [];
+            out = out.concat(rows);
+            // A short page is the last one. A full page might not be.
+            return rows.length < 1000 ? out : page(from + 1000);
+          });
+      };
+      return page(0);
+    },
+
     // Every reading between two ISO dates, as { iso: { role: reference } }.
     // Fetched by YEAR rather than by day: the roster is keyed by month and
     // service_date is free text, so the window is narrowed here instead of
@@ -72486,13 +72516,13 @@ var LiturgyModule = (function() {
       var a = SBQ_READINGS.isoToRoster(fromIso), b = SBQ_READINGS.isoToRoster(toIso);
       if (!a || !b) return Promise.resolve({});
       var roles = SBQ_READINGS.SLOTS.map(function(s) { return s.role; });
-      var q = sb.from('roster').select('role_id, service_date, year, value')
-        .in('role_id', roles).neq('value', '');
-      q = (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
-      return Promise.resolve(q).then(function(r) {
-        if (r.error) throw new Error(r.error.message);
+      return SBQ_READINGS._pageAll(function() {
+        var q = sb.from('roster').select('role_id, service_date, year, value')
+          .in('role_id', roles).neq('value', '');
+        return (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
+      }).then(function(rows) {
         var out = {};
-        (r.data || []).forEach(function(row) {
+        (rows || []).forEach(function(row) {
           var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
           // ISO dates compare correctly as strings, which is the whole
           // reason this page speaks ISO and converts only at the edges.
@@ -72515,11 +72545,12 @@ var LiturgyModule = (function() {
     getServiceDates: function(year) {
       var sb = SBQ_READINGS._sb();
       if (!sb) return Promise.resolve([]);
-      return Promise.resolve(sb.from('roster').select('service_date, year').eq('year', year))
-        .then(function(r) {
-          if (r.error) throw new Error(r.error.message);
+      return SBQ_READINGS._pageAll(function() {
+        return sb.from('roster').select('service_date, year').eq('year', year);
+      })
+        .then(function(rows) {
           var seen = {};
-          (r.data || []).forEach(function(row) {
+          (rows || []).forEach(function(row) {
             var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
             if (iso) seen[iso] = true;
           });
@@ -72537,13 +72568,13 @@ var LiturgyModule = (function() {
       if (!sb) return Promise.resolve({});
       var a = SBQ_READINGS.isoToRoster(fromIso), b = SBQ_READINGS.isoToRoster(toIso);
       if (!a || !b) return Promise.resolve({});
-      var q = sb.from('roster').select('role_id, service_date, year, value')
-        .in('role_id', ['liturgical', 'service_type']).neq('value', '');
-      q = (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
-      return Promise.resolve(q).then(function(r) {
-        if (r.error) throw new Error(r.error.message);
+      return SBQ_READINGS._pageAll(function() {
+        var q = sb.from('roster').select('role_id, service_date, year, value')
+          .in('role_id', ['liturgical', 'service_type']).neq('value', '');
+        return (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
+      }).then(function(rows) {
         var out = {};
-        (r.data || []).forEach(function(row) {
+        (rows || []).forEach(function(row) {
           var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
           // On the date part, for the same reason as getRange above.
           if (!iso) return;
@@ -76899,13 +76930,22 @@ var LiturgyModule = (function() {
   function _serviceDatesFor(year) {
     if (_serviceDatesCache[year]) return Promise.resolve(_serviceDatesCache[year]);
     if (typeof SBQ_READINGS === 'undefined') return Promise.resolve([]);
-    return SBQ_READINGS.getServiceDates(year).then(function(d) {
+    // The in-flight request is cached, not just its answer. Two callers ask
+    // for the same year on first paint -- the readings window and the day
+    // context -- and caching only the result let both start their own walk
+    // through the year, doubling a read that is now two pages rather than
+    // one. Cleared on failure so an error is not cached as an answer.
+    if (_serviceDatesPending[year]) return _serviceDatesPending[year];
+    _serviceDatesPending[year] = SBQ_READINGS.getServiceDates(year).then(function(d) {
       _serviceDatesCache[year] = d || [];
+      delete _serviceDatesPending[year];
       return _serviceDatesCache[year];
     }).catch(function(e) {
+      delete _serviceDatesPending[year];
       console.warn('LiturgyModule: service dates for ' + year + ' unavailable:', e && e.message);
       return [];
     });
+    return _serviceDatesPending[year];
   }
 
   // Every service date inside a window. A window can straddle new year, so

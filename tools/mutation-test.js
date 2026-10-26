@@ -196,6 +196,17 @@ const CASES = [
   // The window filter now compares the DATE part, because an evening key
   // carries a suffix. Comparing the whole key again drops the Watchnight
   // from any window that ends on the 31st.
+  // The readings layer reads a year at a time, and PostgREST stops at 1000
+  // rows without saying so. Stopping after the first page is exactly the
+  // bug: 2026 is 1299 rows, so the tail of the year silently vanishes.
+  ['readings-roster-harness.js', 'a year is read only as far as the first page',
+    s => s.replace('            return rows.length < 1000 ? out : page(from + 1000);',
+                   '            return out;')],
+  // Paging without an order: two pages of an unordered result can repeat a
+  // row and miss another, which reads as data that is merely odd.
+  ['readings-roster-harness.js', 'paged reads stop being ordered',
+    s => s.replace("build().order('id').range(from, from + 999)",
+                   'build().range(from, from + 999)')],
   ['readings-roster-harness.js', 'the window filter compares the whole key again',
     s => s.replace(WINDOW_FILTER, WHOLE_KEY_FILTER)],
   ['readings-roster-harness.js', 'a reading write stops logging the change',
