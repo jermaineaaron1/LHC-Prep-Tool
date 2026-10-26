@@ -138,6 +138,14 @@ const ORDER_FILL =
   '            fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });\r\n' +
   '          }\r\n';
 
+// getRange's window filter, as it reads now: three lines, comparing the
+// date part of a service key rather than the key itself.
+const WINDOW_FILTER =
+  '          if (!iso) return;' + CRLF +
+  '          var day = SBQ_READINGS.keyDate(iso);' + CRLF +
+  '          if (day < SBQ_READINGS.keyDate(fromIso) || day > SBQ_READINGS.keyDate(toIso)) return;';
+const WHOLE_KEY_FILTER = '          if (!iso || iso < fromIso || iso > toIso) return;';
+
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
     s => s.replace(DESPACED, '')],
@@ -184,7 +192,12 @@ const CASES = [
     s => s.replace("           !String(header == null ? '' : header).trim() &&", '')],
 
   ['readings-roster-harness.js', 'the window filter is removed from getRange',
-    s => s.replace('          if (!iso || iso < fromIso || iso > toIso) return;', '          if (!iso) return;')],
+    s => s.replace(WINDOW_FILTER, '          if (!iso) return;')],
+  // The window filter now compares the DATE part, because an evening key
+  // carries a suffix. Comparing the whole key again drops the Watchnight
+  // from any window that ends on the 31st.
+  ['readings-roster-harness.js', 'the window filter compares the whole key again',
+    s => s.replace(WINDOW_FILTER, WHOLE_KEY_FILTER)],
   ['readings-roster-harness.js', 'a reading write stops logging the change',
     s => s.replace("          return Promise.resolve(sb.from('roster_changes').insert({",
                    '          return Promise.resolve({}).then(function(){ return ({')],

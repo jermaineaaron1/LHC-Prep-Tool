@@ -72431,12 +72431,32 @@ var LiturgyModule = (function() {
     _sb: function() { return getSupabaseClient(); },
 
     // 'YYYY-MM-DD' -> the three columns the roster is keyed by.
+    // A SERVICE key, not a date: 'YYYY-MM-DD' for the service on that day,
+    // and 'YYYY-MM-DD|pm' for an evening one beside it.
+    //
+    // 31 December is the case that needs this. The Watchnight is its own
+    // service with its own rota and its own readings, and in the years when
+    // the 31st is a Sunday there is a morning service too. One key per date
+    // meant the two shared a set of readings and whichever was written last
+    // won.
+    //
+    // The marker is a suffix rather than a separate argument because these
+    // keys are passed around as plain strings -- map keys, picker arguments,
+    // the import's snapshot -- and a second argument would have to be
+    // threaded through all of it, with every place that forgot silently
+    // addressing the morning service.
+    PM_SUFFIX: '|pm',
+    isPM: function(key) { return String(key || '').slice(10) === SBQ_READINGS.PM_SUFFIX; },
+    keyDate: function(key) { return String(key || '').slice(0, 10); },
+
     isoToRoster: function(iso) {
-      var p = String(iso || '').split('-');
+      var key = String(iso || '');
+      var pm = SBQ_READINGS.isPM(key);
+      var p = SBQ_READINGS.keyDate(key).split('-');
       if (p.length !== 3) return null;
       var y = +p[0], m = +p[1] - 1, d = +p[2];
       if (isNaN(y) || isNaN(m) || isNaN(d) || m < 0 || m > 11) return null;
-      return { year: y, month: m, serviceDate: SBQ_READINGS._MO[m] + ' ' + d };
+      return { year: y, month: m, serviceDate: SBQ_READINGS._MO[m] + ' ' + d + (pm ? ' PM' : '') };
     },
 
     // "Oct 4" + the year column -> 'YYYY-MM-DD'. Older rows stored an ISO
@@ -72444,16 +72464,16 @@ var LiturgyModule = (function() {
     rosterToIso: function(serviceDate, year) {
       var s = String(serviceDate || '').trim();
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-      // The trailing part allows a second service on one date -- "Dec 31 PM"
-      // is the Watchnight, which shares 31 December with a Sunday morning
-      // service roughly one year in seven. Both map to the same ISO date,
-      // because that is the day they are both on.
-      var m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})(?:\s+\S+)?$/);
+      // "Dec 31 PM" is the Watchnight. It gets its own key rather than
+      // sharing the date's, so its readings and the morning service's stop
+      // overwriting each other in the years when the 31st is a Sunday.
+      var m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})(\s+\S+)?$/);
       if (!m || year === null || year === undefined || year === '') return '';
       var abbr = m[1].charAt(0).toUpperCase() + m[1].slice(1, 3).toLowerCase();
       var mi = SBQ_READINGS._MO.indexOf(abbr);
       if (mi < 0) return '';
-      return year + '-' + String(mi + 1).padStart(2, '0') + '-' + String(+m[2]).padStart(2, '0');
+      var suffix = /pm/i.test(m[3] || '') ? SBQ_READINGS.PM_SUFFIX : '';
+      return year + '-' + String(mi + 1).padStart(2, '0') + '-' + String(+m[2]).padStart(2, '0') + suffix;
     },
 
     // Every reading between two ISO dates, as { iso: { role: reference } }.
@@ -72476,7 +72496,12 @@ var LiturgyModule = (function() {
           var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
           // ISO dates compare correctly as strings, which is the whole
           // reason this page speaks ISO and converts only at the edges.
-          if (!iso || iso < fromIso || iso > toIso) return;
+          // Compared on the DATE part: an evening key carries a suffix, and
+          // '2026-12-31|pm' > '2026-12-31' would drop the Watchnight from
+          // any window that ends on the 31st.
+          if (!iso) return;
+          var day = SBQ_READINGS.keyDate(iso);
+          if (day < SBQ_READINGS.keyDate(fromIso) || day > SBQ_READINGS.keyDate(toIso)) return;
           if (!out[iso]) out[iso] = {};
           out[iso][row.role_id] = row.value || '';
         });
@@ -72520,7 +72545,10 @@ var LiturgyModule = (function() {
         var out = {};
         (r.data || []).forEach(function(row) {
           var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
-          if (!iso || iso < fromIso || iso > toIso) return;
+          // On the date part, for the same reason as getRange above.
+          if (!iso) return;
+          var day = SBQ_READINGS.keyDate(iso);
+          if (day < SBQ_READINGS.keyDate(fromIso) || day > SBQ_READINGS.keyDate(toIso)) return;
           if (!out[iso]) out[iso] = {};
           if (row.role_id === 'service_type') { out[iso].serviceType = row.value; return; }
           var v = row.value;
@@ -76890,7 +76918,13 @@ var LiturgyModule = (function() {
       .then(function(lists) {
         var out = [];
         lists.forEach(function(l) {
-          (l || []).forEach(function(d) { if (d >= w.from && d <= w.to) out.push(d); });
+          // On the date part: a service key may carry an evening suffix, and
+          // '2026-12-31|pm' > '2026-12-31' would drop the Watchnight from a
+          // window that ends on the 31st.
+          (l || []).forEach(function(d) {
+            var day = SBQ_READINGS.keyDate(d);
+            if (day >= SBQ_READINGS.keyDate(w.from) && day <= SBQ_READINGS.keyDate(w.to)) out.push(d);
+          });
         });
         return out.sort();
       });
@@ -76972,7 +77006,44 @@ var LiturgyModule = (function() {
     if (mode === 'day') {
       // Day view always shows the four slots, service or not: this is where a
       // reading gets added to a date the roster does not know about yet.
-      grid.innerHTML = _readingSlotRow(_currentReadingDate, readings[_currentReadingDate] || {});
+      // Every service ON that day, not just the day. 31 December has two in
+      // the years the 31st is a Sunday, and in every other year the single
+      // service there is the Watchnight -- whose key carries the evening
+      // suffix either way. Rendering only the bare date would show an empty
+      // set of slots beside a service that has readings.
+      var onThisDay = (serviceDates || []).filter(function(k) {
+        return SBQ_READINGS.keyDate(k) === _currentReadingDate;
+      });
+      // A key with readings but no roster row for the day still has to show.
+      Object.keys(readings || {}).forEach(function(k) {
+        if (SBQ_READINGS.keyDate(k) === _currentReadingDate && onThisDay.indexOf(k) === -1) onThisDay.push(k);
+      });
+      // Nothing on this day at all: show the bare date's four slots anyway,
+      // which is how a reading gets added to a date the roster does not know
+      // about yet. Only when nothing else is there -- 31 December 2026 is a
+      // Thursday with just a Watchnight, and including the bare date
+      // unconditionally invented a "Morning service" beside it that does not
+      // exist.
+      if (!onThisDay.length) onThisDay = [_currentReadingDate];
+
+      if (onThisDay.length === 1) {
+        // onThisDay[0], not _currentReadingDate. On a day whose only service
+        // is the Watchnight -- every 31 December that is not a Sunday -- the
+        // one service is '...|pm', and rendering the bare date instead gave
+        // four slots that saved to "Dec 31", a key no column reads. The
+        // single-service case is where that goes wrong silently, because the
+        // screen looks exactly right.
+        var only = onThisDay[0];
+        grid.innerHTML = _readingSlotRow(only, readings[only] || {});
+      } else {
+        grid.className = 'lit-reading-slots-stack';
+        grid.innerHTML = onThisDay.sort().map(function(k) {
+          return '<div class="lit-svc-block">' +
+              _serviceLabelHead(k, meta[k]) +
+              '<div class="lit-reading-slots-grid">' + _readingSlotRow(k, readings[k] || {}) + '</div>' +
+            '</div>';
+        }).join('');
+      }
       _paintDayContext(meta[_currentReadingDate], dates);
       // Only in Day view: week and month show many services at once, and one
       // button there could not say which service it would put back.
@@ -77022,9 +77093,23 @@ var LiturgyModule = (function() {
     el.innerHTML = bits.join('');
   }
 
+  // Within one day, the date is the same for both services, so the header
+  // has to say which service instead of repeating it.
+  function _serviceLabelHead(key, m) {
+    var pm = SBQ_READINGS.isPM(key);
+    var col = ALTAR_COLORS[String((m && m.color) || '').toLowerCase()] || '#94a3b8';
+    return '<div class="lit-svc-head">' +
+        '<span class="lit-svc-when">' + (pm ? 'Watchnight' : 'Morning service') + '</span>' +
+        ((m && m.day) ? '<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+          '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' : '') +
+        ((m && m.serviceType) ? '<span class="lit-svc-type">' + escapeHtml(m.serviceType) + '</span>' : '') +
+      '</div>';
+  }
+
   function _serviceHeader(iso, m) {
-    var d = new Date(iso + 'T00:00:00');
-    var when = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    var d = new Date(SBQ_READINGS.keyDate(iso) + 'T00:00:00');
+    var when = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) +
+      (SBQ_READINGS.isPM(iso) ? ' \u00b7 Watchnight' : '');
     var col = ALTAR_COLORS[String((m && m.color) || '').toLowerCase()] || '#94a3b8';
     return '<div class="lit-svc-head">' +
         '<button type="button" class="lit-svc-date" onclick="LiturgyModule.openReadingDay(' + "'" + iso + "'" + ')" title="Open this service on its own">' +
@@ -77475,13 +77560,17 @@ var LiturgyModule = (function() {
   }
 
   function _lectPrettyDate(iso) {
-    var p = String(iso).split('-');
+    // A service key may carry an evening suffix; split on the date part or
+    // the day number comes out as "31|pm" and the whole label reads wrong.
+    var pm = /\|pm$/.test(String(iso));
+    var p = String(iso).slice(0, 10).split('-');
     if (p.length !== 3) return iso;
     var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
     if (isNaN(d)) return iso;
     var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+    return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' ' +
+      d.getUTCFullYear() + (pm ? ' (Watchnight)' : '');
   }
 
   function saveLectionaryImport() {
