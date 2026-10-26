@@ -21,8 +21,8 @@
 --   reserved occasion id in it would work and would be a lie to the next
 --   person who reads that table.
 --
--- So: one row per uploaded document, holding the file, when it arrived, and
--- which service dates it supplied.
+-- So: one row per uploaded document, holding the file, when it arrived,
+-- which service dates it supplied, and what it said for each of them.
 --
 -- WHAT IT DOES NOT DO
 -- It is not where readings live. Readings are roster rows -- role ids
@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS lectionary_sources (
   -- provenance, so once the import has run there is no other way to say
   -- how many Sundays this file accounted for.
   service_dates jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- What the document actually said, as
+  --   { "2026-11-01": { "reading1": "...", "psalm": "...",
+  --                     "reading2": "...", "gospel": "..." }, ... }
+  --
+  -- Kept so "reset these readings to the lectionary" is answerable. Without
+  -- it the only record of the import is which dates it touched, and a
+  -- reading edited by hand could never be put back without uploading the
+  -- PDF again. It is a snapshot of the document, NOT the live readings:
+  -- the roster is those, and this is what the file said on the day it was
+  -- read.
+  readings      jsonb NOT NULL DEFAULT '{}'::jsonb,
   note          text
 );
 

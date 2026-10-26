@@ -29463,6 +29463,11 @@ var SBQ_LECT_SOURCES = {
       file_url: rec.fileUrl,
       uploaded_at: new Date().toISOString(),
       service_dates: rec.serviceDates || [],
+      // What the document said, per date. This is what makes "reset to the
+      // lectionary" possible: the roster holds the live readings, and a
+      // reading edited by hand would otherwise be unrecoverable without
+      // uploading the file again.
+      readings: rec.readings || {},
       note: rec.note || null
     };
     return Promise.resolve(
@@ -29495,6 +29500,10 @@ var SBQ_LECT_SOURCES = {
                   : (typeof row.service_dates === 'string'
                       ? (function() { try { return JSON.parse(row.service_dates) || []; } catch (e) { return []; } })()
                       : []),
+      readings: (row.readings && typeof row.readings === 'object') ? row.readings
+              : (typeof row.readings === 'string'
+                  ? (function() { try { return JSON.parse(row.readings) || {}; } catch (e) { return {}; } })()
+                  : {}),
       note: row.note || ''
     };
   }
@@ -32135,6 +32144,18 @@ var WO = (function() {
           }
 
           showToast('Order created!', 'success');
+
+          // An order for a dated service starts with that date's readings in
+          // place, the same as one created from the roster's service card.
+          // Only that path did this, so an order made from the New Order
+          // dialog -- the usual way -- opened with four empty reading slots
+          // beside a roster that already had all four references.
+          //
+          // Quiet: a new order with no readings yet on the roster is normal,
+          // and a toast saying so on every creation would be noise.
+          if (serviceDate && typeof fillReadingsFromRoster === 'function') {
+            fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });
+          }
           if (window._lpPendingOrderSongTitle) {
             showToast('Now add “' + window._lpPendingOrderSongTitle + '” to it with + Add Song', 'info');
             window._lpPendingOrderSongTitle = '';
@@ -76571,8 +76592,13 @@ var LiturgyModule = (function() {
       // reading gets added to a date the roster does not know about yet.
       grid.innerHTML = _readingSlotRow(_currentReadingDate, readings[_currentReadingDate] || {});
       _paintDayContext(meta[_currentReadingDate], dates);
+      // Only in Day view: week and month show many services at once, and one
+      // button there could not say which service it would put back.
+      _renderReadingResetButton(_currentReadingDate);
       return;
     }
+    var resetHost = document.getElementById('lectionaryResetHost');
+    if (resetHost) resetHost.innerHTML = '';
 
     if (!dates.length) {
       grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
@@ -76841,6 +76867,7 @@ var LiturgyModule = (function() {
             '<div class="lit-reading-slots-actions">' +
               '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()" title="Read one service out of a bulletin"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
               '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryImportModal()" title="Read a whole lectionary: every service it lists, in one go"><i class="fa-solid fa-file-import mr-1"></i>Import lectionary</button>' +
+              '<span id="lectionaryResetHost"></span>' +
             '</div>' +
           '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
@@ -77119,12 +77146,24 @@ var LiturgyModule = (function() {
     // The receipt is filed only for what was actually written, and only
     // after. A source row claiming dates that failed to save would be a
     // record of something that did not happen.
-    var dates = {};
-    _lectImport.entries.forEach(function(e) { dates[e.date] = true; });
+    var dates = {}, readings = {};
+    _lectImport.entries.forEach(function(e) {
+      dates[e.date] = true;
+      // The document's own words, kept whole -- including the slots that
+      // were skipped at review, because a reset is "what the PDF said",
+      // not "what was ticked that day".
+      readings[e.date] = {
+        reading1: e.firstReading || '',
+        psalm: e.psalm || '',
+        reading2: e.secondReading || '',
+        gospel: e.gospel || ''
+      };
+    });
     var rec = {
       fileName: _lectImport.fileName,
       fileUrl: _lectImport.fileUrl,
       serviceDates: Object.keys(dates).sort(),
+      readings: readings,
       note: saved + ' reading' + (saved === 1 ? '' : 's') + ' saved' + (failed.length ? ', ' + failed.length + ' failed' : '')
     };
     var done = function(src) {
@@ -77145,6 +77184,101 @@ var LiturgyModule = (function() {
     };
     if (saved > 0) SBQ_LECT_SOURCES.save(rec).then(done).catch(function() { done(null); });
     else done(null);
+  }
+
+  // ── Putting a date back to what the lectionary said ──────────────────
+  //
+  // Readings are editable everywhere -- the roster grid, the Bible picker,
+  // this page -- which is right, because the PDF is a starting point and the
+  // church is the authority. The cost of that is no way back: once a cell has
+  // been typed over there is nothing to compare it against.
+  //
+  // So the import keeps what the document said, and this puts it back. It is
+  // deliberately NOT automatic and never runs over a whole year at once: it
+  // asks, per service, naming what will change.
+  function _lectSourceFor(iso) {
+    return SBQ_LECT_SOURCES.getLatest().then(function(src) {
+      if (!src || !src.readings || !src.readings[iso]) return null;
+      return { src: src, slots: src.readings[iso] };
+    });
+  }
+
+  // What a reset would actually change, as a list. Both the button and the
+  // reset itself read this: written twice, the two drift, and the symptom is
+  // a button that appears and then says there is nothing to do.
+  //
+  // A slot the document left blank is never "put back" to empty. The PDF not
+  // mentioning a psalm is not the same as the PDF saying there isn't one, and
+  // clearing a reading somebody added by hand on that basis would be wrong.
+  function _lectResetPlan(iso, fromDoc) {
+    var plan = [];
+    SBQ_READINGS.SLOTS.forEach(function(slot, i) {
+      var cur = String(((_readingRefsByDate[iso] || {})[slot.role]) || '').trim();
+      var was = String((fromDoc || {})[slot.role] || '').trim();
+      if (was && cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });
+    });
+    return plan;
+  }
+
+  // Shown only where there is something to go back TO.
+  function _renderReadingResetButton(iso) {
+    var host = document.getElementById('lectionaryResetHost');
+    if (!host) return;
+    host.innerHTML = '';
+    _lectSourceFor(iso).then(function(found) {
+      if (!found) return;
+      // Nothing differs? Then there is nothing to reset, and offering it
+      // would be a button that does nothing.
+      if (!_lectResetPlan(iso, found.slots).length) return;
+      host.innerHTML =
+        '<button type="button" class="lit-reset-btn" onclick="LiturgyModule.resetReadingsToLectionary(\'' + escapeHtml(iso) + '\')" ' +
+        'title="Put this service\u2019s readings back to what ' + escapeHtml(found.src.fileName) + ' says">' +
+          '<i class="fa-solid fa-rotate-left mr-1"></i>Reset to the lectionary' +
+        '</button>';
+    });
+  }
+
+  function resetReadingsToLectionary(iso) {
+    _lectSourceFor(iso).then(function(found) {
+      if (!found) {
+        if (typeof showToast === 'function') showToast('No imported lectionary covers this service.', 'info');
+        return;
+      }
+      var changes = _lectResetPlan(iso, found.slots);
+      if (!changes.length) {
+        if (typeof showToast === 'function') showToast('These readings already match the lectionary.', 'info');
+        return;
+      }
+      // Named, not counted. "3 readings will change" is not enough to decide
+      // on when one of them might be a correction somebody made on purpose.
+      var detail = changes.map(function(c) { return c.label + ': ' + c.from + ' \u2192 ' + c.to; }).join('\n');
+      var ask = (typeof window.customConfirm === 'function')
+        ? window.customConfirm('Reset to ' + found.src.fileName + '?', detail)
+        : Promise.resolve(window.confirm(detail));
+      ask.then(function(ok) {
+        if (!ok) return;
+        var done = 0, failed = 0;
+        function step(i) {
+          if (i >= changes.length) {
+            reloadReadings();
+            _renderReadingResetButton(iso);
+            if (typeof showToast === 'function') {
+              showToast(failed
+                ? ('Reset ' + done + ', but ' + failed + ' could not be saved')
+                : ('Reset ' + done + ' reading' + (done === 1 ? '' : 's') + ' to ' + found.src.fileName),
+                failed ? 'error' : 'success');
+            }
+            return;
+          }
+          // Sequential, for the same reason the import is: setReference reads
+          // the row it is about to overwrite so it can log the old value.
+          SBQ_READINGS.setReference(iso, changes[i].idx, changes[i].to)
+            .then(function() { done++; step(i + 1); })
+            .catch(function(e) { console.error('reset failed', e); failed++; step(i + 1); });
+        }
+        step(0);
+      });
+    });
   }
 
   // The chip in the Readings header: which document these came from.
@@ -79685,6 +79819,7 @@ var LiturgyModule = (function() {
     closeLectionaryImportModal: closeLectionaryImportModal,
     runLectionaryImport: runLectionaryImport,
     saveLectionaryImport: saveLectionaryImport,
+    resetReadingsToLectionary: resetReadingsToLectionary,
     closeLectionaryUploadModal: closeLectionaryUploadModal,
     onLectUploadFileChosen: onLectUploadFileChosen,
     analyzeLectionaryUpload: analyzeLectionaryUpload,
@@ -86541,7 +86676,16 @@ function filterLiturgyItems() {
   .lit-nav-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
   /* ===== LECTIONARY IMPORT ===== */
-  .lit-reading-slots-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lit-reading-slots-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lit-reset-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.75rem;
+    background: rgba(234,179,8,0.14);
+    border: 1px solid rgba(234,179,8,0.45);
+    color: #78350f;
+  }
+  .lit-reset-btn:hover { background: rgba(234,179,8,0.26); }
 
   /* Which document the readings came from. A link, because the first thing
      anybody asks after "where did this come from" is to see it. */

@@ -253,6 +253,83 @@ console.log('\nwhat the import is wired to');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nputting a service back to what the document said');
+{
+  const planSrc = extractFunction('_lectResetPlan');
+  check('there is one place that decides what a reset changes', !!planSrc, true);
+  if (planSrc) {
+    const plan = (saved, fromDoc) => new Function('_readingRefsByDate', 'SBQ_READINGS',
+      planSrc + '\nreturn _lectResetPlan;')({ '2026-11-01': saved || {} }, { SLOTS })('2026-11-01', fromDoc);
+
+    const DOC = { reading1: 'Revelation 7:9-17', psalm: 'Psalm 34:1-10, 22',
+                  reading2: '1 John 3:1-3', gospel: 'Matthew 5:1-12' };
+
+    check('a service already matching the document changes nothing', plan(DOC, DOC), []);
+    check('one reading edited by hand is the one put back',
+      plan(Object.assign({}, DOC, { gospel: 'John 11:32-44' }), DOC).map(c => c.label), ['Gospel']);
+    check('and it carries both values, so the prompt can name them',
+      plan(Object.assign({}, DOC, { gospel: 'John 11:32-44' }), DOC).map(c => c.from + ' -> ' + c.to),
+      ['John 11:32-44 -> Matthew 5:1-12']);
+    check('an empty slot the document fills reads as (empty)',
+      plan({ reading1: '', psalm: DOC.psalm, reading2: DOC.reading2, gospel: DOC.gospel }, DOC).map(c => c.from),
+      ['(empty)']);
+    check('a service with nothing saved is put back whole', plan({}, DOC).map(c => c.idx), [0, 1, 2, 3]);
+
+    // The one that would quietly destroy work. The document not mentioning a
+    // psalm is not the document saying there is no psalm, so a slot it left
+    // blank must never clear a reading somebody added by hand.
+    check('a slot the document left blank is left alone',
+      plan(DOC, { reading1: DOC.reading1, psalm: '', reading2: '', gospel: DOC.gospel }), []);
+    check('even when the saved reading is the only one there',
+      plan({ psalm: 'Psalm 23' }, { reading1: '', psalm: '', reading2: '', gospel: '' }), []);
+
+    check('a date the document never covered changes nothing', plan(DOC, {}), []);
+    check('and neither does a missing one', plan(DOC, null), []);
+  }
+
+  // The button and the reset can only agree by reading the same function.
+  const resetSrc = raw.slice(raw.indexOf('function _renderReadingResetButton'));
+  const resetBody = resetSrc.slice(0, resetSrc.indexOf('\n  }\r\n'));
+  check('the button asks the shared plan', /_lectResetPlan\(iso, found\.slots\)/.test(resetBody), true);
+  const doSrc = raw.slice(raw.indexOf('function resetReadingsToLectionary'));
+  const doBody = doSrc.slice(0, doSrc.indexOf('\n  }\r\n'));
+  check('and so does the reset itself', /_lectResetPlan\(iso, found\.slots\)/.test(doBody), true);
+  check('the reset writes to the roster', /SBQ_READINGS\.setReference\(iso, changes\[i\]\.idx/.test(doBody), true);
+  check('it asks before changing anything', /customConfirm/.test(doBody), true);
+  check('naming each change rather than counting them', /c\.label \+ ': ' \+ c\.from/.test(doBody), true);
+  check('it is offered only in Day view', /_renderReadingResetButton\(_currentReadingDate\);/.test(raw), true);
+
+  // A reset needs something to go back TO.
+  check('the import stores the document\u2019s own readings', /readings\[e\.date\] = \{/.test(raw), true);
+  check('and the source row carries them', /readings: rec\.readings \|\| \{\}/.test(raw), true);
+  // Building the map is not the same as handing it over. Dropping the one
+  // line that puts it on the record leaves the import looking correct and
+  // every future reset with nothing to go back to.
+  check('and the import actually hands them to the record',
+    /serviceDates: Object\.keys\(dates\)\.sort\(\),\s*readings: readings,/.test(raw), true);
+  check('the migration has a column for them',
+    fs.readFileSync(path.join(__dirname, '..', 'migrations', '2026-10-26_add_lectionary_sources.sql'), 'utf8')
+      .indexOf('readings      jsonb') !== -1, true);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\na new order opens with its readings in place');
+{
+  // fillReadingsFromRoster already existed, wired into the roster's service
+  // card only. An order made from the New Order dialog -- the usual way --
+  // opened with four empty slots beside a roster that had all four.
+  const modal = raw.slice(raw.indexOf('function createOrderFromModal'));
+  const modalBody = modal.slice(0, modal.indexOf('\n  }\r\n'));
+  check('the New Order dialog fills them too',
+    /fillReadingsFromRoster\(\{ dateStr: serviceDate, quiet: true \}\)/.test(modalBody), true);
+  check('only when the order has a service date',
+    /serviceDate && typeof fillReadingsFromRoster/.test(modalBody), true);
+  check('and quietly, since no readings yet is normal', /quiet: true/.test(modalBody), true);
+  check('the roster service card still does it as well',
+    /window\.WO\.fillReadingsFromRoster\(\{ dateStr: serviceDate/.test(raw), true);
+}
+
+// ---------------------------------------------------------------------------
 const failed = results.filter(ok => !ok).length;
 console.log('\n' + (results.length - failed) + '/' + results.length + ' checks passed');
 process.exit(failed ? 1 : 0);

@@ -122,6 +122,22 @@ const SORTED_RANGE = '        var dates = entries.map(function(e) { return e.dat
                      '        var from = dates[0], to = dates[dates.length - 1];';
 const POSITIONAL_RANGE = '        var from = entries[0].date, to = entries[entries.length - 1].date;';
 
+// The one line that decides what a reset would change, and three ways of
+// getting it wrong.
+const PLAN_LINE = "      if (was && cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_CLEARS_BLANK = "      if (cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_REWRITES_ALL = "      if (was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_NEVER_FIRES  = '      if (false) plan.push({ idx: i, label: slot.label, from: cur, to: was });';
+// customConfirm appears all over the file; this is the one in the reset.
+const RESET_ASK =
+  "      var ask = (typeof window.customConfirm === 'function')\r\n" +
+  "        ? window.customConfirm('Reset to ' + found.src.fileName + '?', detail)\r\n" +
+  '        : Promise.resolve(window.confirm(detail));';
+const ORDER_FILL =
+  "          if (serviceDate && typeof fillReadingsFromRoster === 'function') {\r\n" +
+  '            fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });\r\n' +
+  '          }\r\n';
+
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
     s => s.replace(DESPACED, '')],
@@ -455,7 +471,29 @@ const CASES = [
   ['lectionary-import-harness.js', 'the clash lookup trusts the array order',
     s => s.replace(SORTED_RANGE, POSITIONAL_RANGE)],
   ['lectionary-import-harness.js', 'review dates are built in local time',
-    s => s.replace('new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]))', 'new Date(+p[0], +p[1] - 1, +p[2])')]
+    s => s.replace('new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]))', 'new Date(+p[0], +p[1] - 1, +p[2])')],
+
+  // Resetting a service back to what the lectionary said. The destructive
+  // one is first: a slot the document left blank is not the document saying
+  // there is no reading, so it must never clear one added by hand.
+  ['lectionary-import-harness.js', 'a reset clears readings the document never mentioned',
+    s => s.replace(PLAN_LINE, PLAN_CLEARS_BLANK)],
+  ['lectionary-import-harness.js', 'a reset rewrites slots that already match',
+    s => s.replace(PLAN_LINE, PLAN_REWRITES_ALL)],
+  ['lectionary-import-harness.js', 'the reset never finds anything to do',
+    s => s.replace(PLAN_LINE, PLAN_NEVER_FIRES)],
+  // The button and the reset agree only by reading the same function.
+  ['lectionary-import-harness.js', 'the reset button stops asking the shared plan',
+    s => s.replace('      if (!_lectResetPlan(iso, found.slots).length) return;',
+                   '      if (!found.slots) return;')],
+  ['lectionary-import-harness.js', 'the reset stops asking before it overwrites',
+    s => s.replace(RESET_ASK, '      var ask = Promise.resolve(true);')],
+  // Building the snapshot is not the same as handing it over: drop this one
+  // line and every future reset has nothing to go back to.
+  ['lectionary-import-harness.js', 'the import stops recording what the document said',
+    s => s.replace('      readings: readings,\r\n', '')],
+  ['lectionary-import-harness.js', 'a new order stops getting its readings',
+    s => s.replace(ORDER_FILL, '')]
 ];
 
 let caught = 0, missed = 0, stale = 0;
