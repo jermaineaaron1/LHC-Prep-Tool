@@ -71,6 +71,12 @@ async function req(url, init) {
       file_name: 'verify.pdf',
       file_url: 'https://example.invalid/verify.pdf',
       service_dates: ['2026-01-01'],
+      // The column the reset depends on. It was added to the migration after
+      // the first draft of this file, so a copy of the migration from before
+      // that would create a table this script used to call healthy and the
+      // reset would then fail on every service.
+      readings: { '2026-01-01': { reading1: 'Isaiah 60:1-6', psalm: 'Psalm 72',
+                                  reading2: 'Ephesians 3:1-12', gospel: 'Matthew 2:1-12' } },
       note: 'written by tools/verify-lectionary-sources.js; delete if you find it'
     })
   });
@@ -86,6 +92,13 @@ async function req(url, init) {
       say(got.file_name === 'verify.pdf', 'with its columns intact');
       say(Array.isArray(got.service_dates) && got.service_dates[0] === '2026-01-01',
         'and service_dates round-trips as a list', 'got ' + JSON.stringify(got.service_dates));
+      // Nested, because this is what "reset to the lectionary" reads back:
+      // a column that exists but flattens the object would pass a shallow
+      // check and still leave every reset with nothing to restore.
+      const r = (got.readings || {})['2026-01-01'] || {};
+      say(r.gospel === 'Matthew 2:1-12',
+        'and readings round-trips, nested, for the reset to use',
+        'got ' + JSON.stringify(got.readings));
       say(!!got.uploaded_at, 'uploaded_at defaults on insert', String(got.uploaded_at || ''));
     }
 
