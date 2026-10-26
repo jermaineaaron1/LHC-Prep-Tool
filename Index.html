@@ -7877,6 +7877,39 @@
       <section id="liturgyView" style="display: none;">
         <div class="liturgy-container" style="padding:0;">
 
+          <!-- The five ways into this page, as a strip across the top.
+               They are the same five entries as the sidebar, and carry the
+               same class and data-libfilter, so _litSyncNav lights both at
+               once without knowing this exists.
+
+               Shown only where the sidebar is an overlay. On a phone the
+               sidebar is behind a hamburger, so moving between Readings,
+               Services and the rest meant open drawer, tap, drawer closes --
+               three gestures to change tab, on the page a musician is most
+               likely to be holding a phone in front of. -->
+          <nav id="litTopNav" class="lit-topnav" aria-label="Liturgy sections">
+            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
+              <span class="lit-nav-dot" style="background:#0b7644;"></span>
+              <i class="fa-solid fa-book-bible" aria-hidden="true"></i><span>Readings</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
+              <span class="lit-nav-dot" style="background:#188e44;"></span>
+              <i class="fa-solid fa-church" aria-hidden="true"></i><span>Services</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
+              <span class="lit-nav-dot" style="background:#f59e0b;"></span>
+              <i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Liturgies</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+              <span class="lit-nav-dot" style="background:#10b981;"></span>
+              <i class="fa-solid fa-camera-retro" aria-hidden="true"></i><span>Memories</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
+              <span class="lit-nav-dot" style="background:#6b7280;"></span>
+              <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Library</span>
+            </button>
+          </nav>
+
           <!-- ===== WELCOME OVERVIEW (default landing) ===== -->
           <div id="liturgyWelcome">
 
@@ -75976,8 +76009,7 @@ var LiturgyModule = (function() {
     if (welcome)  welcome.style.display = '';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = 'none';
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) { btn.classList.remove('active'); });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    _litSyncNav('all-services');
     showWelcomeSubview('occasions');
   }
 
@@ -76477,8 +76509,11 @@ var LiturgyModule = (function() {
   // ── AI-assisted "Auto-Fill from Bulletin" upload ──────────────────────
   // Uploads a bulletin file (or a pasted link) to /api/parse-lectionary,
   // shows an editable review form pre-filled with what the AI found, then
-  // saves confirmed references through the exact same fetchBiblePassage ->
-  // SBQ_LECTIONARY.saveSlot pipeline the manual Bible Browser picker uses.
+  // saves the confirmed references through the same fetchBiblePassage ->
+  // SBQ_READINGS.setReference pipeline the manual Bible Browser picker uses,
+  // which writes the roster. The claim that it shared that pipeline was in
+  // this comment long before it was true: it wrote lectionary_readings, a
+  // text cache nothing reads back.
   var _lectUploadFile = null;
   var _lectUploadResult = null;
 
@@ -76643,39 +76678,55 @@ var LiturgyModule = (function() {
       return;
     }
 
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving\u2026'; }
     var dateStr = _currentReadingDate;
     var savedCount = 0;
     var failedRefs = [];
 
-    // Saved sequentially (never Promise.all) -- SBQ_LECTIONARY.saveSlot reads
-    // the existing slots array, splices in one index, then upserts the whole
-    // array, so parallel calls for the same date would clobber each other.
+    // Saved to the ROSTER, which is where readings live and where this page
+    // reads them from.
+    //
+    // This used to call SBQ_LECTIONARY.saveSlot, which writes
+    // `lectionary_readings` -- a passage-TEXT cache that nothing reads. The
+    // save appeared to work because it then repainted from a local variable,
+    // and the references were gone on the next load. The table held one row,
+    // from the one time somebody tried this.
+    //
+    // Sequential, not Promise.all: setReference reads the row it is about to
+    // overwrite so it can log the before-value to roster_changes, and four
+    // of those racing on one date would log each other's reads.
     function saveNext(i) {
       if (i >= entries.length) {
-        if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
         if (failedRefs.length) {
           if (errorEl) { errorEl.textContent = 'Could not save: ' + failedRefs.join(', '); errorEl.style.display = 'block'; }
           if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Confirm & Save'; }
         } else {
           closeLectionaryUploadModal();
-          if (typeof showToast === 'function') showToast('Saved ' + savedCount + ' reading' + (savedCount === 1 ? '' : 's'), 'success');
+          if (typeof showToast === 'function') showToast('Saved ' + savedCount + ' reading' + (savedCount === 1 ? '' : 's') + ' to the roster', 'success');
         }
+        // Whatever happened, show what IS saved rather than what was typed.
+        if (_currentReadingDate === dateStr) reloadReadings();
         return;
       }
       var entry = entries[i];
+      // The passage is fetched first, and its canonical reference is what
+      // gets saved -- it turns "Isiah 6:1-8" into "Isaiah 6:1-8" and rejects
+      // a reference the AI invented. The text is kept in the same in-memory
+      // cache the Bible Browser fills, so opening the reading does not go
+      // back to the API.
       _fetchBiblePassagePromise(entry.reference, 'esv').then(function(passage) {
         if (passage.error) throw new Error(passage.error);
-        var slotData = {
-          label: READING_SLOT_LABELS[entry.idx] || 'Reading',
-          reference: passage.reference || entry.reference,
-          translation: passage.translation || '',
-          passageText: passage.text || '',
-          verseCount: passage.verseCount || 0
-        };
-        return SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, slotData);
-      }).then(function(slots) {
-        _lectionaryReadingsCache[dateStr] = slots;
+        var canonical = passage.reference || entry.reference;
+        if (typeof bbNormaliseReference === 'function') {
+          _passageTextCache[bbNormaliseReference(canonical)] = {
+            reference: canonical,
+            translation: passage.translation || '',
+            text: passage.text || '',
+            note: passage.note || ''
+          };
+        }
+        return SBQ_READINGS.setReference(dateStr, entry.idx, canonical);
+      }).then(function() {
         savedCount++;
         saveNext(i + 1);
       }).catch(function(err) {
@@ -76689,18 +76740,38 @@ var LiturgyModule = (function() {
 
   /* ===== END LECTIONARY READING HOME ===== */
 
+  // Which of the five sections is lit, in one place.
+  //
+  // There were five copies of this, and two of them cleared every button
+  // instead of lighting one: opening Readings or Services left the whole nav
+  // dark, so the page never said which section you were in. Only Liturgies,
+  // Memories and Library ever highlighted.
+  //
+  // It matches on data-libfilter rather than on an element id, so it lights
+  // the sidebar and the mobile strip together without either knowing about
+  // the other. `null` means no section -- drilling into one service from
+  // Services, where none of the five is the whole truth.
+  function _litSyncNav(key) {
+    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
+      btn.classList.toggle('active', !!key && btn.getAttribute('data-libfilter') === key);
+    });
+    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+    // Keep the active chip reachable: on a phone the strip scrolls, and
+    // Library sits off the right edge at 360px.
+    var on = document.querySelector('#litTopNav .lit-nav-occ-btn.active');
+    if (on && on.scrollIntoView) {
+      try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    }
+  }
+
   function selectOccasion(occasionId) {
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
     _occContentTypeFilter = null; // Reset content-type filter so it doesn't leak between services
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
-    // Sidebar active state
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-occasion') === occasionId);
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    _litSyncNav(occasionId ? null : 'dashboard');
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -78225,10 +78296,9 @@ var LiturgyModule = (function() {
     currentFilter = 'all';
     folderBreadcrumb = [];
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
-    // Sidebar active state — deactivate season buttons, activate folder button
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    // A general folder is its own thing: none of the five, and _litSyncNav
+    // clears the folder buttons, so its own highlight is set after it.
+    _litSyncNav(null);
     document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-gen-folder') === folderId);
     });
@@ -78265,12 +78335,7 @@ var LiturgyModule = (function() {
     _librarySeasonFilter = null;
     _libraryFavoritesOnly = false;
     _libraryTagFilter = { mode: def.mode, value: def.value };
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === kind);
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    _litSyncNav(kind);
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -78308,10 +78373,7 @@ var LiturgyModule = (function() {
   function openMemories() {
     _currentOccasion = null;
     _currentGeneralFolder = null;
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === 'memories');
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    _litSyncNav('memories');
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -85814,6 +85876,52 @@ function filterLiturgyItems() {
   .lit-nav-occ-btn:hover { background: rgba(255,255,255,0.1); color: white; }
   .lit-nav-occ-btn.active { background: rgba(255,255,255,0.15); color: white; font-weight: 600; }
   .lit-nav-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ===== LITURGY SECTION STRIP (mobile) =====
+     Hidden on desktop, where the sidebar already lists these five. It appears
+     only where the sidebar becomes an overlay, matching _isSidebarOverlayMode
+     so the strip is present exactly when the sidebar is not. */
+  .lit-topnav { display: none; }
+  @media (max-width: 768px), (max-width: 1200px) and (orientation: portrait) {
+    .lit-topnav {
+      display: flex;
+      gap: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      background: linear-gradient(135deg, #0b2a14, #103a1e);
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+    .lit-topnav::-webkit-scrollbar { display: none; }
+    /* Overriding the sidebar rule, which is full-width and left-aligned. */
+    .lit-topnav .lit-nav-occ-btn {
+      width: auto;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      padding: 7px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 0.78rem;
+      /* A 36px-tall target. Below the 44px ideal, but these sit in a row of
+         five on a 360px screen and the strip scrolls, so height is the only
+         axis left to give. */
+      min-height: 36px;
+    }
+    .lit-topnav .lit-nav-occ-btn.active {
+      background: rgba(255,255,255,0.22);
+      border-color: rgba(255,255,255,0.45);
+      color: #fff;
+      font-weight: 600;
+    }
+    .lit-topnav .lit-nav-occ-btn i { font-size: 0.72rem; opacity: 0.85; }
+    /* The dot is redundant next to the icon at this size. */
+    .lit-topnav .lit-nav-dot { display: none; }
+  }
 
   /* Welcome header */
   .lit-welcome-header { background: linear-gradient(135deg, #0b7644, #079352, #28b06e); color: white; padding: 28px 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }

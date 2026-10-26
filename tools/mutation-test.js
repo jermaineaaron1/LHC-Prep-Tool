@@ -94,6 +94,12 @@ const SB_CLEANUP_ALL  = SB_CLEANUP_HEAD +
   "\r\n        console.warn('Songbook ' + id + ': its stored work was not removed:', e && e.message);" +
   '\r\n      });';
 
+const SET_REF   = '        return SBQ_READINGS.setReference(dateStr, entry.idx, canonical);';
+const SAVE_SLOT = '        SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, { reference: canonical });';
+// Two copies of this line exist, the sidebar's and the strip's; the mutation
+// below takes the SECOND, which is the strip.
+const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">';
+
 const CASES = [
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
@@ -360,7 +366,30 @@ const CASES = [
   ['songbook-delete-cleanup-harness.js', 'deleting a songbook leaves its stored work behind',
     s => s.replace(SB_CLEANUP_HEAD, '      return Promise.resolve().then(function(e) {')],
   ['songbook-delete-cleanup-harness.js', 'a failed cleanup is reported as a failed delete',
-    s => s.replace(SB_CLEANUP_ALL, "      return SBQ.deleteOrder('standalone_' + id);")]
+    s => s.replace(SB_CLEANUP_ALL, "      return SBQ.deleteOrder('standalone_' + id);")],
+
+  // The Liturgy page. Auto-Fill saved into lectionary_readings, a text cache
+  // nothing reads back, so the references vanished on the next load; and two
+  // of the five sections never lit up at all.
+  ['liturgy-nav-readings-harness.js', 'Auto-Fill saves to the cache nothing reads',
+    s => s.replace(SET_REF, SAVE_SLOT)],
+  // The sharper one: the roster write is still THERE, so a textual check is
+  // satisfied, but the dead store is written beside it again.
+  ['liturgy-nav-readings-harness.js', 'the dead store is written alongside the roster',
+    s => s.replace(SET_REF, SAVE_SLOT + '\r\n' + SET_REF)],
+  ['liturgy-nav-readings-harness.js', 'a reading is filed under the wrong slot',
+    s => s.replace(SET_REF,
+                   '        return SBQ_READINGS.setReference(dateStr, 3 - entry.idx, canonical);')],
+  ['liturgy-nav-readings-harness.js', 'the section nav goes dark again',
+    s => s.replace(
+      "      btn.classList.toggle('active', !!key && btn.getAttribute('data-libfilter') === key);",
+      "      btn.classList.remove('active');")],
+  // The strip and the sidebar are lit by ONE selector. Drop the shared class
+  // from the strip and only the sidebar highlights -- invisible on desktop,
+  // where the strip is hidden, and the only place it shows is a phone.
+  ['liturgy-nav-readings-harness.js', 'the mobile strip stops sharing the sidebar class',
+    s => { const i = s.indexOf(STRIP_BTN); const j = s.indexOf(STRIP_BTN, i + 1);
+           return j < 0 ? s : s.slice(0, j) + STRIP_BTN.replace('lit-nav-occ-btn', 'lit-strip-btn') + s.slice(j + STRIP_BTN.length); }]
 ];
 
 let caught = 0, missed = 0, stale = 0;
