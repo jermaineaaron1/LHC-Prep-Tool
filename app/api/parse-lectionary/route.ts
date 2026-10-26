@@ -31,6 +31,39 @@ const RESPONSE_SCHEMA = {
   required: ['firstReading', 'psalm', 'secondReading', 'gospel'],
 };
 
+// A whole lectionary: many services, each with its own date. The single-date
+// schema above stays as it is -- a bulletin for one Sunday is still the
+// common case, and asking the model for an array when the document only has
+// one service invites it to invent neighbours to fill the list.
+const CALENDAR_SCHEMA = {
+  type: Type.OBJECT,
+  description: 'Every dated service found in the lectionary document, with its four readings.',
+  properties: {
+    entries: {
+      type: Type.ARRAY,
+      description: 'One entry per dated service. Empty if the document has no dated services.',
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          date: { type: Type.STRING, description: 'The service date as YYYY-MM-DD. Required; skip any service whose date cannot be determined.' },
+          occasion: { type: Type.STRING, nullable: true, description: 'The name of the day if the document gives one, e.g. "All Saints\' Day", "Advent 2". Null if not stated.' },
+          firstReading: { type: Type.STRING, nullable: true, description: 'Old Testament / first reading reference, or null.' },
+          psalm: { type: Type.STRING, nullable: true, description: 'Psalm reference, or null.' },
+          secondReading: { type: Type.STRING, nullable: true, description: 'Epistle / second reading reference, or null.' },
+          gospel: { type: Type.STRING, nullable: true, description: 'Gospel reference, or null.' },
+        },
+        required: ['date', 'firstReading', 'psalm', 'secondReading', 'gospel'],
+      },
+    },
+  },
+  required: ['entries'],
+};
+
+// A year of Sundays plus festivals is comfortably under this. The cap is
+// here so a model that starts repeating itself cannot hand the browser a
+// review table with thousands of rows in it.
+const MAX_ENTRIES = 400;
+
 const MIME_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
 };
@@ -43,7 +76,10 @@ function extFromUrl(url: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { url, readingDate } = await req.json();
+    const { url, readingDate, mode, yearHint } = await req.json();
+    // 'calendar' reads a whole lectionary; anything else keeps the
+    // original single-service behaviour, so existing callers are unchanged.
+    const isCalendar = mode === 'calendar';
     if (!url || typeof url !== 'string') {
       return NextResponse.json({ error: 'url is required' }, { status: 400 });
     }
@@ -85,9 +121,20 @@ export async function POST(req: NextRequest) {
     const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
 
     const dateNote = readingDate ? ` The bulletin is for the service on ${readingDate}.` : '';
-    const promptText =
-      `This document is a church bulletin or lectionary sheet. Identify the 4 lectionary readings assigned for this service: the 1st Reading (Old Testament), the Psalm, the 2nd Reading (Epistle/New Testament), and the Gospel reading.${dateNote} ` +
-      `Report each as a plain scripture reference (book, chapter, and verses -- e.g. "Isaiah 6:1-8"), not the passage text itself. If a reading is not present in the document, report it as null.`;
+    const yearNote = yearHint ? ` Where the document gives a day and month without a year, assume ${yearHint}.` : '';
+
+    // Two prompts, because the two jobs fail in opposite directions. Asked
+    // for one service, the model must not wander to the next page; asked for
+    // a calendar, it must not stop at the first.
+    const promptText = isCalendar
+      ? `This document is a church lectionary: a table or list of services, each with a date and its appointed readings. ` +
+        `List EVERY dated service you can find, in the order they appear. For each one give the date as YYYY-MM-DD and the ` +
+        `1st Reading (Old Testament), Psalm, 2nd Reading (Epistle), and Gospel.${yearNote} ` +
+        `Report each reading as a plain scripture reference (book, chapter and verses -- e.g. "Isaiah 6:1-8"), never the passage text. ` +
+        `Use null for a reading a service does not list. Skip any service whose date you cannot work out rather than guessing one, ` +
+        `and do not invent services that are not in the document.`
+      : `This document is a church bulletin or lectionary sheet. Identify the 4 lectionary readings assigned for this service: the 1st Reading (Old Testament), the Psalm, the 2nd Reading (Epistle/New Testament), and the Gospel reading.${dateNote} ` +
+        `Report each as a plain scripture reference (book, chapter, and verses -- e.g. "Isaiah 6:1-8"), not the passage text itself. If a reading is not present in the document, report it as null.`;
 
     const ai = new GoogleGenAI({ apiKey });
 
@@ -127,13 +174,50 @@ export async function POST(req: NextRequest) {
       contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
+        responseSchema: isCalendar ? CALENDAR_SCHEMA : RESPONSE_SCHEMA,
       },
     });
 
     const raw = response.text;
     if (!raw) {
       return NextResponse.json({ error: 'AI did not return a structured result.' }, { status: 502 });
+    }
+
+    if (isCalendar) {
+      let parsed: { entries?: Array<Record<string, string | null>> };
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return NextResponse.json({ error: 'AI returned an unparseable result.' }, { status: 502 });
+      }
+
+      const seen = new Set<string>();
+      const entries = (parsed.entries || [])
+        .map((e) => ({
+          date: String(e.date || '').trim(),
+          occasion: e.occasion ? String(e.occasion).trim() : null,
+          firstReading: e.firstReading || null,
+          psalm: e.psalm || null,
+          secondReading: e.secondReading || null,
+          gospel: e.gospel || null,
+        }))
+        // A date the client cannot key on is worse than no row: it would show
+        // in the review table and then save nowhere.
+        .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date))
+        // Nothing to offer for this date.
+        .filter((e) => e.firstReading || e.psalm || e.secondReading || e.gospel)
+        // One row per date. A lectionary that prints a service twice -- a
+        // continued page, or morning and evening under one date -- would
+        // otherwise give the review table two rows that fight over one key.
+        .filter((e) => (seen.has(e.date) ? false : (seen.add(e.date), true)))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const truncated = entries.length > MAX_ENTRIES;
+      return NextResponse.json({
+        entries: truncated ? entries.slice(0, MAX_ENTRIES) : entries,
+        ...(truncated ? { warnings: [`Only the first ${MAX_ENTRIES} services were kept.`] } : {}),
+        ...(entries.length ? {} : { warnings: ['No dated services were found in this document.'] }),
+      });
     }
 
     let result: {

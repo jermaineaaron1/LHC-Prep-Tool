@@ -100,6 +100,15 @@ const SAVE_SLOT = '        SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, { referen
 // below takes the SECOND, which is the strip.
 const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">';
 
+// The loose-comparison line, as it appears in the source: \u2010 there is the
+// literal escape, not the character, so these are written raw.
+const NORM_LINE  = String.raw`    var norm = function(s) { return s.toLowerCase().replace(/[\u2010-\u2015]/g, '-').replace(/[\s,.]+/g, ''); };`;
+const LOOSE_LINE = String.raw`    var norm = function(s) { return s.toLowerCase().replace(/[0-9:,.\-\s]+/g, ''); };`;
+
+const SORTED_RANGE = '        var dates = entries.map(function(e) { return e.date; }).sort();\r\n' +
+                     '        var from = dates[0], to = dates[dates.length - 1];';
+const POSITIONAL_RANGE = '        var from = entries[0].date, to = entries[entries.length - 1].date;';
+
 const CASES = [
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
@@ -389,7 +398,38 @@ const CASES = [
   // where the strip is hidden, and the only place it shows is a phone.
   ['liturgy-nav-readings-harness.js', 'the mobile strip stops sharing the sidebar class',
     s => { const i = s.indexOf(STRIP_BTN); const j = s.indexOf(STRIP_BTN, i + 1);
-           return j < 0 ? s : s.slice(0, j) + STRIP_BTN.replace('lit-nav-occ-btn', 'lit-strip-btn') + s.slice(j + STRIP_BTN.length); }]
+           return j < 0 ? s : s.slice(0, j) + STRIP_BTN.replace('lit-nav-occ-btn', 'lit-strip-btn') + s.slice(j + STRIP_BTN.length); }],
+
+  // Importing a lectionary writes many roster rows from one upload, so what
+  // it does on a disagreement is the whole safety story. The comparison has
+  // to thread between two quiet failures, and both are mutated here.
+  ['lectionary-import-harness.js', 'a clash is treated as an empty slot and overwrites',
+    s => s.replace("    return { kind: 'clash', current: cur, incoming: next };",
+                   "    return { kind: 'empty', current: '', incoming: next };")],
+  // Too fussy: an en dash or a missing space reads as a conflict, so a real
+  // year of readings arrives as fifty false alarms and people click through.
+  ['lectionary-import-harness.js', 'punctuation counts as a different reading',
+    s => s.replace(NORM_LINE, '    var norm = function(s) { return s; };')],
+  // Too loose: only the book name is compared, so a different chapter passes
+  // as already-saved and the genuine disagreement is never shown at all.
+  ['lectionary-import-harness.js', 'a different chapter passes as the same reading',
+    s => s.replace(NORM_LINE, LOOSE_LINE)],
+  ['lectionary-import-harness.js', 'the review stops showing what it would replace',
+    s => s.replace("    return { kind: 'clash', current: cur, incoming: next };",
+                   "    return { kind: 'clash', current: '', incoming: next };")],
+  ['lectionary-import-harness.js', 'every slot is compared against the first reading',
+    s => s.replace('[SBQ_READINGS.SLOTS[slotIdx].role]', '[SBQ_READINGS.SLOTS[0].role]')],
+  ['lectionary-import-harness.js', 'the source is recorded even when nothing saved',
+    s => s.replace('    if (saved > 0) SBQ_LECT_SOURCES.save(rec)', '    SBQ_LECT_SOURCES.save(rec)')],
+  // Local time moves the day west of Greenwich, so 1 Nov prints as 31 Oct.
+  // The range the import checks for clashes over. Built from the array's
+  // first and last entry instead of its smallest and largest date, it
+  // matches nothing the moment the entries arrive unsorted -- every slot
+  // then reads as empty and the conflict check is off with no sign of it.
+  ['lectionary-import-harness.js', 'the clash lookup trusts the array order',
+    s => s.replace(SORTED_RANGE, POSITIONAL_RANGE)],
+  ['lectionary-import-harness.js', 'review dates are built in local time',
+    s => s.replace('new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]))', 'new Date(+p[0], +p[1] - 1, +p[2])')]
 ];
 
 let caught = 0, missed = 0, stale = 0;
