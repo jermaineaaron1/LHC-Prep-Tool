@@ -76984,7 +76984,24 @@ var LiturgyModule = (function() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: fileUrl, mode: 'calendar', yearHint: yearHint || undefined })
-      }).then(function(r) { return r.json(); }).then(function(data) {
+      }).then(function(r) {
+        // Read as text first. When the platform kills the function for
+        // running too long it answers with an HTML error page, and r.json()
+        // on that throws "Unexpected token '<'" -- which tells the operator
+        // nothing about what actually happened, which was that the document
+        // was too big to read in one pass.
+        return r.text().then(function(body) {
+          try {
+            return JSON.parse(body);
+          } catch (e) {
+            if (r.status === 504 || /^\s*</.test(body)) {
+              throw new Error('The document took too long to read \u2014 it is probably a whole year. ' +
+                'Try a single season or month at a time; each import adds to what is already saved.');
+            }
+            throw new Error('The server replied with something unreadable (HTTP ' + r.status + ').');
+          }
+        });
+      }).then(function(data) {
         if (data.error) throw new Error(data.error);
         var entries = data.entries || [];
         if (!entries.length) {
