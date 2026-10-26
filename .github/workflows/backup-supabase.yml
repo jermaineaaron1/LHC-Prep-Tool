@@ -25,6 +25,17 @@
 #   4. If you named the repo something else, change BACKUP_REPO below.
 #
 # Run it by hand the first time from the Actions tab to check the setup.
+#
+# IF IT BREAKS, IT SAYS SO
+# This ran and failed every night for over a month without anybody noticing:
+# 35 runs, 35 failures, zero successes, because the setup above was never
+# done. A red cross in the Actions tab of a repository nobody opens is not a
+# notification. So a failed run now opens an issue, which emails whoever
+# watches this repo.
+#
+# The notifier deliberately uses GITHUB_TOKEN, not BACKUP_REPO_TOKEN: the
+# missing token IS the most likely failure, and a warning that needs the
+# broken thing in order to warn you is no warning at all.
 
 name: Backup Supabase
 
@@ -40,6 +51,13 @@ env:
 concurrency:
   group: backup-supabase
   cancel-in-progress: false
+
+# Spelled out because the issue step needs to write one. Naming any
+# permission drops every other to none, so contents: read is here for the
+# checkout rather than by accident.
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   snapshot:
@@ -83,3 +101,70 @@ jobs:
           git commit -m "snapshot $(date -u +%Y-%m-%d)"
           git push
           echo "Pushed a new snapshot to ${BACKUP_REPO}."
+
+      # Only when something above failed. Runs even then, which is the point.
+      - name: Say so, if the backup did not happen
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Nightly Supabase backup is failing
+        run: |
+          set -euo pipefail
+
+          # The body goes in a file so the fallback below can reuse it
+          # without the whole thing being written out twice.
+          cat > /tmp/backup-issue.md <<EOF
+          The scheduled backup did not complete.
+
+          **Run:** ${RUN_URL}
+
+          Nothing reached \`${BACKUP_REPO}\` for this run, so there is no
+          off-site copy of today's data. The app has no second database, so
+          until this is fixed a mistake in the roster or the song library can
+          only be undone by hand.
+
+          **The usual cause** is that the one-time setup was never finished, or
+          that the token has expired -- fine-grained tokens last a year at most.
+          The steps are in the header of
+          \`.github/workflows/backup-supabase.yml\`:
+
+          1. A **private** repo \`${BACKUP_REPO}\`
+          2. A fine-grained token with **Contents: Read and write** on that repo only
+          3. A repository secret here named \`BACKUP_REPO_TOKEN\`
+
+          Read the run log first. If it says \`BACKUP_REPO_TOKEN is not set\`,
+          it is one of those three. Anything else -- a short read, a table that
+          would not page -- means the exporter stopped rather than writing a
+          truncated snapshot, and the log names the table.
+
+          Close this once a run goes green. If it fails again afterwards, a new
+          issue opens.
+          EOF
+
+          # One open issue, not one a night: 365 issues saying the same thing
+          # is the Actions tab again, with email on top. The open issue IS the
+          # signal, and closing it while the cause stands means the next
+          # failure opens a fresh one, which is what you want.
+          #
+          # Matched on the exact title rather than on a label. A label has to
+          # exist before it can be filtered on, and tying the only warning this
+          # job has to a thing that might not be there is how you end up with
+          # a notifier that cannot notify.
+          EXISTING=$(gh issue list --state open --limit 100 --json number,title \
+                       --jq "[.[] | select(.title == \"${TITLE}\")] | .[0].number // empty")
+          if [ -n "${EXISTING}" ]; then
+            echo "Issue #${EXISTING} is already open for this. Leaving it alone."
+            exit 0
+          fi
+
+          gh label create backup-failure \
+            --description "The nightly Supabase backup did not run" \
+            --color B60205 2>/dev/null || true
+
+          # Labelled if the label took, unlabelled if it did not. Being told
+          # beats being told tidily.
+          gh issue create --title "${TITLE}" --body-file /tmp/backup-issue.md \
+                          --label backup-failure \
+            || gh issue create --title "${TITLE}" --body-file /tmp/backup-issue.md
+          echo "Opened an issue."
