@@ -194,6 +194,35 @@ for (let m = 0; m < 12; m++) {
 }
 check('48 dates survive iso -> roster -> iso', roundTripOk ? 'all' : roundTripFails, 'all');
 
+// ---- 2b. the Watchnight is its own service -------------------------------
+//
+// 31 December carries two services in the years the 31st is a Sunday, and in
+// every other year the one service there is the Watchnight. They were keyed
+// by date alone, so they shared one set of readings and whichever was written
+// last won -- and after the roster rows moved to "Dec 31 PM", a reading
+// written from this page landed on "Dec 31", which no column reads at all.
+console.log('\nthe Watchnight has its own key');
+check('an evening row gets the suffix', api.rosterToIso('Dec 31 PM', 2026), '2026-12-31|pm');
+check('the morning service does not', api.rosterToIso('Dec 31', 2026), '2026-12-31');
+check('and the two are different keys',
+  api.rosterToIso('Dec 31 PM', 2026) !== api.rosterToIso('Dec 31', 2026), true);
+check('the suffix comes back as " PM" on the row',
+  api.isoToRoster('2026-12-31|pm'), { year: 2026, month: 11, serviceDate: 'Dec 31 PM' });
+check('and the plain key still means the morning service',
+  api.isoToRoster('2026-12-31'), { year: 2026, month: 11, serviceDate: 'Dec 31' });
+check('an evening key round-trips',
+  api.rosterToIso(api.isoToRoster('2026-12-31|pm').serviceDate, 2026), '2026-12-31|pm');
+check('lower case pm is recognised too', api.rosterToIso('Dec 31 pm', 2026), '2026-12-31|pm');
+
+// The date part is what everything else compares on.
+check('keyDate strips the suffix', api.keyDate('2026-12-31|pm'), '2026-12-31');
+check('and leaves a plain date alone', api.keyDate('2026-12-31'), '2026-12-31');
+check('isPM reads the suffix', [api.isPM('2026-12-31|pm'), api.isPM('2026-12-31')], [true, false]);
+
+// A suffix must not be mistaken for part of the day. "Dec 31 PM" has to
+// become the 31st, not some other day or nothing at all.
+check('the day number survives the suffix', api.isoToRoster('2026-12-31|pm').month, 11);
+
 // ---- 3. getRange narrows the window in JS ---------------------------------
 // The query cannot filter by date (service_date is free text), so it fetches a
 // whole year and narrows here. This is the check that matters most.
@@ -231,6 +260,36 @@ function return0(a2) {
   });
   a2.getRange('2026-10-05', '2026-10-10').then(r => {
     check('a window between two services is empty', Object.keys(r), []);
+  });
+}
+
+// The Watchnight, read out of a window. This is where comparing the whole
+// key instead of its date part goes wrong: '2026-12-31|pm' sorts AFTER
+// '2026-12-31', so a window ending on the 31st drops the evening service
+// while still returning the morning one -- a half-empty answer that looks
+// like missing data rather than a filter bug.
+console.log('\nthe Watchnight survives the window filter');
+{
+  const { api: a3 } = load([
+    { role_id: 'psalm',  service_date: 'Dec 31',    year: 2026, value: 'Psalm 90' },
+    { role_id: 'gospel', service_date: 'Dec 31',    year: 2026, value: 'Luke 12' },
+    { role_id: 'psalm',  service_date: 'Dec 31 PM', year: 2026, value: 'Psalm 8' },
+    { role_id: 'gospel', service_date: 'Dec 31 PM', year: 2026, value: 'John 1:1-14' }
+  ]);
+  a3.getRange('2026-12-31', '2026-12-31').then(r => {
+    check('both services on the 31st are returned', Object.keys(r).sort(),
+      ['2026-12-31', '2026-12-31|pm']);
+    check('  the morning keeps its own readings', r['2026-12-31'],
+      { psalm: 'Psalm 90', gospel: 'Luke 12' });
+    check('  and the Watchnight keeps its own', r['2026-12-31|pm'],
+      { psalm: 'Psalm 8', gospel: 'John 1:1-14' });
+  });
+  a3.getRange('2026-12-01', '2026-12-31').then(r => {
+    check('a month ending on the 31st keeps the Watchnight',
+      Object.keys(r).indexOf('2026-12-31|pm') !== -1, true);
+  });
+  a3.getRange('2026-12-01', '2026-12-30').then(r => {
+    check('a window that stops short of the 31st excludes it', Object.keys(r), []);
   });
 }
 
