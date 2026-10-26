@@ -8047,6 +8047,39 @@
       <section id="liturgyView" style="display: none;">
         <div class="liturgy-container" style="padding:0;">
 
+          <!-- The five ways into this page, as a strip across the top.
+               They are the same five entries as the sidebar, and carry the
+               same class and data-libfilter, so _litSyncNav lights both at
+               once without knowing this exists.
+
+               Shown only where the sidebar is an overlay. On a phone the
+               sidebar is behind a hamburger, so moving between Readings,
+               Services and the rest meant open drawer, tap, drawer closes --
+               three gestures to change tab, on the page a musician is most
+               likely to be holding a phone in front of. -->
+          <nav id="litTopNav" class="lit-topnav" aria-label="Liturgy sections">
+            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
+              <span class="lit-nav-dot" style="background:#0b7644;"></span>
+              <i class="fa-solid fa-book-bible" aria-hidden="true"></i><span>Readings</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
+              <span class="lit-nav-dot" style="background:#188e44;"></span>
+              <i class="fa-solid fa-church" aria-hidden="true"></i><span>Services</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
+              <span class="lit-nav-dot" style="background:#f59e0b;"></span>
+              <i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Liturgies</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+              <span class="lit-nav-dot" style="background:#10b981;"></span>
+              <i class="fa-solid fa-camera-retro" aria-hidden="true"></i><span>Memories</span>
+            </button>
+            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
+              <span class="lit-nav-dot" style="background:#6b7280;"></span>
+              <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Library</span>
+            </button>
+          </nav>
+
           <!-- ===== WELCOME OVERVIEW (default landing) ===== -->
           <div id="liturgyWelcome">
 
@@ -29350,6 +29383,132 @@ var SBQ_SONGBOOKS = {
   }
 };
 
+// ================================================================
+// SBQ_LECT_SOURCES -- which document the readings were imported from.
+//
+// One row per uploaded lectionary. It is a RECEIPT, not a store of
+// readings: the readings themselves are roster rows, written through
+// SBQ_READINGS.setReference. Dropping every row here loses no readings,
+// it only stops the Readings page naming its source.
+//
+// The table arrives with migrations/2026-10-26_add_lectionary_sources.sql,
+// which has to be run by hand in the Supabase SQL editor. Until it is,
+// every method here answers as though there were simply no sources --
+// never throws, never blocks a save. That is deliberate: the import's job
+// is to get readings into the roster, and it must not fail because the
+// receipt could not be filed. The console says so once, so a missing
+// migration is findable rather than merely invisible.
+// ================================================================
+var SBQ_LECT_SOURCES = {
+  _sb: function() { return getSupabaseClient(); },
+  _warned: false,
+
+  // PostgREST answers a missing table with PGRST205/42P01 rather than a
+  // 404 the client can feel, so the text is what there is to match on.
+  _absent: function(msg) {
+    var m = String(msg || '');
+    return m.indexOf('PGRST205') !== -1 || m.indexOf('42P01') !== -1 ||
+           (m.indexOf('lectionary_sources') !== -1 && m.indexOf('not find') !== -1) ||
+           m.indexOf('does not exist') !== -1;
+  },
+
+  _soften: function(err, fallback) {
+    var msg = (err && err.message) ? err.message : String(err || '');
+    if (SBQ_LECT_SOURCES._absent(msg)) {
+      if (!SBQ_LECT_SOURCES._warned) {
+        SBQ_LECT_SOURCES._warned = true;
+        console.warn('[LHC] lectionary_sources is not in the database yet, so imported ' +
+          'readings will not show which file they came from. Run ' +
+          'migrations/2026-10-26_add_lectionary_sources.sql in the Supabase SQL editor.');
+      }
+      return fallback;
+    }
+    console.warn('[LHC] lectionary_sources:', msg);
+    return fallback;
+  },
+
+  // The newest import. The Readings header shows this one.
+  getLatest: function() {
+    var sb = SBQ_LECT_SOURCES._sb();
+    if (!sb) return Promise.resolve(null);
+    return Promise.resolve(
+      sb.from('lectionary_sources').select('*').order('uploaded_at', { ascending: false }).limit(1)
+    ).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var row = (r.data || [])[0];
+      return row ? SBQ_LECT_SOURCES._fromRow(row) : null;
+    }).catch(function(e) { return SBQ_LECT_SOURCES._soften(e, null); });
+  },
+
+  list: function() {
+    var sb = SBQ_LECT_SOURCES._sb();
+    if (!sb) return Promise.resolve([]);
+    return Promise.resolve(
+      sb.from('lectionary_sources').select('*').order('uploaded_at', { ascending: false })
+    ).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return (r.data || []).map(SBQ_LECT_SOURCES._fromRow);
+    }).catch(function(e) { return SBQ_LECT_SOURCES._soften(e, []); });
+  },
+
+  // Returns the saved record, or null if it could not be filed. The caller
+  // checks for null to tell the operator the readings saved but the receipt
+  // did not -- it must not treat that as the import having failed.
+  save: function(rec) {
+    var sb = SBQ_LECT_SOURCES._sb();
+    if (!sb || !rec || !rec.fileUrl) return Promise.resolve(null);
+    var row = {
+      id: rec.id || ('lectsrc_' + Date.now()),
+      file_name: rec.fileName || 'lectionary',
+      file_url: rec.fileUrl,
+      uploaded_at: new Date().toISOString(),
+      service_dates: rec.serviceDates || [],
+      // What the document said, per date. This is what makes "reset to the
+      // lectionary" possible: the roster holds the live readings, and a
+      // reading edited by hand would otherwise be unrecoverable without
+      // uploading the file again.
+      readings: rec.readings || {},
+      note: rec.note || null
+    };
+    return Promise.resolve(
+      sb.from('lectionary_sources').upsert([row], { onConflict: 'id' }).select()
+    ).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return SBQ_LECT_SOURCES._fromRow((r.data || [])[0] || row);
+    }).catch(function(e) { return SBQ_LECT_SOURCES._soften(e, null); });
+  },
+
+  remove: function(id) {
+    var sb = SBQ_LECT_SOURCES._sb();
+    if (!sb || !id) return Promise.resolve(false);
+    return Promise.resolve(
+      sb.from('lectionary_sources').delete().eq('id', id)
+    ).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return true;
+    }).catch(function(e) { return SBQ_LECT_SOURCES._soften(e, false); });
+  },
+
+  _fromRow: function(row) {
+    return {
+      id: row.id,
+      fileName: row.file_name || 'lectionary',
+      fileUrl: row.file_url || '',
+      uploadedAt: row.uploaded_at || '',
+      // jsonb comes back parsed, but a hand-written row could hold a string.
+      serviceDates: Array.isArray(row.service_dates) ? row.service_dates
+                  : (typeof row.service_dates === 'string'
+                      ? (function() { try { return JSON.parse(row.service_dates) || []; } catch (e) { return []; } })()
+                      : []),
+      readings: (row.readings && typeof row.readings === 'object') ? row.readings
+              : (typeof row.readings === 'string'
+                  ? (function() { try { return JSON.parse(row.readings) || {}; } catch (e) { return {}; } })()
+                  : {}),
+      note: row.note || ''
+    };
+  }
+};
+
 var SBQ_SONGS = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -31985,6 +32144,18 @@ var WO = (function() {
           }
 
           showToast('Order created!', 'success');
+
+          // An order for a dated service starts with that date's readings in
+          // place, the same as one created from the roster's service card.
+          // Only that path did this, so an order made from the New Order
+          // dialog -- the usual way -- opened with four empty reading slots
+          // beside a roster that already had all four references.
+          //
+          // Quiet: a new order with no readings yet on the roster is normal,
+          // and a toast saying so on every creation would be noise.
+          if (serviceDate && typeof fillReadingsFromRoster === 'function') {
+            fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });
+          }
           if (window._lpPendingOrderSongTitle) {
             showToast('Now add “' + window._lpPendingOrderSongTitle + '” to it with + Add Song', 'info');
             window._lpPendingOrderSongTitle = '';
@@ -76203,8 +76374,7 @@ var LiturgyModule = (function() {
     if (welcome)  welcome.style.display = '';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = 'none';
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) { btn.classList.remove('active'); });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    _litSyncNav('all-services');
     showWelcomeSubview('occasions');
   }
 
@@ -76422,8 +76592,13 @@ var LiturgyModule = (function() {
       // reading gets added to a date the roster does not know about yet.
       grid.innerHTML = _readingSlotRow(_currentReadingDate, readings[_currentReadingDate] || {});
       _paintDayContext(meta[_currentReadingDate], dates);
+      // Only in Day view: week and month show many services at once, and one
+      // button there could not say which service it would put back.
+      _renderReadingResetButton(_currentReadingDate);
       return;
     }
+    var resetHost = document.getElementById('lectionaryResetHost');
+    if (resetHost) resetHost.innerHTML = '';
 
     if (!dates.length) {
       grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
@@ -76684,16 +76859,22 @@ var LiturgyModule = (function() {
       '</div>' +
       '<div class="lit-lectionary-body">' +
         '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
+        '<div id="lectionarySourceChip" style="display:none;"></div>' +
         '<div id="lectionaryDayContext" class="lit-day-context"></div>' +
         '<div class="lit-reading-slots-panel">' +
           '<div class="lit-reading-slots-header">' +
             '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#0b7644;"></i>Readings</h2>' +
-            '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
+            '<div class="lit-reading-slots-actions">' +
+              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()" title="Read one service out of a bulletin"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
+              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryImportModal()" title="Read a whole lectionary: every service it lists, in one go"><i class="fa-solid fa-file-import mr-1"></i>Import lectionary</button>' +
+              '<span id="lectionaryResetHost"></span>' +
+            '</div>' +
           '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
         '</div>' +
       '</div>';
     renderReadingDateNav();
+    _renderLectionarySourceChip();
     // The opening date depends on the roster, so the first paint waits for it.
     _primeReadingDate().then(function() {
       renderReadingDateNav();
@@ -76701,11 +76882,431 @@ var LiturgyModule = (function() {
     });
   }
 
+  // ── Importing a whole lectionary ──────────────────────────────────────
+  //
+  // The bulletin importer below handles one service. A lectionary is the
+  // other shape: a table of a season or a year, one row per Sunday. Sending
+  // that through the single-service path would mean opening every date in
+  // turn and uploading the same PDF again, fifty-two times.
+  //
+  // The document is uploaded once, read once, and the dates it yields are
+  // reviewed together. The file is then recorded in lectionary_sources so
+  // the page can say where its readings came from -- which is the question
+  // that prompted all this, and one the roster alone cannot answer, since a
+  // roster row holds a reference and nothing about its provenance.
+  //
+  // What it never does is overwrite silently. A date whose slot is already
+  // filled with something DIFFERENT is shown with both values and left
+  // alone until somebody picks. Empty slots are filled, because there is
+  // nothing there to lose.
+  var _lectImport = null;   // { file, fileName, fileUrl, entries, existing }
+
+  function openLectionaryImportModal() {
+    _lectImport = null;
+    _buildLectionaryImportModal();
+    var m = document.getElementById('lectionaryImportModal');
+    if (m) m.classList.add('show');
+  }
+
+  function closeLectionaryImportModal() {
+    var m = document.getElementById('lectionaryImportModal');
+    if (m) m.remove();
+  }
+
+  function _buildLectionaryImportModal() {
+    var existing = document.getElementById('lectionaryImportModal');
+    if (existing) existing.remove();
+    var el = document.createElement('div');
+    el.id = 'lectionaryImportModal';
+    el.className = 'modal';
+    el.innerHTML =
+      '<div class="modal-content lect-import-modal">' +
+        '<div class="modal-header">' +
+          '<h2><i class="fa-solid fa-file-import mr-2"></i> Import a lectionary</h2>' +
+          '<button type="button" class="modal-close" onclick="LiturgyModule.closeLectionaryImportModal()" aria-label="Close">&times;</button>' +
+        '</div>' +
+        '<div class="lect-import-body" id="lectImportBody"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function(e) { if (e.target === el) closeLectionaryImportModal(); });
+    _renderLectImportUploadStep();
+  }
+
+  function _renderLectImportUploadStep() {
+    var body = document.getElementById('lectImportBody');
+    if (!body) return;
+    var thisYear = new Date().getFullYear();
+    body.innerHTML =
+      '<p class="lect-import-intro">Upload a lectionary \u2014 a PDF, Word or Excel document listing services and their readings. ' +
+      'Every dated service it contains is read at once, and you review the lot before anything is saved.</p>' +
+      '<div class="lect-import-field">' +
+        '<label class="liturgy-form-label" for="lectImportFile">Document</label>' +
+        '<input type="file" id="lectImportFile" accept=".pdf,.doc,.docx,.xls,.xlsx" class="liturgy-form-input">' +
+      '</div>' +
+      '<div class="lect-import-field">' +
+        '<label class="liturgy-form-label" for="lectImportYear">Year to assume</label>' +
+        '<input type="number" id="lectImportYear" class="liturgy-form-input" value="' + thisYear + '" min="1900" max="2200" style="width:140px;">' +
+        '<p class="lect-import-hint">Used only where the document prints a day and month with no year.</p>' +
+      '</div>' +
+      '<div id="lectImportError" class="bible-passage-error" style="display:none;margin-top:14px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:18px;">' +
+        '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeLectionaryImportModal()">Cancel</button>' +
+        '<button type="button" class="modal-btn modal-btn-primary" id="lectImportReadBtn" onclick="LiturgyModule.runLectionaryImport()">' +
+          '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Read the document</button>' +
+      '</div>';
+  }
+
+  function _lectImportError(msg) {
+    var e = document.getElementById('lectImportError');
+    if (e) { e.textContent = msg; e.style.display = 'block'; }
+    var b = document.getElementById('lectImportReadBtn');
+    if (b) { b.disabled = false; b.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Read the document'; }
+  }
+
+  function runLectionaryImport() {
+    var fileInput = document.getElementById('lectImportFile');
+    var file = fileInput && fileInput.files && fileInput.files[0];
+    var yearEl = document.getElementById('lectImportYear');
+    var yearHint = yearEl ? parseInt(yearEl.value, 10) : null;
+    var err = document.getElementById('lectImportError');
+    if (err) err.style.display = 'none';
+    if (!file) { _lectImportError('Choose a document first.'); return; }
+
+    var btn = document.getElementById('lectImportReadBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Uploading\u2026'; }
+
+    uploadToSupabase(file, 'lectionary-uploads').then(function(res) {
+      if (!res || res.error) throw new Error((res && res.error) || 'Upload failed');
+      var fileUrl = res.url || res.publicUrl;
+      if (!fileUrl) throw new Error('Upload returned no URL');
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Reading\u2026';
+      return fetch('/api/parse-lectionary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: fileUrl, mode: 'calendar', yearHint: yearHint || undefined })
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.error) throw new Error(data.error);
+        var entries = data.entries || [];
+        if (!entries.length) {
+          throw new Error((data.warnings && data.warnings[0]) || 'No dated services were found in this document.');
+        }
+        _lectImport = { fileName: file.name, fileUrl: fileUrl, entries: entries, warnings: data.warnings || [] };
+        // What is already saved, so a conflict can be shown rather than
+        // discovered after the fact. One range read covers every date.
+        // Smallest and largest, not first and last. The route sorts before
+        // it answers, but a range built on that assumption fails silently
+        // and dangerously when it does not hold: getRange(later, earlier)
+        // matches nothing, every slot then looks empty, and the import
+        // offers to "add" readings on top of ones already saved -- turning
+        // the conflict check off without a word. Found exactly that way.
+        var dates = entries.map(function(e) { return e.date; }).sort();
+        var from = dates[0], to = dates[dates.length - 1];
+        return SBQ_READINGS.getRange(from, to).then(function(existing) {
+          _lectImport.existing = existing || {};
+          _renderLectImportReviewStep();
+        });
+      });
+    }).catch(function(e) {
+      console.error('LiturgyModule: lectionary import failed', e);
+      _lectImportError(e.message || String(e));
+    });
+  }
+
+  // Each slot is one of: empty (fill it), same (nothing to do), or a clash.
+  function _lectSlotState(iso, slotIdx, incoming) {
+    var cur = (_lectImport.existing[iso] || {})[SBQ_READINGS.SLOTS[slotIdx].role] || '';
+    cur = String(cur).trim();
+    var next = String(incoming || '').trim();
+    if (!next) return { kind: 'none', current: cur, incoming: '' };
+    if (!cur) return { kind: 'empty', current: '', incoming: next };
+    // Compared loosely: "Psalm 34:1-10, 22" and "Psalm 34:1–10,22" are the
+    // same reading, and showing that as a clash would train people to click
+    // through the clashes without reading them.
+    var norm = function(s) { return s.toLowerCase().replace(/[\u2010-\u2015]/g, '-').replace(/[\s,.]+/g, ''); };
+    if (norm(cur) === norm(next)) return { kind: 'same', current: cur, incoming: next };
+    return { kind: 'clash', current: cur, incoming: next };
+  }
+
+  var LECT_IMPORT_KEYS = ['firstReading', 'psalm', 'secondReading', 'gospel'];
+
+  function _renderLectImportReviewStep() {
+    var body = document.getElementById('lectImportBody');
+    if (!body || !_lectImport) return;
+
+    var rows = '', nEmpty = 0, nClash = 0, nSame = 0;
+    _lectImport.entries.forEach(function(entry, ei) {
+      var cells = '';
+      LECT_IMPORT_KEYS.forEach(function(key, si) {
+        var st = _lectSlotState(entry.date, si, entry[key]);
+        var id = 'lectimp_' + ei + '_' + si;
+        if (st.kind === 'none') {
+          cells += '<td class="lect-cell lect-cell-none">\u2014</td>';
+        } else if (st.kind === 'same') {
+          nSame++;
+          cells += '<td class="lect-cell lect-cell-same" title="Already saved">' +
+                   escapeHtml(st.incoming) + ' <i class="fa-solid fa-check"></i></td>';
+        } else if (st.kind === 'empty') {
+          nEmpty++;
+          cells += '<td class="lect-cell lect-cell-empty">' +
+                   '<label><input type="checkbox" id="' + id + '" data-kind="empty" data-date="' + escapeHtml(entry.date) + '" data-slot="' + si + '" data-value="' + escapeHtml(st.incoming) + '" checked> ' +
+                   escapeHtml(st.incoming) + '</label></td>';
+        } else {
+          nClash++;
+          // Both values, and "keep" selected. Nothing is overwritten until
+          // somebody moves the radio themselves.
+          cells += '<td class="lect-cell lect-cell-clash">' +
+            '<label class="lect-opt"><input type="radio" name="' + id + '" value="keep" data-date="' + escapeHtml(entry.date) + '" data-slot="' + si + '" checked> ' +
+              '<span class="lect-keep">' + escapeHtml(st.current) + '</span></label>' +
+            '<label class="lect-opt"><input type="radio" name="' + id + '" value="use" data-date="' + escapeHtml(entry.date) + '" data-slot="' + si + '" data-value="' + escapeHtml(st.incoming) + '"> ' +
+              '<span class="lect-new">' + escapeHtml(st.incoming) + '</span></label>' +
+            '</td>';
+        }
+      });
+      rows += '<tr><th scope="row" class="lect-date">' + escapeHtml(_lectPrettyDate(entry.date)) +
+              (entry.occasion ? '<small>' + escapeHtml(entry.occasion) + '</small>' : '') + '</th>' + cells + '</tr>';
+    });
+
+    body.innerHTML =
+      '<div class="lect-import-summary">' +
+        '<strong>' + _lectImport.entries.length + '</strong> service' + (_lectImport.entries.length === 1 ? '' : 's') +
+        ' found in <em>' + escapeHtml(_lectImport.fileName) + '</em>. ' +
+        '<span class="lect-tag lect-tag-empty">' + nEmpty + ' to add</span>' +
+        '<span class="lect-tag lect-tag-clash">' + nClash + ' differ' + (nClash === 1 ? 's' : '') + ' from what is saved</span>' +
+        '<span class="lect-tag lect-tag-same">' + nSame + ' already match' + (nSame === 1 ? 'es' : '') + '</span>' +
+      '</div>' +
+      (nClash ? '<p class="lect-import-hint"><i class="fa-solid fa-circle-info mr-1"></i>Where the document disagrees with a reading already saved, both are shown and the saved one is kept. Pick the other if you want it changed.</p>' : '') +
+      (_lectImport.warnings.length ? '<div class="bible-passage-error" style="margin:0 0 12px;">' + escapeHtml(_lectImport.warnings.join(' ')) + '</div>' : '') +
+      '<div class="lect-import-tablewrap">' +
+        '<table class="lect-import-table"><thead><tr><th>Service</th><th>1st Reading</th><th>Psalm</th><th>2nd Reading</th><th>Gospel</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+      '</div>' +
+      '<div id="lectImportError" class="bible-passage-error" style="display:none;margin-top:12px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:16px;">' +
+        '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeLectionaryImportModal()">Cancel</button>' +
+        '<button type="button" class="modal-btn modal-btn-primary" id="lectImportSaveBtn" onclick="LiturgyModule.saveLectionaryImport()">' +
+          '<i class="fa-solid fa-check mr-1"></i> Save the ticked readings</button>' +
+      '</div>';
+  }
+
+  function _lectPrettyDate(iso) {
+    var p = String(iso).split('-');
+    if (p.length !== 3) return iso;
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    if (isNaN(d)) return iso;
+    var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MON[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+  }
+
+  function saveLectionaryImport() {
+    var body = document.getElementById('lectImportBody');
+    var btn = document.getElementById('lectImportSaveBtn');
+    var errorEl = document.getElementById('lectImportError');
+    if (errorEl) errorEl.style.display = 'none';
+    if (!body || !_lectImport) return;
+
+    // Only what is actually selected: ticked new readings, plus clashes
+    // explicitly switched to the document's version.
+    var jobs = [];
+    body.querySelectorAll('input[type="checkbox"][data-kind="empty"]:checked').forEach(function(cb) {
+      jobs.push({ date: cb.dataset.date, slot: +cb.dataset.slot, value: cb.dataset.value });
+    });
+    body.querySelectorAll('input[type="radio"][value="use"]:checked').forEach(function(rb) {
+      jobs.push({ date: rb.dataset.date, slot: +rb.dataset.slot, value: rb.dataset.value });
+    });
+
+    if (!jobs.length) {
+      if (errorEl) { errorEl.textContent = 'Nothing is selected, so there is nothing to save.'; errorEl.style.display = 'block'; }
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving 0/' + jobs.length + '\u2026'; }
+
+    var saved = 0, failed = [];
+    // Sequential: setReference reads the row it is about to overwrite so it
+    // can log the previous value, and parallel writes to one date would log
+    // each other's reads. Also keeps a long import from opening fifty
+    // connections at once.
+    function next(i) {
+      if (i >= jobs.length) return _finishLectionaryImport(saved, failed);
+      var j = jobs[i];
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving ' + (i + 1) + '/' + jobs.length + '\u2026';
+      SBQ_READINGS.setReference(j.date, j.slot, j.value).then(function() {
+        saved++; next(i + 1);
+      }).catch(function(e) {
+        console.error('LiturgyModule: import save failed for ' + j.date, e);
+        failed.push(_lectPrettyDate(j.date) + ' ' + (SBQ_READINGS.SLOTS[j.slot] || {}).label);
+        next(i + 1);
+      });
+    }
+    next(0);
+  }
+
+  function _finishLectionaryImport(saved, failed) {
+    // The receipt is filed only for what was actually written, and only
+    // after. A source row claiming dates that failed to save would be a
+    // record of something that did not happen.
+    var dates = {}, readings = {};
+    _lectImport.entries.forEach(function(e) {
+      dates[e.date] = true;
+      // The document's own words, kept whole -- including the slots that
+      // were skipped at review, because a reset is "what the PDF said",
+      // not "what was ticked that day".
+      readings[e.date] = {
+        reading1: e.firstReading || '',
+        psalm: e.psalm || '',
+        reading2: e.secondReading || '',
+        gospel: e.gospel || ''
+      };
+    });
+    var rec = {
+      fileName: _lectImport.fileName,
+      fileUrl: _lectImport.fileUrl,
+      serviceDates: Object.keys(dates).sort(),
+      readings: readings,
+      note: saved + ' reading' + (saved === 1 ? '' : 's') + ' saved' + (failed.length ? ', ' + failed.length + ' failed' : '')
+    };
+    var done = function(src) {
+      closeLectionaryImportModal();
+      reloadReadings();
+      _renderLectionarySourceChip();
+      if (typeof showToast === 'function') {
+        if (failed.length) {
+          showToast('Saved ' + saved + ', but ' + failed.length + ' could not be saved: ' + failed.slice(0, 3).join(', '), 'error');
+        } else if (!src) {
+          // The readings ARE saved. Only the receipt failed, and saying
+          // "import failed" here would be false and would invite a re-run.
+          showToast('Saved ' + saved + ' reading' + (saved === 1 ? '' : 's') + '. The source file could not be recorded \u2014 see the console.', 'info');
+        } else {
+          showToast('Saved ' + saved + ' reading' + (saved === 1 ? '' : 's') + ' from ' + rec.fileName, 'success');
+        }
+      }
+    };
+    if (saved > 0) SBQ_LECT_SOURCES.save(rec).then(done).catch(function() { done(null); });
+    else done(null);
+  }
+
+  // ── Putting a date back to what the lectionary said ──────────────────
+  //
+  // Readings are editable everywhere -- the roster grid, the Bible picker,
+  // this page -- which is right, because the PDF is a starting point and the
+  // church is the authority. The cost of that is no way back: once a cell has
+  // been typed over there is nothing to compare it against.
+  //
+  // So the import keeps what the document said, and this puts it back. It is
+  // deliberately NOT automatic and never runs over a whole year at once: it
+  // asks, per service, naming what will change.
+  function _lectSourceFor(iso) {
+    return SBQ_LECT_SOURCES.getLatest().then(function(src) {
+      if (!src || !src.readings || !src.readings[iso]) return null;
+      return { src: src, slots: src.readings[iso] };
+    });
+  }
+
+  // What a reset would actually change, as a list. Both the button and the
+  // reset itself read this: written twice, the two drift, and the symptom is
+  // a button that appears and then says there is nothing to do.
+  //
+  // A slot the document left blank is never "put back" to empty. The PDF not
+  // mentioning a psalm is not the same as the PDF saying there isn't one, and
+  // clearing a reading somebody added by hand on that basis would be wrong.
+  function _lectResetPlan(iso, fromDoc) {
+    var plan = [];
+    SBQ_READINGS.SLOTS.forEach(function(slot, i) {
+      var cur = String(((_readingRefsByDate[iso] || {})[slot.role]) || '').trim();
+      var was = String((fromDoc || {})[slot.role] || '').trim();
+      if (was && cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });
+    });
+    return plan;
+  }
+
+  // Shown only where there is something to go back TO.
+  function _renderReadingResetButton(iso) {
+    var host = document.getElementById('lectionaryResetHost');
+    if (!host) return;
+    host.innerHTML = '';
+    _lectSourceFor(iso).then(function(found) {
+      if (!found) return;
+      // Nothing differs? Then there is nothing to reset, and offering it
+      // would be a button that does nothing.
+      if (!_lectResetPlan(iso, found.slots).length) return;
+      host.innerHTML =
+        '<button type="button" class="lit-reset-btn" onclick="LiturgyModule.resetReadingsToLectionary(\'' + escapeHtml(iso) + '\')" ' +
+        'title="Put this service\u2019s readings back to what ' + escapeHtml(found.src.fileName) + ' says">' +
+          '<i class="fa-solid fa-rotate-left mr-1"></i>Reset to the lectionary' +
+        '</button>';
+    });
+  }
+
+  function resetReadingsToLectionary(iso) {
+    _lectSourceFor(iso).then(function(found) {
+      if (!found) {
+        if (typeof showToast === 'function') showToast('No imported lectionary covers this service.', 'info');
+        return;
+      }
+      var changes = _lectResetPlan(iso, found.slots);
+      if (!changes.length) {
+        if (typeof showToast === 'function') showToast('These readings already match the lectionary.', 'info');
+        return;
+      }
+      // Named, not counted. "3 readings will change" is not enough to decide
+      // on when one of them might be a correction somebody made on purpose.
+      var detail = changes.map(function(c) { return c.label + ': ' + c.from + ' \u2192 ' + c.to; }).join('\n');
+      var ask = (typeof window.customConfirm === 'function')
+        ? window.customConfirm('Reset to ' + found.src.fileName + '?', detail)
+        : Promise.resolve(window.confirm(detail));
+      ask.then(function(ok) {
+        if (!ok) return;
+        var done = 0, failed = 0;
+        function step(i) {
+          if (i >= changes.length) {
+            reloadReadings();
+            _renderReadingResetButton(iso);
+            if (typeof showToast === 'function') {
+              showToast(failed
+                ? ('Reset ' + done + ', but ' + failed + ' could not be saved')
+                : ('Reset ' + done + ' reading' + (done === 1 ? '' : 's') + ' to ' + found.src.fileName),
+                failed ? 'error' : 'success');
+            }
+            return;
+          }
+          // Sequential, for the same reason the import is: setReference reads
+          // the row it is about to overwrite so it can log the old value.
+          SBQ_READINGS.setReference(iso, changes[i].idx, changes[i].to)
+            .then(function() { done++; step(i + 1); })
+            .catch(function(e) { console.error('reset failed', e); failed++; step(i + 1); });
+        }
+        step(0);
+      });
+    });
+  }
+
+  // The chip in the Readings header: which document these came from.
+  function _renderLectionarySourceChip() {
+    var host = document.getElementById('lectionarySourceChip');
+    if (!host) return;
+    SBQ_LECT_SOURCES.getLatest().then(function(src) {
+      if (!src) { host.innerHTML = ''; host.style.display = 'none'; return; }
+      var n = (src.serviceDates || []).length;
+      host.style.display = '';
+      host.innerHTML =
+        '<a class="lect-source-chip" href="' + escapeHtml(src.fileUrl) + '" target="_blank" rel="noopener noreferrer" ' +
+        'title="Open the document these readings were imported from">' +
+          '<i class="fa-solid fa-file-pdf" aria-hidden="true"></i>' +
+          '<span class="lect-source-name">' + escapeHtml(src.fileName) + '</span>' +
+          '<small>' + (n ? n + ' service' + (n === 1 ? '' : 's') + ' \u00b7 ' : '') + _lectPrettyDate(String(src.uploadedAt).slice(0, 10)) + '</small>' +
+        '</a>';
+    });
+  }
+
   // ── AI-assisted "Auto-Fill from Bulletin" upload ──────────────────────
   // Uploads a bulletin file (or a pasted link) to /api/parse-lectionary,
   // shows an editable review form pre-filled with what the AI found, then
-  // saves confirmed references through the exact same fetchBiblePassage ->
-  // SBQ_LECTIONARY.saveSlot pipeline the manual Bible Browser picker uses.
+  // saves the confirmed references through the same fetchBiblePassage ->
+  // SBQ_READINGS.setReference pipeline the manual Bible Browser picker uses,
+  // which writes the roster. The claim that it shared that pipeline was in
+  // this comment long before it was true: it wrote lectionary_readings, a
+  // text cache nothing reads back.
   var _lectUploadFile = null;
   var _lectUploadResult = null;
 
@@ -76870,39 +77471,55 @@ var LiturgyModule = (function() {
       return;
     }
 
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving\u2026'; }
     var dateStr = _currentReadingDate;
     var savedCount = 0;
     var failedRefs = [];
 
-    // Saved sequentially (never Promise.all) -- SBQ_LECTIONARY.saveSlot reads
-    // the existing slots array, splices in one index, then upserts the whole
-    // array, so parallel calls for the same date would clobber each other.
+    // Saved to the ROSTER, which is where readings live and where this page
+    // reads them from.
+    //
+    // This used to call SBQ_LECTIONARY.saveSlot, which writes
+    // `lectionary_readings` -- a passage-TEXT cache that nothing reads. The
+    // save appeared to work because it then repainted from a local variable,
+    // and the references were gone on the next load. The table held one row,
+    // from the one time somebody tried this.
+    //
+    // Sequential, not Promise.all: setReference reads the row it is about to
+    // overwrite so it can log the before-value to roster_changes, and four
+    // of those racing on one date would log each other's reads.
     function saveNext(i) {
       if (i >= entries.length) {
-        if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
         if (failedRefs.length) {
           if (errorEl) { errorEl.textContent = 'Could not save: ' + failedRefs.join(', '); errorEl.style.display = 'block'; }
           if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Confirm & Save'; }
         } else {
           closeLectionaryUploadModal();
-          if (typeof showToast === 'function') showToast('Saved ' + savedCount + ' reading' + (savedCount === 1 ? '' : 's'), 'success');
+          if (typeof showToast === 'function') showToast('Saved ' + savedCount + ' reading' + (savedCount === 1 ? '' : 's') + ' to the roster', 'success');
         }
+        // Whatever happened, show what IS saved rather than what was typed.
+        if (_currentReadingDate === dateStr) reloadReadings();
         return;
       }
       var entry = entries[i];
+      // The passage is fetched first, and its canonical reference is what
+      // gets saved -- it turns "Isiah 6:1-8" into "Isaiah 6:1-8" and rejects
+      // a reference the AI invented. The text is kept in the same in-memory
+      // cache the Bible Browser fills, so opening the reading does not go
+      // back to the API.
       _fetchBiblePassagePromise(entry.reference, 'esv').then(function(passage) {
         if (passage.error) throw new Error(passage.error);
-        var slotData = {
-          label: READING_SLOT_LABELS[entry.idx] || 'Reading',
-          reference: passage.reference || entry.reference,
-          translation: passage.translation || '',
-          passageText: passage.text || '',
-          verseCount: passage.verseCount || 0
-        };
-        return SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, slotData);
-      }).then(function(slots) {
-        _lectionaryReadingsCache[dateStr] = slots;
+        var canonical = passage.reference || entry.reference;
+        if (typeof bbNormaliseReference === 'function') {
+          _passageTextCache[bbNormaliseReference(canonical)] = {
+            reference: canonical,
+            translation: passage.translation || '',
+            text: passage.text || '',
+            note: passage.note || ''
+          };
+        }
+        return SBQ_READINGS.setReference(dateStr, entry.idx, canonical);
+      }).then(function() {
         savedCount++;
         saveNext(i + 1);
       }).catch(function(err) {
@@ -76916,18 +77533,38 @@ var LiturgyModule = (function() {
 
   /* ===== END LECTIONARY READING HOME ===== */
 
+  // Which of the five sections is lit, in one place.
+  //
+  // There were five copies of this, and two of them cleared every button
+  // instead of lighting one: opening Readings or Services left the whole nav
+  // dark, so the page never said which section you were in. Only Liturgies,
+  // Memories and Library ever highlighted.
+  //
+  // It matches on data-libfilter rather than on an element id, so it lights
+  // the sidebar and the mobile strip together without either knowing about
+  // the other. `null` means no section -- drilling into one service from
+  // Services, where none of the five is the whole truth.
+  function _litSyncNav(key) {
+    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
+      btn.classList.toggle('active', !!key && btn.getAttribute('data-libfilter') === key);
+    });
+    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+    // Keep the active chip reachable: on a phone the strip scrolls, and
+    // Library sits off the right edge at 360px.
+    var on = document.querySelector('#litTopNav .lit-nav-occ-btn.active');
+    if (on && on.scrollIntoView) {
+      try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    }
+  }
+
   function selectOccasion(occasionId) {
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
     _occContentTypeFilter = null; // Reset content-type filter so it doesn't leak between services
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
-    // Sidebar active state
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-occasion') === occasionId);
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    _litSyncNav(occasionId ? null : 'dashboard');
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -78452,10 +79089,9 @@ var LiturgyModule = (function() {
     currentFilter = 'all';
     folderBreadcrumb = [];
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
-    // Sidebar active state — deactivate season buttons, activate folder button
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    // A general folder is its own thing: none of the five, and _litSyncNav
+    // clears the folder buttons, so its own highlight is set after it.
+    _litSyncNav(null);
     document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-gen-folder') === folderId);
     });
@@ -78492,12 +79128,7 @@ var LiturgyModule = (function() {
     _librarySeasonFilter = null;
     _libraryFavoritesOnly = false;
     _libraryTagFilter = { mode: def.mode, value: def.value };
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === kind);
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    _litSyncNav(kind);
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -78535,10 +79166,7 @@ var LiturgyModule = (function() {
   function openMemories() {
     _currentOccasion = null;
     _currentGeneralFolder = null;
-    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === 'memories');
-    });
-    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    _litSyncNav('memories');
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
@@ -79187,6 +79815,11 @@ var LiturgyModule = (function() {
     openReadingDay: openReadingDay,
     reloadReadings: reloadReadings,
     openLectionaryUploadModal: openLectionaryUploadModal,
+    openLectionaryImportModal: openLectionaryImportModal,
+    closeLectionaryImportModal: closeLectionaryImportModal,
+    runLectionaryImport: runLectionaryImport,
+    saveLectionaryImport: saveLectionaryImport,
+    resetReadingsToLectionary: resetReadingsToLectionary,
     closeLectionaryUploadModal: closeLectionaryUploadModal,
     onLectUploadFileChosen: onLectUploadFileChosen,
     analyzeLectionaryUpload: analyzeLectionaryUpload,
@@ -86041,6 +86674,115 @@ function filterLiturgyItems() {
   .lit-nav-occ-btn:hover { background: rgba(255,255,255,0.1); color: white; }
   .lit-nav-occ-btn.active { background: rgba(255,255,255,0.15); color: white; font-weight: 600; }
   .lit-nav-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ===== LECTIONARY IMPORT ===== */
+  .lit-reading-slots-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lit-reset-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.75rem;
+    background: rgba(234,179,8,0.14);
+    border: 1px solid rgba(234,179,8,0.45);
+    color: #78350f;
+  }
+  .lit-reset-btn:hover { background: rgba(234,179,8,0.26); }
+
+  /* Which document the readings came from. A link, because the first thing
+     anybody asks after "where did this come from" is to see it. */
+  .lect-source-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin: 6px 0 2px; padding: 6px 12px;
+    border-radius: 999px; text-decoration: none;
+    background: rgba(24,142,68,0.08);
+    border: 1px solid rgba(24,142,68,0.25);
+    color: var(--brand-deep, #0b2a14); font-size: 0.78rem;
+    max-width: 100%;
+  }
+  .lect-source-chip:hover { background: rgba(24,142,68,0.16); }
+  .lect-source-chip i { color: var(--brand, #188e44); flex-shrink: 0; }
+  .lect-source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lect-source-chip small { color: #64748b; flex-shrink: 0; }
+
+  .lect-import-modal { width: min(1040px, 96vw); max-height: 92vh; display: flex; flex-direction: column; }
+  .lect-import-body { padding: 20px 24px 22px; overflow: auto; }
+  @media (max-width: 768px) { .lect-import-body { padding: 14px 14px 16px; } }
+  .lect-import-intro { font-size: 0.86rem; color: #475569; margin: 0 0 14px; }
+  .lect-import-field { margin-bottom: 14px; }
+  .lect-import-hint { font-size: 0.74rem; color: #64748b; margin: 5px 0 0; }
+  .lect-import-summary { font-size: 0.86rem; margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .lect-tag { font-size: 0.7rem; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .lect-tag-empty { background: rgba(24,142,68,0.15); color: #0b5a2e; }
+  .lect-tag-clash { background: rgba(234,179,8,0.20); color: #78350f; }
+  .lect-tag-same  { background: rgba(100,116,139,0.15); color: #475569; }
+
+  /* The table scrolls on its own so the Save button stays put: a year of
+     Sundays is fifty-odd rows and the actions must not be below all of it. */
+  .lect-import-tablewrap { overflow: auto; max-height: 52vh; border: 1px solid #e2e8f0; border-radius: 10px; }
+  .lect-import-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .lect-import-table th, .lect-import-table td { padding: 7px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #eef2f7; }
+  .lect-import-table thead th { position: sticky; top: 0; background: #f8fafc; z-index: 1; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+  .lect-date { white-space: nowrap; font-weight: 600; color: var(--brand-deep, #0b2a14); }
+  .lect-date small { display: block; font-weight: 400; color: #64748b; font-size: 0.7rem; }
+  .lect-cell-none { color: #cbd5e1; }
+  .lect-cell-same { color: #64748b; }
+  .lect-cell-same i { color: var(--brand, #188e44); font-size: 0.7rem; }
+  .lect-cell-empty label { display: flex; gap: 6px; align-items: flex-start; cursor: pointer; }
+  .lect-cell-clash { background: rgba(234,179,8,0.07); }
+  .lect-opt { display: flex; gap: 6px; align-items: flex-start; cursor: pointer; margin-bottom: 3px; }
+  .lect-keep { color: #0b2a14; }
+  .lect-new  { color: #78350f; font-weight: 600; }
+
+  @media (max-width: 768px) {
+    .lect-import-table { font-size: 0.72rem; }
+    .lect-import-table th, .lect-import-table td { padding: 6px 7px; }
+    .lect-import-tablewrap { max-height: 46vh; }
+  }
+
+  /* ===== LITURGY SECTION STRIP (mobile) =====
+     Hidden on desktop, where the sidebar already lists these five. It appears
+     only where the sidebar becomes an overlay, matching _isSidebarOverlayMode
+     so the strip is present exactly when the sidebar is not. */
+  .lit-topnav { display: none; }
+  @media (max-width: 768px), (max-width: 1200px) and (orientation: portrait) {
+    .lit-topnav {
+      display: flex;
+      gap: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      background: linear-gradient(135deg, #0b2a14, #103a1e);
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+    .lit-topnav::-webkit-scrollbar { display: none; }
+    /* Overriding the sidebar rule, which is full-width and left-aligned. */
+    .lit-topnav .lit-nav-occ-btn {
+      width: auto;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      padding: 7px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 0.78rem;
+      /* A 36px-tall target. Below the 44px ideal, but these sit in a row of
+         five on a 360px screen and the strip scrolls, so height is the only
+         axis left to give. */
+      min-height: 36px;
+    }
+    .lit-topnav .lit-nav-occ-btn.active {
+      background: rgba(255,255,255,0.22);
+      border-color: rgba(255,255,255,0.45);
+      color: #fff;
+      font-weight: 600;
+    }
+    .lit-topnav .lit-nav-occ-btn i { font-size: 0.72rem; opacity: 0.85; }
+    /* The dot is redundant next to the icon at this size. */
+    .lit-topnav .lit-nav-dot { display: none; }
+  }
 
   /* Welcome header */
   .lit-welcome-header { background: linear-gradient(135deg, #0b7644, #079352, #28b06e); color: white; padding: 28px 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
