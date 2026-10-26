@@ -1,8 +1,10 @@
 'use strict';
 // Repair: put library items back into the year folders they name.
 //
-// Run for Good Friday on 2026-10-26. Six more items, across Advent, Easter,
-// Palm Sunday, Ash Wednesday and Watchnight, can be re-filed the same way.
+// Run on 2026-10-26 for good-friday, easter, ash-wednesday, palm-sunday
+// and watchnight. What is left unfiled after that are reusable templates
+// -- "Advent Liturgy-- Communion", "Lessons and Carols" -- which carry no
+// year because they do not belong to one.
 //
 // WHY
 // Items carry an occasion_folder_id naming the year they belong to. For Good
@@ -177,7 +179,7 @@ const say = (ok, msg) => { if (!ok) failed = true; console.log('  ' + (ok ? 'ok 
     });
   fs.writeFileSync(BACKUP, JSON.stringify({
     taken: new Date().toISOString(),
-    note: 'occasion_folder_id of the Good Friday liturgy items before they were re-filed into year folders. ' +
+    note: 'occasion_folder_id of the ' + OCC + ' liturgy items before they were re-filed into year folders. ' +
           'To undo: PATCH each id back to its `was`. Entries accumulate across runs and the first ' +
           '`was` recorded for an item is kept, because that is the state an undo must reach.',
     items: merged
@@ -222,7 +224,7 @@ const say = (ok, msg) => { if (!ok) failed = true; console.log('  ' + (ok ? 'ok 
   const after = (await req(U + '/rest/v1/liturgy_items?select=id,title,occasion_folder_id&occasion_id=eq.' + OCC, { headers: H })).json || [];
   const foldersAfter = (await req(U + '/rest/v1/liturgy_occ_folders?select=id,name&occasion_id=eq.' + OCC, { headers: H })).json || [];
   const nameById = {}; foldersAfter.forEach(f => { nameById[f.id] = f.name; });
-  console.log('\nGood Friday now reads:');
+  console.log('\n' + OCC + ' now reads:');
   const grouped = {};
   after.forEach(it => {
     const label = nameById[it.occasion_folder_id] || 'Year not set';
