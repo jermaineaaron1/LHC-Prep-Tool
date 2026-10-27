@@ -24761,11 +24761,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // --- WhatsApp Service Graphic Share ---
 
   function shareServiceGraphic(dateStr, dateName, altarColor, rosterMap, rosterRows) {
-    var colorMap = {
-      Green:'#22c55e', Purple:'#079352', White:'#f8fafc', Red:'#ef4444',
-      Gold:'#eab308', Blue:'#22a957', Rose:'#f472b6'
-    };
-    if (window.RosterEngine && window.RosterEngine.COLORS) colorMap = window.RosterEngine.COLORS;
+    // The graphic the congregation is sent, so this is the last place a
+    // wrong colour should survive. It was the fourth copy of the palette
+    // and the only one left saying Purple is '#079352', a green. In
+    // practice RosterEngine was always loaded and the literal never ran,
+    // which is exactly why it sat here unnoticed.
+    var colorMap = (window.RosterEngine && window.RosterEngine.COLORS) || window.ALTAR_SWATCHES;
 
     var accentColor = colorMap[altarColor] || '#22c55e';
     var brandColor = '#188e44';
