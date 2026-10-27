@@ -74020,8 +74020,8 @@ var LiturgyModule = (function() {
           '</div>';
       }).join('');
 
-      return '<section class="lib-ribbon">' +
-          '<header class="lib-ribbon-head" style="background:' + head.gradient + ';">' +
+      return '<section class="lib-ribbon"' + (head.colour ? ' data-altar="' + head.colour + '"' : '') + '>' +
+          '<header class="lib-ribbon-head" style="background:' + _occGradient(head) + ';">' +
             '<i class="fa-solid ' + head.icon + '" aria-hidden="true"></i>' +
             '<h3>' + escapeHtml(head.label) + '</h3>' +
             '<span class="lib-ribbon-count">' + mine.length + ' item' + (mine.length === 1 ? '' : 's') + '</span>' +
@@ -80072,6 +80072,11 @@ var LiturgyModule = (function() {
   // Some kinds (exegesis/decor/presentation) will legitimately show an empty
   // state until items get tagged that way -- expected, not a bug.
   function openLibraryFilter(kind) {
+    // Many occasions on screen at once, so the page itself wears nothing;
+    // each ribbon carries its own. Without this the page keeps whatever
+    // season the last single service left behind.
+    var _h = document.getElementById('liturgyView');
+    if (_h) _h.removeAttribute('data-altar');
     var def = LIBRARY_FILTER_MAP[kind];
     if (!def) return;
     _currentGeneralFolder = null;
@@ -80118,6 +80123,11 @@ var LiturgyModule = (function() {
   var _memEditing = null;       // { occasionId, folderId, noteId }, or null for a new one
 
   function openMemories() {
+    // Many occasions on screen at once, so the page itself wears nothing;
+    // each ribbon carries its own. Without this the page keeps whatever
+    // season the last single service left behind.
+    var _h = document.getElementById('liturgyView');
+    if (_h) _h.removeAttribute('data-altar');
     _currentOccasion = null;
     _currentGeneralFolder = null;
     _litSyncNav('memories');
@@ -80258,8 +80268,8 @@ var LiturgyModule = (function() {
         // Newest first inside a service: last year's notes are the ones
         // somebody is looking for, and the year before that next.
         mine.sort(function(a, b) { return b.when - a.when; });
-        return '<section class="lib-ribbon">' +
-            '<header class="lib-ribbon-head" style="background:' + head.gradient + ';">' +
+        return '<section class="lib-ribbon"' + (head.colour ? ' data-altar="' + head.colour + '"' : '') + '>' +
+            '<header class="lib-ribbon-head" style="background:' + _occGradient(head) + ';">' +
               '<i class="fa-solid ' + head.icon + '" aria-hidden="true"></i>' +
               '<h3>' + escapeHtml(head.label) + '</h3>' +
               '<span class="lib-ribbon-count">' + mine.length + ' note' + (mine.length === 1 ? '' : 's') + '</span>' +
@@ -88476,11 +88486,23 @@ function filterLiturgyItems() {
     background: var(--occ-wash);
     color: var(--occ-ink);
   }
-  .lit-occ-card[data-altar="green"]  { --occ-accent:#16a34a; --occ-ink:#15803d; --occ-wash:rgba(22,163,74,0.12); }
-  .lit-occ-card[data-altar="purple"] { --occ-accent:#7c3aed; --occ-ink:#5b21b6; --occ-wash:rgba(124,58,237,0.12); }
-  .lit-occ-card[data-altar="red"]    { --occ-accent:#dc2626; --occ-ink:#991b1b; --occ-wash:rgba(220,38,38,0.12); }
-  .lit-occ-card[data-altar="white"]  { --occ-accent:#d9a441; --occ-ink:#8a5a12; --occ-wash:rgba(183,121,31,0.14); }
-  .lit-occ-card[data-altar="black"]  { --occ-accent:#475569; --occ-ink:#1f2933; --occ-wash:rgba(51,65,85,0.12); }
+  /* On any descendant that names a colour -- an occasion card, a library
+     ribbon, a memories ribbon. The page's own season is #liturgyView
+     itself and uses --lit-*, so the two never collide. */
+  #liturgyView [data-altar="green"]  { --occ-accent:#16a34a; --occ-ink:#15803d; --occ-wash:rgba(22,163,74,0.12); }
+  #liturgyView [data-altar="purple"] { --occ-accent:#7c3aed; --occ-ink:#6d28d9; --occ-wash:rgba(124,58,237,0.12); }
+  #liturgyView [data-altar="red"]    { --occ-accent:#dc2626; --occ-ink:#b91c1c; --occ-wash:rgba(220,38,38,0.12); }
+  #liturgyView [data-altar="white"]  { --occ-accent:#d9a441; --occ-ink:#8a5a12; --occ-wash:rgba(183,121,31,0.14); }
+  #liturgyView [data-altar="black"]  { --occ-accent:#475569; --occ-ink:#1f2933; --occ-wash:rgba(51,65,85,0.12); }
+
+  /* ===== LIBRARY, LITURGIES AND MEMORIES =====
+     These three show many occasions at once, so the page stays neutral
+     and each ribbon wears its own colour -- the same way a month of
+     readings keeps one dot per service rather than one colour for all. */
+  .lib-ribbon[data-altar] { border-color: var(--occ-wash); }
+  .lib-ribbon[data-altar] .lib-year-label { color: var(--occ-ink); }
+  .lib-ribbon[data-altar] .lib-year-label i { color: var(--occ-accent); }
+  .lib-ribbon[data-altar] .lit-mem-section-title { color: var(--occ-ink); border-bottom-color: var(--occ-wash); }
 
   /* ==================== THE SEASON SHOWS ====================
      The page takes its accent from the altar colour of the service on
