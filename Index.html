@@ -76331,10 +76331,27 @@ var LiturgyModule = (function() {
     }
   }
 
+  // The title box is editable, and every save path honours what is in it.
+  //
+  // It did not always. bbSaveToLectionarySlot read bbState.passage.reference
+  // directly, so in reading-slot mode the box was decoration: a correction
+  // typed into it was discarded without a word. That also decided how psalms
+  // were filed, because the canonical reference the API returns uses the
+  // PLURAL book name -- adding "Psalm 96" through the slot picker stored
+  // "Psalms 96", against the eight singular psalms the lectionary import had
+  // already put in the roster, and the odd one out showed on the projector
+  // and in print.
+  //
+  // One function, so the three save paths cannot drift apart again.
+  function bbChosenTitle(fallback) {
+    var titleInput = document.getElementById('bbPassageTitle');
+    var typed = titleInput ? String(titleInput.value == null ? '' : titleInput.value).trim() : '';
+    return typed || (bbState.passage && bbState.passage.reference) || fallback;
+  }
+
   function bbSaveToLibrary() {
     if (!bbState.passage) return;
-    var titleInput = document.getElementById('bbPassageTitle');
-    var title = (titleInput ? titleInput.value : '') || bbState.passage.reference || 'Scripture';
+    var title = bbChosenTitle('Scripture');
     var content = (bbState.passage.text || '').trim();
     addItem({ title: title, type: 'scripture', content: content, tags: ['bible', bbState.passage.translation || 'kjv'], scriptureRefs: bbState.passage.reference ? [bbState.passage.reference] : [] });
     closeBibleBrowser();
@@ -76344,8 +76361,7 @@ var LiturgyModule = (function() {
 
   function bbInsertIntoWO() {
     if (!bbState.passage) return;
-    var titleInput = document.getElementById('bbPassageTitle');
-    var title = (titleInput ? titleInput.value : '') || bbState.passage.reference || 'Scripture';
+    var title = bbChosenTitle('Scripture');
     var content = (bbState.passage.text || '').trim();
 
     var _alleluiaBox = document.getElementById('bbSingAlleluia');
@@ -77213,7 +77229,13 @@ var LiturgyModule = (function() {
     if (!bbState.passage || _lectionaryPickerSlotIndex === null) return;
     var idx = _lectionaryPickerSlotIndex;
     var dateStr = _lectionaryPickerDate || _currentReadingDate;
-    var reference = bbState.passage.reference || '';
+    // What is in the title box is what goes in the roster: in slot mode the
+    // title IS the reference, there being no second field to hold one.
+    var reference = bbChosenTitle('');
+    // Keyed on what was SAVED rather than on what the API called it. The
+    // reader looks a passage up by the roster's reference, so caching it
+    // under the canonical one would miss on every corrected reference and
+    // go back to the API for text already in hand.
     _passageTextCache[bbNormaliseReference(reference)] = {
       reference: reference,
       translation: bbState.passage.translation || '',

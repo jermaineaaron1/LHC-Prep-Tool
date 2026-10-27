@@ -146,6 +146,19 @@ const WINDOW_FILTER =
   '          if (day < SBQ_READINGS.keyDate(fromIso) || day > SBQ_READINGS.keyDate(toIso)) return;';
 const WHOLE_KEY_FILTER = '          if (!iso || iso < fromIso || iso > toIso) return;';
 
+// The Bible Browser's editable title box, and the one function all three of
+// its save paths now ask for it. In reading-slot mode that box IS the
+// reference that reaches the roster, there being no second field.
+const CHOSEN_TYPED =
+  "    var typed = titleInput ? String(titleInput.value == null ? '' : titleInput.value).trim() : '';";
+const CHOSEN_RETURN =
+  '    return typed || (bbState.passage && bbState.passage.reference) || fallback;';
+const SLOT_REF = "    var reference = bbChosenTitle('');";
+const SLOT_CACHE_KEY = '    _passageTextCache[bbNormaliseReference(reference)] = {';
+// Two copies of this line exist, the library's and the service order's;
+// replace() below takes the FIRST, which is the library.
+const LIB_TITLE = "    var title = bbChosenTitle('Scripture');";
+
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
     s => s.replace(DESPACED, '')],
@@ -517,7 +530,34 @@ const CASES = [
   ['lectionary-import-harness.js', 'the import stops recording what the document said',
     s => s.replace('      readings: readings,\r\n', '')],
   ['lectionary-import-harness.js', 'a new order stops getting its readings',
-    s => s.replace(ORDER_FILL, '')]
+    s => s.replace(ORDER_FILL, '')],
+  // The Bible Browser's title box. Two save paths honoured it and the third
+  // did not, so a correction typed in reading-slot mode was discarded with
+  // nothing said -- and since the API answers "Psalms 96" when asked for
+  // "Psalm 96", that is how a hand-added psalm became the one odd spelling
+  // on a page of 59 singular ones.
+  ['reading-slot-title-harness.js', 'the reading slot ignores the title box again',
+    s => s.replace(SLOT_REF, "    var reference = bbState.passage.reference || '';")],
+  ['reading-slot-title-harness.js', 'the shared helper stops reading the box',
+    s => s.replace(CHOSEN_TYPED, "    var typed = '';")],
+  ['reading-slot-title-harness.js', 'a box holding only spaces becomes the reference',
+    s => s.replace(CHOSEN_TYPED,
+                   "    var typed = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : '';")],
+  // Keyed on the API's spelling, the reader never finds the text just
+  // fetched and goes back to the API for every corrected reference.
+  ['reading-slot-title-harness.js', 'the passage cache is keyed on the API reference',
+    s => s.replace(SLOT_CACHE_KEY,
+                   '    _passageTextCache[bbNormaliseReference(bbState.passage.reference || reference)] = {')],
+  // The thing that must NOT be fixed by coercion. Six live 2026 services
+  // deliberately hold non-psalm values in the psalm slot -- theme verses for
+  // a preaching series, and a bare "-" for the weeks with no psalm -- so a
+  // rewrite that assumes "Psalm N" would destroy real planning.
+  ['reading-slot-title-harness.js', 'a Psalms -> Psalm rewrite creeps into the helper',
+    s => s.replace(CHOSEN_RETURN, String.raw`    return (typed || (bbState.passage && bbState.passage.reference) || fallback).replace(/\bPsalms\b/, 'Psalm');`)],
+  // Drift the other way: the library stops asking the shared helper, which
+  // is how the three came to disagree in the first place.
+  ['reading-slot-title-harness.js', 'the library stops asking the shared helper',
+    s => s.replace(LIB_TITLE, "    var title = bbState.passage.reference || 'Scripture';")]
 ];
 
 let caught = 0, missed = 0, stale = 0;
