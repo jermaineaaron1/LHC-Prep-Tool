@@ -6570,6 +6570,9 @@
             <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
               <i class="fa-solid fa-guitar mr-1"></i> Chords
             </button>
+            <button id="lyricsPreviewChoirBtn" class="lhc-pill-button text-sm" style="display:none;background:#f6f3ff;border-color:#ddd3fb;color:#6d28d9;" onclick="switchLyricsPreviewMode('choir')" title="The choir arrangement: who sings what, and where">
+              <i class="fa-solid fa-users mr-1"></i> Choir parts
+            </button>
             <button id="lyricsPreviewYoutubeBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="lyricsPreviewYoutube()" title="Watch an attached video">
               <i class="fa-brands fa-youtube mr-1"></i> YouTube
               <span id="lyricsPreviewYoutubeBadge" class="lp-btn-badge" style="display:none;"></span>
@@ -13317,6 +13320,16 @@ function switchLyricsPreviewMode(mode) {
   if (_resBtn) _resBtn.classList.toggle('lhc-pill-button-active', mode === 'resources');
   var _histBtn = document.getElementById('lyricsPreviewHistoryBtn');
   if (_histBtn) _histBtn.classList.toggle('lhc-pill-button-active', mode === 'history');
+  var _choirBtn = document.getElementById('lyricsPreviewChoirBtn');
+  if (_choirBtn) _choirBtn.classList.toggle('lhc-pill-button-active', mode === 'choir');
+  // The Edit button edits whatever is on screen, so it has to say which.
+  var _edBtn = document.getElementById('lyricsPreviewEditBtn');
+  if (_edBtn) {
+    _edBtn.innerHTML = mode === 'choir'
+      ? '<i class="fa-solid fa-pen-to-square mr-1"></i> Edit parts'
+      : '<i class="fa-solid fa-pen-to-square mr-1"></i> Edit';
+    _edBtn.title = mode === 'choir' ? 'Edit the choir arrangement' : 'Edit lyrics inline';
+  }
   
   // Show/hide transpose dropdown
   var transposeContainer = document.getElementById('transposeContainer');
@@ -13332,10 +13345,10 @@ function renderLyricsPreviewContent() {
   if (!container || !currentLyricsPreviewSong) return;
   
   if (STATE.lyricsPreviewEditMode) {
-    // A two-part song is edited as its own source, not as the flat copy.
-    // Editing the flat copy would be editing a generated file: the next save
-    // of the lines overwrites it, and nothing reads it back into rows.
-    if (currentLyricsPreviewSong.voiceLayout === 'two-part' && window.lhcVoiceLines) {
+    // The choir arrangement has its own editor, reached from its own tab.
+    // The Lyrics tab keeps the ordinary lyrics editor it has always had --
+    // the words of the song are the song's, not the arrangement's.
+    if (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines) {
       var _vlRows = _lpVoiceLineCache[currentLyricsPreviewSong.id] || [];
       container.innerHTML =
         '<div class="vl-edit-help">' +
@@ -13390,33 +13403,29 @@ function renderLyricsPreviewContent() {
     return;
   }
   
-  // A two-part song is not a text stream. Its words live in song_voice_lines
-  // and are drawn as two lanes, so an entry can be read across; the lyrics
-  // column holds only the flat copy. The Chords tab falls through to the
-  // ordinary renderer -- an arrangement like this has no chords in it, and
-  // if one ever does, the chord view is the text view.
-  if (currentLyricsPreviewSong.voiceLayout === 'two-part' &&
-      currentLyricsPreviewMode !== 'chords' && window.lhcVoiceLines) {
+  // The choir arrangement is its own view. Lyrics and Chords are untouched:
+  // underneath the arrangement this is an ordinary song and behaves like
+  // one everywhere else in the app.
+  if (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines) {
     var _vlRows = _lpVoiceLineCache[currentLyricsPreviewSong.id];
     if (_vlRows === undefined) {
       container.innerHTML = '<div class="p-8 text-center text-slate-400">' +
         '<i class="fa-solid fa-spinner fa-spin text-2xl mb-3 opacity-50"></i>' +
-        '<p>Loading both parts\u2026</p></div>';
+        '<p>Loading the choir parts\u2026</p></div>';
       return;
     }
-    if (_vlRows.length) {
-      container.innerHTML = window.lhcVoiceLines.html(_vlRows);
-      if (!container._lpCueBound) {
-        container._lpCueBound = true;
-        container.addEventListener('scroll', _lpUpdateScrollCue, { passive: true });
-      }
-      setTimeout(_lpUpdateScrollCue, 60);
-      _sfPaintAppearance();
-      return;
+    container.innerHTML = _vlRows.length
+      ? window.lhcVoiceLines.html(_vlRows)
+      : '<div class="p-8 text-center text-slate-400">' +
+        '<i class="fa-solid fa-users text-4xl mb-3 opacity-50"></i>' +
+        '<p>No choir parts for this song yet.</p></div>';
+    if (!container._lpCueBound) {
+      container._lpCueBound = true;
+      container.addEventListener('scroll', _lpUpdateScrollCue, { passive: true });
     }
-    // An empty array means the read found nothing -- an unmigrated table, or
-    // rows since deleted. Fall through to the flat copy rather than show a
-    // song with no words at all.
+    setTimeout(_lpUpdateScrollCue, 60);
+    _sfPaintAppearance();
+    return;
   }
 
   var lyrics = currentLyricsPreviewSong.lyrics || '';
@@ -13508,11 +13517,11 @@ function lyricsPreviewToggleInlineEdit(enter) {
   // Snapshot what the words were on the way in, so "did the user actually
   // change anything" is a comparison rather than a guess. Cleared on the way
   // out so a stale baseline can never make a clean editor look dirty.
-  // For a two-part song the editor holds its own source, not the lyrics
-  // column, so the baseline has to be the same thing the textarea was filled
-  // from or every open would look dirty the moment it opened.
+  // The baseline has to be whatever the textarea was actually filled from,
+  // or every open would look dirty the moment it opened -- and which of the
+  // two editors is open depends on the tab, not on the song.
   STATE._lpEditBaseline = !enter ? null
-    : (song.voiceLayout === 'two-part' && window.lhcVoiceLines)
+    : (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines)
       ? window.lhcVoiceLines.toVoiceText(_lpVoiceLineCache[song.id] || [])
       : String((song.lyrics || ''));
   renderLyricsPreviewContent();
@@ -13556,7 +13565,7 @@ function lyricsPreviewSaveInlineEdit() {
   var song = currentLyricsPreviewSong;
   var ta = document.getElementById('lyricsPreviewEditTextarea');
   if (!song || !ta) return;
-  if (song.voiceLayout === 'two-part' && window.lhcVoiceLines) {
+  if (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines) {
     _lpSaveVoiceLines(song, ta.value);
     return;
   }
@@ -13600,14 +13609,13 @@ function _lpSaveVoiceLines(song, text) {
     return SBQ_VOICE_LINES.forSong(song.id);
   }).then(function(fresh) {
     _lpVoiceLineCache[song.id] = fresh || [];
-    var flat = window.lhcVoiceLines.toLyricsText(fresh || []);
-    song.lyrics = flat;
-    STATE.songs.forEach(function(s) { if (s.id === song.id) s.lyrics = flat; });
-    showToast('Both parts saved', 'success');
+    // The song's lyrics are deliberately not touched. Saving the choir parts
+    // saves the choir parts.
+    showToast('Choir parts saved', 'success');
     lyricsPreviewToggleInlineEdit(false);
   }).catch(function(err) {
     console.error(err);
-    showToast('Failed to save both parts', 'error');
+    showToast('Failed to save the choir parts', 'error');
   }).finally(function() {
     if (typeof showLoader === 'function') showLoader(false);
   });
@@ -14288,24 +14296,40 @@ window.lhcVoiceLines = {
     return n > 0 ? n : 0;
   },
 
-  // The flat copy written into songs.lyrics.
+  // The song's own words, for a song that also carries a choir arrangement.
   //
-  // Unison lines go in bare, so a mostly-unison song still reads as ordinary
-  // lyrics wherever it is projected or shared; only lines that actually
-  // differ carry a prefix. This is ONE-WAY. Nothing parses it back, and the
-  // rows stay the truth -- editing this text edits the copy alone.
-  toLyricsText: function(lines) {
+  // A song with choir parts is an ORDINARY song. Its lyrics column is its
+  // own, edited in the normal lyrics editor, and NOTHING here overwrites it.
+  // This exists only to offer a sensible starting point the first time a
+  // song is created from an arrangement -- after that the two are separate
+  // documents, the way the congregation's words and the choir's parts are
+  // separate in real life.
+  //
+  // Where the parts split, the women's line becomes the lyric: the upper
+  // part generally carries the melody, and a part holding a vowel is not
+  // singing words at all. Consecutive duplicates collapse, because the two
+  // parts answering each other a bar apart is one line of the song, not two.
+  toPlainLyrics: function(lines) {
     var V = window.lhcVoiceLines;
-    var out = [], section = null;
+    var out = [], section = null, last = null;
     V.group(lines).forEach(function(g) {
       if (g.section && g.section !== section) {
         if (out.length) out.push('');
         out.push('[' + g.section + ']');
         section = g.section;
+        last = null;
       }
-      if (g.both) { out.push(g.both.text || ''); return; }
-      if (g.women) out.push('W: ' + (g.women.text || ''));
-      if (g.men) out.push('M: ' + (g.men.text || ''));
+      var pick = g.both ? g.both
+               : (g.women && !g.women.sustained) ? g.women
+               : (g.men && !g.men.sustained) ? g.men
+               : null;
+      if (!pick) return;
+      String(pick.text || '').split(/\s*\u00b7\s*/).forEach(function(piece) {
+        var t = piece.trim();
+        if (!t || t === last) return;
+        out.push(t);
+        last = t;
+      });
     });
     return out.join('\n');
   },
@@ -14382,9 +14406,10 @@ window.lhcVoiceLines = {
 
   // ---- the editable source ------------------------------------------------
   //
-  // This is NOT toLyricsText. That one is the flat copy for everything that
-  // reads the lyrics column and is deliberately one-way. This is the round
-  // trip: what the editor shows, and what parseVoiceText reads back.
+  // This is NOT toPlainLyrics. That one offers a starting point for the
+  // song's own lyrics column and throws the part assignments away. This is
+  // the round trip: what the editor shows, and what parseVoiceText reads
+  // back, with nothing lost in either direction.
   //
   //     [Verse 1]
   //     1-3    Said the night wind to the little lamb
@@ -15402,6 +15427,13 @@ window.setLyricsPreviewSong = function(song) {
   
   document.getElementById('lyricsPreviewLyricsBtn').classList.add('lhc-pill-button-active');
   document.getElementById('lyricsPreviewChordsBtn').classList.remove('lhc-pill-button-active');
+  // The Choir tab appears only where there is an arrangement to show. Every
+  // other song opens exactly as it always has.
+  var _choirBtn2 = document.getElementById('lyricsPreviewChoirBtn');
+  if (_choirBtn2) {
+    _choirBtn2.style.display = (song.voiceLayout === 'two-part') ? '' : 'none';
+    _choirBtn2.classList.remove('lhc-pill-button-active');
+  }
   // Reset 2-col state for each new song
   var _twoColBtn = document.getElementById('lyricsPreviewTwoColBtn');
   if (_twoColBtn) _twoColBtn.classList.remove('lhc-pill-button-active');
@@ -29782,18 +29814,12 @@ var SBQ_VOICE_LINES = {
       })
       .then(function(r) {
         if (r && r.error) throw new Error(r.error.message);
-        // Clearing the lines clears the FLAG but never the lyrics column.
-        // The flat copy is the only words a reader has left at that point,
-        // and blanking it on the way out would be the one unrecoverable
-        // step in this whole path.
-        if (!rows.length) {
-          return SBQ_SONGS.updateFields(songId, { voice_layout: null })
-            .then(function() { return { success: true, count: 0 }; });
-        }
-        var saved = (r && r.data) ? r.data.map(SBQ_VOICE_LINES._fromRow) : lines;
+        // Only the flag moves. songs.lyrics belongs to the song, not to the
+        // arrangement: a choir part is a layer over an ordinary song, and
+        // rewriting the song's words every time somebody fixes the alto
+        // line would be the layer eating its host.
         return SBQ_SONGS.updateFields(songId, {
-          voice_layout: 'two-part',
-          lyrics: window.lhcVoiceLines.toLyricsText(saved)
+          voice_layout: rows.length ? 'two-part' : null
         }).then(function() { return { success: true, count: rows.length }; });
       });
   },

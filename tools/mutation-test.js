@@ -140,9 +140,17 @@ const CASES = [
   ['voice-lines-harness.js', 'a rest straddling a verse boundary is swallowed again',
     s => s.replace('\'<span class="vl-head-m">Men</span></div>\');',
                    '\'<span class="vl-head-m">Men</span></div>\'); prev = null;')],
-  ['voice-lines-harness.js', "the men's line loses its prefix in the flat copy",
-    s => s.replace("if (g.men) out.push('M: ' + (g.men.text || ''));",
-                   "if (g.men) out.push((g.men.text || ''));")],
+  // The song's own words are offered from the women's line, which is both
+  // the melody and, in this carol, the line without the engraving typos.
+  // One line, not two: Index.html is CRLF, so a pattern spanning a newline
+  // matches nothing and goes stale instead of going red.
+  ['voice-lines-harness.js', "the song's suggested words come from the men instead",
+    s => s.replace(': (g.women && !g.women.sustained) ? g.women',
+                   ': (g.men && !g.men.sustained) ? g.men')],
+  ['voice-lines-harness.js', 'a held vowel is offered as if it were a lyric',
+    s => s.replace(': (g.women && !g.women.sustained) ? g.women', ': g.women ? g.women')],
+  ['voice-lines-harness.js', 'the bar-later echo is offered as a second line',
+    s => s.replace("if (!t || t === last) return;", "if (!t) return;")],
   ['voice-lines-harness.js', 'lyrics stop being escaped on the way into the page',
     s => s.replace('_esc: function(s) {',
                    "_esc: function(s) { return String(s == null ? '' : s);")],

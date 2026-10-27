@@ -247,15 +247,23 @@ SBQ_VOICE_LINES.clear(songId)            // drops the lines, keeps the lyrics
 window.lhcVoiceLines.group(lines)        // rows -> paired display groups
 window.lhcVoiceLines.annotate(groups)    // sets .together / .togetherStart
 window.lhcVoiceLines.html(lines)         // the two-lane grid
-window.lhcVoiceLines.toLyricsText(lines) // the flat copy. ONE-WAY: nothing
-                                         // parses it back
+window.lhcVoiceLines.toPlainLyrics(lines)// a STARTING POINT for songs.lyrics,
+                                         // used once at creation and never
+                                         // again. Not a mirror.
 window.lhcVoiceLines.toVoiceText(lines)  // the EDITOR source. Round-trips.
 window.lhcVoiceLines.parseVoiceText(txt) // ...and back again
 ```
 
-The editor (the Edit button on a two-part song's preview) is a textarea over
-`toVoiceText` / `parseVoiceText`, with a live preview drawn by the same
-`html()` the saved song uses. Its format:
+**A song with choir parts is an ORDINARY song.** The parts are a layer: they
+get their own `Choir parts` tab in the preview and their own editor, and
+every other tab, view and feature behaves exactly as it does for any other
+song. `songs.lyrics` belongs to the song, is edited in the normal lyrics
+editor, and is never written by anything in this module after the song is
+created.
+
+The parts editor (the Edit button while the `Choir parts` tab is open) is a
+textarea over `toVoiceText` / `parseVoiceText`, with a live preview drawn by
+the same `html()` the saved song uses. Its format:
 
 ```
 [Verse 1]
@@ -470,14 +478,14 @@ the anon key -- verify as `postgres`, not as the app.
 
 8. **Full-row writes**: `SBQ_SONGS.update()` sends the whole row. Use `updateFields()` for a partial save, or the columns left out are blanked.
 
-9. **A two-part song's lyrics column is a COPY**: when `songs.voice_layout`
-   is `'two-part'`, the words live in `song_voice_lines` and `songs.lyrics`
-   holds a generated flat rendering (unison lines bare, split lines prefixed
-   `W:` / `M:`). Everything that reads text -- projection, the PDF, search,
-   WhatsApp sharing, the songbook's contenteditable -- still reads the
-   column and still works. But editing that text edits the copy alone, and
-   `SBQ_VOICE_LINES.replaceAll` will overwrite it the next time the lines
-   change. There is no parser going the other way.
+9. **The choir parts are a LAYER, not a different kind of song.**
+   `songs.voice_layout = 'two-part'` means "this song also has a choir
+   arrangement", nothing more. `songs.lyrics` is the song's own, edited
+   normally, and `SBQ_VOICE_LINES.replaceAll` writes only the flag -- saving
+   the choir parts must never rewrite the song's words. The two are separate
+   documents and are allowed to differ, the way the congregation's words and
+   the choir's parts differ in real life. Anything that makes a song with
+   parts behave differently from any other song in the library is a bug.
 
 10. **A rest is the absence of a row**, not a row with empty text. Pair rows
     by `sort_order`, never by bar number: bars are nullable and are for

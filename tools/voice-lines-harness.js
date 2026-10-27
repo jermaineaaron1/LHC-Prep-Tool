@@ -146,24 +146,45 @@ check('an overlap is not a negative gap',
 check('a song without bar numbers never reports a gap',
   V.gapBefore({ barEnd: null }, { barStart: null }), 0);
 
-console.log('\nthe flat copy written into songs.lyrics');
-// Unison goes in bare so a mostly-unison song still reads as ordinary lyrics
-// wherever it is projected. Only the lines that actually differ are marked.
-check('a unison line goes in bare',
-  V.toLyricsText([row('both', 'Silent night', 0)]), 'Silent night');
-check('a split line names its part',
-  V.toLyricsText([row('women', 'Oh', 0), row('men', 'dancing in the night', 0)]),
-  'W: Oh\nM: dancing in the night');
-check('a part resting contributes no line',
-  V.toLyricsText([row('men', 'Do you see what I see', 0)]),
-  'M: Do you see what I see');
+console.log('\nthe song\'s own words, offered when a song is first created');
+// A song with choir parts is an ORDINARY song. Nothing generates its lyrics
+// column after it exists -- this only produces a starting point, and it has
+// to read as lyrics, not as choir notation.
+check('a unison line is just the line',
+  V.toPlainLyrics([row('both', 'Silent night', 0)]), 'Silent night');
+check('no part prefix reaches the song\'s words',
+  /[WM]:/.test(V.toPlainLyrics([row('women', 'Oh', 0), row('men', 'dancing', 0)])), false);
+// The upper part generally carries the melody, and it is also the line
+// without the two engraving typos in this carol.
+check('where the parts split the women carry the lyric',
+  V.toPlainLyrics([row('women', 'good-ness', 0), row('men', 'good-nes', 0)]), 'good-ness');
+check('a part holding a vowel is not singing words',
+  V.toPlainLyrics([row('women', 'oh……', 0, { sustained: true }),
+                   row('men', 'A star a star', 0)]), 'A star a star');
+check('both parts holding a vowel contribute nothing',
+  V.toPlainLyrics([row('women', 'oh', 0, { sustained: true }),
+                   row('men', 'ah', 0, { sustained: true })]), '');
+// The two parts answering each other a bar apart is ONE line of the song.
+check('an echo a bar later is not a second line',
+  V.toPlainLyrics([row('men', 'Do you see what I see', 0),
+                   row('women', 'Do you see what I see', 1)]), 'Do you see what I see');
+check('but a genuine repeat survives',
+  V.toPlainLyrics([row('both', 'a', 0), row('both', 'b', 1), row('both', 'a', 2)]), 'a\nb\na');
+check('a mid-dot splits one row into two lines',
+  V.toPlainLyrics([row('both', 'shi-vers in the cold · let us bring gold', 0)]),
+  'shi-vers in the cold\nlet us bring gold');
 check('sections become headers',
-  V.toLyricsText([row('both', 'a', 0, { section: 'Verse 1' }),
-                  row('both', 'b', 1, { section: 'Verse 1' }),
-                  row('both', 'c', 2, { section: 'Verse 2' })]),
+  V.toPlainLyrics([row('both', 'a', 0, { section: 'Verse 1' }),
+                   row('both', 'b', 1, { section: 'Verse 1' }),
+                   row('both', 'c', 2, { section: 'Verse 2' })]),
   '[Verse 1]\na\nb\n\n[Verse 2]\nc');
 check('no leading blank line before the first header',
-  V.toLyricsText([row('both', 'a', 0, { section: 'Verse 1' })]).startsWith('['), true);
+  V.toPlainLyrics([row('both', 'a', 0, { section: 'Verse 1' })]).startsWith('['), true);
+// A repeat across a section boundary is a real repeat, not an echo.
+check('the duplicate check restarts at each section',
+  V.toPlainLyrics([row('both', 'a', 0, { section: 'Verse 1' }),
+                   row('both', 'a', 1, { section: 'Verse 2' })]),
+  '[Verse 1]\na\n\n[Verse 2]\na');
 
 console.log('\ndrawing the two lanes');
 const splitHtml = V.html([row('women', 'Oh', 0), row('men', 'dancing', 0)]);
@@ -263,22 +284,31 @@ check('and draws a lane for every part of every group',
 check('the two-bar rest is shown once',
   (html.match(/both parts rest/g) || []).length, 1);
 
-// Nothing may be lost on the way into songs.lyrics: every row's words have to
-// come out the other side.
-const flat = V.toLyricsText(L);
-const lost = L.filter(ln => flat.indexOf(ln.text) < 0);
-check('every row survives the flat copy', lost.map(l => l.part + ' ' + l.barStart), []);
-check('the flat copy carries all four section headers',
-  (flat.match(/^\[Verse \d\]$/gm) || []).length, 4);
-check('it has one line per row plus the headers and their blank lines',
-  flat.split('\n').filter(s => s.trim()).length, L.length + 4);
+// The men's two source typos are deliberate in the ARRANGEMENT. Silently
+// "fixing" them would put words on the choir's page that the score does not
+// have.
+const arrangement = L.map(l => l.text).join('\n');
+check("the men's printed typo at bar 58 is kept", arrangement.indexOf('good-nes and Light!') > -1, true);
+check("the men's printed typo at bar 61 is kept", arrangement.indexOf('Bri-ing u-s') > -1, true);
+check("the women's line has neither",
+  arrangement.indexOf('He will bring us good-ness and Light!') > -1, true);
 
-// The men's two source typos are deliberate. Silently "fixing" them in a
-// later pass over this data would put words on the page that the score does
-// not have.
-check("the men's printed typo at bar 58 is kept", flat.indexOf('good-nes and Light!') > -1, true);
-check("the men's printed typo at bar 61 is kept", flat.indexOf('Bri-ing u-s') > -1, true);
-check("the women's line has neither", flat.indexOf('bring us good-ness and Light!') > -1, true);
+// The starting point offered for the song's own lyrics. It is NOT the
+// arrangement flattened -- it drops the held vowels and the bar-later
+// echoes, because those are how the choir sings the song, not what the song
+// says.
+const plain = V.toPlainLyrics(L);
+check('the suggested lyrics carry all four section headers',
+  (plain.match(/^\[Verse \d\]$/gm) || []).length, 4);
+check('they are shorter than the arrangement, not a copy of it',
+  plain.split('\n').filter(s => s.trim()).length < L.length, true);
+check('no part prefix leaks into them', /^[WM]:/m.test(plain), false);
+check('no held vowel is offered as a lyric', /oh…/i.test(plain), false);
+check("and the men's typos do not reach the song's own words",
+  /good-nes[^s]|Bri-ing/.test(plain), false);
+check('the carol still opens the way it opens',
+  plain.split('\n')[1], 'Said the night wind to the little lamb');
+check('and still ends on Light!', plain.trim().split('\n').pop(), 'Light!');
 
 // ---------------------------------------------------------------------------
 console.log('\nwhere the two parts come in together');
@@ -362,7 +392,7 @@ const trip = V.parseVoiceText(V.toVoiceText(L));
 check('open and save with no edits gives back the same ' + L.length + ' rows',
   trip.map(cmp), L.map(cmp));
 check('  and the same display groups', V.group(trip).length, V.group(L).length);
-check('  and the same flat copy', V.toLyricsText(trip), V.toLyricsText(L));
+check('  and the same suggested lyrics', V.toPlainLyrics(trip), V.toPlainLyrics(L));
 check('  and the same cues', cues(trip), cues(L));
 check('a second trip changes nothing further',
   V.toVoiceText(trip), V.toVoiceText(L));
