@@ -6924,22 +6924,22 @@
           </p>
           <div class="flex flex-wrap gap-1">
             <span class="roster-legend-item">
-              <span class="roster-legend-color" style="background: #22c55e;"></span> Green
+              <span class="roster-legend-color" style="background: #16a34a;"></span> Green
             </span>
             <span class="roster-legend-item">
-              <span class="roster-legend-color" style="background: #079352;"></span> Purple
+              <span class="roster-legend-color" style="background: #7c3aed;"></span> Purple
             </span>
             <span class="roster-legend-item">
               <span class="roster-legend-color" style="background: #f8fafc; border: 1px solid #cbd5e1;"></span> White
             </span>
             <span class="roster-legend-item">
-              <span class="roster-legend-color" style="background: #ef4444;"></span> Red
+              <span class="roster-legend-color" style="background: #dc2626;"></span> Red
             </span>
             <span class="roster-legend-item">
               <span class="roster-legend-color" style="background: #eab308;"></span> Gold
             </span>
             <span class="roster-legend-item">
-              <span class="roster-legend-color" style="background: #22a957;"></span> Blue
+              <span class="roster-legend-color" style="background: #2563eb;"></span> Blue
             </span>
             <span class="roster-legend-item">
               <span class="roster-legend-color" style="background: #f472b6;"></span> Rose
@@ -19104,9 +19104,41 @@ window.loadEditSongData = function(song) {
 <!-- Part 5: JavaScript - All Core Functions -->
 
 <script>
+// The altar colours, in one place.
+//
+// There were three copies of this and all three said the same wrong thing:
+// Purple was '#079352' and Blue '#22a957', which are both greens. The
+// roster's own legend drew a green swatch and labelled it "Purple" --
+// something a person could read on a Saturday and set out the wrong
+// paraments.
+//
+// The church's data was never wrong. Of the 44 services that record a
+// colour it is Green 22, White 10, Purple 9, Red 3, with Advent and Lent
+// correctly Purple. Only the drawing of it was wrong, so this fixes the
+// drawing and leaves the data alone.
+//
+// swatch is the dot or chip. ink is the same colour taken down far enough
+// to read as text on white. White paraments carry gold trim, which is why
+// white's ink is gold -- and a white dot needs a border to exist at all.
+window.LITURGICAL_COLOURS = {
+  Green:  { swatch: '#16a34a', ink: '#15803d' },
+  White:  { swatch: '#f8fafc', ink: '#a16207', border: '#cbd5e1' },
+  Purple: { swatch: '#7c3aed', ink: '#6d28d9' },
+  Red:    { swatch: '#dc2626', ink: '#b91c1c' },
+  Gold:   { swatch: '#eab308', ink: '#a16207' },
+  Blue:   { swatch: '#2563eb', ink: '#1d4ed8' },
+  Rose:   { swatch: '#f472b6', ink: '#be185d' },
+  Black:  { swatch: '#1f2933', ink: '#1f2933' }
+};
+// The flat { Name: swatch } shape the roster and the home page already use.
+window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (o, k) {
+  o[k] = window.LITURGICAL_COLOURS[k].swatch; return o;
+}, {});
+</script>
+
+<script>
 (function() {
   "use strict";
-
   // ============================================================
   // 1) GLOBAL STATE
   // ============================================================
@@ -24522,7 +24554,7 @@ window.loadEditSongData = function(song) {
       }
     });
 
-    var colorMap = (window.RosterEngine && window.RosterEngine.COLORS) ? window.RosterEngine.COLORS : {Green:'#22c55e',Purple:'#079352',White:'#f8fafc',Red:'#ef4444',Gold:'#eab308',Blue:'#22a957',Rose:'#f472b6'};
+    var colorMap = (window.RosterEngine && window.RosterEngine.COLORS) || window.ALTAR_SWATCHES;
 
     var rosterRows = [
       { type:'role', id:'preacher', label:'Preacher' },
@@ -72364,10 +72396,14 @@ var LiturgyModule = (function() {
   var _readingRefsByDate = {};           // { iso: { role: ref } } -- flattened, for the reader
   var _passageTextCache = {};            // { normalisedReference: {reference, translation, text, note} }
   var _readingDatePrimed = false;        // has the opening date been chosen yet
-  var ALTAR_COLORS = {
-    white: '#e5e7eb', gold: '#fbbf24', red: '#dc2626', green: '#16a34a',
-    purple: '#0b7644', violet: '#0b7644', blue: '#188e44', black: '#1f2933', rose: '#f472b6'
-  };
+  // Lower-cased, because every reader here calls .toLowerCase() first.
+  var ALTAR_COLORS = (function () {
+    var src = window.LITURGICAL_COLOURS || {};
+    var out = {};
+    Object.keys(src).forEach(function (k) { out[k.toLowerCase()] = src[k].swatch; });
+    out.violet = out.purple;   // the same colour under its other name
+    return out;
+  })();
   var LIT_SEASON_STRIP = [
     { cls: 'advent', icon: 'fa-star', label: 'Advent' },
     { cls: 'christmas', icon: 'fa-fire', label: 'Christmas' },
@@ -77121,6 +77157,7 @@ var LiturgyModule = (function() {
         }).join('');
       }
       _paintDayContext(meta[_currentReadingDate], dates);
+      _paintSeason(meta, dates);
       // Only in Day view: week and month show many services at once, and one
       // button there could not say which service it would put back.
       _renderReadingResetButton(_currentReadingDate);
@@ -77137,6 +77174,7 @@ var LiturgyModule = (function() {
       grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
         '<p>No services in this ' + (mode === 'week' ? 'week' : 'month') + '.</p></div>';
       _paintDayContext(null, []);
+      _paintSeason(meta, []);
       return;
     }
 
@@ -77147,6 +77185,39 @@ var LiturgyModule = (function() {
         '</div>';
     }).join('');
     _paintDayContext(null, []);
+    _paintSeason(meta, dates);
+  }
+
+  // A white dot on a pale page is not a dot. The palette carries a border
+  // for exactly that case, and this is the only place that knows about it.
+  // It takes the colour NAME rather than the page's season, because a row
+  // in Week view can be a different colour from the page it sits on.
+  function _altarDot(colourName) {
+    var key = String(colourName || '').trim().toLowerCase();
+    var col = ALTAR_COLORS[key] || '#94a3b8';
+    var defn = (window.LITURGICAL_COLOURS || {})[key.charAt(0).toUpperCase() + key.slice(1)];
+    var edge = (defn && defn.border) ? ';border:1px solid ' + defn.border : '';
+    return '<span class="lit-altar-dot" style="background:' + col + edge + '"></span>';
+  }
+
+  // Put the season on the page.
+  //
+  // One attribute, read by the tokens in the stylesheet, so nothing else
+  // here needs to know a colour at all. The service on screen decides it:
+  // in Day view that is the day being looked at, and in Week or Month it
+  // is still the selected date, falling back to the first service shown so
+  // a month opened on a blank Tuesday does not go grey.
+  //
+  // Unknown or missing drops the attribute rather than guessing, which
+  // leaves the default green -- the colour the page has always been.
+  function _paintSeason(meta, dates) {
+    var host = document.getElementById('liturgyView');
+    if (!host) return;
+    var m = (meta || {})[_currentReadingDate];
+    if (!m && (dates || []).length) m = (meta || {})[dates[0]];
+    var colour = String((m && m.color) || '').trim().toLowerCase();
+    if (colour && ALTAR_COLORS[colour]) host.setAttribute('data-altar', colour);
+    else host.removeAttribute('data-altar');
   }
 
   // In Day view the liturgical day sits under the date nav rather than on a
@@ -77157,8 +77228,7 @@ var LiturgyModule = (function() {
     if (_readingViewMode !== 'day') { el.innerHTML = ''; return; }
     var bits = [];
     if (m && m.day) {
-      var col = ALTAR_COLORS[String(m.color || '').toLowerCase()] || '#94a3b8';
-      bits.push('<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+      bits.push(_altarDot(m && m.color) +
         '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' +
         (m.color ? '<span class="lit-altar-name">' + escapeHtml(m.color) + '</span>' : ''));
     }
@@ -77173,10 +77243,9 @@ var LiturgyModule = (function() {
   // has to say which service instead of repeating it.
   function _serviceLabelHead(key, m) {
     var pm = SBQ_READINGS.isPM(key);
-    var col = ALTAR_COLORS[String((m && m.color) || '').toLowerCase()] || '#94a3b8';
     return '<div class="lit-svc-head">' +
         '<span class="lit-svc-when">' + (pm ? 'Watchnight' : 'Morning service') + '</span>' +
-        ((m && m.day) ? '<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+        ((m && m.day) ? _altarDot(m && m.color) +
           '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' : '') +
         ((m && m.serviceType) ? '<span class="lit-svc-type">' + escapeHtml(m.serviceType) + '</span>' : '') +
       '</div>';
@@ -77186,11 +77255,10 @@ var LiturgyModule = (function() {
     var d = new Date(SBQ_READINGS.keyDate(iso) + 'T00:00:00');
     var when = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) +
       (SBQ_READINGS.isPM(iso) ? ' \u00b7 Watchnight' : '');
-    var col = ALTAR_COLORS[String((m && m.color) || '').toLowerCase()] || '#94a3b8';
     return '<div class="lit-svc-head">' +
         '<button type="button" class="lit-svc-date" onclick="LiturgyModule.openReadingDay(' + "'" + iso + "'" + ')" title="Open this service on its own">' +
           escapeHtml(when) + '</button>' +
-        ((m && m.day) ? '<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+        ((m && m.day) ? _altarDot(m && m.color) +
           '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' : '') +
         ((m && m.serviceType) ? '<span class="lit-svc-type">' + escapeHtml(m.serviceType) + '</span>' : '') +
       '</div>';
@@ -88363,6 +88431,67 @@ function filterLiturgyItems() {
   .liturgy-item-file-info { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #6b7280; margin-bottom: 8px; padding: 4px 8px; background: #f3f4f6; border-radius: 6px; width: fit-content; }
   .liturgy-item-file-info i { font-size: 1rem; }
 
+  /* ==================== THE SEASON SHOWS ====================
+     The page takes its accent from the altar colour of the service on
+     screen, so Advent does not look like Ordinary Time. One attribute on
+     #liturgyView switches every token below, and anything that reads the
+     tokens follows without knowing the season exists.
+
+     Four colours actually occur in the roster -- Green 22, White 10,
+     Purple 9, Red 3. The others are here because the roster can record
+     them, not because they have turned up yet.
+
+     White is the odd one: white paraments are trimmed in gold, and a page
+     washed in white is just a page, so white borrows gold for its accent
+     and keeps the wash almost paper. */
+  #liturgyView {
+    --lit-accent:     #0b7644;
+    --lit-accent-ink: #07512f;
+    --lit-wash:       #f1f9f4;
+    --lit-edge:       rgba(11,118,68,0.18);
+  }
+  #liturgyView[data-altar="green"] {
+    --lit-accent: #16a34a; --lit-accent-ink: #15803d;
+    --lit-wash: #f1f9f4; --lit-edge: rgba(22,163,74,0.18);
+  }
+  #liturgyView[data-altar="purple"],
+  #liturgyView[data-altar="violet"] {
+    --lit-accent: #7c3aed; --lit-accent-ink: #5b21b6;
+    --lit-wash: #f7f4fd; --lit-edge: rgba(124,58,237,0.18);
+  }
+  #liturgyView[data-altar="red"] {
+    --lit-accent: #dc2626; --lit-accent-ink: #991b1b;
+    --lit-wash: #fef5f4; --lit-edge: rgba(220,38,38,0.16);
+  }
+  #liturgyView[data-altar="white"],
+  #liturgyView[data-altar="gold"] {
+    --lit-accent: #b7791f; --lit-accent-ink: #8a5a12;
+    --lit-wash: #fffdf6; --lit-edge: rgba(183,121,31,0.22);
+  }
+  #liturgyView[data-altar="blue"] {
+    --lit-accent: #2563eb; --lit-accent-ink: #1e40af;
+    --lit-wash: #f4f7fe; --lit-edge: rgba(37,99,235,0.18);
+  }
+  #liturgyView[data-altar="rose"] {
+    --lit-accent: #ec4899; --lit-accent-ink: #be185d;
+    --lit-wash: #fef5f9; --lit-edge: rgba(236,72,153,0.18);
+  }
+  #liturgyView[data-altar="black"] {
+    --lit-accent: #334155; --lit-accent-ink: #1f2933;
+    --lit-wash: #f6f7f9; --lit-edge: rgba(51,65,85,0.20);
+  }
+
+  /* Readings is the first page to wear it. The others keep the default
+     green until each is done, which is the look they have now. */
+  #liturgyView .lit-welcome-header {
+    background: linear-gradient(135deg, var(--lit-accent-ink), var(--lit-accent));
+  }
+  #liturgyView .lit-lectionary-body { background: var(--lit-wash); }
+  #liturgyView .lit-reading-slot { border-left: 3px solid var(--lit-edge); }
+  #liturgyView .lit-reading-slot .lit-slot-label { color: var(--lit-accent-ink); }
+  #liturgyView .lit-day-name { color: var(--lit-accent-ink); font-weight: 700; }
+  #liturgyView .lit-altar-dot { box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px var(--lit-edge); }
+
   /* ==================== LITURGY ON A PHONE ====================
      Every panel on this page was sized for a desktop column and then let
      through to a 375px screen unchanged. Measured on 375x812:
@@ -90879,7 +91008,7 @@ function filterLiturgyItems() {
     MONTHS: ['January','February','March','April','May','June','July','August','September','October','November','December'],
     MONTHS_SHORT: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
     SEASONS: {0:'Epiphany Season',1:'Epiphany Season',2:'Lenten Season',3:'Easter Season',4:'Easter Season',5:'Ordinary Time',6:'Ordinary Time',7:'Ordinary Time',8:'Ordinary Time',9:'Reformation / End Times',10:'End Times / Christ the King',11:'Advent Season'},
-    COLORS: {Green:'#22c55e',Purple:'#079352',White:'#f8fafc',Red:'#ef4444',Gold:'#eab308',Blue:'#22a957',Rose:'#f472b6'},
+    COLORS: window.ALTAR_SWATCHES,
     COLOR_NAMES: ['Green','Purple','White','Red','Gold','Blue','Rose'],
     DEFAULT_COLORS: {0:'Green',1:'Green',2:'Purple',3:'White',4:'White',5:'Green',6:'Green',7:'Green',8:'Green',9:'Red',10:'Green',11:'Purple'},
 
