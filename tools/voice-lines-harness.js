@@ -69,8 +69,9 @@ if (start < 0) {
 const end = lines.findIndex((l, i) => i > start && l === '};');
 if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(1); }
 // A ceiling, because an end-anchor matching far away would swallow the file
-// and still parse.
-if (end - start > 200) {
+// and still parse. 400 rather than 200 since the editor's round trip moved
+// in; it is a tripwire against a runaway match, not a budget for the module.
+if (end - start > 400) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -278,6 +279,105 @@ check('it has one line per row plus the headers and their blank lines',
 check("the men's printed typo at bar 58 is kept", flat.indexOf('good-nes and Light!') > -1, true);
 check("the men's printed typo at bar 61 is kept", flat.indexOf('Bri-ing u-s') > -1, true);
 check("the women's line has neither", flat.indexOf('bring us good-ness and Light!') > -1, true);
+
+// ---------------------------------------------------------------------------
+console.log('\nwhere the two parts come in together');
+// The cue is the FIRST group of a together run, not every together group --
+// a caroler counting rests needs the bar they come back in on, and marking
+// all thirty-five would mark nothing.
+function cues(gs) {
+  return V.annotate(V.group(gs)).map(g => !!g.togetherStart);
+}
+check('a unison group at the very start is a cue',
+  cues([row('both', 'a', 0)]), [true]);
+check('one part alone is not',
+  cues([row('women', 'a', 0)]), [false]);
+check('both parts singing different words still counts as together',
+  cues([row('women', 'Oh', 0), row('men', 'dancing', 0)]), [true]);
+check('a run of together groups is cued once, at its head',
+  cues([row('both', 'a', 0), row('both', 'b', 1), row('both', 'c', 2)]),
+  [true, false, false]);
+check('a part dropping out and returning starts a new cue',
+  cues([row('both', 'a', 0), row('women', 'b', 1), row('both', 'c', 2)]),
+  [true, false, true]);
+// Two bars of silence are a fresh entry however the piece got there, which
+// is exactly the 46-47 rest before the last verse of this carol.
+check('a gap breaks the run even between two together groups',
+  cues([row('both', 'a', 0, { barStart: 44, barEnd: 45 }),
+        row('both', 'b', 1, { barStart: 48, barEnd: 50 })]), [true, true]);
+check('  and consecutive bars do not',
+  cues([row('both', 'a', 0, { barStart: 44, barEnd: 45 }),
+        row('both', 'b', 1, { barStart: 46, barEnd: 48 })]), [true, false]);
+check('the cue reaches the markup',
+  (V.html([row('both', 'a', 0)]).match(/vl-row--together/g) || []).length, 1);
+check('  with a label a singer can read',
+  /Women and men in together/.test(V.html([row('both', 'a', 0)])), true);
+
+console.log('\nreading the editor source back');
+const P = t => V.parseVoiceText(t).map(r =>
+  [r.part, r.text, r.barStart, r.barEnd, r.section, r.sortOrder, r.sustained]);
+
+check('bars then words is one unison line',
+  P('1-3  Said the night wind'), [['both', 'Said the night wind', 1, 3, '', 0, false]]);
+check('a single bar is its own range',
+  P('4  M: Do you see'), [['men', 'Do you see', 4, 4, '', 0, false]]);
+check('an en-dash range reads the same as a hyphen',
+  P('11–13  W: Oh'), P('11-13  W: Oh'));
+// This is the placement rule: no bars means "at the same moment as the line
+// above". Break it and the two parts stop being simultaneous.
+check('a line with no bars joins the group above it',
+  P('10  W: oh\n    M: A star a star'),
+  [['women', 'oh', 10, 10, '', 0, false], ['men', 'A star a star', 10, 10, '', 0, false]]);
+check('a part named twice opens a new group at the same bars',
+  P('10  W: oh\n    W: ah'),
+  [['women', 'oh', 10, 10, '', 0, false], ['women', 'ah', 10, 10, '', 1, false]]);
+check('a unison line cannot share a group with a part line',
+  P('10  W: oh\n    both').map(r => r[5]), [0, 1]);
+check('a section header closes the group above it',
+  P('10  W: oh\n[Verse 2]\n    M: ah').map(r => [r[4], r[5]]),
+  [['', 0], ['Verse 2', 1]]);
+check('every spelling of the two parts is accepted',
+  P('1 Women: a\n2 W: b\n3 Men: c\n4 M: d\n5 Both: e\n6 B: f').map(r => r[0]),
+  ['women', 'women', 'men', 'men', 'both', 'both']);
+check('case does not matter',
+  P('1 w: a\n2 MEN: b').map(r => r[0]), ['women', 'men']);
+check('a tilde marks a held note and is not part of the words',
+  P('10 W: ~oh……'), [['women', 'oh……', 10, 10, '', 0, true]]);
+check('blank lines are spacing, not content', P('1 a\n\n\n2 b').length, 2);
+check('an empty editor parses to nothing', P(''), []);
+// The bar column is digits followed by a space, so a lyric that opens the
+// same way needs the prefix to say it is words. Worth knowing it works,
+// because the alternative is a silently eaten first word.
+check('a lyric opening with a number loses it to the bar column',
+  P('10 000 Reasons')[0][1], '000 Reasons');
+check('  and an explicit prefix is the way out',
+  P('B: 10 000 Reasons')[0][1], '10 000 Reasons');
+
+console.log('\nthe editor round trip');
+// The property that makes the editor safe: opening a song and saving it
+// again without typing must give back the song that was there. Everything
+// else in the editor is built on this holding.
+const cmp = r => [r.part, r.text, r.barStart, r.barEnd, r.section, r.sortOrder, !!r.sustained];
+const trip = V.parseVoiceText(V.toVoiceText(L));
+check('open and save with no edits gives back the same ' + L.length + ' rows',
+  trip.map(cmp), L.map(cmp));
+check('  and the same display groups', V.group(trip).length, V.group(L).length);
+check('  and the same flat copy', V.toLyricsText(trip), V.toLyricsText(L));
+check('  and the same cues', cues(trip), cues(L));
+check('a second trip changes nothing further',
+  V.toVoiceText(trip), V.toVoiceText(L));
+check('the bar column is wide enough for the widest range',
+  V.toVoiceText(L).split('\n').filter(s => /^\d/.test(s))
+    .every(s => /^\d[\d–]*\s\s/.test(s)), true);
+
+console.log('\nthe cues on the real arrangement');
+const realCues = V.annotate(V.group(L)).filter(g => g.togetherStart);
+check('8 places where the parts come in together', realCues.length, 8);
+check('  the first is bar 1', realCues[0].barStart, 1);
+// 48-50 is the entry after the two-bar rest. It only gets a cue because a
+// gap breaks the run -- 44-45 before it was together too.
+check('  the rest at 46-47 earns the last verse its own cue',
+  realCues.map(g => g.barStart).indexOf(48) > -1, true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

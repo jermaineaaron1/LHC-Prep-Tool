@@ -147,6 +147,25 @@ const CASES = [
     s => s.replace('_esc: function(s) {',
                    "_esc: function(s) { return String(s == null ? '' : s);")],
 
+  // The editor, and the cue the carolers asked for. The first of these is
+  // the placement rule itself: a line with no bars sings AT THE SAME MOMENT
+  // as the line above it, and without that the two parts stop being
+  // simultaneous and the whole arrangement becomes a list.
+  ['voice-lines-harness.js', 'a line with no bars stops joining the one above',
+    s => s.replace('if (hasBars || taken) {', 'if (true) {')],
+  ['voice-lines-harness.js', 'a section header stops closing the group above it',
+    s => s.replace("if (sec) { section = sec[1].trim(); cur = null; return; }",
+                   "if (sec) { section = sec[1].trim(); return; }")],
+  ['voice-lines-harness.js', 'held notes do not survive a trip through the editor',
+    s => s.replace("r[0] + (r[1].sustained ? '~' : '') + (r[1].text || '')",
+                   "r[0] + (r[1].text || '')")],
+  ['voice-lines-harness.js', 'every together group is cued, so none of them stand out',
+    s => s.replace('g.togetherStart = together && (!prevTogether || V.gapBefore(prev, g) > 0);',
+                   'g.togetherStart = together;')],
+  ['voice-lines-harness.js', 'a rest stops counting as a fresh entry for both parts',
+    s => s.replace('g.togetherStart = together && (!prevTogether || V.gapBefore(prev, g) > 0);',
+                   'g.togetherStart = together && !prevTogether;')],
+
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
                    '#songbookLiveModal .wo-lyrics-lyric-line{color:#334155!important')],

@@ -245,10 +245,29 @@ SBQ_VOICE_LINES.replaceAll(songId, [])   // delete-then-insert, then rewrites
 SBQ_VOICE_LINES.clear(songId)            // drops the lines, keeps the lyrics
 
 window.lhcVoiceLines.group(lines)        // rows -> paired display groups
+window.lhcVoiceLines.annotate(groups)    // sets .together / .togetherStart
 window.lhcVoiceLines.html(lines)         // the two-lane grid
 window.lhcVoiceLines.toLyricsText(lines) // the flat copy. ONE-WAY: nothing
                                          // parses it back
+window.lhcVoiceLines.toVoiceText(lines)  // the EDITOR source. Round-trips.
+window.lhcVoiceLines.parseVoiceText(txt) // ...and back again
 ```
+
+The editor (the Edit button on a two-part song's preview) is a textarea over
+`toVoiceText` / `parseVoiceText`, with a live preview drawn by the same
+`html()` the saved song uses. Its format:
+
+```
+[Verse 1]
+1-3    Said the night wind to the little lamb   <- no prefix = unison
+4      M: Do you see what I see
+10     W: ~oh......                             <- ~ = held note
+       M: A star a star                         <- no bars = SAME MOMENT
+```
+
+**The no-bars line is the placement rule.** A line without a bar spec joins
+the group above it, which is what puts the two parts at the same moment.
+Bars always open a new group. A part left out entirely rests.
 
 Others follow the same shape: `SBQ_LITURGY`, `SBQ_SONGBOOKS`,
 `SBQ_SB_ENTRIES`, `SBQ_THEMES`, `SBQ_PROJECTION`, `SBQ_LECTIONARY`,
@@ -465,6 +484,12 @@ the anon key -- verify as `postgres`, not as the app.
     display. Drop the rest cell when rendering and the singing part slides
     into the other lane, on a page that still looks entirely normal --
     `tools/voice-lines-harness.js` exists for that one failure.
+
+11. **"Women and men in together" is derived, not stored**: `annotate()`
+    marks the FIRST group of each run where both lanes sound. A run is
+    broken by a one-part group and by a bar gap, so the two-bar rest at
+    46-47 earns the last verse its own cue. Nothing in the database says
+    where the cues are -- change the lines and the cues move.
 
 ## Quick Commands for Claude Code
 
