@@ -73700,7 +73700,7 @@ var LiturgyModule = (function() {
   }
 
   // Get filtered items
-  function getFilteredItems(searchQuery) {
+  function getFilteredItems(searchQuery, includeFoldered) {
     var filtered = liturgyItems;
 
     // Sacred Library season/favorites filters -- applied first, on top of
@@ -73762,8 +73762,15 @@ var LiturgyModule = (function() {
           return item.type === currentFilter && !item.fileName && !item.folderId;
         });
       }
-    } else {
-      // "All" view — exclude items in folders (per screenshot 265)
+    } else if (!includeFoldered) {
+      // "All" view -- exclude items in folders (per screenshot 265),
+      // because a folder card is how you reach those.
+      //
+      // Except when grouping by service, which draws ribbons INSTEAD of
+      // folder cards. Excluded there and with no folder to click, an
+      // item in a folder could not be reached at all: "Holden Evening
+      // Prayer - Assembly edition" was the one item in the library this
+      // was true of, and it appeared on no screen.
       filtered = filtered.filter(function(item) {
         return !item.folderId;
       });
@@ -74226,6 +74233,9 @@ var LiturgyModule = (function() {
     // they have already chosen a narrower place to look, and re-grouping
     // what is left would be answering a question they did not ask.
     if (_libGrouped && !currentNavigatedFolder && !_currentGeneralFolder) {
+      // Grouping by service replaces the folder cards, so it has to take
+      // the items those cards would have led to.
+      items = getFilteredItems(searchQuery, true);
       grid.innerHTML = renderLibraryGrouped(items);
       grid.classList.add('is-grouped');
       // The year names live in a table the Library never had reason to read
@@ -74236,7 +74246,7 @@ var LiturgyModule = (function() {
         Promise.resolve(loadOccFolders()).then(function() {
           if (_libGrouped && !currentNavigatedFolder && !_currentGeneralFolder) {
             var g = document.getElementById('liturgyItemsGrid');
-            if (g) g.innerHTML = renderLibraryGrouped(items);
+            if (g) g.innerHTML = renderLibraryGrouped(getFilteredItems(searchQuery, true));
           }
         });
       }
