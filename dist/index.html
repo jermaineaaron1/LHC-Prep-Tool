@@ -8186,6 +8186,20 @@
                       <i class="fa-solid fa-arrow-right lit-occ-card-arrow"></i>
                     </div>
                   </div>
+                  <div class="lit-occ-card" onclick="LiturgyModule.selectOccasion('midweek')" data-altar="purple">
+                    <div class="lit-occ-card-bar"></div>
+                    <div class="lit-occ-card-body">
+                      <div class="lit-occ-card-icon"><i class="fa-solid fa-moon"></i></div>
+                      <div>
+                        <div class="lit-occ-card-title">Midweek Services</div>
+                        <div class="lit-occ-card-desc">Advent and Lent midweek &mdash; Holden Evening Prayer and the like</div>
+                      </div>
+                    </div>
+                    <div class="lit-occ-card-footer">
+                      <span class="lit-occ-season-pill">Advent &amp; Lent &middot; Purple</span>
+                      <i class="fa-solid fa-arrow-right lit-occ-card-arrow"></i>
+                    </div>
+                  </div>
                   <div class="lit-occ-card" onclick="LiturgyModule.selectOccasion('christmas-eve')" data-altar="white">
                     <div class="lit-occ-card-bar"></div>
                     <div class="lit-occ-card-body">
@@ -72698,9 +72712,14 @@ var LiturgyModule = (function() {
   };
   // Maps each OCCASIONS id to the liturgical-year-strip season it belongs to
   // (same 7 groupings already used by the Welcome screen's year strip).
+  // One occasion, one season -- except the midweek services, which run in
+  // Advent AND Lent. The church's own folder for them is named "Mid Week
+  // Services (Advent & Lent)", so this is their shape, not a special case
+  // invented here. A value may be a season or a list of them.
   var OCCASION_SEASON = {
     'ordinary-traditional': 'ordinary', 'ordinary-contemporary': 'ordinary',
     'advent': 'advent',
+    'midweek': ['advent', 'lent'],
     'christmas-eve': 'christmas', 'christmas-day': 'christmas', 'watchnight': 'christmas',
     'ash-wednesday': 'lent',
     'palm-sunday': 'holy-week', 'maundy-thursday': 'holy-week', 'good-friday': 'holy-week',
@@ -73708,7 +73727,12 @@ var LiturgyModule = (function() {
     // simultaneously belong to a season (via its occasionId) and a folder.
     if (_librarySeasonFilter) {
       filtered = filtered.filter(function(item) {
-        return item.occasionId && OCCASION_SEASON[item.occasionId] === _librarySeasonFilter;
+        if (!item.occasionId) return false;
+        var seasons = OCCASION_SEASON[item.occasionId];
+        if (seasons === undefined) return false;
+        return Array.isArray(seasons)
+          ? seasons.indexOf(_librarySeasonFilter) !== -1
+          : seasons === _librarySeasonFilter;
       });
     }
     if (_libraryFavoritesOnly) {
@@ -76565,6 +76589,7 @@ var LiturgyModule = (function() {
     { id: 'ordinary-traditional', colour: 'green', label: 'Traditional Service',    icon: 'fa-church',              gradient: 'linear-gradient(135deg,#188e44,#2fb563)', desc: 'Standard Sunday liturgy with full order of worship',               serviceType: 'traditional' },
     { id: 'ordinary-contemporary', colour: 'green', label: 'Contemporary Service',   icon: 'fa-music',               gradient: 'linear-gradient(135deg,#10b981,#38bdf8)', desc: 'Contemporary worship with praise & song-led order',               serviceType: 'contemporary' },
     { id: 'advent', colour: 'purple', label: 'Advent Sundays',         icon: 'fa-star',                gradient: 'linear-gradient(135deg,#0b7644,#079352)', desc: 'Four Sundays of waiting and preparation before Christmas',        serviceType: 'both' },
+    { id: 'midweek',               colour: 'purple', label: 'Midweek Services',       icon: 'fa-moon',                desc: 'Advent and Lent midweek \u2014 Holden Evening Prayer and the like',  serviceType: 'both' },
     { id: 'christmas-eve', colour: 'white', label: 'Christmas Eve',          icon: 'fa-fire',                gradient: 'linear-gradient(135deg,#d97706,#fbbf24)', desc: 'Candlelight Service · December 24',                               serviceType: 'both' },
     { id: 'christmas-day', colour: 'white', label: 'Christmas Day',          icon: 'fa-star-of-david',       gradient: 'linear-gradient(135deg,#d97706,#fbbf24)', desc: 'Christmas Celebration · December 25',                             serviceType: 'both' },
     { id: 'watchnight', colour: 'white', label: 'Watchnight Service',     icon: 'fa-hourglass-half',      gradient: 'linear-gradient(135deg,#0b2a14,#14532d)', desc: 'New Year Countdown · December 31',                                serviceType: 'both' },
