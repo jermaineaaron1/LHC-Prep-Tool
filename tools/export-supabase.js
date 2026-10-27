@@ -48,9 +48,14 @@ const TABLES = [
   'roster', 'roster_changes', 'roster_names', 'roster_member_meta',
   'roster_unavailability', 'roster_name_merge_dismissals',
   'liturgy_items', 'liturgy_folders', 'liturgy_occ_folders', 'liturgy_occasion_data',
-  'lectionary_readings', 'announcements', 'idea_inbox', 'pic_users',
+  'lectionary_readings', 'lectionary_sources',
+  'announcements', 'idea_inbox', 'pic_users',
   'projection_settings', 'projection_versions', 'projection_media',
-  'lhc_backgrounds'
+  'lhc_backgrounds',
+  // Vocal Hero. vh_songs holds the musical timelines -- time signature,
+  // tempo, note durations -- transcribed by hand from sheet music, so a
+  // lost row is an evening's work and not a re-import.
+  'vh_songs'
 ];
 
 function credentials() {

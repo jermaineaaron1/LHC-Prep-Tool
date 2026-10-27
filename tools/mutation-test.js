@@ -107,6 +107,65 @@ const TYPO_LATIN = "        var typoable = /^[a-z0-9 ]+$/;" + CRLF +
   '        if (typoable.test(x) && typoable.test(y) && Math.max(x.length, y.length) <= 24) {';
 const CLEAN_NOISE = "        s = s.replace(noise, '');";
 
+const SET_REF   = '        return SBQ_READINGS.setReference(dateStr, entry.idx, canonical);';
+const SAVE_SLOT = '        SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, { reference: canonical });';
+// Two copies of this line exist, the sidebar's and the strip's; the mutation
+// below takes the SECOND, which is the strip.
+const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">';
+
+// The loose-comparison line, as it appears in the source: \u2010 there is the
+// literal escape, not the character, so these are written raw.
+const NORM_LINE  = String.raw`    var norm = function(s) { return s.toLowerCase().replace(/[\u2010-\u2015]/g, '-').replace(/[\s,.]+/g, ''); };`;
+const LOOSE_LINE = String.raw`    var norm = function(s) { return s.toLowerCase().replace(/[0-9:,.\-\s]+/g, ''); };`;
+
+const SORTED_RANGE = '        var dates = entries.map(function(e) { return e.date; }).sort();\r\n' +
+                     '        var from = dates[0], to = dates[dates.length - 1];';
+const POSITIONAL_RANGE = '        var from = entries[0].date, to = entries[entries.length - 1].date;';
+
+// The one line that decides what a reset would change, and three ways of
+// getting it wrong.
+const PLAN_LINE = "      if (was && cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_CLEARS_BLANK = "      if (cur !== was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_REWRITES_ALL = "      if (was) plan.push({ idx: i, label: slot.label, from: cur || '(empty)', to: was });";
+const PLAN_NEVER_FIRES  = '      if (false) plan.push({ idx: i, label: slot.label, from: cur, to: was });';
+// customConfirm appears all over the file; this is the one in the reset.
+const RESET_ASK =
+  "      var ask = (typeof window.customConfirm === 'function')\r\n" +
+  "        ? window.customConfirm('Reset to ' + found.src.fileName + '?', detail)\r\n" +
+  '        : Promise.resolve(window.confirm(detail));';
+const ORDER_FILL =
+  "          if (serviceDate && typeof fillReadingsFromRoster === 'function') {\r\n" +
+  '            fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });\r\n' +
+  '          }\r\n';
+
+// getRange's window filter, as it reads now: three lines, comparing the
+// date part of a service key rather than the key itself.
+const WINDOW_FILTER =
+  '          if (!iso) return;' + CRLF +
+  '          var day = SBQ_READINGS.keyDate(iso);' + CRLF +
+  '          if (day < SBQ_READINGS.keyDate(fromIso) || day > SBQ_READINGS.keyDate(toIso)) return;';
+const WHOLE_KEY_FILTER = '          if (!iso || iso < fromIso || iso > toIso) return;';
+
+// The Bible Browser's editable title box, and the one function all three of
+// its save paths now ask for it. In reading-slot mode that box IS the
+// reference that reaches the roster, there being no second field.
+const CHOSEN_TYPED =
+  "    var typed = titleInput ? String(titleInput.value == null ? '' : titleInput.value).trim() : '';";
+const CHOSEN_RETURN =
+  '    return typed || (bbState.passage && bbState.passage.reference) || fallback;';
+const SLOT_REF = "    var reference = bbChosenTitle('');";
+const SLOT_CACHE_KEY = '    _passageTextCache[bbNormaliseReference(reference)] = {';
+// Two copies of this line exist, the library's and the service order's;
+// replace() below takes the FIRST, which is the library.
+const LIB_TITLE = "    var title = bbChosenTitle('Scripture');";
+// The pre-fill: what the title box is filled WITH when a passage arrives.
+// Tidying the suggestion is what fixes the default path, since most people
+// save the reference the dialog already put in front of them.
+const PREFILL =
+  '        if (titleInput) titleInput.value = bbSuggestedTitle(result.reference || reference);';
+const SUGGEST_BODY =
+  "    return String(ref == null ? '' : ref).replace(/^(\\s*)Psalms(\\s+\\d)/, '$1Psalm$2');";
+
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
     s => s.replace(DESPACED, '')],
@@ -206,7 +265,23 @@ const CASES = [
     s => s.replace("           !String(header == null ? '' : header).trim() &&", '')],
 
   ['readings-roster-harness.js', 'the window filter is removed from getRange',
-    s => s.replace('          if (!iso || iso < fromIso || iso > toIso) return;', '          if (!iso) return;')],
+    s => s.replace(WINDOW_FILTER, '          if (!iso) return;')],
+  // The window filter now compares the DATE part, because an evening key
+  // carries a suffix. Comparing the whole key again drops the Watchnight
+  // from any window that ends on the 31st.
+  // The readings layer reads a year at a time, and PostgREST stops at 1000
+  // rows without saying so. Stopping after the first page is exactly the
+  // bug: 2026 is 1299 rows, so the tail of the year silently vanishes.
+  ['readings-roster-harness.js', 'a year is read only as far as the first page',
+    s => s.replace('            return rows.length < 1000 ? out : page(from + 1000);',
+                   '            return out;')],
+  // Paging without an order: two pages of an unordered result can repeat a
+  // row and miss another, which reads as data that is merely odd.
+  ['readings-roster-harness.js', 'paged reads stop being ordered',
+    s => s.replace("build().order('id').range(from, from + 999)",
+                   'build().range(from, from + 999)')],
+  ['readings-roster-harness.js', 'the window filter compares the whole key again',
+    s => s.replace(WINDOW_FILTER, WHOLE_KEY_FILTER)],
   ['readings-roster-harness.js', 'a reading write stops logging the change',
     s => s.replace("          return Promise.resolve(sb.from('roster_changes').insert({",
                    '          return Promise.resolve({}).then(function(){ return ({')],
@@ -439,7 +514,134 @@ const CASES = [
   ['songbook-delete-cleanup-harness.js', 'deleting a songbook leaves its stored work behind',
     s => s.replace(SB_CLEANUP_HEAD, '      return Promise.resolve().then(function(e) {')],
   ['songbook-delete-cleanup-harness.js', 'a failed cleanup is reported as a failed delete',
-    s => s.replace(SB_CLEANUP_ALL, "      return SBQ.deleteOrder('standalone_' + id);")]
+    s => s.replace(SB_CLEANUP_ALL, "      return SBQ.deleteOrder('standalone_' + id);")],
+
+  // The Liturgy page. Auto-Fill saved into lectionary_readings, a text cache
+  // nothing reads back, so the references vanished on the next load; and two
+  // of the five sections never lit up at all.
+  ['liturgy-nav-readings-harness.js', 'Auto-Fill saves to the cache nothing reads',
+    s => s.replace(SET_REF, SAVE_SLOT)],
+  // The sharper one: the roster write is still THERE, so a textual check is
+  // satisfied, but the dead store is written beside it again.
+  ['liturgy-nav-readings-harness.js', 'the dead store is written alongside the roster',
+    s => s.replace(SET_REF, SAVE_SLOT + '\r\n' + SET_REF)],
+  ['liturgy-nav-readings-harness.js', 'a reading is filed under the wrong slot',
+    s => s.replace(SET_REF,
+                   '        return SBQ_READINGS.setReference(dateStr, 3 - entry.idx, canonical);')],
+  ['liturgy-nav-readings-harness.js', 'the section nav goes dark again',
+    s => s.replace(
+      "      btn.classList.toggle('active', !!key && btn.getAttribute('data-libfilter') === key);",
+      "      btn.classList.remove('active');")],
+  // The strip and the sidebar are lit by ONE selector. Drop the shared class
+  // from the strip and only the sidebar highlights -- invisible on desktop,
+  // where the strip is hidden, and the only place it shows is a phone.
+  ['liturgy-nav-readings-harness.js', 'the mobile strip stops sharing the sidebar class',
+    s => { const i = s.indexOf(STRIP_BTN); const j = s.indexOf(STRIP_BTN, i + 1);
+           return j < 0 ? s : s.slice(0, j) + STRIP_BTN.replace('lit-nav-occ-btn', 'lit-strip-btn') + s.slice(j + STRIP_BTN.length); }],
+
+  // Importing a lectionary writes many roster rows from one upload, so what
+  // it does on a disagreement is the whole safety story. The comparison has
+  // to thread between two quiet failures, and both are mutated here.
+  ['lectionary-import-harness.js', 'a clash is treated as an empty slot and overwrites',
+    s => s.replace("    return { kind: 'clash', current: cur, incoming: next };",
+                   "    return { kind: 'empty', current: '', incoming: next };")],
+  // Too fussy: an en dash or a missing space reads as a conflict, so a real
+  // year of readings arrives as fifty false alarms and people click through.
+  ['lectionary-import-harness.js', 'punctuation counts as a different reading',
+    s => s.replace(NORM_LINE, '    var norm = function(s) { return s; };')],
+  // Too loose: only the book name is compared, so a different chapter passes
+  // as already-saved and the genuine disagreement is never shown at all.
+  ['lectionary-import-harness.js', 'a different chapter passes as the same reading',
+    s => s.replace(NORM_LINE, LOOSE_LINE)],
+  ['lectionary-import-harness.js', 'the review stops showing what it would replace',
+    s => s.replace("    return { kind: 'clash', current: cur, incoming: next };",
+                   "    return { kind: 'clash', current: '', incoming: next };")],
+  ['lectionary-import-harness.js', 'every slot is compared against the first reading',
+    s => s.replace('[SBQ_READINGS.SLOTS[slotIdx].role]', '[SBQ_READINGS.SLOTS[0].role]')],
+  ['lectionary-import-harness.js', 'the source is recorded even when nothing saved',
+    s => s.replace('    if (saved > 0) SBQ_LECT_SOURCES.save(rec)', '    SBQ_LECT_SOURCES.save(rec)')],
+  // Local time moves the day west of Greenwich, so 1 Nov prints as 31 Oct.
+  // The range the import checks for clashes over. Built from the array's
+  // first and last entry instead of its smallest and largest date, it
+  // matches nothing the moment the entries arrive unsorted -- every slot
+  // then reads as empty and the conflict check is off with no sign of it.
+  ['lectionary-import-harness.js', 'the clash lookup trusts the array order',
+    s => s.replace(SORTED_RANGE, POSITIONAL_RANGE)],
+  ['lectionary-import-harness.js', 'review dates are built in local time',
+    s => s.replace('new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]))', 'new Date(+p[0], +p[1] - 1, +p[2])')],
+
+  // Resetting a service back to what the lectionary said. The destructive
+  // one is first: a slot the document left blank is not the document saying
+  // there is no reading, so it must never clear one added by hand.
+  ['lectionary-import-harness.js', 'a reset clears readings the document never mentioned',
+    s => s.replace(PLAN_LINE, PLAN_CLEARS_BLANK)],
+  ['lectionary-import-harness.js', 'a reset rewrites slots that already match',
+    s => s.replace(PLAN_LINE, PLAN_REWRITES_ALL)],
+  ['lectionary-import-harness.js', 'the reset never finds anything to do',
+    s => s.replace(PLAN_LINE, PLAN_NEVER_FIRES)],
+  // The button and the reset agree only by reading the same function.
+  ['lectionary-import-harness.js', 'the reset button stops asking the shared plan',
+    s => s.replace('      if (!_lectResetPlan(iso, found.slots).length) return;',
+                   '      if (!found.slots) return;')],
+  ['lectionary-import-harness.js', 'the reset stops asking before it overwrites',
+    s => s.replace(RESET_ASK, '      var ask = Promise.resolve(true);')],
+  // Building the snapshot is not the same as handing it over: drop this one
+  // line and every future reset has nothing to go back to.
+  ['lectionary-import-harness.js', 'the import stops recording what the document said',
+    s => s.replace('      readings: readings,\r\n', '')],
+  ['lectionary-import-harness.js', 'a new order stops getting its readings',
+    s => s.replace(ORDER_FILL, '')],
+  // The Bible Browser's title box. Two save paths honoured it and the third
+  // did not, so a correction typed in reading-slot mode was discarded with
+  // nothing said -- and since the API answers "Psalms 96" when asked for
+  // "Psalm 96", that is how a hand-added psalm became the one odd spelling
+  // on a page of 59 singular ones.
+  ['reading-slot-title-harness.js', 'the reading slot ignores the title box again',
+    s => s.replace(SLOT_REF, "    var reference = bbState.passage.reference || '';")],
+  ['reading-slot-title-harness.js', 'the shared helper stops reading the box',
+    s => s.replace(CHOSEN_TYPED, "    var typed = '';")],
+  ['reading-slot-title-harness.js', 'a box holding only spaces becomes the reference',
+    s => s.replace(CHOSEN_TYPED,
+                   "    var typed = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : '';")],
+  // Keyed on the API's spelling, the reader never finds the text just
+  // fetched and goes back to the API for every corrected reference.
+  ['reading-slot-title-harness.js', 'the passage cache is keyed on the API reference',
+    s => s.replace(SLOT_CACHE_KEY,
+                   '    _passageTextCache[bbNormaliseReference(bbState.passage.reference || reference)] = {')],
+  // The thing that must NOT be fixed by coercion. Six live 2026 services
+  // deliberately hold non-psalm values in the psalm slot -- theme verses for
+  // a preaching series, and a bare "-" for the weeks with no psalm -- so a
+  // rewrite that assumes "Psalm N" would destroy real planning.
+  ['reading-slot-title-harness.js', 'a Psalms -> Psalm rewrite creeps into the helper',
+    s => s.replace(CHOSEN_RETURN, String.raw`    return (typed || (bbState.passage && bbState.passage.reference) || fallback).replace(/\bPsalms\b/, 'Psalm');`)],
+  // Drift the other way: the library stops asking the shared helper, which
+  // is how the three came to disagree in the first place.
+  // Liturgies and Library were folded into Memories and taken off the
+  // strip. Putting one back gives the page two entries leading to the
+  // same ribbons, which is what was just removed.
+  ['liturgy-nav-readings-harness.js', 'a Library entry creeps back into the strip',
+    // Inside the STRIP, not the sidebar: the sidebar copy appears first
+    // in the file, and a plain replace would change the one the strip
+    // checks never look at -- which is how this mutation first passed.
+    s => {
+      const at = s.indexOf('<nav id="litTopNav"');
+      if (at < 0) return s;
+      return s.slice(0, at) +
+        s.slice(at).replace('data-libfilter="memories"', 'data-libfilter="library"');
+    }],
+  ['reading-slot-title-harness.js', 'the library stops asking the shared helper',
+    s => s.replace(LIB_TITLE, "    var title = bbState.passage.reference || 'Scripture';")],
+  // Making the box editable only helps the person who notices the plural.
+  // If the suggestion goes back to the API's spelling, the DEFAULT path
+  // files psalms as "Psalms N" again and almost nobody will retype it.
+  ['reading-slot-title-harness.js', 'the pre-fill suggests the API spelling again',
+    s => s.replace(PREFILL,
+                   '        if (titleInput) titleInput.value = result.reference || reference;')],
+  // The suggestion must rename a LEADING book followed by a number and
+  // nothing else. Unanchored, it rewrites any title with the word in it.
+  ['reading-slot-title-harness.js', 'the suggestion loses its anchor',
+    s => s.replace(SUGGEST_BODY,
+                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")]
 ];
 
 let caught = 0, missed = 0, stale = 0;
