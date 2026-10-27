@@ -158,6 +158,13 @@ const SLOT_CACHE_KEY = '    _passageTextCache[bbNormaliseReference(reference)] =
 // Two copies of this line exist, the library's and the service order's;
 // replace() below takes the FIRST, which is the library.
 const LIB_TITLE = "    var title = bbChosenTitle('Scripture');";
+// The pre-fill: what the title box is filled WITH when a passage arrives.
+// Tidying the suggestion is what fixes the default path, since most people
+// save the reference the dialog already put in front of them.
+const PREFILL =
+  '        if (titleInput) titleInput.value = bbSuggestedTitle(result.reference || reference);';
+const SUGGEST_BODY =
+  "    return String(ref == null ? '' : ref).replace(/^(\\s*)Psalms(\\s+\\d)/, '$1Psalm$2');";
 
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
@@ -557,7 +564,18 @@ const CASES = [
   // Drift the other way: the library stops asking the shared helper, which
   // is how the three came to disagree in the first place.
   ['reading-slot-title-harness.js', 'the library stops asking the shared helper',
-    s => s.replace(LIB_TITLE, "    var title = bbState.passage.reference || 'Scripture';")]
+    s => s.replace(LIB_TITLE, "    var title = bbState.passage.reference || 'Scripture';")],
+  // Making the box editable only helps the person who notices the plural.
+  // If the suggestion goes back to the API's spelling, the DEFAULT path
+  // files psalms as "Psalms N" again and almost nobody will retype it.
+  ['reading-slot-title-harness.js', 'the pre-fill suggests the API spelling again',
+    s => s.replace(PREFILL,
+                   '        if (titleInput) titleInput.value = result.reference || reference;')],
+  // The suggestion must rename a LEADING book followed by a number and
+  // nothing else. Unanchored, it rewrites any title with the word in it.
+  ['reading-slot-title-harness.js', 'the suggestion loses its anchor',
+    s => s.replace(SUGGEST_BODY,
+                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")]
 ];
 
 let caught = 0, missed = 0, stale = 0;

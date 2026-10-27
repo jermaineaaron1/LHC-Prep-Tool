@@ -76295,7 +76295,7 @@ var LiturgyModule = (function() {
         }
         bbState.passage = result;
         var titleInput = document.getElementById('bbPassageTitle');
-        if (titleInput) titleInput.value = result.reference || reference;
+        if (titleInput) titleInput.value = bbSuggestedTitle(result.reference || reference);
 
         // Format verse numbers as superscripts
         var text = (result.text || '').replace(/\[(\d+)\]/g, '<sup class="bible-verse-num">$1</sup>');
@@ -76329,6 +76329,26 @@ var LiturgyModule = (function() {
     } else {
       bbSaveToLibrary();
     }
+  }
+
+  // What the title box is pre-filled WITH, which is only a suggestion.
+  //
+  // Asked for "Psalm 96" the API answers "Psalms 96", and the book dropdown
+  // in the same dialog is spelled "Psalms" for the same reason. Every psalm
+  // in the roster is singular, because they came from the lectionary PDF
+  // import, which keeps the document's wording -- so the suggestion arrived
+  // as the one odd spelling on the page and was saved that way by anyone who
+  // did not notice.
+  //
+  // This tidies the SUGGESTION, never the stored value. Whatever is left in
+  // the box is still saved verbatim by bbChosenTitle below, so nothing is
+  // coerced: the psalm slot holds theme verses and a bare "-" on the weeks
+  // of a preaching series, and none of that passes through here.
+  //
+  // Anchored at the start and requiring a number after it, so it renames a
+  // leading book and nothing else -- "Readings from Psalms" is untouched.
+  function bbSuggestedTitle(ref) {
+    return String(ref == null ? '' : ref).replace(/^(\s*)Psalms(\s+\d)/, '$1Psalm$2');
   }
 
   // The title box is editable, and every save path honours what is in it.

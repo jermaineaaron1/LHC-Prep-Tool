@@ -76,13 +76,15 @@ const slotSrc = extractFunction('bbSaveToLectionarySlot');
 const libSrc = extractFunction('bbSaveToLibrary');
 const woSrc = extractFunction('bbInsertIntoWO');
 const normSrc = extractFunction('bbNormaliseReference');
+const suggestSrc = extractFunction('bbSuggestedTitle');
 
 console.log('Reading ' + path.basename(INDEX));
 console.log('  bbChosenTitle            ' + (chosenSrc ? 'found' : 'ABSENT'));
 console.log('  bbSaveToLectionarySlot   ' + (slotSrc ? 'found' : 'ABSENT'));
 console.log('  bbSaveToLibrary          ' + (libSrc ? 'found' : 'ABSENT'));
 console.log('  bbInsertIntoWO           ' + (woSrc ? 'found' : 'ABSENT'));
-console.log('  bbNormaliseReference     ' + (normSrc ? 'found' : 'ABSENT') + '\n');
+console.log('  bbNormaliseReference     ' + (normSrc ? 'found' : 'ABSENT'));
+console.log('  bbSuggestedTitle         ' + (suggestSrc ? 'found' : 'ABSENT') + '\n');
 
 if (!slotSrc || !libSrc || !woSrc || !normSrc) {
   console.error('A Bible Browser save path is gone -- this harness can no longer see what it guards.');
@@ -103,7 +105,22 @@ if (!chosenSrc) {
   process.exit(1);
 }
 
+if (!suggestSrc) {
+  if (EXPECT_BROKEN) {
+    console.log('(pre-change) there was no bbSuggestedTitle. The box was pre-filled with');
+    console.log('the API\'s own reference, so adding a psalm through the picker suggested');
+    console.log('"Psalms 96" and stored it for anyone who did not retype the box by hand.');
+    console.log('\n--expect-broken: the pre-change shape is what passes');
+    process.exit(0);
+  }
+  console.error('bbSuggestedTitle is gone -- the box is pre-filled with the API spelling');
+  console.error('again, so the DEFAULT path files psalms as "Psalms N" once more. Making');
+  console.error('the box editable only helps the person who notices.');
+  process.exit(1);
+}
+
 const results = [];
+const bbSuggestedTitle = new Function('return (' + suggestSrc + ')')();
 function check(label, actual, expected) {
   const a = JSON.stringify(actual), e = JSON.stringify(expected);
   const ok = a === e;
@@ -206,6 +223,39 @@ console.log('the psalm that started this');
   check('and not the plural the API returned', t.slot === 'Psalms 96', false);
   check('the library agrees', t.library, 'Psalm 96');
   check('the service order agrees', t.order, 'Psalm 96');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nwhat the box is pre-filled with, for the person who types nothing');
+{
+  // The fix above made the box count. This makes its SUGGESTION right, which
+  // is what the default path stores -- most people will not retype a
+  // reference the dialog already filled in for them.
+  check('the suggestion is singular', bbSuggestedTitle('Psalms 96'), 'Psalm 96');
+  check('verses come along', bbSuggestedTitle('Psalms 96:1-13'), 'Psalm 96:1-13');
+  check('a singular one is left alone', bbSuggestedTitle('Psalm 96'), 'Psalm 96');
+  check('other books are untouched', bbSuggestedTitle('Isaiah 9:2-7'), 'Isaiah 9:2-7');
+
+  // Only a LEADING book name followed by a number. The word elsewhere in a
+  // title is somebody's own wording and none of this function's business.
+  check('the word mid-title is not a book name',
+    bbSuggestedTitle('Readings from Psalms'), 'Readings from Psalms');
+  check('nor is it without a number', bbSuggestedTitle('Psalms'), 'Psalms');
+  check('nothing is nothing', [bbSuggestedTitle(''), bbSuggestedTitle(null)], ['', '']);
+
+  // End to end: the API answers plural, the box is filled from it, nobody
+  // edits, and the roster still gets the house spelling.
+  const t = titles(bbSuggestedTitle('Psalms 96'));
+  check('an untouched box now files the psalm singular',
+    [t.slot, t.library, t.order], ['Psalm 96', 'Psalm 96', 'Psalm 96']);
+
+  // And the slot still stores verbatim whatever a person puts there: the
+  // suggestion is tidied, the decision is not.
+  [['-', 'a week with no psalm'],
+   ['Matthew 6:24', 'a theme verse in the psalm slot'],
+   ['Psalms 96', 'the plural, if somebody really wants it']].forEach(function (row) {
+    check(row[1] + ' is stored as typed', titles(row[0]).slot, row[0]);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +383,12 @@ console.log('\none place decides the title');
   check('and the helper is one of them',
     /getElementById\('bbPassageTitle'\)/.test(chosenSrc), true);
   check('the other is the pre-fill, which is what makes the box editable',
-    /titleInput\.value = result\.reference \|\| reference;/.test(raw), true);
+    /titleInput\.value = bbSuggestedTitle\(result\.reference \|\| reference\);/.test(raw), true);
+  // The suggestion is tidied on the way IN. Nothing tidies it on the way out.
+  check('the pre-fill goes through the suggestion',
+    /titleInput\.value = bbSuggestedTitle\(/.test(raw), true);
+  check('and the saved value still does not',
+    /bbSuggestedTitle/.test(chosenSrc) || /bbSuggestedTitle/.test(slotSrc), false);
 }
 
 // ---------------------------------------------------------------------------
