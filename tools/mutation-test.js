@@ -563,6 +563,19 @@ const CASES = [
     s => s.replace(CHOSEN_RETURN, String.raw`    return (typed || (bbState.passage && bbState.passage.reference) || fallback).replace(/\bPsalms\b/, 'Psalm');`)],
   // Drift the other way: the library stops asking the shared helper, which
   // is how the three came to disagree in the first place.
+  // Liturgies and Library were folded into Memories and taken off the
+  // strip. Putting one back gives the page two entries leading to the
+  // same ribbons, which is what was just removed.
+  ['liturgy-nav-readings-harness.js', 'a Library entry creeps back into the strip',
+    // Inside the STRIP, not the sidebar: the sidebar copy appears first
+    // in the file, and a plain replace would change the one the strip
+    // checks never look at -- which is how this mutation first passed.
+    s => {
+      const at = s.indexOf('<nav id="litTopNav"');
+      if (at < 0) return s;
+      return s.slice(0, at) +
+        s.slice(at).replace('data-libfilter="memories"', 'data-libfilter="library"');
+    }],
   ['reading-slot-title-harness.js', 'the library stops asking the shared helper',
     s => s.replace(LIB_TITLE, "    var title = bbState.passage.reference || 'Scripture';")],
   // Making the box editable only helps the person who notices the plural.

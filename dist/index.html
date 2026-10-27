@@ -6088,11 +6088,6 @@
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
-              <span class="lit-nav-dot" style="background:#f59e0b;"></span>
-              <i class="fa-solid fa-scroll" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Liturgies</span>
-            </button>
           </div>
           <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
@@ -6102,11 +6097,6 @@
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
-              <span class="lit-nav-dot" style="background:#6b7280;"></span>
-              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Library</span>
-            </button>
             <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general',null)" title="Add to the library">+</button>
           </div>
         </div>
@@ -8066,17 +8056,9 @@
               <span class="lit-nav-dot" style="background:#188e44;"></span>
               <i class="fa-solid fa-church" aria-hidden="true"></i><span>Services</span>
             </button>
-            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
-              <span class="lit-nav-dot" style="background:#f59e0b;"></span>
-              <i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Liturgies</span>
-            </button>
             <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
               <span class="lit-nav-dot" style="background:#10b981;"></span>
               <i class="fa-solid fa-camera-retro" aria-hidden="true"></i><span>Memories</span>
-            </button>
-            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
-              <span class="lit-nav-dot" style="background:#6b7280;"></span>
-              <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Library</span>
             </button>
           </nav>
 
@@ -80378,6 +80360,7 @@ var LiturgyModule = (function() {
   // photographs, the documents, and the checklist as it was left.
 
   var _memOpen = null;      // the one expanded ribbon
+  var _memSearch = '';      // what is being looked for, across everything
   var _memYear = {};        // { occasionId: folder id | '__all__' }
   var MEM_OPEN_KEY = 'lhc_memories_open';
 
@@ -80393,6 +80376,31 @@ var LiturgyModule = (function() {
   // what it is about.
   function _memItemsFor(occId) {
     return (liturgyItems || []).filter(function(i) { return i.occasionId === occId; });
+  }
+
+  // Things filed to no service at all. They need a ribbon of their own or
+  // they are on no screen -- which is exactly how a file went missing from
+  // the Library before this page took that job over.
+  function _memUnfiledItems() {
+    return (liturgyItems || []).filter(function(i) { return !i.occasionId; });
+  }
+
+  // One search box over the lot: a note's words, a document's title, a
+  // photograph's caption. With 73 items, typing a name beats working out
+  // which service somebody filed it under.
+  function _memMatchesNote(n) {
+    if (!_memSearch) return true;
+    return ((n.text || '') + ' ' + (n.occasionLabel || '')).toLowerCase().indexOf(_memSearch) !== -1;
+  }
+  function _memMatchesItem(i) {
+    if (!_memSearch) return true;
+    return ((i.title || '') + ' ' + (i.fileName || '') + ' ' + (i.description || ''))
+      .toLowerCase().indexOf(_memSearch) !== -1;
+  }
+
+  function searchMemories(q) {
+    _memSearch = String(q || '').trim().toLowerCase();
+    renderMemories();
   }
 
   function _memIsPicture(it) {
@@ -80480,7 +80488,9 @@ var LiturgyModule = (function() {
 
   function _memRibbon(occ, notes, items) {
     var occId = occ.id;
-    var open = (_memOpen === occId);
+    // While searching, a ribbon with a hit is open: the point of a search is
+    // to see the thing, not to be told which drawer it is in.
+    var open = _memSearch ? true : (_memOpen === occId);
     var years = _memYearsFor(occId, notes);
     var sel = _memYear[occId] || '__all__';
 
@@ -80605,36 +80615,81 @@ var LiturgyModule = (function() {
     var listed = seasons.concat(occasional).map(function(o) { return o.id; });
     var strayIds = Object.keys(byOcc).filter(function(id) { return listed.indexOf(id) === -1; }).sort();
     var strays = strayIds.map(function(id) {
-      return { id: id, label: id, icon: 'fa-circle-question', gradient: 'linear-gradient(135deg,#64748b,#94a3b8)' };
+      return { id: id, label: id, icon: 'fa-circle-question' };
     });
+
+    var unfiled = _memUnfiledItems();
+    var unfiledHead = { id: '__unfiled__', label: 'Not filed to a service', icon: 'fa-inbox' };
 
     if (filterRow) {
       var withSomething = listed.filter(function(id) {
         return (byOcc[id] && byOcc[id].length) || _memItemsFor(id).length;
       }).length;
-      filterRow.innerHTML = '<span class="lit-filter-row-label">Services</span>' +
+      filterRow.innerHTML =
+        '<span class="lit-filter-row-label">Services</span>' +
         '<span class="lit-mem-tally">' + withSomething + ' of ' + listed.length +
-        ' have something recorded</span>' +
+          ' have something recorded</span>' +
+        '<span class="lit-mem-search">' +
+          '<i class="fa-solid fa-magnifying-glass"></i>' +
+          '<input type="search" id="memSearchInput" placeholder="Search everything\u2026" ' +
+            'value="' + escapeHtml(_memSearch) + '" ' +
+            'oninput="LiturgyModule.searchMemories(this.value)">' +
+        '</span>' +
         '<button type="button" class="lit-content-type-chip" onclick="LiturgyModule.toggleMemoryRibbon(null)">' +
-        'Collapse all</button>';
+          'Collapse all</button>';
     }
 
     // Every service, not only the ones holding a note. An empty ribbon is
     // the honest answer to "what do we have for Ash Wednesday" and the
     // place to put the first thing.
+    //
+    // While searching that flips over: twenty empty ribbons around three
+    // hits is not a result, it is a haystack. Only ribbons with a match
+    // are drawn, and they are drawn open.
     var sections = [
       { title: 'Through the church year', occs: seasons },
       { title: 'Other services',          occs: occasional },
-      { title: 'No longer listed',        occs: strays }
+      { title: 'No longer listed',        occs: strays },
+      { title: 'Not filed to a service',  occs: unfiled.length ? [unfiledHead] : [] }
     ].filter(function(sec) { return sec.occs.length; });
 
-    body.innerHTML = sections.map(function(sec) {
+    var hits = 0;
+    var html = sections.map(function(sec) {
       var ribbons = sec.occs.map(function(occ) {
-        return _memRibbon(occ, byOcc[occ.id] || [], _memItemsFor(occ.id));
-      }).join('');
+        var mine  = (occ.id === '__unfiled__') ? [] : (byOcc[occ.id] || []);
+        var items = (occ.id === '__unfiled__') ? unfiled : _memItemsFor(occ.id);
+        if (_memSearch) {
+          mine  = mine.filter(_memMatchesNote);
+          items = items.filter(_memMatchesItem);
+          if (!mine.length && !items.length) return '';
+          hits += mine.length + items.length;
+        }
+        return _memRibbon(occ, mine, items);
+      }).filter(Boolean).join('');
+      if (!ribbons) return '';
       return '<div class="lit-mem-section"><h2 class="lit-mem-section-title">' +
         escapeHtml(sec.title) + '</h2>' + ribbons + '</div>';
     }).join('');
+
+    if (_memSearch && !html) {
+      html = '<div class="liturgy-empty-state"><i class="fa-solid fa-magnifying-glass"></i>' +
+        '<h3>Nothing matches \u201c' + escapeHtml(_memSearch) + '\u201d</h3>' +
+        '<p>Notes, photographs and documents were all searched.</p></div>';
+    } else if (_memSearch) {
+      html = '<p class="lit-mem-hits">' + hits + ' match' + (hits === 1 ? '' : 'es') +
+        ' for \u201c' + escapeHtml(_memSearch) + '\u201d</p>' + html;
+    }
+
+    body.innerHTML = html;
+
+    // Typing must not cost the caret: innerHTML replaced the input.
+    if (_memSearch) {
+      var box = document.getElementById('memSearchInput');
+      if (box && document.activeElement !== box) {
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }
+    }
   }
 
   // ---- Writing one back -----------------------------------------------
@@ -81132,6 +81187,7 @@ var LiturgyModule = (function() {
     filterMemories: filterMemories,
     openMemoryEditor: openMemoryEditor,
     toggleMemoryRibbon: toggleMemoryRibbon,
+    searchMemories: searchMemories,
     toggleLibraryRibbon: toggleLibraryRibbon,
     setLibraryYear: setLibraryYear,
     setMemoryYear: setMemoryYear,
@@ -88189,6 +88245,22 @@ function filterLiturgyItems() {
   .lit-mem-empty { margin: 10px 2px; font-size: 0.82rem; color: #94a3b8; font-style: italic; }
   .lit-mem-noyear { margin: 10px 2px 0; font-size: 0.72rem; color: #94a3b8; }
   .lit-mem-tally { font-size: 0.74rem; color: #64748b; margin-right: auto; }
+  .lit-mem-search {
+    display: inline-flex; align-items: center; gap: 7px; flex: 0 1 260px;
+    padding: 5px 11px; border-radius: 999px; background: #fff;
+    border: 1px solid rgba(15,23,42,0.14);
+  }
+  .lit-mem-search i { font-size: 0.74rem; color: #94a3b8; flex-shrink: 0; }
+  .lit-mem-search input {
+    border: 0; outline: none; background: none; min-width: 0; flex: 1 1 auto;
+    font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #1f2933;
+  }
+  .lit-mem-hits {
+    margin: 0 2px 12px; font-size: 0.78rem; color: #64748b; font-style: italic;
+  }
+  @media (max-width: 640px) {
+    .lit-mem-search { flex: 1 1 100%; order: 3; }
+  }
 
   @media (max-width: 640px) {
     .lib-rib-toggle { padding: 10px 12px; gap: 8px; }

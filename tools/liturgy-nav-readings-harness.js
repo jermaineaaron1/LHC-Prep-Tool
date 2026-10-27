@@ -123,9 +123,14 @@ function btn(cls, attrs) {
 }
 
 function makeDom() {
-  // Two of each of the five: one in the sidebar, one in the mobile strip.
+  // Two of each of the three: one in the sidebar, one in the mobile strip.
   // That duplication is the whole point -- one call must light both.
-  const KEYS = ['dashboard', 'all-services', 'liturgies', 'memories', 'library'];
+  //
+  // Three since Liturgies and Library were folded into Memories. The
+  // fixture mirrors the real strip on purpose: let it keep five and the
+  // harness would happily prove that _litSyncNav lights a button no
+  // page has.
+  const KEYS = ['dashboard', 'all-services', 'memories'];
   const sidebar = KEYS.map(k => btn('lit-nav-occ-btn', { 'data-libfilter': k }));
   const strip   = KEYS.map(k => btn('lit-nav-occ-btn', { 'data-libfilter': k }));
   const folders = ['gen-prayers', 'gen-media'].map(f => btn('lit-gen-folder-btn', { 'data-gen-folder': f }));
@@ -161,11 +166,15 @@ console.log('the nav says which section you are in');
   check('so does Services', d.lit(), ['all-services', 'all-services']);
   d.fn('memories');
   check('and Memories', d.lit(), ['memories', 'memories']);
+  // Liturgies and Library are gone from the strip, so there is nothing
+  // left for _litSyncNav to light for them. What it must still do is not
+  // light anything when handed a key the strip no longer carries.
   d.fn('library');
-  check('and Library', d.lit(), ['library', 'library']);
-  d.fn('liturgies');
-  check('and Liturgies', d.lit(), ['liturgies', 'liturgies']);
+  check('a key the strip no longer has lights nothing', d.lit(), []);
 
+  // Back to a key that exists, because what follows is about lighting
+  // both copies of one button, not about the keys themselves.
+  d.fn('memories');
   check('only ever one section at a time', d.lit().length, 2);
   check('the sidebar copy is lit', d.sidebar.filter(b => b.active).length, 1);
   check('and the mobile copy with it', d.strip.filter(b => b.active).length, 1);
@@ -192,8 +201,8 @@ console.log('\nthe active chip is scrolled into view');
   // The strip scrolls sideways on a phone and Library sits off the right
   // edge at 360px, so lighting it is not enough on its own.
   const d = makeDom();
-  d.fn('library');
-  check('the strip is scrolled to the active chip', d.scrolled, ['library']);
+  d.fn('memories');
+  check('the strip is scrolled to the active chip', d.scrolled, ['memories']);
   const d2 = makeDom();
   d2.fn(null);
   check('and not scrolled when nothing is active', d2.scrolled, []);
@@ -292,11 +301,22 @@ console.log('\nAuto-Fill saves where the page reads');
       const navAt = raw.indexOf('<nav id="litTopNav"');
       const nav = navAt < 0 ? '' : raw.slice(navAt, raw.indexOf('</nav>', navAt));
       check('the mobile strip exists', nav.length > 0, true);
-      ['dashboard', 'all-services', 'liturgies', 'memories', 'library'].forEach(k => {
+      // Three, not the five this once had. Memories grew a ribbon per
+      // service, a search across everything and a ribbon for the things
+      // filed to no service, which is the whole of what Liturgies and
+      // Library were for -- Liturgies being the Library filtered to one
+      // category, and the Library being the same ribbons without the
+      // notes. Two entries that led to the same place were removed.
+      ['dashboard', 'all-services', 'memories'].forEach(k => {
         check('  it has ' + k, nav.indexOf('data-libfilter="' + k + '"') !== -1, true);
       });
+      // Named, so putting either back is a decision somebody makes on
+      // purpose rather than a merge quietly restoring a dead end.
+      ['liturgies', 'library'].forEach(k => {
+        check('  and no longer ' + k, nav.indexOf('data-libfilter="' + k + '"') !== -1, false);
+      });
       check('and its buttons share the sidebar class, which is how one call lights both',
-        (nav.match(/class="lit-nav-occ-btn"/g) || []).length, 5);
+        (nav.match(/class="lit-nav-occ-btn"/g) || []).length, 3);
       check('it is hidden until the sidebar becomes an overlay',
         /\.lit-topnav \{ display: none; \}/.test(raw), true);
       check('and appears at the same breakpoint the sidebar uses',
