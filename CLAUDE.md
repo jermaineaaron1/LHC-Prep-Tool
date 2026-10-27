@@ -49,6 +49,8 @@ The ones worth knowing; there are around 29 in all.
 | `roster` | Monthly duty assignments, one row per role per date. **Also the readings**: role ids `reading1`, `psalm`, `reading2`, `gospel` |
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
+| `song_voice_lines` | A two-part song's words. One row per part per passage; `songs.lyrics` holds only a generated flat copy |
+| `song_recordings` | Practice takes. `line_id` is the (so far unwritten) anchor to a `song_voice_lines` row |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -231,6 +233,21 @@ SBQ_READINGS.getServiceDates(year)       // every date the roster knows
 SBQ_READINGS.setReference(iso, slot, ref)// writes the roster + roster_changes
 SBQ_READINGS.isoToRoster(iso)            // -> { year, month, serviceDate }
 SBQ_READINGS.rosterToIso(svcDate, year)  // "Oct 4" + 2026 -> "2026-10-04"
+```
+
+```javascript
+// SBQ_VOICE_LINES -- two-part (Women / Men) songs. The pure functions over
+// the rows live in `window.lhcVoiceLines`, outside the module, so the
+// harness can slice them.
+SBQ_VOICE_LINES.forSong(songId)          // the lines, in reading order
+SBQ_VOICE_LINES.replaceAll(songId, [])   // delete-then-insert, then rewrites
+                                         // songs.lyrics AND songs.voice_layout
+SBQ_VOICE_LINES.clear(songId)            // drops the lines, keeps the lyrics
+
+window.lhcVoiceLines.group(lines)        // rows -> paired display groups
+window.lhcVoiceLines.html(lines)         // the two-lane grid
+window.lhcVoiceLines.toLyricsText(lines) // the flat copy. ONE-WAY: nothing
+                                         // parses it back
 ```
 
 Others follow the same shape: `SBQ_LITURGY`, `SBQ_SONGBOOKS`,
@@ -433,6 +450,21 @@ the anon key -- verify as `postgres`, not as the app.
 7. **The anon key is in the page**, so running the app locally writes to REAL production data. There is no separate dev database.
 
 8. **Full-row writes**: `SBQ_SONGS.update()` sends the whole row. Use `updateFields()` for a partial save, or the columns left out are blanked.
+
+9. **A two-part song's lyrics column is a COPY**: when `songs.voice_layout`
+   is `'two-part'`, the words live in `song_voice_lines` and `songs.lyrics`
+   holds a generated flat rendering (unison lines bare, split lines prefixed
+   `W:` / `M:`). Everything that reads text -- projection, the PDF, search,
+   WhatsApp sharing, the songbook's contenteditable -- still reads the
+   column and still works. But editing that text edits the copy alone, and
+   `SBQ_VOICE_LINES.replaceAll` will overwrite it the next time the lines
+   change. There is no parser going the other way.
+
+10. **A rest is the absence of a row**, not a row with empty text. Pair rows
+    by `sort_order`, never by bar number: bars are nullable and are for
+    display. Drop the rest cell when rendering and the singing part slides
+    into the other lane, on a page that still looks entirely normal --
+    `tools/voice-lines-harness.js` exists for that one failure.
 
 ## Quick Commands for Claude Code
 

@@ -8660,6 +8660,48 @@
   #lyricsPreviewScrollCue.is-fading { opacity: 0; transition: opacity .38s ease; }
   #lyricsPreviewScrollCue { position: fixed; z-index: 100001; display: none; align-items: center; gap: 6px; transform: translateX(-50%); padding: 6px 14px; background: #188e44; color: #fff; border-radius: 999px; font-size: 0.8rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.28); cursor: pointer; animation: lpCueBounce 1.4s ease-in-out infinite; }
   @keyframes lpCueBounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(4px); } }
+
+  /* ---- Two-part songs: Women and Men on their own lanes ------------------
+     A grid, not flow, because the whole point of the layout is that two
+     cells in one row happen at the SAME moment. CSS columns -- what the
+     songbook's "2 Col" button does -- would stack the men's half below the
+     women's, which is the one arrangement of this that cannot be read. */
+  .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; }
+  .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 22px 0 8px; background: #dcf5e5; color: #15803d; }
+  .vl-score > .vl-section:first-child { margin-top: 0; }
+  .vl-head { display: grid; grid-template-columns: 54px 1fr 1fr; gap: 0 10px; padding-bottom: 5px; border-bottom: 1px solid #cbd5e1; }
+  .vl-head span { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 700; color: #94a3b8; }
+  .vl-head .vl-head-w { color: var(--vl-w); }
+  .vl-head .vl-head-m { color: var(--vl-m); }
+  .vl-row { display: grid; grid-template-columns: 54px 1fr 1fr; gap: 0 10px; border-bottom: 1px solid #eef1f6; }
+  .vl-bar { font-variant-numeric: tabular-nums; font-size: 12px; color: #94a3b8; padding: 9px 0; white-space: nowrap; }
+  /* The one mark that says "here the parts separate" -- the thing a caroler
+     is actually scanning the page for. */
+  .vl-row--split .vl-bar::after { content: ''; display: block; width: 12px; height: 2px; margin-top: 4px; border-radius: 1px; background: #b45309; }
+  .vl-cell { padding: 9px 11px; min-width: 0; overflow-wrap: break-word; border-left: 3px solid transparent; font-size: var(--sf-lyric-size, 19px); line-height: 1.55; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
+  .vl-cell--both { grid-column: 2 / 4; border-left-color: #cbd5e1; }
+  .vl-cell--women { border-left-color: var(--vl-w); background: rgba(168,71,95,0.06); }
+  .vl-cell--men { border-left-color: var(--vl-m); background: rgba(29,107,104,0.06); }
+  .vl-cell--rest { background: transparent; border-left-color: transparent; display: flex; align-items: center; }
+  .vl-rest { display: inline-block; width: 16px; height: 5px; border-radius: 1px; background: #cbd5e1; }
+  .vl-tag { display: none; }
+  .vl-text--hold { font-style: italic; color: #64748b; }
+  .vl-gap { padding: 7px 0 7px 54px; font-size: 12px; color: #94a3b8; font-style: italic; }
+  .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  @media (max-width: 680px) {
+    /* Two lanes will not fit, so they stack -- but under ONE bar number, so
+       the pairing that makes the layout worth having survives. */
+    .vl-head { display: none; }
+    .vl-row { grid-template-columns: 42px 1fr; }
+    .vl-bar { grid-row: span 2; padding: 8px 0 2px; }
+    .vl-cell { grid-column: 2; padding: 5px 9px; }
+    .vl-cell--both { grid-column: 2; grid-row: span 2; }
+    .vl-tag { display: inline-block; font-size: 9px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 700; margin-right: 6px; vertical-align: 1px; }
+    .vl-cell--women .vl-tag { color: var(--vl-w); }
+    .vl-cell--men .vl-tag { color: var(--vl-m); }
+    .vl-cell--both .vl-tag { color: #94a3b8; }
+    .vl-gap { padding-left: 42px; }
+  }
   
   /* Lyrics Editor Button */
   .lyrics-edit-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 24px; background: linear-gradient(135deg, #0e9f6e 0%, #088d4f 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; box-shadow: 0 4px 12px rgba(14, 159, 110, 0.3); }
@@ -13244,6 +13286,9 @@ window.addEventListener('resize', function() {
 
 // ============ Lyrics Preview Functions (Fixed) ============
 var currentLyricsPreviewSong = null;
+// Voice lines, fetched once per two-part song. undefined = not asked yet,
+// [] = asked and there were none.
+var _lpVoiceLineCache = {};
 var currentLyricsPreviewMode = 'lyrics';
 var currentTransposeValue = 0;
 var currentDisplayStyle = {};
@@ -13302,6 +13347,35 @@ function renderLyricsPreviewContent() {
     return;
   }
   
+  // A two-part song is not a text stream. Its words live in song_voice_lines
+  // and are drawn as two lanes, so an entry can be read across; the lyrics
+  // column holds only the flat copy. The Chords tab falls through to the
+  // ordinary renderer -- an arrangement like this has no chords in it, and
+  // if one ever does, the chord view is the text view.
+  if (currentLyricsPreviewSong.voiceLayout === 'two-part' &&
+      currentLyricsPreviewMode !== 'chords' && window.lhcVoiceLines) {
+    var _vlRows = _lpVoiceLineCache[currentLyricsPreviewSong.id];
+    if (_vlRows === undefined) {
+      container.innerHTML = '<div class="p-8 text-center text-slate-400">' +
+        '<i class="fa-solid fa-spinner fa-spin text-2xl mb-3 opacity-50"></i>' +
+        '<p>Loading both parts\u2026</p></div>';
+      return;
+    }
+    if (_vlRows.length) {
+      container.innerHTML = window.lhcVoiceLines.html(_vlRows);
+      if (!container._lpCueBound) {
+        container._lpCueBound = true;
+        container.addEventListener('scroll', _lpUpdateScrollCue, { passive: true });
+      }
+      setTimeout(_lpUpdateScrollCue, 60);
+      _sfPaintAppearance();
+      return;
+    }
+    // An empty array means the read found nothing -- an unmigrated table, or
+    // rows since deleted. Fall through to the flat copy rather than show a
+    // song with no words at all.
+  }
+
   var lyrics = currentLyricsPreviewSong.lyrics || '';
   if (!lyrics.trim()) {
     container.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-file-lines text-4xl mb-3 opacity-50"></i><p>No lyrics available for this song.</p></div>';
@@ -14031,6 +14105,160 @@ function applyTranspose() {
   currentTransposeValue = parseInt(select.value) || 0;
   renderLyricsPreviewContent();
 }
+
+// ============ Two-part songs: Women and Men on their own lanes ============
+//
+// A caroling arrangement is written on two staves and for much of its length
+// the two are not singing the same words -- in "Do You Hear What I Hear" the
+// women hold an open "Oh" through bars 11-16 while the men sing "dancing in
+// the night with a tail as big as a kite". songs.lyrics cannot hold that: one
+// text stream, three kinds of line, no way to say "these two happen at once".
+//
+// The words live in the song_voice_lines table instead. These are the pure
+// functions over those rows -- how to pair them up, how to draw them, and how
+// to flatten them back into the lyrics column that projection, the PDF,
+// search and WhatsApp sharing all still read.
+//
+// Rows pair by sortOrder, NOT by bar number. A split passage is two rows
+// sharing one sortOrder (one women, one men); a unison passage is a single
+// row with part 'both'. Bars are nullable, because a two-part song typed in
+// without a score in front of you has none, and nothing structural may
+// depend on them.
+//
+// A rest is the ABSENCE of a row. A group holding a men row and no women row
+// means the women are not singing there.
+window.lhcVoiceLines = {
+
+  // rows -> display groups, in reading order
+  group: function(lines) {
+    var buckets = {}, order = [];
+    (lines || []).forEach(function(ln) {
+      if (!ln || !ln.part) return;
+      if (ln.part !== 'both' && ln.part !== 'women' && ln.part !== 'men') return;
+      var k = String(ln.sortOrder == null ? 0 : ln.sortOrder);
+      if (!buckets[k]) {
+        buckets[k] = { sortOrder: Number(k) || 0, section: '', barStart: null, barEnd: null,
+                       women: null, men: null, both: null };
+        order.push(k);
+      }
+      var b = buckets[k];
+      if (ln.part === 'both') b.both = ln;
+      else if (ln.part === 'women') b.women = ln;
+      else b.men = ln;
+      if (b.barStart == null && ln.barStart != null) b.barStart = ln.barStart;
+      if (b.barEnd == null && ln.barEnd != null) b.barEnd = ln.barEnd;
+      if (!b.section && ln.section) b.section = ln.section;
+    });
+    return order.map(function(k) { return buckets[k]; })
+                .sort(function(a, b) { return a.sortOrder - b.sortOrder; });
+  },
+
+  barLabel: function(a, b) {
+    if (a == null) return '';
+    if (b == null || b === a) return String(a);
+    return a + '\u2013' + b;
+  },
+
+  // How many bars neither part is singing, between one group and the next.
+  // Nothing is stored for those bars -- absence already means "not singing"
+  // -- so the gap in the numbering is the only record there is.
+  gapBefore: function(prev, g) {
+    if (!prev || !g || prev.barEnd == null || g.barStart == null) return 0;
+    var n = g.barStart - prev.barEnd - 1;
+    return n > 0 ? n : 0;
+  },
+
+  // The flat copy written into songs.lyrics.
+  //
+  // Unison lines go in bare, so a mostly-unison song still reads as ordinary
+  // lyrics wherever it is projected or shared; only lines that actually
+  // differ carry a prefix. This is ONE-WAY. Nothing parses it back, and the
+  // rows stay the truth -- editing this text edits the copy alone.
+  toLyricsText: function(lines) {
+    var V = window.lhcVoiceLines;
+    var out = [], section = null;
+    V.group(lines).forEach(function(g) {
+      if (g.section && g.section !== section) {
+        if (out.length) out.push('');
+        out.push('[' + g.section + ']');
+        section = g.section;
+      }
+      if (g.both) { out.push(g.both.text || ''); return; }
+      if (g.women) out.push('W: ' + (g.women.text || ''));
+      if (g.men) out.push('M: ' + (g.men.text || ''));
+    });
+    return out.join('\n');
+  },
+
+  html: function(lines) {
+    var V = window.lhcVoiceLines;
+    var groups = V.group(lines);
+    if (!groups.length) return '';
+    var out = ['<div class="vl-score">'], section = null, prev = null;
+
+    groups.forEach(function(g) {
+      if (g.section && g.section !== section) {
+        section = g.section;
+        out.push('<div class="vl-section">' + V._esc(section) + '</div>');
+        out.push('<div class="vl-head"><span>Bar</span>' +
+                 '<span class="vl-head-w">Women</span>' +
+                 '<span class="vl-head-m">Men</span></div>');
+        // prev is deliberately NOT reset here. Bar numbers run continuously
+        // through the whole piece, so a gap that straddles a verse boundary
+        // is real silence and not a layout artefact -- in this carol it is
+        // the two-bar rest at 46-47 that leads into the last verse, which
+        // resetting here swallowed entirely.
+      }
+
+      var gap = V.gapBefore(prev, g);
+      if (gap > 0) {
+        out.push('<div class="vl-gap">' + gap + (gap === 1 ? ' bar' : ' bars') +
+                 ' \u2014 both parts rest</div>');
+      }
+
+      out.push('<div class="vl-row' + (g.both ? '' : ' vl-row--split') + '">');
+      out.push('<div class="vl-bar">' + V._esc(V.barLabel(g.barStart, g.barEnd)) + '</div>');
+      if (g.both) {
+        out.push(V._cell('both', 'Both', g.both));
+      } else {
+        out.push(g.women ? V._cell('women', 'Women', g.women) : V._rest('women', 'Women'));
+        out.push(g.men ? V._cell('men', 'Men', g.men) : V._rest('men', 'Men'));
+      }
+      out.push('</div>');
+      prev = g;
+    });
+
+    out.push('</div>');
+    return out.join('');
+  },
+
+  _esc: function(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  },
+
+  // data-line-id is the hook a per-voice practice recording will attach to.
+  // song_recordings.line_id already exists; nothing writes it yet.
+  _cell: function(cls, tag, ln) {
+    var V = window.lhcVoiceLines;
+    return '<div class="vl-cell vl-cell--' + cls + '"' +
+      (ln.id == null ? '' : ' data-line-id="' + V._esc(String(ln.id)) + '"') + '>' +
+      '<span class="vl-tag">' + tag + '</span>' +
+      '<span class="vl-text' + (ln.sustained ? ' vl-text--hold' : '') + '">' +
+      V._esc(ln.text || '') + '</span></div>';
+  },
+
+  // The tag is hidden on desktop, where the column heading already says which
+  // lane this is. On a phone the lanes stack, and without it a rest is a bare
+  // dash floating between two rows with nothing to say whose it is.
+  _rest: function(cls, tag) {
+    return '<div class="vl-cell vl-cell--' + cls + ' vl-cell--rest">' +
+      '<span class="vl-tag">' + (tag || '') + '</span>' +
+      '<span class="vl-rest" aria-hidden="true"></span>' +
+      '<span class="vl-sr">rests</span></div>';
+  }
+};
 
 function formatLyricsWithTranspose(text, showChords, transposeSteps) {
   var lines = text.split('\n');
@@ -14885,6 +15113,20 @@ window.setLyricsPreviewSong = function(song) {
   currentLyricsPreviewSong = song;
   currentLyricsPreviewMode = 'lyrics';
   currentTransposeValue = 0;
+
+  // Two-part songs keep their words in song_voice_lines. Fetch once per song
+  // and re-render when they land -- the guard on the id is because a reader
+  // clicking quickly through the library can have a second song open before
+  // the first one's rows arrive.
+  if (song && song.voiceLayout === 'two-part' && window.SBQ_VOICE_LINES &&
+      _lpVoiceLineCache[song.id] === undefined) {
+    window.SBQ_VOICE_LINES.forSong(song.id).then(function(rows) {
+      _lpVoiceLineCache[song.id] = rows || [];
+      if (currentLyricsPreviewSong && currentLyricsPreviewSong.id === song.id) {
+        renderLyricsPreviewContent();
+      }
+    });
+  }
   
   document.getElementById('lyricsPreviewTitle').textContent = song.title || '';
   // The fullscreen copy, set from the same value at the same moment so it can
@@ -19453,7 +19695,10 @@ window.loadEditSongData = function(song) {
       timeSignature: String(s.timeSignature || '').trim(),
       bpm: (s.bpm == null || s.bpm === '') ? '' : (parseInt(s.bpm, 10) || ''),
       serviceSuitability: Array.isArray(s.serviceSuitability) ? s.serviceSuitability : [],
-      display_style: (s.display_style && typeof s.display_style === 'object') ? s.display_style : {}
+      display_style: (s.display_style && typeof s.display_style === 'object') ? s.display_style : {},
+      // normalizeSong builds a fresh object from a fixed key list, so a key
+      // missing from here is a key dropped on the floor.
+      voiceLayout: s.voiceLayout || null
     };
   }
 
@@ -27547,7 +27792,11 @@ function songToRow(song) {
     time_signature:      song.timeSignature  || '',
     bpm:                 (song.bpm === '' || song.bpm == null) ? null : (parseInt(song.bpm, 10) || null),
     service_suitability: Array.isArray(song.serviceSuitability) ? song.serviceSuitability : [],
-    display_style:       (song.display_style && typeof song.display_style === 'object') ? song.display_style : {}
+    display_style:       (song.display_style && typeof song.display_style === 'object') ? song.display_style : {},
+    // A flag, so the Songs list never has to ask song_voice_lines about every
+    // song it draws. Null and not '' for an ordinary song: an empty string is
+    // a value that reads as present to every filter and sort.
+    voice_layout:        song.voiceLayout || null
   };
 }
 
@@ -27581,7 +27830,8 @@ function normalizeSongFromSupabase(row) {
     timeSignature:      row.time_signature  || '',
     bpm:                (row.bpm == null || row.bpm === '') ? '' : row.bpm,
     serviceSuitability: Array.isArray(row.service_suitability) ? row.service_suitability : [],
-    display_style:      (row.display_style && typeof row.display_style === 'object') ? row.display_style : {}
+    display_style:      (row.display_style && typeof row.display_style === 'object') ? row.display_style : {},
+    voiceLayout:        row.voice_layout || null
   };
   return (typeof normalizeSong === 'function') ? normalizeSong(bridged) : bridged;
 }
@@ -29202,6 +29452,103 @@ var SBQ_SB_ENTRIES = {
   }
 };
 window.SBQ_SB_ENTRIES = SBQ_SB_ENTRIES;
+// ================================================================
+// SBQ_VOICE_LINES -- the words of a two-part song, one row per part
+// per passage. Requires table song_voice_lines.
+// ================================================================
+var SBQ_VOICE_LINES = {
+  _sb: function() { return (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null; },
+
+  _fromRow: function(r) {
+    return {
+      id: r.id,
+      songId: r.song_id,
+      part: r.part,
+      text: r.text || '',
+      barStart: r.bar_start,
+      barEnd: r.bar_end,
+      section: r.section || '',
+      sortOrder: r.sort_order || 0,
+      sustained: !!r.sustained
+    };
+  },
+
+  // Scoped to one song, so the 1000-row cap is not in play for any plausible
+  // arrangement -- paged anyway, because the failure if it ever were would be
+  // the last verse of a carol silently missing.
+  forSong: function(songId) {
+    var sb = SBQ_VOICE_LINES._sb();
+    if (!sb || !songId) return Promise.resolve([]);
+    var out = [];
+    var page = function(from) {
+      return sb.from('song_voice_lines').select('*').eq('song_id', songId)
+        .order('sort_order', { ascending: true })
+        .order('part', { ascending: true })
+        .range(from, from + 999)
+        .then(function(r) {
+          // A table that has not been migrated yet, or one carrying RLS with
+          // no policy, must leave the song rendering the way it does today
+          // rather than blanking it.
+          if (r.error) return out;
+          var rows = r.data || [];
+          out = out.concat(rows.map(SBQ_VOICE_LINES._fromRow));
+          return rows.length < 1000 ? out : page(from + 1000);
+        });
+    };
+    return page(0).catch(function() { return []; });
+  },
+
+  // Replace every line of a song in one go.
+  //
+  // Delete-then-insert rather than an upsert: a line dropped from the
+  // arrangement has to actually disappear, and matching rows by id across a
+  // retype would be guesswork. The cost is that line_id on any attached
+  // recording is cleared by the ON DELETE SET NULL, which is the honest
+  // outcome -- after a retype nobody can say which new line the old take was
+  // for.
+  replaceAll: function(songId, lines) {
+    var sb = SBQ_VOICE_LINES._sb();
+    if (!sb || !songId) return Promise.reject(new Error('Supabase not ready'));
+    var rows = (lines || []).map(function(ln, i) {
+      return {
+        song_id: songId,
+        part: ln.part,
+        text: ln.text || '',
+        bar_start: (ln.barStart == null || ln.barStart === '') ? null : parseInt(ln.barStart, 10),
+        bar_end: (ln.barEnd == null || ln.barEnd === '') ? null : parseInt(ln.barEnd, 10),
+        section: ln.section || '',
+        sort_order: (ln.sortOrder == null) ? i : parseInt(ln.sortOrder, 10),
+        sustained: !!ln.sustained
+      };
+    });
+    return sb.from('song_voice_lines').delete().eq('song_id', songId)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        if (!rows.length) return null;
+        return sb.from('song_voice_lines').insert(rows).select();
+      })
+      .then(function(r) {
+        if (r && r.error) throw new Error(r.error.message);
+        // Clearing the lines clears the FLAG but never the lyrics column.
+        // The flat copy is the only words a reader has left at that point,
+        // and blanking it on the way out would be the one unrecoverable
+        // step in this whole path.
+        if (!rows.length) {
+          return SBQ_SONGS.updateFields(songId, { voice_layout: null })
+            .then(function() { return { success: true, count: 0 }; });
+        }
+        var saved = (r && r.data) ? r.data.map(SBQ_VOICE_LINES._fromRow) : lines;
+        return SBQ_SONGS.updateFields(songId, {
+          voice_layout: 'two-part',
+          lyrics: window.lhcVoiceLines.toLyricsText(saved)
+        }).then(function() { return { success: true, count: rows.length }; });
+      });
+  },
+
+  clear: function(songId) { return SBQ_VOICE_LINES.replaceAll(songId, []); }
+};
+window.SBQ_VOICE_LINES = SBQ_VOICE_LINES;
+
 
 // Identical reads that overlap in time share one request.
 //

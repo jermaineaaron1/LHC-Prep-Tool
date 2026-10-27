@@ -121,6 +121,32 @@ const CASES = [
   ['share-link-song-harness.js', 'a Facebook reel stops being recognised',
     s => s.replace(/[^\n]*type:'facebook-video',[^\n]*label:'Facebook Reel'[^\n]*\r?\n/, '')],
 
+  // Two-part songs. Every one of these leaves a page that still looks
+  // like a song -- which is the whole reason the harness exists.
+  //
+  // The first is the one that matters most: without the rest cell, the
+  // lane that is singing slides into the lane that is not, and the page
+  // calmly tells the women to sing the men's line.
+  ['voice-lines-harness.js', 'a resting part stops occupying its lane',
+    s => s.replace('_rest: function(cls, tag) {', "_rest: function(cls, tag) { return '';")],
+  ['voice-lines-harness.js', 'rows pair by bar number instead of sortOrder',
+    s => s.replace('var k = String(ln.sortOrder == null ? 0 : ln.sortOrder);',
+                   'var k = String(ln.barStart);')],
+  ['voice-lines-harness.js', 'a unison passage is filed as the women alone',
+    s => s.replace("if (ln.part === 'both') b.both = ln;",
+                   "if (ln.part === 'both') b.women = ln;")],
+  // The gap notice was suppressed at a verse boundary once, which is
+  // exactly where this carol's two-bar rest falls, so it vanished.
+  ['voice-lines-harness.js', 'a rest straddling a verse boundary is swallowed again',
+    s => s.replace('\'<span class="vl-head-m">Men</span></div>\');',
+                   '\'<span class="vl-head-m">Men</span></div>\'); prev = null;')],
+  ['voice-lines-harness.js', "the men's line loses its prefix in the flat copy",
+    s => s.replace("if (g.men) out.push('M: ' + (g.men.text || ''));",
+                   "if (g.men) out.push((g.men.text || ''));")],
+  ['voice-lines-harness.js', 'lyrics stop being escaped on the way into the page',
+    s => s.replace('_esc: function(s) {',
+                   "_esc: function(s) { return String(s == null ? '' : s);")],
+
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
                    '#songbookLiveModal .wo-lyrics-lyric-line{color:#334155!important')],
