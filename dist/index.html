@@ -8619,7 +8619,7 @@
           <!-- ===== CONTENT LIBRARY PANEL ===== -->
           <!-- ===== MEMORIES ===== -->
           <div id="liturgyMemoriesPanel" style="display:none;">
-            <div class="lit-mem-header">
+            <div class="lib-rib-header">
               <div>
                 <h1 class="font-cinzel lit-mem-title">Memories</h1>
                 <p class="lit-mem-sub">What we did, and what we learned doing it</p>
@@ -73977,6 +73977,54 @@ var LiturgyModule = (function() {
     });
   }
 
+  // The Library, and Liturgies which is the same panel filtered, read the
+  // same way Memories does: one ribbon per service, shut until asked for.
+  //
+  // Every service gets one even when the current filter leaves it empty.
+  // "No liturgies filed for Ash Wednesday" is an answer, and an answer is
+  // worth a line; a service that silently vanishes from the list looks the
+  // same as a service that does not exist.
+  var _libOpen = null;
+  var _libYear = {};
+  var LIB_OPEN_KEY = 'lhc_library_open';
+
+  function _libReadOpen() {
+    try { return localStorage.getItem(LIB_OPEN_KEY) || null; } catch (e) { return null; }
+  }
+  function _libWriteOpen(id) {
+    try { id ? localStorage.setItem(LIB_OPEN_KEY, id) : localStorage.removeItem(LIB_OPEN_KEY); } catch (e) {}
+  }
+
+  function toggleLibraryRibbon(occId) {
+    _libOpen = (_libOpen === occId) ? null : occId;
+    _libWriteOpen(_libOpen);
+    renderItems(_lastLibraryQuery || '');
+    if (_libOpen) {
+      var el = document.querySelector('.lib-ribbon.is-collapsible.is-open');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  function setLibraryYear(occId, key) {
+    _libYear[occId] = key;
+    renderItems(_lastLibraryQuery || '');
+  }
+
+  function _libYearBlocks(items) {
+    return _libGroupByYear(items).map(function(y) {
+      var types = _libGroupByType(y.items).map(function(t) {
+        return '<div class="lib-type-block">' +
+            '<div class="lib-type-label">' + escapeHtml(t.label) + ' <span>' + t.items.length + '</span></div>' +
+            '<div class="liturgy-items-grid lib-type-grid">' + t.items.map(_libItemCard).join('') + '</div>' +
+          '</div>';
+      }).join('');
+      return '<div class="lib-year-block">' +
+          '<div class="lib-year-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i>' +
+            escapeHtml(y.label) + '</div>' + types +
+        '</div>';
+    }).join('');
+  }
+
   function renderLibraryGrouped(items) {
     var byOcc = {};
     items.forEach(function(it) {
@@ -73984,54 +74032,93 @@ var LiturgyModule = (function() {
       (byOcc[k] = byOcc[k] || []).push(it);
     });
 
-    // OCCASIONS is already in the order the church year runs, which is the
-    // order these should read in. Anything filed to an occasion this app no
-    // longer lists still gets a ribbon, named by its id, rather than being
-    // silently dropped from the library.
-    var order = OCCASIONS.map(function(o) { return o.id; });
-    var known = order.filter(function(id) { return byOcc[id]; });
-    var strays = Object.keys(byOcc).filter(function(id) {
-      return id !== '__unfiled__' && order.indexOf(id) === -1;
-    }).sort();
-    var ribbons = known.concat(strays);
-    if (byOcc.__unfiled__) ribbons.push('__unfiled__');
+    if (_libOpen === null) {
+      var remembered = _libReadOpen();
+      if (remembered) _libOpen = remembered;
+    }
 
-    if (!ribbons.length) {
+    // The church year in its own order, then the occasional services, then
+    // anything filed to an occasion this app no longer lists, then the
+    // things filed to nothing at all.
+    var heads = OCCASIONS.slice();
+    Object.keys(byOcc).sort().forEach(function(id) {
+      if (id === '__unfiled__') return;
+      if (!OCCASIONS.some(function(o) { return o.id === id; })) {
+        heads.push({ id: id, label: id, icon: 'fa-circle-question' });
+      }
+    });
+    if (byOcc.__unfiled__) {
+      heads.push({ id: '__unfiled__', label: 'Not filed to a service', icon: 'fa-inbox' });
+    }
+
+    if (!items.length) {
       return '<div class="liturgy-empty-state"><i class="fa-solid fa-book-open"></i>' +
         '<h3>Nothing here yet</h3><p>Upload documents or create liturgy items to get started.</p></div>';
     }
 
-    return ribbons.map(function(occId) {
-      var occ = (occId === '__unfiled__') ? null : getOccasionById(occId);
-      var mine = byOcc[occId];
-      var head = (occId === '__unfiled__')
-        ? { label: 'Not filed to a service', icon: 'fa-inbox', gradient: 'linear-gradient(135deg,#64748b,#94a3b8)' }
-        : (occ || { label: occId, icon: 'fa-circle-question', gradient: 'linear-gradient(135deg,#64748b,#94a3b8)' });
+    return heads.map(function(occ) {
+      var occId = occ.id;
+      var mine = byOcc[occId] || [];
+      var real = (occId !== '__unfiled__');
+      var open = (_libOpen === occId);
+      var sel = _libYear[occId] || '__all__';
 
-      var years = _libGroupByYear(mine).map(function(y) {
-        var types = _libGroupByType(y.items).map(function(t) {
-          return '<div class="lib-type-block">' +
-              '<div class="lib-type-label">' + escapeHtml(t.label) + ' <span>' + t.items.length + '</span></div>' +
-              '<div class="liturgy-items-grid lib-type-grid">' + t.items.map(_libItemCard).join('') + '</div>' +
-            '</div>';
-        }).join('');
-        return '<div class="lib-year-block">' +
-            '<div class="lib-year-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i>' +
-              escapeHtml(y.label) + '</div>' + types +
-          '</div>';
-      }).join('');
+      var body = '';
+      if (open) {
+        var years = real ? _libGroupByYear(mine) : [];
+        var chips = years.length > 1
+          ? '<div class="lib-rib-years"><span class="lib-rib-years-label">Year</span>' +
+              '<button type="button" class="lib-rib-year' + (sel === '__all__' ? ' active' : '') +
+                '" onclick="LiturgyModule.setLibraryYear(\'' + occId + '\',\'__all__\')">All</button>' +
+              years.map(function(y) {
+                return '<button type="button" class="lib-rib-year' + (sel === y.key ? ' active' : '') +
+                  '" onclick="LiturgyModule.setLibraryYear(\'' + occId + '\',\'' + y.key + '\')">' +
+                  escapeHtml(y.label) + '</button>';
+              }).join('') +
+            '</div>'
+          : '';
 
-      return '<section class="lib-ribbon"' + (head.colour ? ' data-altar="' + head.colour + '"' : '') + '>' +
-          '<header class="lib-ribbon-head" style="background:' + _occGradient(head) + ';">' +
-            '<i class="fa-solid ' + head.icon + '" aria-hidden="true"></i>' +
-            '<h3>' + escapeHtml(head.label) + '</h3>' +
-            '<span class="lib-ribbon-count">' + mine.length + ' item' + (mine.length === 1 ? '' : 's') + '</span>' +
-          '</header>' + years +
+        var shown = mine;
+        if (sel !== '__all__') {
+          shown = mine.filter(function(it) {
+            return (it.occasionFolderId || '__noyear__') === sel;
+          });
+        }
+        var inner = shown.length
+          ? _libYearBlocks(shown)
+          : '<p class="lit-mem-empty">Nothing filed here' +
+              (sel === '__all__' ? '' : ' for this year') + ' yet.</p>';
+        body = '<div class="lib-rib-body">' + chips + inner + '</div>';
+      }
+
+      var n = mine.length;
+      return '<section class="lib-ribbon is-collapsible' + (open ? ' is-open' : '') + '"' +
+          (occ.colour ? ' data-altar="' + occ.colour + '"' : '') + '>' +
+          '<header class="lib-ribbon-head lib-rib-head" style="background:' + _occGradient(occ) + ';">' +
+            '<button type="button" class="lib-rib-toggle" aria-expanded="' + (open ? 'true' : 'false') +
+              '" onclick="LiturgyModule.toggleLibraryRibbon(\'' + occId + '\')">' +
+              '<i class="fa-solid fa-chevron-' + (open ? 'down' : 'right') + ' lib-rib-chev"></i>' +
+              '<i class="fa-solid ' + (occ.icon || 'fa-circle-question') + '" aria-hidden="true"></i>' +
+              '<h3>' + escapeHtml(occ.label) + '</h3>' +
+            '</button>' +
+            (real ? '<span class="lib-rib-actions">' +
+              '<button type="button" class="lib-rib-add" title="Upload a document or photograph to this service" ' +
+                'onclick="LiturgyModule.addMemoryDoc(\'' + occId + '\')"><i class="fa-solid fa-file-arrow-up"></i></button>' +
+              '<button type="button" class="lib-rib-add" title="Keep a link with this service" ' +
+                'onclick="LiturgyModule.addMemoryLink(\'' + occId + '\')"><i class="fa-solid fa-link"></i></button>' +
+              '<button type="button" class="lib-rib-add" title="Open this service" ' +
+                'onclick="LiturgyModule.selectOccasion(\'' + occId + '\')"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
+            '</span>' : '') +
+            '<span class="lib-ribbon-count">' + (n ? n + ' item' + (n === 1 ? '' : 's') : 'empty') + '</span>' +
+          '</header>' + body +
         '</section>';
     }).join('');
   }
 
+  var _lastLibraryQuery = '';
+
   function renderItems(searchQuery) {
+    _lastLibraryQuery = searchQuery || '';
     var grid = document.getElementById('liturgyItemsGrid');
     var hint = document.getElementById('liturgyHint');
     if (!grid) return;
@@ -80386,11 +80473,11 @@ var LiturgyModule = (function() {
     var body = '';
     if (open) {
       var yearChips = years.length
-        ? '<div class="lit-mem-years"><span class="lit-mem-years-label">Year</span>' +
-            '<button type="button" class="lit-mem-year' + (sel === '__all__' ? ' active' : '') +
+        ? '<div class="lib-rib-years"><span class="lib-rib-years-label">Year</span>' +
+            '<button type="button" class="lib-rib-year' + (sel === '__all__' ? ' active' : '') +
               '" onclick="LiturgyModule.setMemoryYear(\'' + occId + '\',\'__all__\')">All</button>' +
             years.map(function(y) {
-              return '<button type="button" class="lit-mem-year' + (sel === y.key ? ' active' : '') +
+              return '<button type="button" class="lib-rib-year' + (sel === y.key ? ' active' : '') +
                 '" onclick="LiturgyModule.setMemoryYear(\'' + occId + '\',\'' + y.key + '\')">' +
                 escapeHtml(y.label) + '</button>';
             }).join('') +
@@ -80414,24 +80501,24 @@ var LiturgyModule = (function() {
         inner += '<p class="lit-mem-noyear">' + hiddenNoYear + ' item' + (hiddenNoYear === 1 ? '' : 's') +
           ' here have no year set, and show under All.</p>';
       }
-      body = '<div class="lit-mem-ribbon-body">' + yearChips + inner + '</div>';
+      body = '<div class="lib-rib-body">' + yearChips + inner + '</div>';
     }
 
-    return '<section class="lib-ribbon lit-mem-ribbon' + (open ? ' is-open' : '') + '"' +
+    return '<section class="lib-ribbon is-collapsible lit-mem-ribbon' + (open ? ' is-open' : '') + '"' +
         (occ.colour ? ' data-altar="' + occ.colour + '"' : '') + '>' +
-        '<header class="lib-ribbon-head lit-mem-head" style="background:' + _occGradient(occ) + ';">' +
-          '<button type="button" class="lit-mem-toggle" aria-expanded="' + (open ? 'true' : 'false') +
+        '<header class="lib-ribbon-head lib-rib-head" style="background:' + _occGradient(occ) + ';">' +
+          '<button type="button" class="lib-rib-toggle" aria-expanded="' + (open ? 'true' : 'false') +
             '" onclick="LiturgyModule.toggleMemoryRibbon(\'' + occId + '\')">' +
-            '<i class="fa-solid fa-chevron-' + (open ? 'down' : 'right') + ' lit-mem-chev"></i>' +
+            '<i class="fa-solid fa-chevron-' + (open ? 'down' : 'right') + ' lib-rib-chev"></i>' +
             '<i class="fa-solid ' + occ.icon + '" aria-hidden="true"></i>' +
             '<h3>' + escapeHtml(occ.label) + '</h3>' +
           '</button>' +
-          '<span class="lit-mem-head-actions">' +
-            '<button type="button" class="lit-mem-add" title="Add a photograph or a document to this service" ' +
+          '<span class="lib-rib-actions">' +
+            '<button type="button" class="lib-rib-add" title="Add a photograph or a document to this service" ' +
               'onclick="LiturgyModule.addMemoryDoc(\'' + occId + '\')"><i class="fa-solid fa-file-arrow-up"></i></button>' +
-            '<button type="button" class="lit-mem-add" title="Keep a link with this service" ' +
+            '<button type="button" class="lib-rib-add" title="Keep a link with this service" ' +
               'onclick="LiturgyModule.addMemoryLink(\'' + occId + '\')"><i class="fa-solid fa-link"></i></button>' +
-            '<button type="button" class="lit-mem-add" title="Open this service" ' +
+            '<button type="button" class="lib-rib-add" title="Open this service" ' +
               'onclick="LiturgyModule.selectOccasion(\'' + occId + '\')"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
           '</span>' +
           '<span class="lib-ribbon-count">' + (tally.length ? tally.join(' \u00b7 ') : 'empty') + '</span>' +
@@ -81010,6 +81097,8 @@ var LiturgyModule = (function() {
     filterMemories: filterMemories,
     openMemoryEditor: openMemoryEditor,
     toggleMemoryRibbon: toggleMemoryRibbon,
+    toggleLibraryRibbon: toggleLibraryRibbon,
+    setLibraryYear: setLibraryYear,
     setMemoryYear: setMemoryYear,
     addMemoryDoc: addMemoryDoc,
     addMemoryLink: addMemoryLink,
@@ -87983,41 +88072,41 @@ function filterLiturgyItems() {
      one is open at a time. The one that was open last time is reopened
      on the next visit, because the service somebody is preparing is
      rarely a different one by the next morning. */
-  .lit-mem-ribbon .lib-ribbon-head { padding: 0; gap: 0; align-items: stretch; }
-  .lit-mem-toggle {
+  .lib-ribbon.is-collapsible .lib-ribbon-head { padding: 0; gap: 0; align-items: stretch; }
+  .lib-rib-toggle {
     flex: 1 1 auto; min-width: 0;
     display: flex; align-items: center; gap: 10px;
     padding: 11px 16px; background: none; border: 0; cursor: pointer;
     color: #fff; text-align: left; font: inherit;
   }
-  .lit-mem-toggle:hover { background: rgba(255,255,255,0.10); }
-  .lit-mem-toggle h3 {
+  .lib-rib-toggle:hover { background: rgba(255,255,255,0.10); }
+  .lib-rib-toggle h3 {
     margin: 0; font-family: 'Cinzel', serif; font-size: 0.98rem; font-weight: 700;
     color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .lit-mem-chev { font-size: 0.72rem; opacity: 0.85; flex-shrink: 0; width: 10px; }
-  .lit-mem-head-actions { display: flex; align-items: center; gap: 4px; padding-right: 6px; flex-shrink: 0; }
-  .lit-mem-add {
+  .lib-rib-chev { font-size: 0.72rem; opacity: 0.85; flex-shrink: 0; width: 10px; }
+  .lib-rib-actions { display: flex; align-items: center; gap: 4px; padding-right: 6px; flex-shrink: 0; }
+  .lib-rib-add {
     width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
     border: 1px solid rgba(255,255,255,0.28); background: rgba(255,255,255,0.14);
     color: #fff; font-size: 0.74rem; cursor: pointer;
   }
-  .lit-mem-add:hover { background: rgba(255,255,255,0.3); }
-  .lit-mem-ribbon .lib-ribbon-count { margin: 0 14px 0 0; align-self: center; white-space: nowrap; }
+  .lib-rib-add:hover { background: rgba(255,255,255,0.3); }
+  .lib-ribbon.is-collapsible .lib-ribbon-count { margin: 0 14px 0 0; align-self: center; white-space: nowrap; }
 
-  .lit-mem-ribbon-body { padding: 4px 14px 14px; }
-  .lit-mem-years { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
-  .lit-mem-years-label {
+  .lib-rib-body { padding: 4px 14px 14px; }
+  .lib-rib-years { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+  .lib-rib-years-label {
     font-size: 0.64rem; font-weight: 700; letter-spacing: 0.09em;
     text-transform: uppercase; color: #64748b; margin-right: 2px;
   }
-  .lit-mem-year {
+  .lib-rib-year {
     border: 1px solid rgba(15,23,42,0.14); background: #fff; color: #475569;
     border-radius: 999px; padding: 3px 11px; font-size: 0.74rem; font-weight: 600;
     cursor: pointer; font-family: 'Poppins', sans-serif;
   }
-  .lit-mem-year:hover { border-color: var(--occ-accent, #188e44); color: var(--occ-ink, #0b7644); }
-  .lit-mem-year.active {
+  .lib-rib-year:hover { border-color: var(--occ-accent, #188e44); color: var(--occ-ink, #0b7644); }
+  .lib-rib-year.active {
     background: var(--occ-wash, rgba(24,142,68,0.12));
     border-color: var(--occ-accent, #188e44); color: var(--occ-ink, #0b7644);
   }
@@ -88067,10 +88156,10 @@ function filterLiturgyItems() {
   .lit-mem-tally { font-size: 0.74rem; color: #64748b; margin-right: auto; }
 
   @media (max-width: 640px) {
-    .lit-mem-toggle { padding: 10px 12px; gap: 8px; }
-    .lit-mem-toggle h3 { font-size: 0.86rem; }
-    .lit-mem-ribbon .lib-ribbon-count { display: none; }
-    .lit-mem-ribbon-body { padding: 4px 10px 12px; }
+    .lib-rib-toggle { padding: 10px 12px; gap: 8px; }
+    .lib-rib-toggle h3 { font-size: 0.86rem; }
+    .lib-ribbon.is-collapsible .lib-ribbon-count { display: none; }
+    .lib-rib-body { padding: 4px 10px 12px; }
     .lit-mem-doc-grid { grid-template-columns: 1fr; }
   }
 
@@ -88294,7 +88383,7 @@ function filterLiturgyItems() {
   .lit-reading-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
   .lit-reading-slots-stack { display: block; }
   /* Memories */
-  .lit-mem-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 24px 20px 12px; flex-wrap: wrap; }
+  .lib-rib-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 24px 20px 12px; flex-wrap: wrap; }
   .lit-mem-title { font-size: 1.45rem; font-weight: 700; margin: 0 0 3px; color: #1f2933; }
   .lit-mem-sub { margin: 0; font-size: 0.86rem; color: #6b7280; font-style: italic; font-family: 'Poppins', sans-serif; }
   .lit-mem-body { padding: 0 20px 28px; }
