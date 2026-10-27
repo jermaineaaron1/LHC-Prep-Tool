@@ -51,6 +51,18 @@ harness that passes on broken code proves nothing — against the commit before
 the fix this reports 9 of 18 checks failing. If you extend the harness, confirm
 it still fails without the fix.
 
+That is enforced, not just intended: given `--expect-broken` and source where
+nothing fails, a harness exits 1 rather than reporting success. Nine of them
+used to exit 0 either way, which made the control decoration — it could not
+tell the fix from its absence. One distinction survives: a harness that cannot
+slice its subject at all still exits 1 whatever the flag says, because source
+with none of the app in it is not pre-fix source.
+
+`git show` writes LF and these files are CRLF, so a harness pointed at its
+output can fail on line endings rather than on the code, which has already
+sent one reader hunting a regression that was not there. Check it out instead:
+`git worktree add --detach <dir> <rev>` restores CRLF on checkout.
+
 ## minidom.js
 
 The DOM shim the harness runs against — `querySelector`/`querySelectorAll`

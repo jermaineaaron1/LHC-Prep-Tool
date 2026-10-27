@@ -339,4 +339,13 @@ console.log('\none place decides the title');
 // ---------------------------------------------------------------------------
 const failed = results.filter(ok => !ok).length;
 console.log('\n' + (results.length - failed) + '/' + results.length + ' checks passed');
+if (EXPECT_BROKEN) {
+  if (!failed) {
+    console.log('\nBUT --expect-broken was given and everything passed.');
+    console.log('This harness cannot tell the fix from its absence. Do not trust it.');
+    process.exit(1);
+  }
+  console.log('\nFailures above are expected for pre-fix source.');
+  process.exit(0);
+}
 process.exit(failed ? 1 : 0);
