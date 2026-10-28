@@ -536,7 +536,20 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbVoiceLines` on render -- a songbook that has not prefetched yet
     silently has no choir pages.
 
-15. **Which pages a song shows in a songbook is SHARED, not per-browser.**
+15. **A standalone songbook saves against a pseudo-order, and that row
+    has to exist.** `order_items.order_id` is a foreign key into
+    `orders`, and a standalone songbook writes under
+    `standalone_<songbookId>`. For a long time the only thing creating
+    that row was `_sbPersistStandaloneTemplate`, which returns early
+    unless there is a projection deck worth keeping -- so any songbook
+    nobody had used Project mode on silently saved NOTHING: every
+    autosave came back 409 / 23503 and annotations, transposition,
+    custom lyrics and notes were lost on reload.
+    `_sbEnsureStandaloneOrder` now inserts it before the first write,
+    with `ignoreDuplicates` so it can never write `template: {}` over a
+    real projection deck.
+
+16. **Which pages a song shows in a songbook is SHARED, not per-browser.**
     `choirView` (`choir` | `lyrics` | `both`, defaulting to `choir` when
     an arrangement exists) is written onto the songbooks row so every
     caroler opening it sees the same book. `sbAutoSave` carries it for an
@@ -545,7 +558,7 @@ the anon key -- verify as `postgres`, not as the app.
     directly. Note every OTHER per-song setting in a standalone songbook
     still does not persist -- that is pre-existing, not fixed here.
 
-16. **Grouping is the blank line.** Bars are displayed nowhere and the
+17. **Grouping is the blank line.** Bars are displayed nowhere and the
     editor no longer carries them, so what used to be signalled by an
     EMPTY bar column is now signalled by whitespace you can see: lines
     that touch sound together, a blank line starts the next moment.
@@ -554,14 +567,14 @@ the anon key -- verify as `postgres`, not as the app.
     "N bars -- both parts rest" notice for that song. A typed bar spec is
     still parsed, so text written under the old format still reads right.
 
-17. **Editing one line uses `updateLine`, never `replaceAll`.**
+18. **Editing one line uses `updateLine`, never `replaceAll`.**
     Double-clicking a line's words, or its part chip, writes one column of
     one row. `replaceAll` deletes and re-inserts everything, which would
     detach the practice takes on lines nobody touched and clear the bars on
     rows nobody was editing. Inline edits preserve both; the full editor is
     for restructuring, and pays the price above.
 
-18. **A songbook item's `id` is not a song id.** It is
+19. **A songbook item's `id` is not a song id.** It is
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.

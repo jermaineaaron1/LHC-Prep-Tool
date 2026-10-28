@@ -51466,6 +51466,38 @@ var WO = (function() {
   var _sbSyncWriteInFlight = false; // a sync write is on the wire right now
   var _sbSyncWritePending  = false; // the 2s debounce is armed and will fire
 
+  // The row order_items.order_id points at.
+  //
+  // A standalone songbook saves against a pseudo-order,
+  // `standalone_<songbookId>`. Until now the only thing that created that
+  // row was _sbPersistStandaloneTemplate, which returns early unless there
+  // is a projection deck worth keeping -- so a songbook nobody had used
+  // Project mode on had no row, and every autosave was refused by the
+  // foreign key with 409 / 23503. Nothing surfaced it: the writes failed,
+  // the annotations vanished on reload, and the console said only
+  // "Failed to load resource".
+  //
+  // ignoreDuplicates is the point. A plain upsert would write template: {}
+  // over a songbook's projection deck every two seconds; this inserts the
+  // row when it is missing and does nothing at all when it is there.
+  function _sbEnsureStandaloneOrder() {
+    if (!_sbStandaloneId || !currentOrderData || !currentOrderData.id) return Promise.resolve();
+    if (_sbStandaloneOrderReady === currentOrderData.id) return Promise.resolve();
+    var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sbc) return Promise.resolve();
+    return sbc.from('orders').upsert([{
+      id: currentOrderData.id,
+      title: currentOrderData.title || 'Songbook',
+      type: currentOrderData.type || 'traditional',
+      created_date: currentOrderData.createdDate || new Date().toISOString(),
+      last_edited: new Date().toISOString()
+    }], { onConflict: 'id', ignoreDuplicates: true }).then(function(r) {
+      if (r && r.error) { console.warn('[Songbook] could not create its pseudo-order:', r.error.message); return; }
+      _sbStandaloneOrderReady = currentOrderData.id;
+    }).catch(function() {});
+  }
+  var _sbStandaloneOrderReady = null;
+
   function sbAutoSave() {
     // ── Tier 1: Realtime broadcast (150ms) ────────────────────────────────
     // Instantly pushes the full song state to all connected devices.
@@ -51488,7 +51520,8 @@ var WO = (function() {
         .filter(function(s) { return !!s.id; })
         .map(function(s, idx) { return sbBuildSongSnapshot(s, idx); });
       _sbSyncWriteInFlight = true;
-      SBQ.syncItems(currentOrderData.id, snapshots)
+      _sbEnsureStandaloneOrder().then(function() {
+      return SBQ.syncItems(currentOrderData.id, snapshots); })
         .then(function() {
           _sbSyncWriteInFlight = false;
           sbSetSaveStatus('saved');
