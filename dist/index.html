@@ -46259,6 +46259,24 @@ var WO = (function() {
             if (c.customRichLyrics != null) song.richLyrics = c.customRichLyrics;
             if (typeof c.transposeSteps === 'number') song.transposeSteps = c.transposeSteps;
             if (c.liturgistNotes != null) song.liturgistNotes = c.liturgistNotes;
+            // syncItems splits a snapshot across TWO jsonb columns, and
+            // this merge only ever read one of them. customizations holds
+            // the five fields above; content holds the five below, and
+            // they were stored faithfully and then ignored on every open
+            // -- a 2-column layout or an added link came back as though it
+            // had never been set.
+            //
+            // Only the fields syncItems actually writes are read here.
+            // sbBuildSongSnapshot also produces highlights, sbFiles and
+            // the removedLibrary* lists, which syncItems does not store at
+            // all; reading those back would be reading a field nothing
+            // writes.
+            var ct = item.content || {};
+            if (Array.isArray(ct.textAnnotations)) song.textAnnotations = ct.textAnnotations;
+            if (typeof ct.sbLyricsColumns === 'number') song.sbLyricsColumns = ct.sbLyricsColumns;
+            if (Array.isArray(ct.customYoutube)) song.customYoutube = ct.customYoutube;
+            if (Array.isArray(ct.customDocs)) song.customDocs = ct.customDocs;
+            if (Array.isArray(ct.sbLinks)) song.sbLinks = ct.sbLinks;
           });
         }
       }).catch(function(e) {
