@@ -29,12 +29,12 @@ ALTER TABLE song_voice_lines DROP CONSTRAINT IF EXISTS song_voice_lines_part_chk
 ALTER TABLE song_voice_lines ADD  CONSTRAINT song_voice_lines_part_chk
   CHECK (length(btrim(part)) BETWEEN 1 AND 40);
 
-COMMENT ON COLUMN song_voice_lines.part IS
-  'Free text. ''both'' is a unison moment and is not a lane. ''women'' and '
-  '''men'' are the two canonical lanes and carry the colours and the editor '
-  'shorthand. Anything else is a part the choir named -- "Women 1", '
-  '"Descant" -- rendered as typed, lanes stacked in order of first '
-  'appearance.';
+-- One literal, deliberately. This was written as several adjacent strings
+-- across newlines, which Postgres does concatenate -- and which, if it had
+-- tripped on anything, would have failed the whole script inside the SQL
+-- editor's transaction and rolled the two ALTERs above back with it. The
+-- migration would then look like it had run and have changed nothing.
+COMMENT ON COLUMN song_voice_lines.part IS 'Free text. both = a unison moment, not a lane. women and men are the two canonical lanes and carry the colours and the editor shorthand. Anything else is a part the choir named ("Women 1", "Descant"), rendered as typed, lanes stacked in order of first appearance.';
 
 -- Verify as postgres, not through the anon key: a table reached with no RLS
 -- policy reads as empty and every check below would pass on nothing.
