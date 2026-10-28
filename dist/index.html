@@ -14834,6 +14834,15 @@ window.lhcVoiceRec = {
         R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs);
         R._rec = null; R._recLine = null; R._recSong = null;
       };
+      // Without this a recorder that dies mid-take leaves the button
+      // saying STOP, the microphone light on, and nothing saved.
+      mr.onerror = function(ev) {
+        try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {}
+        R._stream = null; R._rec = null; R._recLine = null; R._recSong = null;
+        R._setBtn(root, lineId, false);
+        showToast('The recording stopped unexpectedly', 'error');
+        console.error('[VoiceRec]', ev && ev.error);
+      };
       mr.start();
       R._setBtn(root, lineId, true);
     }).catch(function(err) {
@@ -14879,10 +14888,12 @@ window.lhcVoiceRec = {
     var n = whole ? (R._drafts[songId].length + 1)
                   : (R._takesFor(songId, lineId).length + 1);
     if (typeof showLoader === 'function') showLoader(true);
+    var uploaded = false;
     sb.storage.from(LHC_SUPABASE_BUCKET).upload(path, blob, {
       contentType: blob.type || 'audio/webm', upsert: false
     }).then(function(up) {
       if (up.error) throw new Error(up.error.message);
+      uploaded = true;
       return sb.from('song_recordings').insert({
         song_id: songId, line_id: whole ? null : lineId,
         name: whole ? ('Run-through ' + n)
@@ -14908,6 +14919,10 @@ window.lhcVoiceRec = {
       showToast('Take saved', 'success');
     }).catch(function(err) {
       console.error(err);
+      // The file is already in the bucket by the time the row fails, and
+      // nothing else knows its name -- left behind it is audio no screen
+      // can ever reach and no cleanup can identify.
+      if (uploaded) sb.storage.from(LHC_SUPABASE_BUCKET).remove([path]).catch(function() {});
       showToast('Could not save the take: ' + err.message, 'error');
     }).finally(function() {
       if (typeof showLoader === 'function') showLoader(false);
@@ -14927,8 +14942,46 @@ window.lhcVoiceRec = {
     R._audio = new Audio(url);
     R._audio.onended = function() { R._playing = null; R._audio = null; R.paintAll(root); };
     R._audio.onerror = function() { R._playing = null; R._audio = null; R.paintAll(root); showToast('That take would not play', 'error'); };
-    R._audio.play();
+    // onerror covers a missing or unreadable file. It does NOT cover a
+    // play() that rejects without ever firing an event -- a blocked
+    // autoplay being the common one -- which would leave the button
+    // showing STOP over audio that never started. Measured: a bad path
+    // raises an unhandled NotSupportedError here as well.
+    var started = R._audio.play();
+    if (started && started.catch) started.catch(function() {
+      if (R._playing !== id) return;          // onerror got there first
+      R._playing = null; R._audio = null;
+      R.paintAll(root);
+      showToast('That take would not play', 'error');
+    });
     R.paintAll(root);
+  },
+
+  // Closing the view must not leave a take singing to an empty room: the
+  // audio element outlives the markup, and once the button is gone there
+  // is nothing left to press to stop it.
+  stopPlayback: function(root) {
+    var R = window.lhcVoiceRec;
+    if (R._audio) { try { R._audio.pause(); } catch (e) {} }
+    R._audio = null;
+    R._playing = null;
+    if (root) R.paintAll(root);
+  },
+
+  // Forget one recording everywhere it is held. The same row can be in two
+  // stores at once -- a song shown in the preview and in a songbook -- and
+  // it is also deleted from the OTHER recorder's panel, which knows
+  // nothing about this one.
+  forget: function(id) {
+    var R = window.lhcVoiceRec;
+    Object.keys(R._takes).forEach(function(sid) {
+      Object.keys(R._takes[sid]).forEach(function(k) {
+        R._takes[sid][k] = R._takes[sid][k].filter(function(t) { return String(t.id) !== String(id); });
+      });
+    });
+    Object.keys(R._drafts).forEach(function(sid) {
+      R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });
+    });
   },
 
   del: function(root, id, path) {
@@ -14947,14 +15000,7 @@ window.lhcVoiceRec = {
         // Swept from every song's store, not just this container's: the
         // same recording can be on screen twice, in the preview and in a
         // songbook page.
-        Object.keys(R._takes).forEach(function(sid) {
-          Object.keys(R._takes[sid]).forEach(function(k) {
-            R._takes[sid][k] = R._takes[sid][k].filter(function(t) { return String(t.id) !== String(id); });
-          });
-        });
-        Object.keys(R._drafts).forEach(function(sid) {
-          R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });
-        });
+        R.forget(id);
         R.paintAll(root);
         showToast('Recording deleted', 'success');
       });
@@ -15595,6 +15641,8 @@ function closeLyricsPreviewModal() {
   }
   var modal = document.getElementById('lyricsPreviewModal');
   if (modal) modal.classList.remove('show');
+  // A take playing when the song is closed has no button left to stop it.
+  if (window.lhcVoiceRec) window.lhcVoiceRec.stopPlayback(null);
   currentTransposeValue = 0;
   var select = document.getElementById('transposeSelect');
   if (select) select.value = '0';
@@ -30739,7 +30787,17 @@ var SBQ_VOICE_LINES = {
       })
       .then(function(r) {
         return SBQ_VOICE_LINES._carryTakes(oldRows, (r && r.data) || [], oldTakes)
-          .then(function() { return r; });
+          .then(function() {
+            // Every line id just changed. lhcVoiceRec keys its takes by
+            // line id and sets _loaded once, for ever, so without this the
+            // next render paints a store that is about rows which no longer
+            // exist -- no chips, and the takes look lost. That is the very
+            // failure _carryTakes exists to prevent, arriving by the other
+            // door: the database is right and the screen is wrong.
+            var R = window.lhcVoiceRec;
+            if (R && R._loaded) delete R._loaded[songId];
+            return r;
+          });
       })
       .then(function(r) {
         if (r && r.error) throw new Error(r.error.message);
@@ -46597,6 +46655,8 @@ var WO = (function() {
   }
 
   function closeSongbook() {
+    if (window.lhcVoiceRec) window.lhcVoiceRec.stopPlayback(null);
+    if (_sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} _sbPlayingAudio = null; _sbPlayingId = null; }
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
     if (_sbStandaloneId) {
       var _closeSbId = _sbStandaloneId;
@@ -49386,8 +49446,18 @@ var WO = (function() {
   }
 
   function sbToggleRecording() { if (_sbRecording) _sbStopRecording(); else _sbStartRecording(); }
+  // This panel's own run-throughs. The per-line takes from the choir view
+  // are listed here too and must not count against the limit: ten of them
+  // used to make this panel refuse to record at all.
+  function _sbOwnRecCount() {
+    var listEl = document.getElementById('sbRecList');
+    return listEl ? listEl.querySelectorAll('.sb-rec-item:not([data-line-take])').length : 0;
+  }
   function _sbStartRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { sbShowRecStatus('Microphone not supported in this browser', 'error'); return; }
+    // Asked BEFORE the microphone opens. Asking afterwards meant the
+    // operator sang a take and was then told it could not be kept.
+    if (_sbOwnRecCount() >= 10) { sbShowRecStatus('Max 10 recordings per song \u2014 delete one first', 'error'); return; }
     var curPage = document.querySelector('#sbBody .sb-song-page');
     if (curPage) { var pid = (curPage.id || '').replace(/^sbPage-/, ''); if (pid) _sbRecCurrentSongId = pid.split('--')[0]; }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
@@ -49405,6 +49475,12 @@ var WO = (function() {
       _sbRecChunks = [];
       _sbMediaRecorder.ondataavailable = function(e) { if (e.data.size) _sbRecChunks.push(e.data); };
       _sbMediaRecorder.onstop = function() { stream.getTracks().forEach(function(t) { t.stop(); }); _sbSaveRecording(new Blob(_sbRecChunks, { type: mimeType }), _sbRecElapsed); };
+      _sbMediaRecorder.onerror = function(ev) {
+        try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {}
+        _sbStopRecording();
+        sbShowRecStatus('The recording stopped unexpectedly', 'error');
+        console.error('[Songbook rec]', ev && ev.error);
+      };
       _sbMediaRecorder.start(250); _sbRecording = true; _sbRecElapsed = 0;
       var btn = document.getElementById('sbRecordBtn'); if (btn) { btn.classList.add('recording'); btn.innerHTML = '<span class="sb-rec-dot"></span> Stop'; }
       var act = document.getElementById('sbRecActivity'); if (act) act.style.display = 'flex';
@@ -49423,7 +49499,10 @@ var WO = (function() {
   function sbShowRecStatus(msg, type) { var el = document.getElementById('sbRecStatus'); if (!el) return; el.textContent = msg; el.style.display = msg ? '' : 'none'; el.style.color = type === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.5)'; }
   function _sbSaveRecording(blob, durationSec) {
     var songId = _sbRecCurrentSongId; if (!songId) { sbShowRecStatus('No song selected', 'error'); return; }
-    var listEl = document.getElementById('sbRecList'); var existing = listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;
+    var existing = _sbOwnRecCount();
+    // Belt and braces. The real check is before the microphone opens --
+    // refusing here means the take has already been sung and is thrown
+    // away with it.
     if (existing >= 10) { sbShowRecStatus('Max 10 recordings per song', 'error'); return; }
     var orderId = currentOrderData ? currentOrderData.id : null;
     var catSel = document.getElementById('sbRecCategory');
@@ -49441,7 +49520,12 @@ var WO = (function() {
         return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: _sbRecCatLabel(recCat) + ' take ' + (existing + 1), storage_path: storagePath, duration_sec: durationSec });
       }).then(function(res2) {
         if (!res2) return;
-        if (res2.error) { sbShowRecStatus('DB error: ' + res2.error.message, 'error'); return; }
+        if (res2.error) {
+          // The audio is in the bucket and the row that names it is not,
+          // so nothing will ever reach that file again.
+          sup.storage.from(LHC_SUPABASE_BUCKET).remove([storagePath]).catch(function() {});
+          sbShowRecStatus('DB error: ' + res2.error.message, 'error'); return;
+        }
         sbShowRecStatus('Saved!', ''); setTimeout(function() { sbShowRecStatus('', ''); }, 2000); sbLoadRecordings(songId);
       }).catch(function(err) { sbShowRecStatus('Error: ' + err.message, 'error'); });
   }
@@ -49487,6 +49571,7 @@ var WO = (function() {
 
   function sbCloseRecordings() {
     if (_sbRecording) _sbStopRecording();
+    if (_sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} _sbPlayingAudio = null; _sbPlayingId = null; }
     var sheet = document.getElementById('sbRecSheet');
     if (sheet) sheet.style.display = 'none';
     var section = document.getElementById('sbRecSection');
@@ -49495,11 +49580,18 @@ var WO = (function() {
   }
   function sbRenderRecordings(songId, recs) {
     var listEl = document.getElementById('sbRecList'); var cntEl = document.getElementById('sbRecCount');
-    if (!listEl) return; if (cntEl) cntEl.textContent = recs.length ? '('+recs.length+'/10)' : '';
+    // The cap is about what THIS panel records, so that is what the
+    // counter counts; the per-line takes below it are the choir view's.
+    var ownCount = recs.filter(function(r) { return r.line_id == null; }).length;
+    if (!listEl) return; if (cntEl) cntEl.textContent = recs.length ? '('+ownCount+'/10)' : '';
     if (!recs.length) { listEl.innerHTML = '<div class="sb-panel-info" style="text-align:left;">No recordings yet</div>'; return; }
     listEl.innerHTML = recs.map(function(r) {
       var cat = _sbRecCatOf(r.storage_path);
-      return '<div class="sb-rec-item" id="sbRecItem-'+r.id+'">' +
+      // Marked so the cap can tell this panel's own run-throughs from the
+      // per-line takes the choir view made. Both are listed -- a singer
+      // wants them in one place -- but only the panel's own ones count.
+      var lineMark = r.line_id != null ? ' data-line-take="1"' : '';
+      return '<div class="sb-rec-item"'+lineMark+' id="sbRecItem-'+r.id+'">' +
         '<div class="sb-rec-item-head">' +
           '<div class="sb-rec-item-name" id="sbRecName-'+r.id+'" ondblclick="WO.sbRenameRecording(\''+r.id+'\')">'+escapeHtml(r.name||'Recording')+'</div>' +
           '<span class="sb-rec-cat sb-rec-cat--'+cat+'">'+_sbRecCatLabel(cat)+'</span>' +
@@ -49520,18 +49612,41 @@ var WO = (function() {
     _sbPlayingId = id;
     var btn = document.getElementById('sbRecPlay-'+id); if (btn) { btn.classList.add('playing'); btn.innerHTML = '<i class="fa-solid fa-stop"></i>'; }
     var sup = window._supabase || null; if (!sup) return;
+    // One way back to rest, shared by all three endings. There used to be
+    // only one, for a clean finish, so a take whose file had gone left the
+    // button showing STOP for ever: the click did nothing, said nothing,
+    // and could not be undone without reopening the songbook.
+    function _sbRecRest(msg) {
+      var b = document.getElementById('sbRecPlay-' + id);
+      if (b) { b.classList.remove('playing'); b.innerHTML = '<i class="fa-solid fa-play"></i>'; }
+      _sbPlayingId = null; _sbPlayingAudio = null;
+      if (msg) sbShowRecStatus(msg, 'error');
+    }
     var pub = sup.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(storagePath);
-    Promise.resolve({ data: { signedUrl: pub.data.publicUrl } }).then(function(res) {
-      if (!res.data) return;
-      _sbPlayingAudio = new Audio(res.data.signedUrl);
-      _sbPlayingAudio.onended = function() { var b = document.getElementById('sbRecPlay-'+id); if (b) { b.classList.remove('playing'); b.innerHTML = '<i class="fa-solid fa-play"></i>'; } _sbPlayingId = null; _sbPlayingAudio = null; };
-      _sbPlayingAudio.play();
+    _sbPlayingAudio = new Audio(pub.data.publicUrl);
+    _sbPlayingAudio.onended = function() { _sbRecRest(''); };
+    _sbPlayingAudio.onerror = function() { _sbRecRest('That recording would not play'); };
+    var started = _sbPlayingAudio.play();
+    if (started && started.catch) started.catch(function() {
+      if (_sbPlayingId === id) _sbRecRest('That recording would not play');
     });
   }
   function sbDeleteRecording(id, storagePath) {
     if (!confirm('Delete this recording?')) return;
     var sup = window._supabase || null; if (!sup) return;
-    Promise.all([sup.from('song_recordings').delete().eq('id', id), sup.storage.from(LHC_SUPABASE_BUCKET).remove([storagePath])]).then(function() { var item = document.getElementById('sbRecItem-'+id); if (item) item.remove(); sbLoadRecordings(_sbRecCurrentSongId); });
+    Promise.all([sup.from('song_recordings').delete().eq('id', id), sup.storage.from(LHC_SUPABASE_BUCKET).remove([storagePath])]).then(function() {
+      var item = document.getElementById('sbRecItem-'+id); if (item) item.remove();
+      // The choir view holds its own copy of this row and knows nothing
+      // about this panel. Left in place it keeps drawing a chip whose file
+      // has gone, which plays nothing and explains nothing.
+      if (window.lhcVoiceRec) {
+        window.lhcVoiceRec.forget(id);
+        document.querySelectorAll('.sb-song-page--choir, #lyricsPreviewContent').forEach(function(el) {
+          window.lhcVoiceRec.paintAll(el);
+        });
+      }
+      sbLoadRecordings(_sbRecCurrentSongId);
+    });
   }
   function sbRenameRecording(id) {
     var nameEl = document.getElementById('sbRecName-'+id); if (!nameEl) return;

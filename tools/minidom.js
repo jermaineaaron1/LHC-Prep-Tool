@@ -9,9 +9,12 @@
 function parseSel(sel) {
   return sel.split(',').map(function (part) {
     part = part.trim();
-    var m = /^\.([A-Za-z0-9_-]+)(?:\[([A-Za-z-]+)="([^"]*)"\])?$/.exec(part);
+    // .cls, optionally narrowed by [attr="val"], or by :not([attr])
+    // -- "has this class but NOT this attribute", which is how a list
+    // counts its own rows while ignoring ones another view put there.
+    var m = /^\.([A-Za-z0-9_-]+)(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
     if (!m) throw new Error('minidom: unsupported selector: ' + part);
-    return { cls: m[1], attr: m[2] || null, val: m[3] };
+    return { cls: m[1], attr: m[2] || null, val: m[3], without: m[4] || null };
   });
 }
 
@@ -107,6 +110,7 @@ El.prototype._descendants = function () {
 El.prototype._matches = function (spec) {
   if (!this.classList.contains(spec.cls)) return false;
   if (spec.attr && this.getAttribute(spec.attr) !== spec.val) return false;
+  if (spec.without && this.getAttribute(spec.without) != null) return false;
   return true;
 };
 
@@ -132,15 +136,38 @@ El.prototype.closest = function (sel) {
   return null;
 };
 
-// innerHTML setter: in these code paths it is only ever used to blow the
-// container away and drop in a placeholder box, so model exactly that.
+// Every opening tag in the string, as one child element carrying its
+// classes and attributes. Flat on purpose: the selectors these harnesses
+// use are "class, optionally with an attribute", never descendant
+// selectors, so modelling nesting would be inventing a browser. What
+// matters is that an element rendered into the container can be found and
+// its attributes read.
+function parseFlat(html) {
+  var out = [];
+  var tagRe = /<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[a-zA-Z-]+(?:="[^"]*")?)*)\s*\/?>/g;
+  var m;
+  while ((m = tagRe.exec(html))) {
+    var attrs = {}, cls = '';
+    var attrRe = /([a-zA-Z-]+)(?:="([^"]*)")?/g;
+    var a;
+    while ((a = attrRe.exec(m[2] || ''))) {
+      if (a[1].toLowerCase() === 'class') cls = a[2] || '';
+      else attrs[a[1]] = a[2] === undefined ? '' : a[2];
+    }
+    out.push(new El(m[1], cls, attrs));
+  }
+  return out;
+}
+
+// innerHTML setter: replaces the children with what the string describes.
 Object.defineProperty(El.prototype, 'innerHTML', {
   get: function () { return this._html || ''; },
   set: function (v) {
     this.children.forEach(function (c) { c.parentNode = null; });
     this.children = [];
     this._html = v;
-    if (/wo-content-box/.test(v)) this.appendChild(new El('div', 'wo-content-box'));
+    var self = this;
+    parseFlat(String(v == null ? '' : v)).forEach(function (el) { self.appendChild(el); });
   }
 });
 
@@ -154,7 +181,8 @@ function makeDocument() {
       return hit.length ? hit[0] : null;
     },
     querySelector: function (sel) { return root.querySelector(sel); },
-    querySelectorAll: function (sel) { return root.querySelectorAll(sel); }
+    querySelectorAll: function (sel) { return root.querySelectorAll(sel); },
+    createElement: function (tag) { return new El(tag, ''); }
   };
 }
 

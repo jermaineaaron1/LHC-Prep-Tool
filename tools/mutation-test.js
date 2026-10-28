@@ -294,6 +294,28 @@ const CASES = [
     s => s.replace("var loose = function(r) { return r.part + '|' + norm(r.text); };",
                    "var loose = function(r) { return norm(r.text); };")],
 
+  // Two recorders write to one table. The songbook panel lists both and
+  // must count only its own, or ten takes made in the choir view stop it
+  // recording at all -- and it finds out after the singing, so the take is
+  // thrown away with the refusal.
+  ['recordings-harness.js', 'the limit counts takes the panel did not make',
+    s => s.replace("return listEl ? listEl.querySelectorAll('.sb-rec-item:not([data-line-take])').length : 0;",
+                   "return listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;")],
+  ['recordings-harness.js', 'a line take is no longer marked as one',
+    s => s.replace("var lineMark = r.line_id != null ? ' data-line-take=\"1\"' : '';",
+                   "var lineMark = '';")],
+  ['recordings-harness.js', 'the counter goes back to counting everything',
+    s => s.replace("var ownCount = recs.filter(function(r) { return r.line_id == null; }).length;",
+                   "var ownCount = recs.length;")],
+  // forget() is what stops a deleted take leaving a chip behind that plays
+  // nothing. It has to sweep both stores, across every song.
+  // One line, not a block: Index.html is CRLF throughout, and a multi-line
+  // anchor written with \n matches nothing in it. This went in as a block
+  // first and came back STALE.
+  ['recordings-harness.js', 'a deleted take is left in the drafts',
+    s => s.replace('R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });',
+                   'R._drafts[sid] = R._drafts[sid];')],
+
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
                    '#songbookLiveModal .wo-lyrics-lyric-line{color:#334155!important')],

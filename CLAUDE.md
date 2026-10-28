@@ -50,7 +50,7 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; null means a take for the whole song |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; null means a take for the whole song. Written by TWO recorders -- see gotcha 21 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -590,6 +590,31 @@ the anon key -- verify as `postgres`, not as the app.
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.
+
+21. **TWO recorders write to `song_recordings`, and they must not count
+    each other.** The choir view records one line at a time and sets
+    `line_id`; the songbook panel records whole run-throughs and leaves it
+    null. The panel LISTS both on purpose -- a singer wants every take for
+    a song in one place -- so it marks the choir's with
+    `data-line-take="1"` and counts only `.sb-rec-item:not([data-line-take])`
+    against its limit of ten. Before that, ten line takes stopped the panel
+    recording at all, and it only said so after the take had been sung.
+    Deleting from either panel calls `lhcVoiceRec.forget(id)`, or the other
+    one keeps drawing a chip whose file has gone.
+
+22. **A view that holds recordings must be told when line ids change.**
+    `lhcVoiceRec._loaded[songId]` is set once and both render paths are
+    `if (loaded) paint else load().then(paint)`, so after `replaceAll`
+    renumbers every row the store is about rows that no longer exist and
+    the chips vanish -- the database correct, the screen wrong. `replaceAll`
+    now drops that flag. Anything else that renumbers lines must too.
+
+23. **Playback needs three ways back to rest, not one.** `onended` is the
+    one everybody writes. A file that has gone fires `onerror`, and a
+    blocked autoplay rejects `play()` while firing nothing at all -- miss
+    either and the button sits on STOP over silence, with no way back.
+    Closing a view calls `lhcVoiceRec.stopPlayback()`, because the audio
+    element outlives the markup and the button that would have stopped it.
 
 ## Quick Commands for Claude Code
 
