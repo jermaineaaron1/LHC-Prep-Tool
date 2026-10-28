@@ -389,37 +389,36 @@ check('the carol still opens the way it opens',
 check('and still ends on Light!', plain.trim().split('\n').pop(), 'Light!');
 
 // ---------------------------------------------------------------------------
-console.log('\nwhere the two parts come in together');
-// The cue is the FIRST group of a together run, not every together group --
-// a caroler counting rests needs the bar they come back in on, and marking
-// all thirty-five would mark nothing.
-function cues(gs) {
-  return V.annotate(V.group(gs)).map(g => !!g.togetherStart);
-}
-check('a unison group at the very start is a cue',
-  cues([row('both', 'a', 0)]), [true]);
-check('one part alone is not',
-  cues([row('women', 'a', 0)]), [false]);
-check('both parts singing different words still counts as together',
-  cues([row('women', 'Oh', 0), row('men', 'dancing', 0)]), [true]);
-check('a run of together groups is cued once, at its head',
-  cues([row('both', 'a', 0), row('both', 'b', 1), row('both', 'c', 2)]),
-  [true, false, false]);
-check('a part dropping out and returning starts a new cue',
-  cues([row('both', 'a', 0), row('women', 'b', 1), row('both', 'c', 2)]),
-  [true, false, true]);
-// Two bars of silence are a fresh entry however the piece got there, which
-// is exactly the 46-47 rest before the last verse of this carol.
-check('a gap breaks the run even between two together groups',
-  cues([row('both', 'a', 0, { barStart: 44, barEnd: 45 }),
-        row('both', 'b', 1, { barStart: 48, barEnd: 50 })]), [true, true]);
-check('  and consecutive bars do not',
-  cues([row('both', 'a', 0, { barStart: 44, barEnd: 45 }),
-        row('both', 'b', 1, { barStart: 46, barEnd: 48 })]), [true, false]);
-check('the cue reaches the markup',
-  (V.html([row('both', 'a', 0)]).match(/vl-sys--together/g) || []).length, 1);
-check('  with a label a singer can read',
-  /Women and men in together/.test(V.html([row('both', 'a', 0)])), true);
+console.log('\nthe label is the whole signal');
+// The "Women and men in together" banners were struck off the design: the
+// coloured ALL chip already says everyone sings here, and the banner said
+// it a second time. These guard that the chip carries the weight alone.
+check('a unison line is labelled ALL, not BOTH',
+  />All</.test(V.html([row('both', 'a', 0)])), true);
+check('  and nothing says BOTH any more',
+  /Both/.test(V.html([row('both', 'a', 0)])), false);
+check('the three labels are distinguishable by class',
+  [/vl-ln--both/.test(V.html([row('both', 'a', 0)])),
+   /vl-ln--women/.test(V.html([row('women', 'a', 0)])),
+   /vl-ln--men/.test(V.html([row('men', 'a', 0)]))],
+  [true, true, true]);
+check('no banner survives anywhere',
+  /in together|vl-together/.test(V.html(L)), false);
+
+// A silent part shows an empty bracket rather than a mark to decode. Most
+// of these are echoes -- one part answering the other a bar later -- and a
+// singer wants to see at a glance that the moment is not theirs.
+const echo = V.html([row('men', 'Do you see what I see', 0)]);
+check('a silent part shows a visible blank', /\(\u2014\)/.test(echo), true);
+check('  on the part that is silent', /vl-ln--women vl-ln--rest/.test(echo), true);
+check('  and it is hidden from a screen reader, which gets words',
+  /aria-hidden="true">\(\u2014\)/.test(echo) && /silent here/.test(echo), true);
+// Exactly one blank in a two-part system where one part sings: the other
+// one. Two would mean the singing part lost its words.
+check('  and there is exactly one blank, not two',
+  (echo.match(/vl-blank/g) || []).length, 1);
+check('  the singing part keeps its words',
+  /Do you see what I see/.test(echo), true);
 
 console.log('\nreading the editor source back');
 const P = t => V.parseVoiceText(t).map(r =>
@@ -503,10 +502,8 @@ check('  and survives the editor round trip too',
   V.parseVoiceText(V.toVoiceText(seeded)).map(r => r.text), seeded.map(r => r.text));
 check('  with its sections intact',
   V.parseVoiceText(V.toVoiceText(seeded)).map(r => r.section), seeded.map(r => r.section));
-// A freshly seeded arrangement is all unison, so it is all one run and
-// earns exactly one cue at the top.
-check('a seeded arrangement cues once, at the start',
-  cues(seeded), [true, false, false]);
+check('a seeded arrangement is unison throughout',
+  V.group(seeded).every(g => !!g.both), true);
 
 console.log('\nthe editor round trip');
 // The property that makes the editor safe: opening a song and saving it
@@ -518,21 +515,19 @@ check('open and save with no edits gives back the same ' + L.length + ' rows',
   trip.map(cmp), L.map(cmp));
 check('  and the same display groups', V.group(trip).length, V.group(L).length);
 check('  and the same suggested lyrics', V.toPlainLyrics(trip), V.toPlainLyrics(L));
-check('  and the same cues', cues(trip), cues(L));
 check('a second trip changes nothing further',
   V.toVoiceText(trip), V.toVoiceText(L));
 check('the bar column is wide enough for the widest range',
   V.toVoiceText(L).split('\n').filter(s => /^\d/.test(s))
     .every(s => /^\d[\d–]*\s\s/.test(s)), true);
 
-console.log('\nthe cues on the real arrangement');
-const realCues = V.annotate(V.group(L)).filter(g => g.togetherStart);
-check('8 places where the parts come in together', realCues.length, 8);
-check('  the first is bar 1', realCues[0].barStart, 1);
-// 48-50 is the entry after the two-bar rest. It only gets a cue because a
-// gap breaks the run -- 44-45 before it was together too.
-check('  the rest at 46-47 earns the last verse its own cue',
-  realCues.map(g => g.barStart).indexOf(48) > -1, true);
+console.log('\nthe real arrangement, drawn the simple way');
+const realHtml = V.html(L);
+check('11 silent moments are shown as blanks',
+  (realHtml.match(/vl-blank/g) || []).length, 11);
+check('13 lines are labelled ALL', (realHtml.match(/>All</g) || []).length, 13);
+check('no banner and no cue class remain',
+  /vl-together|vl-sys--together/.test(realHtml), false);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

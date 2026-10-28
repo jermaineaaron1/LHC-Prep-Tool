@@ -259,12 +259,17 @@ const CASES = [
   ['voice-lines-harness.js', 'held notes do not survive a trip through the editor',
     s => s.replace("r[0] + (r[1].sustained ? '~' : '') + (r[1].text || '')",
                    "r[0] + (r[1].text || '')")],
-  ['voice-lines-harness.js', 'every together group is cued, so none of them stand out',
-    s => s.replace('g.togetherStart = together && (!prevTogether || V.gapBefore(prev, g) > 0);',
-                   'g.togetherStart = together;')],
-  ['voice-lines-harness.js', 'a rest stops counting as a fresh entry for both parts',
-    s => s.replace('g.togetherStart = together && (!prevTogether || V.gapBefore(prev, g) > 0);',
-                   'g.togetherStart = together && !prevTogether;')],
+  // The two cue mutations that lived here went with the cue itself: the
+  // banners were struck off the design, so there is no annotate() left to
+  // break. What replaced them guards the label and the blank.
+  ['voice-lines-harness.js', 'a unison line is labelled BOTH again',
+    s => s.replace("V._line('both', 'All', g.both, '', o)", "V._line('both', 'Both', g.both, '', o)")],
+  ['voice-lines-harness.js', 'a silent part goes back to a mark instead of a blank',
+    // The class name appears twice -- the CSS rule first, then the markup.
+    // String.replace takes only the first, so renaming "vl-blank" alone
+    // restyles a stylesheet and leaves the element untouched: a mutation
+    // that changes the file and nothing else. Anchor on the markup.
+    s => s.replace('class="vl-blank" aria-hidden', 'class="vl-nothing" aria-hidden')],
 
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',

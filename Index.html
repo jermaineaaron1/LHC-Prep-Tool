@@ -8743,7 +8743,7 @@
      cells in one row happen at the SAME moment. CSS columns -- what the
      songbook's "2 Col" button does -- would stack the men's half below the
      women's, which is the one arrangement of this that cannot be read. */
-  .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-cue: #7c3aed; }
+  .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-all: #4a6da7; --vl-cue: #7c3aed; }
   .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 22px 0 10px; background: #dcf5e5; color: #15803d; }
   .vl-score > .vl-section:first-child { margin-top: 0; }
 
@@ -8760,9 +8760,14 @@
   .vl-ln { display: flex; align-items: baseline; gap: 9px; min-width: 0; padding: 2px 0; border-radius: 4px; }
   /* Fixed width, so the words of both parts begin at the same x. Everything
      about the time alignment depends on this one number. */
-  .vl-who { flex: 0 0 52px; font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 700; color: #94a3b8; padding-top: 2px; }
-  .vl-ln--women .vl-who { color: var(--vl-w); }
-  .vl-ln--men .vl-who { color: var(--vl-m); }
+  /* With the banners gone this label is the whole signal, so it is a filled
+     chip rather than small grey text -- readable at a glance by someone
+     holding the page and singing. */
+  .vl-who { flex: 0 0 auto; min-width: 52px; text-align: center; font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 800; color: #64748b; background: #eef1f6; border-radius: 4px; padding: 2px 7px; margin-top: 2px; }
+  .vl-ln--both .vl-who { color: #fff; background: var(--vl-all); }
+  .vl-ln--women .vl-who { color: #fff; background: var(--vl-w); }
+  .vl-ln--men .vl-who { color: #fff; background: var(--vl-m); }
+  .vl-ln--rest .vl-who { color: #94a3b8; background: #f1f5f9; }
   .vl-body { flex: 1 1 auto; min-width: 0; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
   .vl-words { display: block; overflow-wrap: break-word; }
   /* Reserves exactly the width of the words this part does not sing, so its
@@ -8772,16 +8777,31 @@
   .vl-ln--women { background: rgba(168,71,95,0.055); }
   .vl-ln--men { background: rgba(29,107,104,0.055); }
   .vl-ln--rest { background: transparent; }
-  .vl-rest { display: inline-block; width: 16px; height: 5px; border-radius: 1px; background: #cbd5e1; vertical-align: middle; }
+  .vl-blank { color: #cbd5e1; font-weight: 400; letter-spacing: 0.1em; }
   .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .vl-gap { padding: 7px 0 7px 62px; font-size: 12px; color: #94a3b8; font-style: italic; }
-  /* Where the two parts come in together -- the one thing a caroler who has
-     been counting rests is looking for. */
-  .vl-together { display: flex; align-items: center; gap: 8px; padding: 11px 0 4px 62px; font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 700; color: var(--vl-cue); }
-  .vl-together-mark { flex: 0 0 auto; width: 14px; height: 14px; border-left: 2px solid var(--vl-cue); border-top: 2px solid var(--vl-cue); border-bottom: 2px solid var(--vl-cue); border-radius: 3px 0 0 3px; }
-  .vl-sys--together { border-top: 1px solid rgba(124,58,237,0.35); }
-  .vl-sys--together .vl-sys-bar { color: var(--vl-cue); font-weight: 700; }
+
+  /* The whole-song recorder: one button and every run-through kept, each
+     with the time it was sung so Tuesday can be told from Thursday. */
+  .vl-rehearse { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px; }
+  .vl-rehearse-btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .vl-rehearse-btn:hover { border-color: #dc2626; color: #dc2626; }
+  .vl-rehearse-btn:focus-visible { outline: 2px solid #dc2626; outline-offset: 2px; }
+  .vl-rehearse-dot { width: 9px; height: 9px; border-radius: 50%; background: #dc2626; flex: 0 0 auto; }
+  .vl-rehearse-btn.is-recording { background: #dc2626; border-color: #dc2626; color: #fff; animation: vlRecPulse 1.2s ease-in-out infinite; }
+  .vl-rehearse-btn.is-recording .vl-rehearse-dot { background: #fff; }
+  .vl-drafts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .vl-drafts-none { font-size: 11px; color: #94a3b8; font-style: italic; }
+  .vl-draft { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 4px 2px 2px; }
+  .vl-draft.is-playing { border-color: #4a6da7; background: #eef2fb; }
+  .vl-draft-play { display: inline-flex; align-items: center; gap: 5px; border: 0; background: #eef1f6; color: #334155; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .vl-draft.is-playing .vl-draft-play { background: #4a6da7; color: #fff; }
+  .vl-draft-when { font-size: 10px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+  .vl-draft-del { border: 0; background: none; color: #cbd5e1; cursor: pointer; font-size: 10px; padding: 0 3px; }
+  .vl-draft-del:hover { color: #b91c1c; }
+  /* A printed page has no recorder on it. */
+  .vl-score--compact .vl-rehearse { display: none; }
 
   /* Per-line recording. */
   .vl-rec { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
@@ -8801,13 +8821,11 @@
   .vl-score--compact .vl-body { font-size: inherit; line-height: 1.4; }
   .vl-score--compact .vl-who { flex-basis: 46px; }
   .vl-score--compact .vl-ln--women, .vl-score--compact .vl-ln--men { background: transparent; }
-  .vl-score--compact .vl-ln--women .vl-who { color: #7f2a3f; }
-  .vl-score--compact .vl-ln--men .vl-who { color: #14504e; }
 
   @media (max-width: 680px) {
     .vl-sys { grid-template-columns: 40px minmax(0, 1fr); }
     .vl-who { flex-basis: 44px; font-size: 9px; }
-    .vl-gap, .vl-together { padding-left: 48px; }
+    .vl-gap { padding-left: 48px; }
   }
   
   /* Lyrics Editor Button */
@@ -13504,7 +13522,8 @@ function renderLyricsPreviewContent() {
       return;
     }
     container.innerHTML = _vlRows.length
-      ? window.lhcVoiceLines.html(_vlRows, { record: true })
+      ? (window.lhcVoiceRec ? window.lhcVoiceRec.songBarHtml() : '') +
+        window.lhcVoiceLines.html(_vlRows, { record: true })
       : '<div class="p-8 text-center text-slate-400">' +
         '<i class="fa-solid fa-users text-4xl mb-3 opacity-50"></i>' +
         '<p>No choir parts for this song yet.</p></div>';
@@ -14460,6 +14479,7 @@ function applyTranspose() {
 // retype nobody can say the old take is still of the new words.
 window.lhcVoiceRec = {
   _takes: {},          // lineId -> [rows]
+  _drafts: [],         // whole-song takes, newest last
   _songId: null,
   _rec: null,          // MediaRecorder while running
   _recLine: null,
@@ -14470,20 +14490,22 @@ window.lhcVoiceRec = {
 
   _sb: function() { return window._supabase || null; },
 
-  // Every take for this song that belongs to a line. Whole-song takes are
-  // left alone: they still belong to the old recordings panel.
+  // One read for both kinds. A take with a line_id is a reference for that
+  // line; one without is a draft of the whole song.
   load: function(songId) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     R._songId = songId;
     R._takes = {};
+    R._drafts = [];
     if (!sb || !songId) return Promise.resolve({});
     return sb.from('song_recordings').select('*')
-      .eq('song_id', songId).not('line_id', 'is', null)
+      .eq('song_id', songId)
       .order('created_at', { ascending: true })
       .then(function(r) {
-        if (r.error) return R._takes;      // unmigrated column: show no takes
+        if (r.error) return R._takes;      // unmigrated column: show nothing
         (r.data || []).forEach(function(row) {
+          if (row.line_id == null) { R._drafts.push(row); return; }
           var k = String(row.line_id);
           (R._takes[k] = R._takes[k] || []).push(row);
         });
@@ -14492,12 +14514,62 @@ window.lhcVoiceRec = {
       .catch(function() { return R._takes; });
   },
 
+  // "28 Oct 09:41" -- the point of a draft list is telling Tuesday's
+  // run-through from Thursday's.
+  _when: function(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var p = function(n) { return (n < 10 ? '0' : '') + n; };
+    return d.getDate() + ' ' + M[d.getMonth()] + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  },
+
+  _dur: function(sec) {
+    sec = Math.round(sec || 0);
+    return Math.floor(sec / 60) + ':' + (sec % 60 < 10 ? '0' : '') + (sec % 60);
+  },
+
+  // The whole-song recorder: one button, and every run-through kept.
+  songBarHtml: function() {
+    return '<div class="vl-rehearse">' +
+      '<button type="button" class="vl-rehearse-btn" data-rec-act="song" ' +
+      'title="Record the whole song"><span class="vl-rehearse-dot"></span>' +
+      '<span class="vl-rehearse-label">Record the song</span></button>' +
+      '<div class="vl-drafts" data-rec-drafts="1"></div></div>';
+  },
+
+  paintDrafts: function(root) {
+    var R = window.lhcVoiceRec;
+    var box = root && root.querySelector('[data-rec-drafts]');
+    if (!box) return;
+    if (!R._drafts.length) {
+      box.innerHTML = '<span class="vl-drafts-none">No run-throughs yet</span>';
+      return;
+    }
+    // Newest first: the one you just sang is the one you want to hear.
+    box.innerHTML = R._drafts.slice().reverse().map(function(t) {
+      var esc = window.lhcVoiceLines._esc;
+      return '<span class="vl-draft' + (R._playing === t.id ? ' is-playing' : '') + '">' +
+        '<button type="button" class="vl-draft-play" data-rec-act="play" ' +
+        'data-rec-id="' + t.id + '" data-rec-path="' + esc(t.storage_path) + '" ' +
+        'title="Play this run-through">' +
+        '<i class="fa-solid fa-' + (R._playing === t.id ? 'stop' : 'play') + '"></i> ' +
+        R._dur(t.duration_sec) + '</button>' +
+        '<span class="vl-draft-when">' + esc(R._when(t.created_at)) + '</span>' +
+        '<button type="button" class="vl-draft-del" data-rec-act="del" ' +
+        'data-rec-id="' + t.id + '" data-rec-path="' + esc(t.storage_path) + '" ' +
+        'title="Delete this run-through" aria-label="Delete this run-through">' +
+        '<i class="fa-solid fa-xmark"></i></button></span>';
+    }).join('');
+  },
+
   paintAll: function(root) {
     var R = window.lhcVoiceRec;
     if (!root) return;
     root.querySelectorAll('[data-rec-takes]').forEach(function(slot) {
       R.paint(root, slot.getAttribute('data-rec-takes'));
     });
+    R.paintDrafts(root);
   },
 
   paint: function(root, lineId) {
@@ -14535,6 +14607,7 @@ window.lhcVoiceRec = {
       e.stopPropagation();
       var act = btn.getAttribute('data-rec-act');
       if (act === 'toggle') R.toggle(root, btn.getAttribute('data-rec-line'));
+      else if (act === 'song') R.toggle(root, null);
       else if (act === 'play') R.play(root, btn.getAttribute('data-rec-id'), btn.getAttribute('data-rec-path'));
       else if (act === 'del') R.del(root, btn.getAttribute('data-rec-id'), btn.getAttribute('data-rec-path'));
     });
@@ -14547,7 +14620,9 @@ window.lhcVoiceRec = {
       showToast('This browser cannot record audio', 'error');
       return;
     }
-    var line = root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
+    // lineId null is the whole song: a rehearsal draft, not a line reference.
+    var line = lineId == null ? null
+             : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
     var part = !line ? 'general'
              : line.classList.contains('vl-ln--women') ? 'women'
              : line.classList.contains('vl-ln--men') ? 'men' : 'general';
@@ -14581,6 +14656,14 @@ window.lhcVoiceRec = {
   },
 
   _setBtn: function(root, lineId, on) {
+    if (lineId == null) {
+      var sb = root.querySelector('.vl-rehearse-btn');
+      if (!sb) return;
+      sb.classList.toggle('is-recording', !!on);
+      var lab = sb.querySelector('.vl-rehearse-label');
+      if (lab) lab.textContent = on ? 'Stop \u2014 recording\u2026' : 'Record the song';
+      return;
+    }
     var btn = root.querySelector('.vl-rec-btn[data-rec-line="' + lineId + '"]');
     if (!btn) return;
     btn.classList.toggle('is-recording', !!on);
@@ -14597,16 +14680,19 @@ window.lhcVoiceRec = {
     // takes already use.
     var type = (blob.type || 'audio/webm').toLowerCase();
     var ext = type.indexOf('mp4') !== -1 ? 'm4a' : type.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
-    var path = 'practice-recordings/' + R._songId + '/' + part + '__' + Date.now() + '.' + ext;
-    var n = (R._takes[String(lineId)] || []).length + 1;
+    var whole = lineId == null;
+    var path = 'practice-recordings/' + R._songId + '/' +
+               (whole ? 'draft' : part) + '__' + Date.now() + '.' + ext;
+    var n = whole ? (R._drafts.length + 1) : ((R._takes[String(lineId)] || []).length + 1);
     if (typeof showLoader === 'function') showLoader(true);
     sb.storage.from(LHC_SUPABASE_BUCKET).upload(path, blob, {
       contentType: blob.type || 'audio/webm', upsert: false
     }).then(function(up) {
       if (up.error) throw new Error(up.error.message);
       return sb.from('song_recordings').insert({
-        song_id: R._songId, line_id: lineId,
-        name: (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Take') + ' take ' + n,
+        song_id: R._songId, line_id: whole ? null : lineId,
+        name: whole ? ('Run-through ' + n)
+            : (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Take') + ' take ' + n,
         storage_path: path, duration_sec: Math.round(secs * 100) / 100
       }).select();
     }).then(function(res) {
@@ -14616,6 +14702,12 @@ window.lhcVoiceRec = {
       // nothing behind.
       var row = (res.data || [])[0];
       if (!row) throw new Error('the take did not come back from the database');
+      if (whole) {
+        R._drafts.push(row);
+        R.paintDrafts(root);
+        showToast('Run-through saved', 'success');
+        return;
+      }
       (R._takes[String(lineId)] = R._takes[String(lineId)] || []).push(row);
       R.paint(root, lineId);
       showToast('Take saved', 'success');
@@ -14660,8 +14752,9 @@ window.lhcVoiceRec = {
         Object.keys(R._takes).forEach(function(k) {
           R._takes[k] = R._takes[k].filter(function(t) { return String(t.id) !== String(id); });
         });
+        R._drafts = R._drafts.filter(function(t) { return String(t.id) !== String(id); });
         R.paintAll(root);
-        showToast('Take deleted', 'success');
+        showToast('Recording deleted', 'success');
       });
     }).catch(function(err) {
       console.error(err);
@@ -14843,7 +14936,7 @@ window.lhcVoiceLines = {
 
   html: function(lines, opts) {
     var V = window.lhcVoiceLines;
-    var groups = V.annotate(V.group(lines));
+    var groups = V.group(lines);
     if (!groups.length) return '';
     var o = opts || {};
     var out = ['<div class="vl-score' + (o.compact ? ' vl-score--compact' : '') + '">'];
@@ -14866,18 +14959,12 @@ window.lhcVoiceLines = {
                  ' \u2014 both parts rest</div>');
       }
 
-      if (g.togetherStart) {
-        out.push('<div class="vl-together"><span class="vl-together-mark" ' +
-                 'aria-hidden="true"></span>Women and men in together</div>');
-      }
-
-      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') +
-               (g.togetherStart ? ' vl-sys--together' : '') + '">');
+      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '">');
       out.push('<div class="vl-sys-bar">' + V._esc(V.barLabel(g.barStart, g.barEnd)) + '</div>');
       out.push('<div class="vl-sys-lines">');
 
       if (g.both) {
-        out.push(V._line('both', 'Both', g.both, '', o));
+        out.push(V._line('both', 'All', g.both, '', o));
       } else {
         // Women always above men, the order the staves are printed in. A
         // resting part keeps its line so the stack never shifts under the
@@ -14896,27 +14983,6 @@ window.lhcVoiceLines = {
 
     out.push('</div>');
     return out.join('');
-  },
-
-  // Where do the two parts come in TOGETHER?
-  //
-  // A group is "together" when both lanes are sounding -- a unison row, or a
-  // women row AND a men row. The thing a caroler needs marked is not every
-  // such group but the FIRST of each run: the bar you come in on after the
-  // other part has been carrying it alone. A run is broken by a group where
-  // only one part sings, and by a gap where neither does -- after two bars
-  // of silence both parts enter afresh, whatever came before the rest.
-  annotate: function(groups) {
-    var V = window.lhcVoiceLines;
-    var prev = null, prevTogether = false;
-    (groups || []).forEach(function(g) {
-      var together = !!g.both || (!!g.women && !!g.men);
-      g.together = together;
-      g.togetherStart = together && (!prevTogether || V.gapBefore(prev, g) > 0);
-      prevTogether = together;
-      prev = g;
-    });
-    return groups;
   },
 
   // ---- the editable source ------------------------------------------------
@@ -15062,11 +15128,16 @@ window.lhcVoiceLines = {
   // A part that is not singing keeps its line, so the stack does not shift
   // under the reader from one system to the next -- the women are always the
   // upper line whether or not they have words there.
+  //
+  // It shows an empty bracket rather than a rest glyph. On the page these
+  // are mostly echoes -- one part answering the other a bar later -- and a
+  // singer wants to see at a glance that this moment is not theirs, not
+  // decode a notation for it.
   _rest: function(cls, tag) {
     return '<div class="vl-ln vl-ln--' + cls + ' vl-ln--rest">' +
       '<span class="vl-who">' + (tag || '') + '</span>' +
-      '<span class="vl-body"><span class="vl-rest" aria-hidden="true"></span>' +
-      '<span class="vl-sr">rests</span></span></div>';
+      '<span class="vl-body"><span class="vl-blank" aria-hidden="true">' +
+      '(\u2014)</span><span class="vl-sr">silent here</span></span></div>';
   },
 
   _recSlot: function(id) {
@@ -58783,7 +58854,7 @@ var WO = (function() {
       // A system must never be cut in half by a page break: half a system is
       // a part with no partner, which is worse than a short page.
       '.sb-choir .vl-sys{break-inside:avoid;page-break-inside:avoid;}' +
-      '.sb-choir .vl-section,.sb-choir .vl-together,.sb-choir .vl-gap{break-after:avoid;page-break-after:avoid;}' +
+      '.sb-choir .vl-section,.sb-choir .vl-gap{break-after:avoid;page-break-after:avoid;}' +
       '</style>';
   }
 

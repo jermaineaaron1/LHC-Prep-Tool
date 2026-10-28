@@ -246,7 +246,6 @@ SBQ_VOICE_LINES.replaceAll(songId, [])   // delete-then-insert. Writes ONLY
 SBQ_VOICE_LINES.clear(songId)            // drops the lines, keeps the lyrics
 
 window.lhcVoiceLines.group(lines)        // rows -> paired display groups
-window.lhcVoiceLines.annotate(groups)    // sets .together / .togetherStart
 window.lhcVoiceLines.html(lines, opts)   // the stacked score. Women above
                                          // men, time left to right.
                                          // opts.record adds a microphone per
@@ -505,11 +504,12 @@ the anon key -- verify as `postgres`, not as the app.
     into the other lane, on a page that still looks entirely normal --
     `tools/voice-lines-harness.js` exists for that one failure.
 
-11. **"Women and men in together" is derived, not stored**: `annotate()`
-    marks the FIRST group of each run where both lanes sound. A run is
-    broken by a one-part group and by a bar gap, so the two-bar rest at
-    46-47 earns the last verse its own cue. Nothing in the database says
-    where the cues are -- change the lines and the cues move.
+11. **The part label is the whole signal.** The "Women and men in
+    together" banners were struck off the design and `annotate()` went
+    with them: the coloured chip -- ALL, WOMEN, MEN -- already says who
+    sings, and the banner said it twice. A silent part shows `(—)`
+    rather than a rest mark, because most of them are echoes and a singer
+    wants to see at a glance that the moment is not theirs.
 
 12. **The parts are STACKED, not side by side.** Women above men, with time
     running left to right across both -- the arrangement a score uses.
