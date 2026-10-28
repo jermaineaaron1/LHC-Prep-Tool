@@ -187,13 +187,13 @@ const CASES = [
   // lane that is singing slides into the lane that is not, and the page
   // calmly tells the women to sing the men's line.
   ['voice-lines-harness.js', 'a resting part stops occupying its lane',
-    s => s.replace('_rest: function(cls, tag) {', "_rest: function(cls, tag) { return '';")],
+    s => s.replace('_rest: function(cls, tag, part, g) {', "_rest: function(cls, tag, part, g) { return '';")],
   ['voice-lines-harness.js', 'rows pair by bar number instead of sortOrder',
     s => s.replace('var k = String(ln.sortOrder == null ? 0 : ln.sortOrder);',
                    'var k = String(ln.barStart);')],
   ['voice-lines-harness.js', 'a unison passage is filed as the women alone',
-    s => s.replace("if (ln.part === 'both') b.both = ln;",
-                   "if (ln.part === 'both') b.women = ln;")],
+    s => s.replace("if (p === 'both') b.both = ln;",
+                   "if (p === 'both') b.women = ln;")],
   // The gap notice was suppressed at a verse boundary once, which is
   // exactly where this carol's two-bar rest falls, so it vanished.
   ['voice-lines-harness.js', 'a rest straddling a verse boundary is swallowed again',
@@ -233,19 +233,31 @@ const CASES = [
   // The stacked layout. A part joining mid-phrase has to sit under the words
   // it shares; back at the left margin the page says the men start the
   // phrase when they actually start four words into it.
-  ['voice-lines-harness.js', 'a part joining mid-phrase is dropped back to the margin',
-    s => s.replace('leadIn: function(mine, other) {',
-                   "leadIn: function(mine, other) { return '';")],
-  ['voice-lines-harness.js', 'any two lines count as sharing their ending',
-    s => s.replace("if (V._norm(a[i]) !== V._norm(b[off + i])) return '';", 'if (false) return \'\';')],
-  ['voice-lines-harness.js', 'spelling differences between the staves defeat the match',
-    s => s.replace("return String(w || '').toLowerCase().replace(/[^a-z0-9]+/g, '');",
-                   "return String(w || '');")],
-  // Measuring an indent across a phrase break reserves the width of words on
-  // a different visual line.
-  ['voice-lines-harness.js', 'a two-phrase row claims an alignment again',
-    s => s.replace("if (String(mine).indexOf('·') > -1 || String(other).indexOf('·') > -1) return '';",
-                   "if (false) return '';")],
+  // These four guarded leadIn, the automatic indent. It is gone -- it was
+  // what made the left edge ragged -- and what replaced it is the lane
+  // model, so that is what is broken here instead.
+  //
+  // women is tested BEFORE men in partFamily, and this mutation is the
+  // whole reason to say so: the word "women" CONTAINS "men", so the other
+  // order paints every Women 2 lane in the men's colour. It is the kind of
+  // wrong that looks like a theme decision rather than a bug.
+  ['voice-lines-harness.js', 'men is tested before women, so Women 2 turns teal',
+    s => s.replace("if (k.indexOf('women') > -1) return 'women';\r\n    if (k.indexOf('men') > -1) return 'men';",
+                   "if (k.indexOf('men') > -1) return 'men';\r\n    if (k.indexOf('women') > -1) return 'women';")],
+  // A song that names its own parts must not also sprout the bare lanes.
+  ['voice-lines-harness.js', 'the canonical pair is forced on every song',
+    s => s.replace('if (seen.women || seen.men) {', 'if (true) {')],
+  ['voice-lines-harness.js', 'a two-part song loses the lane that is resting',
+    s => s.replace('if (seen.women || seen.men) {', 'if (false) {')],
+  // Lanes stack women above men. Sorted by first appearance alone, a verse
+  // the men open puts them on top for the whole song.
+  ['voice-lines-harness.js', 'the stack follows first appearance, not the staves',
+    s => s.replace('return (a.r - b.r) || (a.i - b.i);', 'return (a.i - b.i);')],
+  // A bracket WITH words after it names a part; a bracket alone is a
+  // section. Drop the parse and "[Women 1] ..." becomes a unison line
+  // whose words begin with somebody's part name.
+  ['voice-lines-harness.js', 'a named part is read as lyrics instead',
+    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*/.exec(rest);', 'var br = null;')],
 
   // The editor, and the cue the carolers asked for. The first of these is
   // the placement rule itself: a line with no bars sings AT THE SAME MOMENT
@@ -263,7 +275,7 @@ const CASES = [
   // banners were struck off the design, so there is no annotate() left to
   // break. What replaced them guards the label and the blank.
   ['voice-lines-harness.js', 'a unison line is labelled BOTH again',
-    s => s.replace("V._line('both', 'All', g.both, '', o)", "V._line('both', 'Both', g.both, '', o)")],
+    s => s.replace("V._line('both', 'All', g.both, o)", "V._line('both', 'Both', g.both, o)")],
   // Bars left the editor with the gutter, and the blank line took over the
   // job their absence used to do. It is now the whole of the grouping
   // syntax, so both ends of it are worth breaking.

@@ -71,7 +71,7 @@ if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(
 // A ceiling, because an end-anchor matching far away would swallow the file
 // and still parse. 400 rather than 200 since the editor's round trip moved
 // in; it is a tripwire against a runaway match, not a budget for the module.
-if (end - start > 500) {
+if (end - start > 620) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -224,51 +224,78 @@ check('a held vowel is marked as one',
 check('an ordinary line is not',
   /vl-ln--hold/.test(V.html([row('women', 'Oh', 0)])), false);
 
-console.log('\nwords that land where they are sung');
-// The case the carollers asked about: the parts sing the SAME words, one of
-// them joining halfway through. Those words have to sit under each other,
-// not both back at the left margin, or the page says the men start the
-// phrase when they start four words into it.
-check('a part joining mid-phrase reserves the words it misses',
-  V.leadIn('tail as big as a kite', 'With a tail as big as a kite'), 'With a ');
-check('  the longer part reserves nothing',
-  V.leadIn('With a tail as big as a kite', 'tail as big as a kite'), '');
-check('  and it works the other way round too',
-  V.leadIn('child a child', 'A child a child'), 'A ');
-// The two staves spell the same words differently all over this score.
-check('hyphenation does not defeat the match',
-  V.leadIn('lit-tle lamb', 'Way up in the sky little lamb'), 'Way up in the sky ');
-// The reserved text is the other part's words VERBATIM, because it is
-// standing in for their width on the page. Only the comparison is
-// normalised, never what gets measured.
-check('nor does capitalisation or punctuation',
-  V.leadIn('what I see?', 'Do you see what I SEE'), 'Do you see ');
-// ...but a part singing something genuinely different starts at the margin.
-check('different words reserve nothing',
-  V.leadIn('A star a star', 'oh……'), '');
-check('a partial match that is not a suffix reserves nothing',
-  V.leadIn('big as a kite now', 'With a tail as big as a kite'), '');
-check('equal-length lines reserve nothing',
-  V.leadIn('good-ness and Light', 'good-nes and Light'), '');
-check('an empty part reserves nothing', V.leadIn('', 'anything'), '');
-// A row with two phrases draws as two lines. Measuring an indent against
-// the whole row reserves the width of words on a DIFFERENT line, which
-// pushed the men's line right by the width of a phrase above it. These are
-// precisely the rows whose timing the score did not give, so the layout
-// declines to claim one.
-check('a two-phrase row claims no alignment',
-  V.leadIn('let us bring gold', 'shi-vers in the cold · let us bring gold'), '');
-check('  in either direction',
-  V.leadIn('a · b c', 'x a b c'), '');
+console.log('\nevery line starts at the same x');
+// What replaced leadIn. It measured how far into the other part's line
+// this one began and indented it to sit under the words it shared, which
+// on a page read top to bottom produced exactly the ragged left margin it
+// was then asked to remove: "align all the sections properly straight,
+// orientate it to the left." So the check is that nothing indents anything.
+check('the lead-in indent is gone from the module', typeof V.leadIn, 'undefined');
+// The case that used to be indented hardest: the men joining the women's
+// phrase partway through. Both now begin at the margin, and the grouping
+// is what says they sound together.
+const joinHtml = V.html([
+  row('women', 'With a tail as big as a kite', 0),
+  row('men', 'tail as big as a kite', 0)
+]);
+check('a part joining mid-phrase is not pushed right', /vl-lead/.test(joinHtml), false);
+check('  and both parts are still shown', laneOrder(joinHtml), ['women', 'men']);
 
+console.log('\nparts the choir named themselves');
+// Asked for directly: "if I want to add Women 1 or Women 2, I just want to
+// type it in [ ] to make my own section with whatever name I want."
+const named = V.parseVoiceText(
+  '[Verse 1]\n[Women 1] Do you see what I see\n[Women 2] Do you see what I see\nM: A star a star');
+check('a bracket WITH words after it names a part',
+  named.map(r => r.part), ['Women 1', 'Women 2', 'men']);
+check('  a bracket ALONE is still a section', named.map(r => r.section),
+  ['Verse 1', 'Verse 1', 'Verse 1']);
+check('  and all three sound at the same moment',
+  named.map(r => r.sortOrder), [0, 0, 0]);
+check('typing [Women] is the same lane as W:, not a second one',
+  V.parseVoiceText('[Women] a').map(r => r.part), ['women']);
+check('  and [All] is the unison lane', V.parseVoiceText('[All] a').map(r => r.part), ['both']);
+
+// women is tested BEFORE men, because the word women contains men: get the
+// order wrong and every Women 2 lane is painted in the men's colour.
+check('a named part takes the colour family of its name',
+  ['Women 1', 'Men 2', 'Descant', 'both'].map(p => V.partFamily(p)),
+  ['women', 'men', 'other', 'both']);
+check('  and is labelled exactly as typed', V.partLabel('Women 1'), 'Women 1');
+
+check('lanes stack women-family first, then men, then the rest',
+  V.lanes(named), ['Women 1', 'Women 2', 'men']);
+check('  a song using women or men gets BOTH lanes, one of them resting',
+  V.lanes([row('men', 'a', 0)]), ['women', 'men']);
+check('  but a song of named parts gets only what it named',
+  V.lanes(V.parseVoiceText('[Descant] a\n[Solo] b')), ['Descant', 'Solo']);
+
+const namedHtml = V.html(named);
+check('a named part is drawn in the other family', /vl-ln--other/.test(namedHtml), false);
+check('  Women 1 and Women 2 both read as women',
+  (namedHtml.match(/vl-ln--women/g) || []).length, 2);
+check('  and the chip shows the name the choir chose',
+  />Women 1</.test(namedHtml), true);
+
+// The round trip has to survive a name it has never seen.
+check('a named part survives the editor round trip',
+  V.parseVoiceText(V.toVoiceText(named)).map(r => [r.part, r.text]),
+  named.map(r => [r.part, r.text]));
+
+// These three checked that the late-joining part reserved the other's
+// words as hidden padding. There is no padding now: the words of both
+// parts begin at the same x, and the chip is a fixed width so the lyric
+// column cannot be pushed about by the length of a label either.
 const aligned = V.html([row('women', 'With a tail as big as a kite', 0),
                         row('men', 'tail as big as a kite', 0)]);
-check('the reserved words reach the markup',
-  /<span class="vl-lead" aria-hidden="true">With a <\/span>tail as big/.test(aligned), true);
-check('  only on the part that joins late',
-  (aligned.match(/vl-lead/g) || []).length, 1);
-check('  and are hidden from anything reading the page aloud',
-  /class="vl-lead" aria-hidden="true"/.test(aligned), true);
+check('the late-joining part begins at the margin like the other',
+  (aligned.match(/vl-lead/g) || []).length, 0);
+check('  and its words are the only thing in its body',
+  /<span class="vl-words">tail as big as a kite<\/span>/.test(aligned), true);
+// Every row carries the part it belongs to, which is what the chip
+// double-click reads to know which lane it is moving a line out of.
+check('  and every line says which part it is',
+  (aligned.match(/data-part="/g) || []).length, 2);
 
 // The songbook prints the same markup through the same renderer, asking
 // only for the tighter, control-free variant. Two renderers for one
@@ -559,6 +586,10 @@ check('11 silent moments are shown as blanks',
 check('13 lines are labelled ALL', (realHtml.match(/>All</g) || []).length, 13);
 check('no banner and no cue class remain',
   /vl-together|vl-sys--together/.test(realHtml), false);
+// Across all 46 rows of a real arrangement, not one indent.
+check('and not one line is indented', /vl-lead/.test(realHtml), false);
+check('every lane in it is one of the two canonical ones',
+  V.lanes(L), ['women', 'men']);
 
 console.log('\nwhich takes survive a full-editor save');
 // replaceAll deletes every row and inserts new ones, so a practice take
