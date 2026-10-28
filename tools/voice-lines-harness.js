@@ -783,9 +783,17 @@ check('making the lyric monospaced does not resize it',
 check('  but it does change the face', /font-family/.test(hasBody), true);
 check('the chord input matches what it replaces',
   /font-size:\s*var\(--vl-text\)/.test(rule('.vl-chord-in')), true);
-// The token itself carries the +3px that was asked for.
-check('the token is the lyric size plus three',
-  /--vl-text:\s*calc\(var\(--sf-lyric-size,\s*19px\)\s*\+\s*3px\)/.test(css), true);
+// The token carries the bump, whatever it currently is. The exact
+// number is a taste decision that has already moved once (+3, then back
+// 2 as too big); what must not move is that ONE token feeds both the
+// chord row and the words, which the checks above pin down.
+check('the token is derived from the lyric size, not a literal',
+  /--vl-text:\s*calc\(var\(--sf-lyric-size,\s*19px\)\s*[-+]\s*\d+px\)/.test(css), true);
+// Spacing down the page is two tokens so the rows stay in step.
+check('the row rhythm is tokenised too',
+  [/--vl-row:\s*\d+px/.test(css), /--vl-gap:\s*\d+px/.test(css)], [true, true]);
+check('  and the system padding uses it',
+  /\.vl-sys \{ padding: var\(--vl-row\) 0/.test(css), true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

@@ -8749,7 +8749,8 @@
      one token precisely so that cannot happen again; +3px was asked for
      and applies to both, which keeps them equal. */
   .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-all: #4a6da7; --vl-cue: #7c3aed; --vl-o: #8a5a2b;
-    --vl-text: calc(var(--sf-lyric-size, 19px) + 3px); }
+    --vl-text: calc(var(--sf-lyric-size, 19px) + 1px);
+    --vl-gap: 2px; --vl-row: 9px; }
   .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 30px 0 12px; background: #dcf5e5; color: #15803d; }
   .vl-score > .vl-section:first-child { margin-top: 0; }
 
@@ -8761,9 +8762,9 @@
      the line between systems is the only boundary that means anything --
      it was a hairline the same colour as everything else, and the groups
      ran into each other. */
-  .vl-sys { padding: 11px 0; border-bottom: 2px solid #1f2933; }
+  .vl-sys { padding: var(--vl-row) 0; border-bottom: 2px solid #1f2933; }
   .vl-score > .vl-sys:last-child { border-bottom: 0; }
-  .vl-sys-lines { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .vl-sys-lines { min-width: 0; display: flex; flex-direction: column; gap: var(--vl-gap); }
   /* The brace a score puts round staves that sound together.
      The inset is on EVERY system, unison included, and only the colour
      changes -- it used to be on the two-part ones alone, which set every
@@ -8772,7 +8773,7 @@
   .vl-sys-lines { border-left: 2px solid transparent; padding-left: 11px; }
   .vl-sys:not(.vl-sys--unison) .vl-sys-lines { border-left-color: #e2e8f0; }
 
-  .vl-ln { display: flex; align-items: baseline; gap: 11px; min-width: 0; padding: 4px 6px; border-radius: 5px; }
+  .vl-ln { display: flex; align-items: baseline; gap: 11px; min-width: 0; padding: 2px 6px; border-radius: 5px; }
   /* Fixed width, so the words of both parts begin at the same x. Everything
      about the time alignment depends on this one number. */
   /* With the banners gone this label is the whole signal, so it is a filled
@@ -47183,6 +47184,21 @@ var WO = (function() {
   }
 
   function closeSongbook() {
+    // Finish a take that is still running rather than dropping it.
+    //
+    // A recording is written by MediaRecorder's onstop, and onstop only
+    // fires when something calls stop. Closing the panel did; closing the
+    // whole songbook did not -- so walking away mid-take lost it
+    // completely: no row, no file, nothing said, and the microphone left
+    // open. Reported as "the button just stays on Stop", which is exactly
+    // how it looks from the outside.
+    //
+    // First, before any of the teardown below runs, because the save
+    // reads the song it belongs to out of state that is about to go.
+    if (_sbRecording) {
+      _sbStopRecording();
+      if (typeof showToast === 'function') showToast('Saving your recording\u2026', 'info');
+    }
     if (window.lhcVoiceRec) window.lhcVoiceRec.stopPlayback(null);
     if (_sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} _sbPlayingAudio = null; _sbPlayingId = null; }
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
@@ -49985,6 +50001,7 @@ var WO = (function() {
     var ov = document.getElementById('sb-appear-dyn-css'); if (ov) ov.textContent = '';
   }
 
+  var _sbRecStream = null;
   function sbToggleRecording() { if (_sbRecording) _sbStopRecording(); else _sbStartRecording(); }
   // This panel's own run-throughs. The per-line takes from the choir view
   // are listed here too and must not count against the limit: ten of them
@@ -50023,7 +50040,8 @@ var WO = (function() {
       mimeType = _sbMediaRecorder.mimeType || mimeType || 'audio/webm';
       _sbRecChunks = [];
       _sbMediaRecorder.ondataavailable = function(e) { if (e.data.size) _sbRecChunks.push(e.data); };
-      _sbMediaRecorder.onstop = function() { stream.getTracks().forEach(function(t) { t.stop(); }); _sbSaveRecording(new Blob(_sbRecChunks, { type: mimeType }), _sbRecElapsed); };
+      _sbRecStream = stream;
+      _sbMediaRecorder.onstop = function() { stream.getTracks().forEach(function(t) { t.stop(); }); _sbRecStream = null; _sbSaveRecording(new Blob(_sbRecChunks, { type: mimeType }), _sbRecElapsed); };
       _sbMediaRecorder.onerror = function(ev) {
         try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {}
         _sbStopRecording();
@@ -50039,6 +50057,10 @@ var WO = (function() {
   }
   function _sbStopRecording() {
     if (_sbMediaRecorder && _sbMediaRecorder.state !== 'inactive') _sbMediaRecorder.stop();
+    // onstop normally releases it. If the recorder is already inactive
+    // onstop will never fire, and the microphone would stay open with
+    // nothing on screen admitting it.
+    else if (_sbRecStream) { try { _sbRecStream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {} _sbRecStream = null; }
     if (_sbRecTimerInt) { clearInterval(_sbRecTimerInt); _sbRecTimerInt = null; }
     _sbRecording = false;
     var btn = document.getElementById('sbRecordBtn'); if (btn) { btn.classList.remove('recording'); btn.innerHTML = '<span class="sb-rec-dot"></span> Record'; }
@@ -50075,7 +50097,14 @@ var WO = (function() {
           sup.storage.from(LHC_SUPABASE_BUCKET).remove([storagePath]).catch(function() {});
           sbShowRecStatus('DB error: ' + res2.error.message, 'error'); return;
         }
-        sbShowRecStatus('Saved!', ''); setTimeout(function() { sbShowRecStatus('', ''); }, 2000); sbLoadRecordings(songId);
+        sbShowRecStatus('Saved!', ''); setTimeout(function() { sbShowRecStatus('', ''); }, 2000);
+        // The status line lives in the recordings panel, which is very
+        // likely closed by the time a take saved on the way out lands.
+        var _sheet = document.getElementById('sbRecSheet');
+        if ((!_sheet || _sheet.style.display === 'none') && typeof showToast === 'function') {
+          showToast('Recording saved', 'success');
+        }
+        sbLoadRecordings(songId);
       }).catch(function(err) { sbShowRecStatus('Error: ' + err.message, 'error'); });
   }
   function sbLoadRecordings(songId) {

@@ -236,9 +236,15 @@ const CASES = [
   ['voice-lines-harness.js', 'the monospace rule shrinks the lyric again',
     s => s.replace("'Courier New',monospace; }\r\n  .vl-chords--empty",
                    "'Courier New',monospace; font-size: 0.94em; }\r\n  .vl-chords--empty")],
-  ['voice-lines-harness.js', 'the three extra pixels are dropped',
-    s => s.replace('--vl-text: calc(var(--sf-lyric-size, 19px) + 3px); }',
-                   '--vl-text: var(--sf-lyric-size, 19px); }')],
+  // The exact bump is a taste decision and has already moved once. What
+  // must not move is that the size is DERIVED from the lyric size rather
+  // than written as a literal, because a literal is how the chord row and
+  // the words drift apart again.
+  ['voice-lines-harness.js', 'the chord size is hard-coded instead of derived',
+    s => s.replace('--vl-text: calc(var(--sf-lyric-size, 19px) + 1px);',
+                   '--vl-text: 20px;')],
+  ['voice-lines-harness.js', 'the row rhythm stops being tokenised',
+    s => s.replace('.vl-sys { padding: var(--vl-row) 0;', '.vl-sys { padding: 9px 0;')],
   ['voice-lines-harness.js', 'a section header is taken for a lyric a chord can sit over',
     s => s.replace("      if (/^\\s*\\[.+\\]\\s*$/.test(line)) continue;          // a section header\r\n", "")],
   ['voice-lines-harness.js', 'the bar-later echo is offered as a second line',
