@@ -15468,11 +15468,22 @@ window.lhcVoiceLines = {
     if (g.both) return g.both;
     if (g.women && !g.women.sustained) return g.women;
     if (g.men && !g.men.sustained) return g.men;
-    // Nothing but held vowels. No line, deliberately: such a moment
-    // contributes nothing to the song's lyrics, and so it has no chord
-    // row either -- there is no lyric line for a chord to sit over. A
-    // fallback here looked harmless and quietly put "oh……" into the
-    // lyrics column of every song built from an arrangement.
+    // A moment sung entirely by parts the choir named -- Melody, 1st
+    // Part, Descant -- has none of the three above. Without this it had
+    // no representative line, so it had no chord row: a chorus written
+    // in named parts lost every one of its chords while the unison
+    // verses above kept theirs.
+    //
+    // Sustained and empty lines are skipped, not merely deprioritised.
+    // That is what keeps a moment of nothing but held vowels
+    // contributing NOTHING -- an earlier, unguarded version of this
+    // fallback quietly put "oh……" into the lyrics column of every song
+    // built from an arrangement.
+    var keys = Object.keys(g.byPart || {});
+    for (var i = 0; i < keys.length; i++) {
+      var ln = g.byPart[keys[i]];
+      if (ln && !ln.sustained && String(ln.text || '').trim()) return ln;
+    }
     return null;
   },
 
@@ -15673,9 +15684,23 @@ window.lhcVoiceLines = {
     var V = window.lhcVoiceLines;
     var want = V.leadText(g);
     if (!want || !index || !index.length) return null;
+    // Different PARTS singing the same words are one line of the song,
+    // even when written as separate moments -- which is what happens
+    // when a blank line is left between them. They must not each eat the
+    // next occurrence of those words: a chorus of three parts did
+    // exactly that and starved the verses below of their chords, 16 of
+    // 16 down to 8.
+    //
+    // The same part singing the same words again is the other thing
+    // entirely -- a refrain repeated -- and takes the NEXT chord line,
+    // because the two are allowed to differ. So the test is the part,
+    // not the words: that is what tells one case from the other.
+    var part = V.partKey((V.leadLine(g) || {}).part);
+    if (cursor && cursor.last && cursor.lastPart && part !== cursor.lastPart &&
+        V._sameWords(want, cursor.last.lyric)) return cursor.last;
     for (var i = (cursor && cursor.at) || 0; i < index.length; i++) {
       if (V._sameWords(want, index[i].lyric)) {
-        if (cursor) cursor.at = i + 1;
+        if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; }
         return index[i];
       }
     }

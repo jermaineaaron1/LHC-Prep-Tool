@@ -731,6 +731,32 @@ const th = V.html(twoMoments);
 check('a part silent for one moment still keeps its place in that section',
   (th.match(/vl-ln--rest/g) || []).length, 1);
 
+console.log('\na moment sung by named parts still has a chord row');
+// Found in real use: a chorus written entirely in [Melody] / [1st Part]
+// lost every chord, while the unison verses above kept theirs. leadLine
+// knew only both/women/men, so such a moment had no representative lyric
+// and nothing for a chord to sit over -- 0 of 60 moments in that chorus.
+const namedMoment = V.group(V.parseVoiceText(
+  '[Chorus]\n[Melody]: Is there room\n[1st Part]: Is there room'))[0];
+check('a moment of named parts has a lead line', V.leadLine(namedMoment) !== null, true);
+check('  and it is the first part that sings',
+  V.leadText(namedMoment), 'Is there room');
+// ...without disturbing the rule that held vowels contribute nothing.
+// This is the guard an earlier, unguarded fallback got wrong, putting
+// "oh……" into the lyrics column of every song built from an arrangement.
+const vowelsOnly = V.group([
+  row('women', 'oh……', 0, { sustained: true }),
+  row('men', 'ah……', 0, { sustained: true })
+])[0];
+check('a moment of nothing but held vowels still has none',
+  V.leadLine(vowelsOnly), null);
+check('  so it contributes no lyric',
+  V.toPlainLyrics([row('women', 'oh……', 0, { sustained: true })]), '');
+check('a named part holding a vowel is skipped too',
+  V.leadLine(V.group([row('Descant', 'oh……', 0, { sustained: true })])[0]), null);
+check('a named part with no words at all is skipped',
+  V.leadLine(V.group([row('Descant', '   ', 0), row('Melody', 'sing', 0)])[0]).text, 'sing');
+
 console.log('\nchords, read from the song and written back to it');
 // Chords live in songs.lyrics as a plain text line above the words, each
 // positioned by character offset. Sixty of the seventy songs in the
@@ -776,6 +802,19 @@ const REP = ['C', 'sing it', 'G', 'sing it'].join('\n');
 const rIdx = V.chordIndex(REP, isChord);
 const cur = { at: 0 };
 const g1 = V.group([row('both', 'sing it', 0)])[0];
+// ...and the other side of it: DIFFERENT parts singing the same words
+// are one line of the song, however many moments they are written as.
+// A chorus of three such parts used to eat three chord lines and starve
+// the verses below, 16 of 16 down to 8.
+const shared = V.chordIndex(['Bb  F', 'Is there room', 'C', 'Make room'].join('\n'), isChord);
+const sc = { at: 0 };
+const g3 = ['Melody','1st Part','2nd Part'].map(p =>
+  V.group([row(p, 'Is there room', 0)])[0]);
+check('three parts on the same words share one chord line',
+  g3.map(g => (V.chordFor(shared, g, sc) || {}).chord), ['Bb  F','Bb  F','Bb  F']);
+check('  and the line after them still gets its own',
+  (V.chordFor(shared, V.group([row('both','Make room',1)])[0], sc) || {}).chord, 'C');
+
 check('a repeated line takes the next chord line, not the first again',
   [V.chordFor(rIdx, g1, cur).chord, V.chordFor(rIdx, g1, cur).chord], ['C', 'G']);
 

@@ -219,7 +219,16 @@ const CASES = [
     s => s.replace("var n = function(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); };",
                    "var n = function(s) { return String(s == null ? '' : s); };")],
   ['voice-lines-harness.js', 'a repeated line always takes the first chord line',
-    s => s.replace('if (cursor) cursor.at = i + 1;', '')],
+    s => s.replace('if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; }', '')],
+  // The two sides of one judgement: different parts on the same words are
+  // one line and share a chord; the SAME part on the same words is a
+  // refrain repeated and takes the next. Breaking it either way is
+  // wrong, so break it both ways.
+  ['voice-lines-harness.js', 'each part eats its own chord line, starving the verses',
+    s => s.replace('if (cursor && cursor.last && cursor.lastPart && part !== cursor.lastPart &&',
+                   'if (false &&')],
+  ['voice-lines-harness.js', 'a repeated refrain is given the chords of the one before',
+    s => s.replace('cursor.lastPart && part !== cursor.lastPart &&', '')],
   ['voice-lines-harness.js', 'clearing a chord leaves a blank line above the words',
     s => s.replace("if (!text.trim()) lines.splice(chordAt, 1);          // drop the row",
                    "if (!text.trim()) lines[chordAt] = '';")],
@@ -295,6 +304,16 @@ const CASES = [
   // A bracket WITH words after it names a part; a bracket alone is a
   // section. Drop the parse and "[Women 1] ..." becomes a unison line
   // whose words begin with somebody's part name.
+  // A chorus written in named parts lost every chord because leadLine
+  // knew only the three canonical names. Break the fallback either way:
+  // remove it and the chords vanish again; drop its guard and held
+  // vowels start counting as lyrics.
+  ['voice-lines-harness.js', 'a moment of named parts has no lead line again',
+    s => s.replace('      if (ln && !ln.sustained && String(ln.text || \'\').trim()) return ln;',
+                   '      if (false) return ln;')],
+  ['voice-lines-harness.js', 'the fallback stops skipping held vowels',
+    s => s.replace('      if (ln && !ln.sustained && String(ln.text || \'\').trim()) return ln;',
+                   '      if (ln) return ln;')],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',
