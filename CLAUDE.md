@@ -49,8 +49,8 @@ The ones worth knowing; there are around 29 in all.
 | `roster` | Monthly duty assignments, one row per role per date. **Also the readings**: role ids `reading1`, `psalm`, `reading2`, `gospel` |
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
-| `song_voice_lines` | A two-part song's words. One row per part per passage; `songs.lyrics` holds only a generated flat copy |
-| `song_recordings` | Practice takes. `line_id` is the (so far unwritten) anchor to a `song_voice_lines` row |
+| `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; null means a take for the whole song |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -240,13 +240,21 @@ SBQ_READINGS.rosterToIso(svcDate, year)  // "Oct 4" + 2026 -> "2026-10-04"
 // the rows live in `window.lhcVoiceLines`, outside the module, so the
 // harness can slice them.
 SBQ_VOICE_LINES.forSong(songId)          // the lines, in reading order
-SBQ_VOICE_LINES.replaceAll(songId, [])   // delete-then-insert, then rewrites
-                                         // songs.lyrics AND songs.voice_layout
+SBQ_VOICE_LINES.replaceAll(songId, [])   // delete-then-insert. Writes ONLY
+                                         // songs.voice_layout -- never the
+                                         // song's lyrics. See gotcha 9.
 SBQ_VOICE_LINES.clear(songId)            // drops the lines, keeps the lyrics
 
 window.lhcVoiceLines.group(lines)        // rows -> paired display groups
 window.lhcVoiceLines.annotate(groups)    // sets .together / .togetherStart
-window.lhcVoiceLines.html(lines)         // the two-lane grid
+window.lhcVoiceLines.html(lines, opts)   // the stacked score. Women above
+                                         // men, time left to right.
+                                         // opts.record adds a microphone per
+                                         // line; opts.compact is the
+                                         // songbook's print variant
+window.lhcVoiceLines.leadIn(mine, other) // how far to indent a part that
+                                         // joins mid-phrase, so its words
+                                         // sit under the ones it shares
 window.lhcVoiceLines.toPlainLyrics(lines)// a STARTING POINT for songs.lyrics,
                                          // used once at creation and never
                                          // again. Not a mirror.
@@ -498,6 +506,28 @@ the anon key -- verify as `postgres`, not as the app.
     broken by a one-part group and by a bar gap, so the two-bar rest at
     46-47 earns the last verse its own cue. Nothing in the database says
     where the cues are -- change the lines and the cues move.
+
+12. **The parts are STACKED, not side by side.** Women above men, with time
+    running left to right across both -- the arrangement a score uses.
+    Columns put *who* on the horizontal axis, which is why reading them
+    meant crossing the page. A part whose words are a word-suffix of the
+    other's is indented by `leadIn()` so they sit under the words they
+    share; a part that rests still keeps its line, or the singing part
+    slides into the slot the reader has learnt is theirs.
+
+13. **The songbook gives the arrangement its OWN pages**, after the song's
+    lyrics, in all three paths (editing view, print, book mode). It does
+    not render into a lyrics page, because `_sbComputePageStarts`
+    paginates from the lyrics TEXT and would not break a rendered view at
+    all. Those pages are read-only and carry no microphones. Book mode
+    and print are synchronous, so the lines are prefetched into
+    `_sbVoiceLines` on render -- a songbook that has not prefetched yet
+    silently has no choir pages.
+
+14. **A songbook item's `id` is not a song id.** It is
+    `sbsong_<songId>_<idx>` in a standalone songbook and
+    `<songId>--<suffix>` in one built from a Worship Order. Neither
+    survives being chopped at `--`. Use the item's `songId` field.
 
 ## Quick Commands for Claude Code
 
