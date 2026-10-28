@@ -545,14 +545,23 @@ the anon key -- verify as `postgres`, not as the app.
     directly. Note every OTHER per-song setting in a standalone songbook
     still does not persist -- that is pre-existing, not fixed here.
 
-16. **Bars are off the page but still in the editor.** The rendered score
-    has no bar column -- it crowded every line to say something only the
-    editor needs. The rows still carry `bar_start`/`bar_end` and
-    `toVoiceText` still leads each group with them, because a line
-    WITHOUT bars means something specific in that format: it joins the
-    line above. Strip them from the source and placement stops working.
+16. **Grouping is the blank line.** Bars are displayed nowhere and the
+    editor no longer carries them, so what used to be signalled by an
+    EMPTY bar column is now signalled by whitespace you can see: lines
+    that touch sound together, a blank line starts the next moment.
+    Consequence, stated rather than left to be discovered: saving through
+    the FULL editor clears `bar_start`/`bar_end`, and with them the
+    "N bars -- both parts rest" notice for that song. A typed bar spec is
+    still parsed, so text written under the old format still reads right.
 
-17. **A songbook item's `id` is not a song id.** It is
+17. **Editing one line uses `updateLine`, never `replaceAll`.**
+    Double-clicking a line's words, or its part chip, writes one column of
+    one row. `replaceAll` deletes and re-inserts everything, which would
+    detach the practice takes on lines nobody touched and clear the bars on
+    rows nobody was editing. Inline edits preserve both; the full editor is
+    for restructuring, and pays the price above.
+
+18. **A songbook item's `id` is not a song id.** It is
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.

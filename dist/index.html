@@ -8751,7 +8751,12 @@
      are printed in, with time running left to right across both -- which
      is what makes a part that joins mid-phrase line up under the words it
      shares. No bar gutter; the rows keep their bars for the editor. */
-  .vl-sys { padding: 11px 0; border-bottom: 1px solid #eef1f6; }
+  /* One dark rule per group. The parts inside a system sound together, so
+     the line between systems is the only boundary that means anything --
+     it was a hairline the same colour as everything else, and the groups
+     ran into each other. */
+  .vl-sys { padding: 11px 0; border-bottom: 2px solid #1f2933; }
+  .vl-score > .vl-sys:last-child { border-bottom: 0; }
   .vl-sys-lines { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   /* The brace a score puts round staves that sound together. */
   .vl-sys:not(.vl-sys--unison) .vl-sys-lines { border-left: 2px solid #e2e8f0; padding-left: 11px; }
@@ -8766,7 +8771,9 @@
   .vl-ln--both .vl-who { color: #fff; background: var(--vl-all); }
   .vl-ln--women .vl-who { color: #fff; background: var(--vl-w); }
   .vl-ln--men .vl-who { color: #fff; background: var(--vl-m); }
-  .vl-ln--rest .vl-who { color: #94a3b8; background: #f1f5f9; }
+  /* A silent part keeps its colour. Greying the chip made the women look
+     absent from the song rather than absent from this moment, and the eye
+     stopped being able to track one part down the page. */
   .vl-body { flex: 1 1 auto; min-width: 0; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
   .vl-words { display: block; overflow-wrap: break-word; }
   /* Reserves exactly the width of the words this part does not sing, so its
@@ -8823,6 +8830,16 @@
   /* A printed page has no recorder on it. */
   .vl-score--compact .vl-rehearse { display: none; }
 
+  /* Editing a line in place. */
+  .vl-edit-in { flex: 1 1 auto; min-width: 0; font-size: var(--sf-lyric-size, 19px); font-family: var(--sf-lyric-font, inherit); line-height: 1.5; color: #1f2933; border: 2px solid #4a6da7; border-radius: 5px; padding: 1px 7px; background: #fff; }
+  .vl-edit-in:focus { outline: none; border-color: #2f4f85; }
+  .vl-ln[data-line-id] .vl-words { cursor: text; }
+  .vl-ln[data-line-id] .vl-who { cursor: pointer; }
+  .sb-choir-hint { clear: both; font-size: 11px; color: #94a3b8; font-style: italic; margin: 0 0 12px; }
+  .sb-choir-hint b { color: #64748b; font-style: normal; }
+  /* Not on paper. */
+  .vl-score--compact .sb-choir-hint { display: none; }
+
   /* Per-line recording. */
   .vl-rec { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
   .vl-rec-btn { border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; border-radius: 999px; width: 26px; height: 26px; line-height: 1; font-size: 11px; cursor: pointer; padding: 0; }
@@ -8837,7 +8854,7 @@
   .vl-ln--has-take { box-shadow: inset 2px 0 0 var(--vl-cue); }
 
   /* Printed into a songbook page: no controls, tighter, ink-economical. */
-  .vl-score--compact .vl-sys { padding: 7px 0; }
+  .vl-score--compact .vl-sys { padding: 7px 0; border-bottom-width: 1px; }
   .vl-score--compact .vl-body { font-size: inherit; line-height: 1.4; }
   .vl-score--compact .vl-who { flex-basis: 46px; }
   .vl-score--compact .vl-ln--women, .vl-score--compact .vl-ln--men { background: transparent; }
@@ -13478,13 +13495,12 @@ function renderLyricsPreviewContent() {
       var _vlRows = _lpVoiceLineCache[currentLyricsPreviewSong.id] || [];
       container.innerHTML =
         '<div class="vl-edit-help">' +
-          '<b>One line per part.</b> Start a line with its bars, then ' +
-          '<code>W:</code> for the women or <code>M:</code> for the men. ' +
-          'A line with <b>no bars</b> joins the line above it \u2014 that is how ' +
-          'the two parts are placed at the same moment. No prefix at all means ' +
-          'both sing it together. Put <code>~</code> before a held note, and ' +
-          '<code>[Verse 2]</code> on its own line to start a section. ' +
-          'Leave a part out entirely and it rests.' +
+          '<b>One line per part.</b> <code>W:</code> for the women, ' +
+          '<code>M:</code> for the men, no prefix at all for everyone. ' +
+          '<b>Lines that touch sing at the same moment</b>; leave a blank ' +
+          'line to start the next one. Put <code>~</code> before a held note, ' +
+          'and <code>[Verse 2]</code> on its own line to start a section. ' +
+          'Leave a part out of a moment entirely and it is silent there.' +
         '</div>' +
         '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea vl-edit-area" ' +
           'spellcheck="false" wrap="off">' +
@@ -14484,6 +14500,128 @@ function applyTranspose() {
   renderLyricsPreviewContent();
 }
 
+// ============ Editing a line where it sits ==================================
+//
+// Double-click the words to change them, double-click the part chip to move
+// the line between ALL, WOMEN and MEN. Each writes ONE column of ONE row
+// through updateLine, never replaceAll -- re-inserting every row to change
+// a word would detach the practice takes attached to lines nobody touched.
+//
+// The full editor is still there for the shape of the thing: adding a
+// moment, regrouping, moving a section. This is for fixing a word.
+window.lhcVoiceEdit = {
+  _busy: false,
+
+  bind: function(root, songId, onSaved) {
+    if (!root || root._vlEditBound) return;
+    root._vlEditBound = true;
+    root.__vlEditSong = songId;
+    root.__vlEditSaved = onSaved || null;
+    root.addEventListener('dblclick', function(e) {
+      var chip = e.target.closest ? e.target.closest('.vl-who') : null;
+      var line = e.target.closest ? e.target.closest('.vl-ln[data-line-id]') : null;
+      if (!line || !root.contains(line)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (chip) window.lhcVoiceEdit.cyclePart(root, line);
+      else window.lhcVoiceEdit.editText(root, line);
+    });
+  },
+
+  _rows: function(root) {
+    var fn = root && root.__vlEditRows;
+    return (typeof fn === 'function') ? (fn() || []) : [];
+  },
+
+  editText: function(root, line) {
+    var E = window.lhcVoiceEdit;
+    if (E._busy) return;
+    var body = line.querySelector('.vl-body');
+    var words = line.querySelector('.vl-words');
+    if (!body || !words || line.querySelector('.vl-edit-in')) return;
+    var id = line.getAttribute('data-line-id');
+    // A line holding two phrases is edited in the full editor: splitting one
+    // input back into phrases is a guess about where the break belongs.
+    if (line.querySelectorAll('.vl-words').length > 1) {
+      showToast('This line has two phrases \u2014 use Edit parts for it', 'info');
+      return;
+    }
+    var lead = words.querySelector('.vl-lead');
+    var original = words.textContent.slice(lead ? lead.textContent.length : 0);
+
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'vl-edit-in';
+    inp.value = original;
+    body.replaceChild(inp, words);
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+
+    var done = false;
+    var finish = function(save) {
+      if (done) return;
+      done = true;
+      var next = inp.value.trim();
+      if (!save || next === original.trim() || !next) {
+        // Nothing to write. Put the words back rather than redraw the page
+        // under someone who pressed Escape.
+        body.replaceChild(words, inp);
+        return;
+      }
+      E._busy = true;
+      inp.disabled = true;
+      window.SBQ_VOICE_LINES.updateLine(id, { text: next }).then(function() {
+        if (typeof root.__vlEditSaved === 'function') root.__vlEditSaved();
+        showToast('Line updated', 'success');
+      }).catch(function(err) {
+        console.error(err);
+        showToast('Could not save that line', 'error');
+        body.replaceChild(words, inp);
+      }).finally(function() { E._busy = false; });
+    };
+
+    inp.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+    inp.addEventListener('blur', function() { finish(true); });
+  },
+
+  cyclePart: function(root, line) {
+    var E = window.lhcVoiceEdit;
+    if (E._busy) return;
+    var id = line.getAttribute('data-line-id');
+    var order = ['both', 'women', 'men'];
+    var now = line.classList.contains('vl-ln--both') ? 'both'
+            : line.classList.contains('vl-ln--women') ? 'women' : 'men';
+    var next = order[(order.indexOf(now) + 1) % order.length];
+
+    // A moment cannot have the same part twice, nor a unison line beside a
+    // single part -- that is what makes a group a group. Refused here rather
+    // than written and silently re-grouped on the next read.
+    var sys = line.closest('.vl-sys');
+    var others = sys ? Array.prototype.slice.call(sys.querySelectorAll('.vl-ln[data-line-id]'))
+                          .filter(function(l) { return l !== line; }) : [];
+    var clash = others.some(function(l) {
+      var p = l.classList.contains('vl-ln--both') ? 'both'
+            : l.classList.contains('vl-ln--women') ? 'women' : 'men';
+      return p === next || p === 'both' || next === 'both';
+    });
+    if (clash) {
+      showToast('That moment already has another part \u2014 use Edit parts to regroup', 'info');
+      return;
+    }
+
+    E._busy = true;
+    window.SBQ_VOICE_LINES.updateLine(id, { part: next }).then(function() {
+      if (typeof root.__vlEditSaved === 'function') root.__vlEditSaved();
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Could not change that part', 'error');
+    }).finally(function() { E._busy = false; });
+  }
+};
+
 // ============ Practice takes, one line at a time ============================
 //
 // song_recordings has carried a line_id since the table was migrated and
@@ -15065,19 +15203,10 @@ window.lhcVoiceLines = {
   // means both sing it. A leading ~ marks a held note.
   toVoiceText: function(lines) {
     var V = window.lhcVoiceLines;
-    var groups = V.group(lines);
-    var w = 2;
-    groups.forEach(function(g) {
-      var b = V.barLabel(g.barStart, g.barEnd);
-      if (b.length > w) w = b.length;
-    });
-    var pad = function(s) { while (s.length < w) { s += ' '; } return s; };
-
-    var out = [], section = null;
-    groups.forEach(function(g) {
+    var blocks = [], section = null;
+    V.group(lines).forEach(function(g) {
       if (g.section && g.section !== section) {
-        if (out.length) out.push('');
-        out.push('[' + g.section + ']');
+        blocks.push(['[' + g.section + ']']);
         section = g.section;
       }
       var rows = [];
@@ -15086,12 +15215,15 @@ window.lhcVoiceLines = {
         if (g.women) rows.push(['W: ', g.women]);
         if (g.men) rows.push(['M: ', g.men]);
       }
-      rows.forEach(function(r, i) {
-        out.push(pad(i === 0 ? V.barLabel(g.barStart, g.barEnd) : '') + '  ' +
-                 r[0] + (r[1].sustained ? '~' : '') + (r[1].text || ''));
-      });
+      blocks.push(rows.map(function(r) {
+        return r[0] + (r[1].sustained ? '~' : '') + (r[1].text || '');
+      }));
     });
-    return out.join('\n');
+    // A blank line between blocks. Lines that touch sound together; the gap
+    // is the next moment. It is the one thing in this format that has to be
+    // visible, so it is whitespace you can see rather than a column of
+    // numbers to read past.
+    return blocks.map(function(b) { return b.join('\n'); }).join('\n\n');
   },
 
   parseVoiceText: function(text) {
@@ -15099,7 +15231,9 @@ window.lhcVoiceLines = {
 
     String(text == null ? '' : text).split(/\r?\n/).forEach(function(raw) {
       var line = raw.replace(/\s+$/, '');
-      if (!line.trim()) return;
+      // A blank line closes the group. This is what carries the grouping
+      // now that the bar column is gone.
+      if (!line.trim()) { cur = null; return; }
 
       var sec = /^\s*\[(.+)\]\s*$/.exec(line);
       // A section header closes the group above it, so the first line of the
@@ -30535,6 +30669,28 @@ var SBQ_VOICE_LINES = {
         return SBQ_SONGS.updateFields(songId, {
           voice_layout: rows.length ? 'two-part' : null
         }).then(function() { return { success: true, count: rows.length }; });
+      });
+  },
+
+  // One line, one column. replaceAll deletes and re-inserts every row,
+  // which would detach any recording attached to a line nobody touched --
+  // editing a word in verse one must not cost verse three its takes.
+  updateLine: function(id, patch) {
+    var sb = SBQ_VOICE_LINES._sb();
+    if (!sb || !id) return Promise.reject(new Error('updateLine needs a line id'));
+    var clean = {};
+    if (patch && typeof patch.text === 'string') clean.text = patch.text;
+    if (patch && patch.part) clean.part = patch.part;
+    if (patch && typeof patch.sustained === 'boolean') clean.sustained = patch.sustained;
+    if (!Object.keys(clean).length) return Promise.resolve({ success: true });
+    clean.updated_at = new Date().toISOString();
+    return sb.from('song_voice_lines').update(clean).eq('id', id).select()
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        // Assert on the row, not the absence of an error: an update the anon
+        // key cannot read back reports success and changes nothing.
+        if (!r.data || !r.data.length) throw new Error('the line did not come back');
+        return SBQ_VOICE_LINES._fromRow(r.data[0]);
       });
   },
 
@@ -47316,6 +47472,9 @@ var WO = (function() {
             _sbChoirHeadHtml(song, false) +
             '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeHtml(_baseId) + '\')">' +
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
+            '<div class="sb-choir-hint">Double-click a line to change its words, ' +
+              'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
+              'Use <b>Edit parts</b> to add or regroup moments.</div>' +
             _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
           '</div></div>';
@@ -50568,10 +50727,10 @@ var WO = (function() {
     ed.className = 'sb-choir-editor';
     ed.setAttribute('contenteditable', 'false');
     ed.innerHTML =
-      '<div class="sb-choir-ed-help"><b>One line per part.</b> Bars first, then ' +
-        '<code>W:</code> or <code>M:</code>. A line with <b>no bars</b> joins the one ' +
-        'above it, so the two parts sing at the same moment. No prefix means ' +
-        'everyone. <code>~</code> marks a held note.</div>' +
+      '<div class="sb-choir-ed-help"><b>One line per part.</b> ' +
+        '<code>W:</code> women, <code>M:</code> men, no prefix for everyone. ' +
+        '<b>Lines that touch sing together</b>; a blank line starts the next ' +
+        'moment. <code>~</code> marks a held note.</div>' +
       '<textarea class="sb-choir-ta" spellcheck="false" wrap="off"></textarea>' +
       '<div class="sb-choir-ed-actions">' +
         '<button class="sb-choir-save">Save parts</button>' +
@@ -50615,6 +50774,17 @@ var WO = (function() {
       var songId = page.getAttribute('data-choir-song');
       if (!songId) return;
       window.lhcVoiceRec.bind(page, songId);
+      // Edit a line where it sits. Re-reads and redraws on save, so the
+      // grouping and the alignment are recomputed from the rows rather than
+      // patched in the DOM.
+      if (window.lhcVoiceEdit) {
+        window.lhcVoiceEdit.bind(page, songId, function() {
+          window.SBQ_VOICE_LINES.forSong(songId).then(function(fresh) {
+            _sbVoiceLines[songId] = fresh || [];
+            renderSongbookLive();
+          });
+        });
+      }
       if (window.lhcVoiceRec.loaded(songId)) {
         window.lhcVoiceRec.paintAll(page);
       } else {

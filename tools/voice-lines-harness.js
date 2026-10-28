@@ -410,16 +410,22 @@ check('no banner survives anywhere',
 check('the drawn score has no bar column', /vl-sys-bar/.test(V.html(L)), false);
 check('  and no bar numbers in its text',
   /\b11–13\b/.test(V.html([row('women', 'Oh', 0, { barStart: 11, barEnd: 13 })])), false);
-// ...but the rows still carry them, and the EDITOR still shows them,
-// because a line with no bars means something specific there: it joins the
-// line above. Strip bars from the source and placement stops working.
-check('the rows still carry their bars',
+// Rows loaded from the database still carry bars...
+check('loaded rows still carry their bars',
   V.group(L).slice(0, 2).map(g => [g.barStart, g.barEnd]), [[1, 3], [4, 4]]);
-check('the editor source still leads with the bar',
-  /^1–3\s/.test(V.toVoiceText(L).split('\n')[1]), true);
-check('  so an untouched round trip still places every row',
-  V.parseVoiceText(V.toVoiceText(L)).map(r => [r.barStart, r.barEnd]),
-  L.map(r => [r.barStart, r.barEnd]));
+// ...but the EDITOR no longer shows or keeps them. Bars are displayed
+// nowhere, so the column was a gutter of numbers to read past. Grouping
+// moved to the blank line, which is the job the column's ABSENCE used to
+// do. Saving therefore clears bars -- asserted here so it is a decision on
+// the record rather than something noticed later as a bug.
+check('the editor source carries no bar numbers',
+  /^\s*\d+[\s–]/m.test(V.toVoiceText(L)), false);
+check('  so a round trip clears them',
+  V.parseVoiceText(V.toVoiceText(L)).every(r => r.barStart == null), true);
+// A bar spec typed by hand is still honoured, so text saved under the old
+// format still parses the way it was written.
+check('a typed bar spec is still read',
+  V.parseVoiceText('4  M: a').map(r => [r.barStart, r.barEnd]), [[4, 4]]);
 
 // A silent part shows an empty bracket rather than a mark to decode. Most
 // of these are echoes -- one part answering the other a bar later -- and a
@@ -525,17 +531,26 @@ console.log('\nthe editor round trip');
 // The property that makes the editor safe: opening a song and saving it
 // again without typing must give back the song that was there. Everything
 // else in the editor is built on this holding.
-const cmp = r => [r.part, r.text, r.barStart, r.barEnd, r.section, r.sortOrder, !!r.sustained];
+// Bars excepted, per the block above: they are no longer the editor's to
+// keep. Everything that IS the arrangement -- who sings, what, in which
+// section, in what order, held or not -- must survive untouched.
+const cmp = r => [r.part, r.text, r.section, r.sortOrder, !!r.sustained];
 const trip = V.parseVoiceText(V.toVoiceText(L));
 check('open and save with no edits gives back the same ' + L.length + ' rows',
   trip.map(cmp), L.map(cmp));
+check('  including every grouping, which is now the blank lines',
+  V.group(trip).map(g => [!!g.both, !!g.women, !!g.men]),
+  V.group(L).map(g => [!!g.both, !!g.women, !!g.men]));
 check('  and the same display groups', V.group(trip).length, V.group(L).length);
 check('  and the same suggested lyrics', V.toPlainLyrics(trip), V.toPlainLyrics(L));
 check('a second trip changes nothing further',
   V.toVoiceText(trip), V.toVoiceText(L));
-check('the bar column is wide enough for the widest range',
-  V.toVoiceText(L).split('\n').filter(s => /^\d/.test(s))
-    .every(s => /^\d[\d–]*\s\s/.test(s)), true);
+// Groups are separated by exactly one blank line, which is the whole of
+// the grouping syntax now.
+check('one blank line between groups, and none inside one',
+  /\n\n\n/.test(V.toVoiceText(L)), false);
+check('the two-part moments come out as touching lines',
+  V.toVoiceText(L).indexOf('W: ~oh……\nM: A star a star') > -1, true);
 
 console.log('\nthe real arrangement, drawn the simple way');
 const realHtml = V.html(L);
