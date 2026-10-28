@@ -18,6 +18,15 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { isOwnStorage } from '../_lib/isOwnStorage';
 
 export const runtime = 'nodejs';
+// A bulletin is one service and answers in a few seconds. A lectionary is
+// a year, and Gemini reading a hundred services takes considerably longer
+// than the platform's default. Without this the function is killed
+// mid-read and Vercel answers with an HTML error page, which the browser
+// then fails to parse as JSON -- so the operator is told
+// "Unexpected token '<'" when what happened is "that was too big".
+// 60 is what parse-song-sheet and convert-pptx-to-slides already use, and
+// is allowed on every plan.
+export const maxDuration = 60;
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
