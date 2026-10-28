@@ -15523,7 +15523,25 @@ window.lhcVoiceLines = {
     var groups = V.group(lines);
     if (!groups.length) return '';
     var o = opts || {};
-    var lanes = V.lanes(lines);
+    // Lanes are worked out per SECTION, not once for the song.
+    //
+    // A part named anywhere used to be drawn everywhere: five named parts
+    // in one chorus put five rows on every verse line, four of them (-),
+    // and the page became mostly empty brackets. Within a section the
+    // stack still never shifts -- which is the property that matters, so
+    // the reader's eye can learn it -- but a verse sung in unison no
+    // longer carries the chorus's parts.
+    var lanesBySection = {};
+    (function() {
+      var byKey = {};
+      V.group(lines).forEach(function(g) {
+        var k = g.section || '';
+        var bag = (byKey[k] = byKey[k] || []);
+        if (g.both) bag.push(g.both);
+        Object.keys(g.byPart).forEach(function(p) { bag.push(g.byPart[p]); });
+      });
+      Object.keys(byKey).forEach(function(k) { lanesBySection[k] = V.lanes(byKey[k]); });
+    })();
     var out = ['<div class="vl-score' + (o.compact ? ' vl-score--compact' : '') + '">'];
     var section = null, prev = null;
 
@@ -15569,7 +15587,7 @@ window.lhcVoiceLines = {
         // stack never shifts under the reader from one system to the next.
         // A lane with nothing to sing here keeps its line and shows (-),
         // which can be double-clicked to give it words.
-        lanes.forEach(function(p) {
+        (lanesBySection[g.section || ''] || []).forEach(function(p) {
           var ln = g.byPart[V.partKey(p)];
           out.push(ln ? V._line(V.partFamily(p), V.partLabel(ln.part), ln, o)
                       : V._rest(V.partFamily(p), V.partLabel(p), p, g));
@@ -15749,7 +15767,6 @@ window.lhcVoiceLines = {
   toVoiceText: function(lines) {
     var V = window.lhcVoiceLines;
     var blocks = [], section = null;
-    var lanes = V.lanes(lines);
     V.group(lines).forEach(function(g) {
       if (g.section && g.section !== section) {
         blocks.push(['[' + g.section + ']']);
@@ -15761,7 +15778,15 @@ window.lhcVoiceLines = {
         // In lane order, so reading the editor top to bottom matches
         // reading the page top to bottom. The two canonical lanes keep
         // their shorthand; anything else is written as it was typed.
-        lanes.forEach(function(p) {
+        // The section's own lanes, so the editor lists the parts of a
+        // moment in the order the page stacks them.
+        var bag = [];
+        V.group(lines).forEach(function(x) {
+          if ((x.section || '') !== (g.section || '')) return;
+          if (x.both) bag.push(x.both);
+          Object.keys(x.byPart).forEach(function(p) { bag.push(x.byPart[p]); });
+        });
+        V.lanes(bag).forEach(function(p) {
           var ln = g.byPart[V.partKey(p)];
           if (!ln) return;
           var k = V.partKey(ln.part);
@@ -15812,7 +15837,11 @@ window.lhcVoiceLines = {
       // "[Women 1] words" -- a bracket WITH words after it names the part.
       // Checked before the shorthand so a part called "M" in brackets is
       // still that part and not the men.
-      var br = /^\[([^\]]+)\]\s*/.exec(rest);
+      // The optional colon matters. W: and M: are the shorthand, so
+      // "[Melody]: words" is what a person naturally writes, and without
+      // this the colon stayed on the front of the lyric -- which is how
+      // one song ended up with sixty-three lines beginning ": ".
+      var br = /^\[([^\]]+)\]\s*:?\s*/.exec(rest);
       if (br) {
         var named = br[1].trim();
         var nk = named.toLowerCase();

@@ -295,8 +295,15 @@ const CASES = [
   // A bracket WITH words after it names a part; a bracket alone is a
   // section. Drop the parse and "[Women 1] ..." becomes a unison line
   // whose words begin with somebody's part name.
+  // Both found in real use, on a song somebody was actually writing.
+  ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
+    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',
+                   'var br = /^\\[([^\\]]+)\\]\\s*/.exec(rest);')],
+  ['voice-lines-harness.js', 'a part named in one section is drawn over the whole song',
+    s => s.replace("(lanesBySection[g.section || ''] || []).forEach(function(p) {",
+                   'V.lanes(lines).forEach(function(p) {')],
   ['voice-lines-harness.js', 'a named part is read as lyrics instead',
-    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*/.exec(rest);', 'var br = null;')],
+    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);', 'var br = null;')],
 
   // The editor, and the cue the carolers asked for. The first of these is
   // the placement rule itself: a line with no bars sings AT THE SAME MOMENT

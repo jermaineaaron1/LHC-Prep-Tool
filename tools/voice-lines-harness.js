@@ -691,6 +691,46 @@ check('nothing in, nothing out', Object.keys(V.rematch([], [])).length, 0);
 check('every line deleted detaches everything',
   Object.keys(V.rematch(same, [])).length, 0);
 
+console.log('\nwhat a named part looks like when somebody types it');
+// W: and M: are the shorthand, so a colon after a bracketed name is what
+// a person writes without thinking. It used to stay on the front of the
+// lyric: one real song came back with sixty-three lines beginning ": ".
+check('a colon after the name is part of the label, not the words',
+  V.parseVoiceText('[Melody]: Is there room in your heart')
+    .map(r => [r.part, r.text]), [['Melody', 'Is there room in your heart']]);
+check('  with or without a space before it',
+  V.parseVoiceText('[Melody] : words').map(r => r.text), ['words']);
+check('  and without one at all', V.parseVoiceText('[Melody] words').map(r => r.text), ['words']);
+// ...but a colon in the WORDS is still words.
+check('a colon later in the line is left alone',
+  V.parseVoiceText('[Melody]: he said: come').map(r => r.text), ['he said: come']);
+
+// Lanes belong to a section. A part named in the chorus used to be drawn
+// on every verse line too, as an empty bracket: five named parts made a
+// unison verse five rows deep, four of them silent.
+// Both sections split, or the test proves nothing: a unison moment draws
+// one line and never consults the lanes at all, so a leak would not show.
+const perSection = V.parseVoiceText(
+  '[Verse 1]\nW: upper\nM: lower\n\n[Chorus]\n[Melody]: Is there room\n[Harmony]: Is there room');
+const psHtml = V.html(perSection);
+const cut = psHtml.indexOf('>Chorus<');
+const verseHtml = psHtml.slice(0, cut), chorusHtml = psHtml.slice(cut);
+const lineCount = h => (h.match(/class="vl-ln /g) || []).length;
+check('the verse shows its own two lanes and no more', lineCount(verseHtml), 2);
+check('  and the chorus shows its own two', lineCount(chorusHtml), 2);
+check('  the chorus parts never appear in the verse',
+  /Melody|Harmony/.test(verseHtml), false);
+check('  nor the verse parts in the chorus',
+  />Women<|>Men</.test(chorusHtml), false);
+check('  and both named parts are in the chorus',
+  ['Melody', 'Harmony'].every(n => chorusHtml.indexOf('>' + n + '<') > -1), true);
+// The property that must survive: within a section the stack never moves.
+const twoMoments = V.parseVoiceText(
+  '[Chorus]\n[Melody]: one\n[Harmony]: one\n\n[Melody]: two');
+const th = V.html(twoMoments);
+check('a part silent for one moment still keeps its place in that section',
+  (th.match(/vl-ln--rest/g) || []).length, 1);
+
 console.log('\nchords, read from the song and written back to it');
 // Chords live in songs.lyrics as a plain text line above the words, each
 // positioned by character offset. Sixty of the seventy songs in the
