@@ -832,6 +832,15 @@ check('clearing a chord removes the row rather than leaving a blank',
   V.withChord(LY, 2, 1, '   ').split('\n').slice(0, 2), ['[Verse 1]', 'Said the night wind to the little lamb']);
 check('an out-of-range lyric changes nothing', V.withChord(LY, 99, -1, 'X'), LY);
 
+// The stack follows the order the parts were written in, which is what
+// insertion order records. Reading them ordered by `part` sorted them
+// alphabetically instead, so a chorus came out with "1st Part" above
+// "Melody" -- a tune underneath its own harmonies. Harmless while a part
+// could only be women, men or both; decisive once the choir names them.
+check('rows are read in insertion order, not alphabetically',
+  /\.order\('sort_order', \{ ascending: true \}\)[\s\S]{0,40}\.order\('id', \{ ascending: true \}\)/.test(raw), true);
+check('  and never by part', /\.order\('part'/.test(raw), false);
+
 console.log('\nthe chords are the same width as the words under them');
 // Not a style preference. A chord is placed by CHARACTER OFFSET into the
 // lyric, so the chord row and the words have to be the same monospaced

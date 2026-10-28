@@ -314,6 +314,11 @@ const CASES = [
   ['voice-lines-harness.js', 'the fallback stops skipping held vowels',
     s => s.replace('      if (ln && !ln.sustained && String(ln.text || \'\').trim()) return ln;',
                    '      if (ln) return ln;')],
+  // The lane stack follows insertion order. Ordered by part instead, the
+  // alphabet decides it and a chorus prints its tune below its harmonies.
+  ['voice-lines-harness.js', 'the rows are read back in alphabetical part order',
+    s => s.replace(".order('id', { ascending: true })\r\n        .range(from, from + 999)",
+                   ".order('part', { ascending: true })\r\n        .range(from, from + 999)")],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',

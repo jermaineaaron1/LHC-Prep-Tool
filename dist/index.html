@@ -31406,9 +31406,18 @@ var SBQ_VOICE_LINES = {
     if (!sb || !songId) return Promise.resolve([]);
     var out = [];
     var page = function(from) {
+      // sort_order, then id -- NOT part.
+      //
+      // Ordering by part was harmless while a part could only be women,
+      // men or both: the renderer looked those up by name anyway. With
+      // parts the choir names, the alphabet decides the stack, and
+      // "1st Part" sorts above "Melody" -- so a chorus came out with its
+      // tune underneath its harmonies. id is insertion order, which is
+      // the order the parts were written in, which is the order they
+      // were meant to be read in.
       return sb.from('song_voice_lines').select('*').eq('song_id', songId)
         .order('sort_order', { ascending: true })
-        .order('part', { ascending: true })
+        .order('id', { ascending: true })
         .range(from, from + 999)
         .then(function(r) {
           // A table that has not been migrated yet, or one carrying RLS with
