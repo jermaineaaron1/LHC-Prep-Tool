@@ -8743,7 +8743,13 @@
      cells in one row happen at the SAME moment. CSS columns -- what the
      songbook's "2 Col" button does -- would stack the men's half below the
      women's, which is the one arrangement of this that cannot be read. */
-  .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-all: #4a6da7; --vl-cue: #7c3aed; --vl-o: #8a5a2b; }
+  /* --vl-text is the one size the words and the chords above them share.
+     A chord is placed by character offset, so the moment the two sizes
+     differ every chord slides off the syllable it belongs to. They are
+     one token precisely so that cannot happen again; +3px was asked for
+     and applies to both, which keeps them equal. */
+  .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-all: #4a6da7; --vl-cue: #7c3aed; --vl-o: #8a5a2b;
+    --vl-text: calc(var(--sf-lyric-size, 19px) + 3px); }
   .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 30px 0 12px; background: #dcf5e5; color: #15803d; }
   .vl-score > .vl-section:first-child { margin-top: 0; }
 
@@ -8784,7 +8790,7 @@
   /* A silent part keeps its colour. Greying the chip made the women look
      absent from the song rather than absent from this moment, and the eye
      stopped being able to track one part down the page. */
-  .vl-body { flex: 1 1 auto; min-width: 0; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
+  .vl-body { flex: 1 1 auto; min-width: 0; font-size: var(--vl-text); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
   .vl-words { display: block; overflow-wrap: break-word; }
   /* Reserves exactly the width of the words this part does not sing, so its
      first word sits under the same word in the other part. */
@@ -8806,18 +8812,21 @@
   .vl-who--chord { visibility: hidden; height: 0; padding: 0; margin: 0; }
   .vl-chord-text { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: break-word;
     font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace;
-    font-size: 0.82em; font-weight: 700; color: #14532d; letter-spacing: 0; }
+    font-size: var(--vl-text); font-weight: 800; color: #14532d; letter-spacing: 0; }
+  /* Only the FACE changes here, never the size: the size is --vl-text for
+     both, and a 0.94em here is what put the chords and the words on
+     different character widths in the first place. */
   .vl-sys:has(.vl-chords:not(.vl-chords--empty)) .vl-words {
-    font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace; font-size: 0.94em; }
+    font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace; }
   .vl-chords--empty .vl-chord-text { font-weight: 600; }
   .vl-chord-hint { color: #94a3b8; font-size: 10.5px; letter-spacing: 0.4px;
     border: 1px dashed #cbd5e1; border-radius: 4px; padding: 0 5px; cursor: text; opacity: 0; transition: opacity .12s; }
   .vl-sys:hover .vl-chord-hint { opacity: 1; }
   .vl-chords--edit .vl-chord-text { cursor: text; }
   .vl-chord-in { width: 100%; box-sizing: border-box; border: 1px solid var(--vl-cue);
-    border-radius: 4px; padding: 1px 5px; font-size: 0.82em; font-weight: 700; color: #14532d;
+    border-radius: 4px; padding: 1px 5px; font-size: var(--vl-text); font-weight: 800; color: #14532d;
     font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace; }
-  .vl-score--compact .vl-chord-text { font-size: 0.8em; }
+  .vl-score--compact .vl-body, .vl-score--compact .vl-chord-text { font-size: inherit; }
   .vl-ln--rest { background: transparent; }
   .vl-blank { color: #cbd5e1; font-weight: 400; letter-spacing: 0.1em; }
   .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -13799,7 +13808,14 @@ function _lpRenderVoiceLivePreview() {
       'Start typing to see both parts\u2026</div>';
     return;
   }
-  preview.innerHTML = window.lhcVoiceLines.html(rows);
+  // With the song's chords, the same as the saved page. A song that
+  // already has chords should look finished while the parts are being
+  // written, not only once they are saved.
+  var _pvChords = (currentLyricsPreviewSong && window.lhcVoiceLines.chordIndex)
+    ? window.lhcVoiceLines.chordIndex(currentLyricsPreviewSong.lyrics || '',
+        (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null)
+    : null;
+  preview.innerHTML = window.lhcVoiceLines.html(rows, { chords: _pvChords });
 }
 window._lpRenderVoiceLivePreview = _lpRenderVoiceLivePreview;
 

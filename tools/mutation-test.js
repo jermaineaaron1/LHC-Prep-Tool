@@ -226,6 +226,19 @@ const CASES = [
   ['voice-lines-harness.js', 'a new chord row overwrites the lyric instead of going above it',
     s => s.replace('lines.splice(lyricAt, 0, text);                      // a new row above',
                    'lines[lyricAt] = text;')],
+  // The alignment contract, and the exact way it was broken: the chord row
+  // and the lyric under it must be one size, because a chord is placed by
+  // character offset. Shipped at 13.12px over 17.86px and nobody could see
+  // it from a screenshot.
+  ['voice-lines-harness.js', 'the chord row is sized on its own again',
+    s => s.replace('font-size: var(--vl-text); font-weight: 800; color: #14532d; letter-spacing: 0; }',
+                   'font-size: 0.82em; font-weight: 800; color: #14532d; letter-spacing: 0; }')],
+  ['voice-lines-harness.js', 'the monospace rule shrinks the lyric again',
+    s => s.replace("'Courier New',monospace; }\r\n  .vl-chords--empty",
+                   "'Courier New',monospace; font-size: 0.94em; }\r\n  .vl-chords--empty")],
+  ['voice-lines-harness.js', 'the three extra pixels are dropped',
+    s => s.replace('--vl-text: calc(var(--sf-lyric-size, 19px) + 3px); }',
+                   '--vl-text: var(--sf-lyric-size, 19px); }')],
   ['voice-lines-harness.js', 'a section header is taken for a lyric a chord can sit over',
     s => s.replace("      if (/^\\s*\\[.+\\]\\s*$/.test(line)) continue;          // a section header\r\n", "")],
   ['voice-lines-harness.js', 'the bar-later echo is offered as a second line',

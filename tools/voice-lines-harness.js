@@ -753,6 +753,40 @@ check('clearing a chord removes the row rather than leaving a blank',
   V.withChord(LY, 2, 1, '   ').split('\n').slice(0, 2), ['[Verse 1]', 'Said the night wind to the little lamb']);
 check('an out-of-range lyric changes nothing', V.withChord(LY, 99, -1, 'X'), LY);
 
+console.log('\nthe chords are the same width as the words under them');
+// Not a style preference. A chord is placed by CHARACTER OFFSET into the
+// lyric, so the chord row and the words have to be the same monospaced
+// face at the same size or every chord slides off its syllable.
+//
+// Measured on the live page before this was fixed: the chord row at
+// 13.12px (character width 7.688) over a lyric at 17.86px (10.463) --
+// 2.775px of drift per character, which at offset 17 is most of five
+// characters. The page looked perfectly tidy and the chords were wrong.
+const css = raw.replace(/\r/g, '');
+const rule = sel => {
+  const i = css.indexOf(sel + ' {') >= 0 ? css.indexOf(sel + ' {') : css.indexOf(sel + '{');
+  if (i < 0) return '';
+  return css.slice(i, css.indexOf('}', i) + 1);
+};
+const bodyRule = rule('.vl-body');
+const chordRule = rule('.vl-chord-text');
+check('the words are sized by the shared token',
+  /font-size:\s*var\(--vl-text\)/.test(bodyRule), true);
+check('and so is the chord row',
+  /font-size:\s*var\(--vl-text\)/.test(chordRule), true);
+// The 0.94em that used to live here is exactly how the two came apart:
+// the rule that makes the lyric monospaced must change the FACE only.
+const hasRule = css.slice(css.indexOf('.vl-sys:has(.vl-chords'));
+const hasBody = hasRule.slice(0, hasRule.indexOf('}') + 1);
+check('making the lyric monospaced does not resize it',
+  /font-size/.test(hasBody), false);
+check('  but it does change the face', /font-family/.test(hasBody), true);
+check('the chord input matches what it replaces',
+  /font-size:\s*var\(--vl-text\)/.test(rule('.vl-chord-in')), true);
+// The token itself carries the +3px that was asked for.
+check('the token is the lyric size plus three',
+  /--vl-text:\s*calc\(var\(--sf-lyric-size,\s*19px\)\s*\+\s*3px\)/.test(css), true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');
