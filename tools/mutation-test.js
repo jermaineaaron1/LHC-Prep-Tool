@@ -197,8 +197,8 @@ const CASES = [
   // The gap notice was suppressed at a verse boundary once, which is
   // exactly where this carol's two-bar rest falls, so it vanished.
   ['voice-lines-harness.js', 'a rest straddling a verse boundary is swallowed again',
-    s => s.replace('\'<span class="vl-head-m">Men</span></div>\');',
-                   '\'<span class="vl-head-m">Men</span></div>\'); prev = null;')],
+    s => s.replace('out.push(\'<div class="vl-section">\' + V._esc(section) + \'</div>\');',
+                   'out.push(\'<div class="vl-section">\' + V._esc(section) + \'</div>\'); prev = null;')],
   // The song's own words are offered from the women's line, which is both
   // the melody and, in this carol, the line without the engraving typos.
   // One line, not two: Index.html is CRLF, so a pattern spanning a newline
@@ -213,6 +213,23 @@ const CASES = [
   ['voice-lines-harness.js', 'lyrics stop being escaped on the way into the page',
     s => s.replace('_esc: function(s) {',
                    "_esc: function(s) { return String(s == null ? '' : s);")],
+
+  // The stacked layout. A part joining mid-phrase has to sit under the words
+  // it shares; back at the left margin the page says the men start the
+  // phrase when they actually start four words into it.
+  ['voice-lines-harness.js', 'a part joining mid-phrase is dropped back to the margin',
+    s => s.replace('leadIn: function(mine, other) {',
+                   "leadIn: function(mine, other) { return '';")],
+  ['voice-lines-harness.js', 'any two lines count as sharing their ending',
+    s => s.replace("if (V._norm(a[i]) !== V._norm(b[off + i])) return '';", 'if (false) return \'\';')],
+  ['voice-lines-harness.js', 'spelling differences between the staves defeat the match',
+    s => s.replace("return String(w || '').toLowerCase().replace(/[^a-z0-9]+/g, '');",
+                   "return String(w || '');")],
+  // Measuring an indent across a phrase break reserves the width of words on
+  // a different visual line.
+  ['voice-lines-harness.js', 'a two-phrase row claims an alignment again',
+    s => s.replace("if (String(mine).indexOf('·') > -1 || String(other).indexOf('·') > -1) return '';",
+                   "if (false) return '';")],
 
   // The editor, and the cue the carolers asked for. The first of these is
   // the placement rule itself: a line with no bars sings AT THE SAME MOMENT

@@ -97,12 +97,13 @@ function row(part, text, sortOrder, extra) {
                          barStart: null, barEnd: null, section: '' }, extra || {});
 }
 
-// The order the lane classes appear in the markup. This is the check that
-// catches a missing rest cell: lanes must always come out women-then-men,
-// present or not.
+// The order the parts appear in the markup, which in a stacked layout IS
+// the order they appear on the page. Women above men, always, present or
+// not -- a reader who has learnt that the upper line is theirs must never
+// find the other part there because one of them happened to be resting.
 function laneOrder(html) {
-  return (html.match(/vl-cell vl-cell--(women|men|both)/g) || [])
-    .map(s => s.replace('vl-cell vl-cell--', ''));
+  return (html.match(/vl-ln vl-ln--(women|men|both)/g) || [])
+    .map(s => s.replace('vl-ln vl-ln--', ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -186,23 +187,28 @@ check('the duplicate check restarts at each section',
                    row('both', 'a', 1, { section: 'Verse 2' })]),
   '[Verse 1]\na\n\n[Verse 2]\na');
 
-console.log('\ndrawing the two lanes');
+console.log('\nstacking the parts the way a score stacks staves');
 const splitHtml = V.html([row('women', 'Oh', 0), row('men', 'dancing', 0)]);
-check('a split group draws both lanes', laneOrder(splitHtml), ['women', 'men']);
-check('  and is marked as a split', /vl-row--split/.test(splitHtml), true);
+check('a split group stacks women over men', laneOrder(splitHtml), ['women', 'men']);
+check('  and is braced as one system', /vl-sys(?!--unison)/.test(splitHtml), true);
 const unisonHtml = V.html([row('both', 'Silent night', 0)]);
-check('a unison group draws one spanning cell', laneOrder(unisonHtml), ['both']);
-check('  and is not marked as a split', /vl-row--split/.test(unisonHtml), false);
+check('a unison group is one line, not two', laneOrder(unisonHtml), ['both']);
+check('  and is marked unison', /vl-sys--unison/.test(unisonHtml), true);
+// Rows handed over in the other order must still come out women-first: the
+// database returns them ordered by part, but nothing guarantees a caller does.
+check('the stack order does not follow the input order',
+  laneOrder(V.html([row('men', 'b', 0), row('women', 'a', 0)])), ['women', 'men']);
 
-// THE invariant. Drop the rest cell and the men's words move into the
-// women's column, on a page that still looks completely normal.
+// THE invariant, and in a stacked layout it is sharper than it was in
+// columns: drop the resting line and the OTHER part moves up into the slot
+// the reader has learnt is theirs, on a page that still looks normal.
 const womenRest = V.html([row('men', 'Do you see what I see', 0)]);
-check('a resting part still occupies its lane', laneOrder(womenRest), ['women', 'men']);
-check('  and that lane is drawn as a rest', /vl-cell--women vl-cell--rest/.test(womenRest), true);
-check('  while the singing part is not', /vl-cell--men vl-cell--rest/.test(womenRest), false);
+check('a resting part keeps its place in the stack', laneOrder(womenRest), ['women', 'men']);
+check('  and is drawn as a rest', /vl-ln--women vl-ln--rest/.test(womenRest), true);
+check('  while the singing part is not', /vl-ln--men vl-ln--rest/.test(womenRest), false);
 const menRest = V.html([row('women', 'Do you see what I see', 0)]);
 check('the same the other way round', laneOrder(menRest), ['women', 'men']);
-check('  with the rest on the men', /vl-cell--men vl-cell--rest/.test(menRest), true);
+check('  with the rest on the men', /vl-ln--men vl-ln--rest/.test(menRest), true);
 
 check('a gap in the bars is announced',
   /2 bars — both parts rest/.test(
@@ -214,9 +220,62 @@ check('one bar of silence is singular',
             row('both', 'b', 1, { barStart: 47, barEnd: 48 })])), true);
 
 check('a held vowel is marked as one',
-  /vl-text vl-text--hold/.test(V.html([row('women', 'Oh……', 0, { sustained: true })])), true);
+  /vl-ln--hold/.test(V.html([row('women', 'Oh……', 0, { sustained: true })])), true);
 check('an ordinary line is not',
-  /vl-text--hold/.test(V.html([row('women', 'Oh', 0)])), false);
+  /vl-ln--hold/.test(V.html([row('women', 'Oh', 0)])), false);
+
+console.log('\nwords that land where they are sung');
+// The case the carollers asked about: the parts sing the SAME words, one of
+// them joining halfway through. Those words have to sit under each other,
+// not both back at the left margin, or the page says the men start the
+// phrase when they start four words into it.
+check('a part joining mid-phrase reserves the words it misses',
+  V.leadIn('tail as big as a kite', 'With a tail as big as a kite'), 'With a ');
+check('  the longer part reserves nothing',
+  V.leadIn('With a tail as big as a kite', 'tail as big as a kite'), '');
+check('  and it works the other way round too',
+  V.leadIn('child a child', 'A child a child'), 'A ');
+// The two staves spell the same words differently all over this score.
+check('hyphenation does not defeat the match',
+  V.leadIn('lit-tle lamb', 'Way up in the sky little lamb'), 'Way up in the sky ');
+// The reserved text is the other part's words VERBATIM, because it is
+// standing in for their width on the page. Only the comparison is
+// normalised, never what gets measured.
+check('nor does capitalisation or punctuation',
+  V.leadIn('what I see?', 'Do you see what I SEE'), 'Do you see ');
+// ...but a part singing something genuinely different starts at the margin.
+check('different words reserve nothing',
+  V.leadIn('A star a star', 'oh……'), '');
+check('a partial match that is not a suffix reserves nothing',
+  V.leadIn('big as a kite now', 'With a tail as big as a kite'), '');
+check('equal-length lines reserve nothing',
+  V.leadIn('good-ness and Light', 'good-nes and Light'), '');
+check('an empty part reserves nothing', V.leadIn('', 'anything'), '');
+// A row with two phrases draws as two lines. Measuring an indent against
+// the whole row reserves the width of words on a DIFFERENT line, which
+// pushed the men's line right by the width of a phrase above it. These are
+// precisely the rows whose timing the score did not give, so the layout
+// declines to claim one.
+check('a two-phrase row claims no alignment',
+  V.leadIn('let us bring gold', 'shi-vers in the cold · let us bring gold'), '');
+check('  in either direction',
+  V.leadIn('a · b c', 'x a b c'), '');
+
+const aligned = V.html([row('women', 'With a tail as big as a kite', 0),
+                        row('men', 'tail as big as a kite', 0)]);
+check('the reserved words reach the markup',
+  /<span class="vl-lead" aria-hidden="true">With a <\/span>tail as big/.test(aligned), true);
+check('  only on the part that joins late',
+  (aligned.match(/vl-lead/g) || []).length, 1);
+check('  and are hidden from anything reading the page aloud',
+  /class="vl-lead" aria-hidden="true"/.test(aligned), true);
+
+// A row holding two phrases across several bars draws them as two lines
+// rather than running them together behind a mid-dot.
+const twoPhrase = V.html([row('both', 'shi-vers in the cold · let us bring gold', 0)]);
+check('a two-phrase row draws two lines',
+  (twoPhrase.match(/class="vl-words"/g) || []).length, 2);
+check('  and the mid-dot itself is gone', /·/.test(twoPhrase), false);
 check('the line id rides along for a recording to attach to',
   /data-line-id="42"/.test(V.html([row('women', 'a', 0, { id: 42 })])), true);
 
@@ -277,10 +336,10 @@ check('22 passages have the parts apart', splits, 22);
 check('13 are unison', groups.filter(g => g.both).length, 13);
 
 const html = V.html(L);
-check('the page marks exactly those 22',
-  (html.match(/vl-row--split/g) || []).length, splits);
-check('and draws a lane for every part of every group',
-  (html.match(/vl-cell vl-cell--/g) || []).length, splits * 2 + 13);
+check('the page braces exactly 13 of them as unison',
+  (html.match(/vl-sys--unison/g) || []).length, 13);
+check('and draws a line for every part of every group, rests included',
+  (html.match(/vl-ln vl-ln--/g) || []).length, splits * 2 + 13);
 check('the two-bar rest is shown once',
   (html.match(/both parts rest/g) || []).length, 1);
 
@@ -339,7 +398,7 @@ check('  and consecutive bars do not',
   cues([row('both', 'a', 0, { barStart: 44, barEnd: 45 }),
         row('both', 'b', 1, { barStart: 46, barEnd: 48 })]), [true, false]);
 check('the cue reaches the markup',
-  (V.html([row('both', 'a', 0)]).match(/vl-row--together/g) || []).length, 1);
+  (V.html([row('both', 'a', 0)]).match(/vl-sys--together/g) || []).length, 1);
 check('  with a label a singer can read',
   /Women and men in together/.test(V.html([row('both', 'a', 0)])), true);
 
