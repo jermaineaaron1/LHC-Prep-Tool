@@ -258,6 +258,10 @@ window.lhcVoiceLines.leadIn(mine, other) // how far to indent a part that
 window.lhcVoiceLines.toPlainLyrics(lines)// a STARTING POINT for songs.lyrics,
                                          // used once at creation and never
                                          // again. Not a mirror.
+window.lhcVoiceLines.fromLyrics(txt, f)  // seed a NEW arrangement from the
+                                         // song's lyrics -- every line
+                                         // unison, chord lines dropped. f is
+                                         // the chord detector, injected.
 window.lhcVoiceLines.toVoiceText(lines)  // the EDITOR source. Round-trips.
 window.lhcVoiceLines.parseVoiceText(txt) // ...and back again
 ```

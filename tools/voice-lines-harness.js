@@ -461,6 +461,53 @@ check('a lyric opening with a number loses it to the bar column',
 check('  and an explicit prefix is the way out',
   P('B: 10 000 Reasons')[0][1], '10 000 Reasons');
 
+console.log('\nstarting an arrangement from a song that has none');
+// Everything comes in as unison. Before anyone divides it, the only true
+// reading of an ordinary song is that everybody sings it.
+const noChord = () => false;
+check('every seeded line is unison',
+  V.fromLyrics('one\ntwo', noChord).map(r => r.part), ['both', 'both']);
+check('each is its own group, in order',
+  V.fromLyrics('one\ntwo', noChord).map(r => r.sortOrder), [0, 1]);
+check('sections carry onto the rows',
+  V.fromLyrics('[Verse 1]\na\n[Chorus]\nb', noChord).map(r => r.section),
+  ['Verse 1', 'Chorus']);
+check('  and the header itself is not a row',
+  V.fromLyrics('[Verse 1]\na', noChord).map(r => r.text), ['a']);
+check('blank lines are not rows', V.fromLyrics('a\n\n\nb', noChord).length, 2);
+check('seeded rows carry no bars',
+  V.fromLyrics('a', noChord).map(r => [r.barStart, r.barEnd]), [[null, null]]);
+check('nothing is marked as held', V.fromLyrics('a', noChord)[0].sustained, false);
+check('empty lyrics seed nothing', V.fromLyrics('', noChord).length, 0);
+check('null lyrics seed nothing', V.fromLyrics(null, noChord).length, 0);
+// A chord is not a word. A row holding "C  G7  Am" is a line the page would
+// be asking somebody to sing.
+const chordish = l => /^[\sA-G0-9#b/majminsu7]+$/.test(l) && /[A-G]/.test(l);
+check('chord lines are dropped',
+  V.fromLyrics('C   G7   Am\nAmazing grace', chordish).map(r => r.text),
+  ['Amazing grace']);
+check('  and the words below one are kept',
+  V.fromLyrics('C   G7\nhow sweet the sound', chordish).map(r => r.text),
+  ['how sweet the sound']);
+
+// The invariant a conversion lives or dies by: the words that go in come
+// out. Seeding from lyrics then saving must not quietly drop a verse.
+const SONG = '[Verse 1]\nAmazing grace how sweet the sound\nThat saved a wretch like me\n\n' +
+             '[Chorus]\nHow precious did that grace appear';
+const seeded = V.fromLyrics(SONG, noChord);
+check('every lyric line survives seeding',
+  seeded.map(r => r.text),
+  ['Amazing grace how sweet the sound', 'That saved a wretch like me',
+   'How precious did that grace appear']);
+check('  and survives the editor round trip too',
+  V.parseVoiceText(V.toVoiceText(seeded)).map(r => r.text), seeded.map(r => r.text));
+check('  with its sections intact',
+  V.parseVoiceText(V.toVoiceText(seeded)).map(r => r.section), seeded.map(r => r.section));
+// A freshly seeded arrangement is all unison, so it is all one run and
+// earns exactly one cue at the top.
+check('a seeded arrangement cues once, at the start',
+  cues(seeded), [true, false, false]);
+
 console.log('\nthe editor round trip');
 // The property that makes the editor safe: opening a song and saving it
 // again without typing must give back the song that was there. Everything

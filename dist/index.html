@@ -6601,6 +6601,9 @@
             <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
             </button>
+            <button id="lyricsPreviewChoirEditBtn" class="lhc-pill-button text-sm" onclick="lhcToggleChoirParts()" style="background:#f6f3ff;border-color:#ddd3fb;color:#6d28d9;">
+              <i class="fa-solid fa-users mr-1"></i> <span id="lpChoirEditLabel">Add choir parts</span>
+            </button>
             <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
               <i class="fa-solid fa-share-nodes mr-1"></i> Share
             </button>
@@ -13548,6 +13551,104 @@ function renderLyricsPreviewContent() {
 // textarea can never visually match the saved-song look on its own. This
 // gives a guaranteed-identical preview instead of trying to make the
 // textarea itself look like the final result.
+// Turning an ordinary song into one with choir parts, and back.
+//
+// Nothing is written until Save. Starting a conversion seeds the editor
+// from the song's own words and flips the tab on IN MEMORY ONLY; cancelling
+// puts the song back exactly as it was, because the database was never
+// touched.
+var _lpChoirPending = null;   // song id mid-conversion, else null
+
+function _lpSyncChoirEditBtn(song) {
+  var btn = document.getElementById('lyricsPreviewChoirEditBtn');
+  var lab = document.getElementById('lpChoirEditLabel');
+  if (!btn || !lab) return;
+  if (!song) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  var has = song.voiceLayout === 'two-part';
+  lab.textContent = has ? 'Remove choir parts' : 'Add choir parts';
+  btn.title = has
+    ? 'Delete this song\u2019s choir arrangement. The song and its lyrics stay.'
+    : 'Start a choir arrangement from this song\u2019s lyrics';
+}
+window._lpSyncChoirEditBtn = _lpSyncChoirEditBtn;
+
+function lhcToggleChoirParts() {
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  if (song.voiceLayout === 'two-part' && _lpChoirPending !== song.id) {
+    _lpRemoveChoirParts(song);
+  } else {
+    _lpStartChoirParts(song);
+  }
+}
+window.lhcToggleChoirParts = lhcToggleChoirParts;
+
+function _lpStartChoirParts(song) {
+  if (!window.lhcVoiceLines) return;
+  if (!(song.lyrics || '').trim()) {
+    showToast('Add some lyrics first \u2014 the parts start from them', 'error');
+    return;
+  }
+  var seeded = window.lhcVoiceLines.fromLyrics(song.lyrics);
+  if (!seeded.length) {
+    showToast('No words to start from \u2014 these lyrics are all chords', 'error');
+    return;
+  }
+  // In memory only. voice_layout in the database still says nothing, and
+  // will until replaceAll runs on Save.
+  _lpChoirPending = song.id;
+  _lpVoiceLineCache[song.id] = seeded;
+  song.voiceLayout = 'two-part';
+  _lpSyncChoirEditBtn(song);
+  var tab = document.getElementById('lyricsPreviewChoirBtn');
+  if (tab) tab.style.display = '';
+  switchLyricsPreviewMode('choir');
+  lyricsPreviewToggleInlineEdit(true);
+  showToast('Every line starts as unison \u2014 mark the parts, then Save', 'success');
+}
+
+// Undo a conversion that was never saved. Called on the way out of the
+// editor, so Cancel, Escape and switching tabs all land here.
+function _lpAbandonPendingChoir() {
+  var song = currentLyricsPreviewSong;
+  if (!song || _lpChoirPending !== song.id) return;
+  _lpChoirPending = null;
+  delete _lpVoiceLineCache[song.id];
+  song.voiceLayout = null;
+  var tab = document.getElementById('lyricsPreviewChoirBtn');
+  if (tab) tab.style.display = 'none';
+  _lpSyncChoirEditBtn(song);
+  if (currentLyricsPreviewMode === 'choir') switchLyricsPreviewMode('lyrics');
+}
+
+function _lpRemoveChoirParts(song) {
+  var ask = (typeof window.customConfirm === 'function')
+    ? window.customConfirm('Remove the choir parts?',
+        'The arrangement and any recordings attached to its lines are deleted. ' +
+        'The song and its lyrics are untouched.')
+    : Promise.resolve(true);
+  ask.then(function(ok) {
+    if (!ok) return;
+    if (typeof showLoader === 'function') showLoader(true);
+    return SBQ_VOICE_LINES.clear(song.id).then(function() {
+      delete _lpVoiceLineCache[song.id];
+      song.voiceLayout = null;
+      STATE.songs.forEach(function(s) { if (s.id === song.id) s.voiceLayout = null; });
+      var tab = document.getElementById('lyricsPreviewChoirBtn');
+      if (tab) tab.style.display = 'none';
+      _lpSyncChoirEditBtn(song);
+      switchLyricsPreviewMode('lyrics');
+      showToast('Choir parts removed', 'success');
+    });
+  }).catch(function(err) {
+    console.error(err);
+    showToast('Could not remove the choir parts', 'error');
+  }).finally(function() {
+    if (typeof showLoader === 'function') showLoader(false);
+  });
+}
+
 // Live preview for the two-part editor. Parses what is in the box on every
 // keystroke and draws it with the SAME renderer the saved song uses, so the
 // preview cannot promise a layout the save will not produce.
@@ -13623,6 +13724,10 @@ function lyricsPreviewToggleInlineEdit(enter) {
     : (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines)
       ? window.lhcVoiceLines.toVoiceText(_lpVoiceLineCache[song.id] || [])
       : String((song.lyrics || ''));
+  // Closing the editor on a conversion that was never saved puts the song
+  // back. The save path clears _lpChoirPending before it gets here, so a
+  // successful save is not undone by its own tidying-up.
+  if (!enter) _lpAbandonPendingChoir();
   renderLyricsPreviewContent();
 }
 window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
@@ -13708,9 +13813,17 @@ function _lpSaveVoiceLines(song, text) {
     return SBQ_VOICE_LINES.forSong(song.id);
   }).then(function(fresh) {
     _lpVoiceLineCache[song.id] = fresh || [];
+    // The conversion is real now: replaceAll has written the rows and the
+    // flag. Cleared BEFORE leaving the editor, or the abandon path would
+    // roll back a save that succeeded.
+    var wasNew = _lpChoirPending === song.id;
+    _lpChoirPending = null;
+    song.voiceLayout = 'two-part';
+    STATE.songs.forEach(function(s) { if (s.id === song.id) s.voiceLayout = 'two-part'; });
+    _lpSyncChoirEditBtn(song);
     // The song's lyrics are deliberately not touched. Saving the choir parts
     // saves the choir parts.
-    showToast('Choir parts saved', 'success');
+    showToast(wasNew ? 'Choir parts added' : 'Choir parts saved', 'success');
     lyricsPreviewToggleInlineEdit(false);
   }).catch(function(err) {
     console.error(err);
@@ -14617,6 +14730,37 @@ window.lhcVoiceLines = {
     if (!prev || !g || prev.barEnd == null || g.barStart == null) return 0;
     var n = g.barStart - prev.barEnd - 1;
     return n > 0 ? n : 0;
+  },
+
+  // Start an arrangement from the song's own words.
+  //
+  // Every line comes in as UNISON, because that is the only reading that is
+  // certainly true before anyone has said otherwise: as it stands, the song
+  // is sung by everybody. Dividing it is what the editor is for, and
+  // starting from the real words means nobody retypes a verse to begin.
+  //
+  // The chord detector is passed in rather than reached for. The app hands
+  // it the real isChordLineGlobal; the harness hands it a plain one, so
+  // what gets tested here is that flagged lines are DROPPED -- which is
+  // this function's job -- and not whether a given string is a chord line,
+  // which is someone else's and already guarded.
+  fromLyrics: function(lyrics, isChord) {
+    var chord = (typeof isChord === 'function') ? isChord
+              : (typeof isChordLineGlobal === 'function') ? isChordLineGlobal
+              : function() { return false; };
+    var out = [], section = '', order = 0;
+    String(lyrics == null ? '' : lyrics).split(/\r?\n/).forEach(function(raw) {
+      var line = raw.trim();
+      if (!line) return;
+      var sec = /^\[(.+)\]$/.exec(line);
+      if (sec) { section = sec[1].trim(); return; }
+      // A chord is not a word. A row holding "C  G7  Am" would be a line
+      // the page asks somebody to sing.
+      if (chord(raw)) return;
+      out.push({ part: 'both', text: line, barStart: null, barEnd: null,
+                 section: section, sortOrder: order++, sustained: false });
+    });
+    return out;
   },
 
   // The song's own words, for a song that also carries a choir arrangement.
@@ -15834,6 +15978,10 @@ window.setLyricsPreviewSong = function(song) {
     _choirBtn2.style.display = (song.voiceLayout === 'two-part') ? '' : 'none';
     _choirBtn2.classList.remove('lhc-pill-button-active');
   }
+  // A conversion belongs to the song it was started on. Opening another one
+  // abandons it -- nothing was written, so there is nothing to lose.
+  _lpChoirPending = null;
+  _lpSyncChoirEditBtn(song);
   // Reset 2-col state for each new song
   var _twoColBtn = document.getElementById('lyricsPreviewTwoColBtn');
   if (_twoColBtn) _twoColBtn.classList.remove('lhc-pill-button-active');

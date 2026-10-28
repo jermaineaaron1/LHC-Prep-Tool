@@ -214,6 +214,22 @@ const CASES = [
     s => s.replace('_esc: function(s) {',
                    "_esc: function(s) { return String(s == null ? '' : s);")],
 
+  // Starting an arrangement from a song that has none. The seed is the only
+  // thing standing between a liturgist and retyping a whole carol.
+  ['voice-lines-harness.js', 'a new arrangement seeds the women alone, not unison',
+    s => s.replace("out.push({ part: 'both', text: line,", "out.push({ part: 'women', text: line,")],
+  ['voice-lines-harness.js', 'chord lines are seeded as words somebody must sing',
+    s => s.replace('      if (chord(raw)) return;', '      if (false) return;')],
+  // One line, not two: Index.html is CRLF, so a pattern spanning a newline
+  // goes stale instead of going red. The parseVoiceText line is nearly the
+  // same but carries `cur = null`, so this anchor stays unique.
+  ['voice-lines-harness.js', 'section headers are seeded as lyrics',
+    s => s.replace('if (sec) { section = sec[1].trim(); return; }',
+                   'if (sec) { section = sec[1].trim(); }')],
+  ['voice-lines-harness.js', 'every seeded line lands in one group',
+    s => s.replace('section: section, sortOrder: order++, sustained: false });',
+                   'section: section, sortOrder: 0, sustained: false });')],
+
   // The stacked layout. A part joining mid-phrase has to sit under the words
   // it shares; back at the left margin the page says the men start the
   // phrase when they actually start four words into it.
