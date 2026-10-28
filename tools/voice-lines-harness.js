@@ -270,6 +270,25 @@ check('  only on the part that joins late',
 check('  and are hidden from anything reading the page aloud',
   /class="vl-lead" aria-hidden="true"/.test(aligned), true);
 
+// The songbook prints the same markup through the same renderer, asking
+// only for the tighter, control-free variant. Two renderers for one
+// arrangement is how the page people sing from drifts away from the page
+// they rehearsed with.
+const printed = V.html([row('women', 'a', 0), row('men', 'b', 0)], { compact: true });
+const screen = V.html([row('women', 'a', 0), row('men', 'b', 0)]);
+check('the songbook asks for the compact variant', /vl-score--compact/.test(printed), true);
+check('  and the screen does not', /vl-score--compact/.test(screen), false);
+check('  but both draw the same systems and lines',
+  [laneOrder(printed), (printed.match(/vl-sys/g) || []).length],
+  [laneOrder(screen), (screen.match(/vl-sys/g) || []).length]);
+// Microphones belong on the screen, never on a printed page.
+check('the songbook page carries no recording controls',
+  /vl-rec-btn/.test(printed), false);
+check('  and the screen only carries them when asked',
+  [/vl-rec-btn/.test(screen),
+   /vl-rec-btn/.test(V.html([row('women', 'a', 0, { id: 7 })], { record: true }))],
+  [false, true]);
+
 // A row holding two phrases across several bars draws them as two lines
 // rather than running them together behind a mid-dot.
 const twoPhrase = V.html([row('both', 'shi-vers in the cold · let us bring gold', 0)]);

@@ -46243,6 +46243,11 @@ var WO = (function() {
   }
 
   function renderSongbookLive() {
+    // Arrangements the songbook needs, fetched once and redrawn when they
+    // land. Book mode and print read the cache synchronously, so without
+    // this a freshly opened songbook would print a song's lyrics and
+    // silently leave its choir pages out.
+    if (typeof sbEnsureVoiceLines === 'function') sbEnsureVoiceLines();
     var body = $('sbBody');
     if (!body) return;
 
@@ -46996,6 +47001,23 @@ var WO = (function() {
       });
 
       html += '</div>'; // .sb-song-page
+
+      // ── Choir parts page, read-only ──
+      //
+      // Not contenteditable, unlike the lyrics page above it. The
+      // arrangement's words live in song_voice_lines and are edited from the
+      // song's Choir parts tab; typing here would be offering an edit with
+      // nowhere to go.
+      if (_sbSongHasChoir(song)) {
+        var _edChoir = _sbChoirBodyHtml(song);
+        html += '<div class="sb-song-page sb-song-page--choir" id="sbChoirPage-' + sid + '" data-song-id="' + sid + '">' +
+          _sbChoirCss() +
+          '<div class="sb-choir" contenteditable="false">' +
+            _sbChoirHeadHtml(song, false) +
+            (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
+          '</div></div>';
+      }
+
       html += '</div>'; // .sb-song-unit
 
       // Page break divider between songs (357 — A4 visual + inline Add Page button)
@@ -50217,6 +50239,16 @@ var WO = (function() {
     }
     // Re-apply per-song overrides on top of the global settings
     sbApplySongFontOverrides();
+  }
+
+  // Fetch the arrangements the songbook needs, once, and redraw when they
+  // arrive. Book mode and print read the cache synchronously, so without
+  // this a freshly opened songbook would print a song's lyrics and silently
+  // leave its choir pages out.
+  function sbEnsureVoiceLines() {
+    return _sbPrefetchVoiceLines(function() {
+      if (typeof renderSongbookLive === 'function') renderSongbookLive();
+    });
   }
 
   function sbToggleLyricsColumns(songId) {
@@ -58176,6 +58208,17 @@ var WO = (function() {
       });
       songPages += _songDiv.outerHTML;
 
+      // ── Choir parts: their own printed pages, straight after the song ──
+      //
+      // No measuring here. .sp-song already breaks before every song, and
+      // break-inside:avoid on each system lets the print engine do the
+      // pagination it is better at than we are.
+      var _prChoir = _sbChoirBodyHtml(song);
+      if (_prChoir) {
+        songPages += '<div class="sp-song">' + _sbChoirCss() +
+          '<div class="sb-choir">' + _sbChoirHeadHtml(song, false) + _prChoir + '</div></div>';
+      }
+
       // ── Library/custom docs ──
       allDocs.forEach(function(att, di) {
         if (!($('sbp-doc-' + idx + '-' + di) || {checked:false}).checked) return;
@@ -58517,6 +58560,99 @@ var WO = (function() {
     // Handle OS-level fullscreen exit (e.g. user presses Esc via browser chrome)
     document.addEventListener('fullscreenchange', _sbFsOnFullscreenChange);
     document.addEventListener('webkitfullscreenchange', _sbFsOnFullscreenChange);
+  }
+
+  // ---- Choir parts as their own songbook pages ---------------------------
+  //
+  // Read-only, always. The lyrics page is contenteditable and the arrangement
+  // is not: its words live in song_voice_lines and are edited from the song's
+  // Choir parts tab, so letting someone type into the printed copy would be
+  // offering an edit that goes nowhere.
+  var _sbVoiceLines = {};        // base song id -> rows
+  var _sbVoiceWanted = {};       // base song id -> true once asked
+
+  // The library id behind a songbook item.
+  //
+  // Items carry an id of their own -- 'sbsong_<songId>_<idx>' in a standalone
+  // songbook, '<songId>--<suffix>' in one built from a Worship Order -- so
+  // neither form can be turned back into a library id by chopping it about.
+  // songId is the field that actually holds it.
+  function _sbBaseSongId(song) {
+    if (!song) return '';
+    if (song.songId) return String(song.songId);
+    return String(song.id || '').split('--')[0];
+  }
+
+  // The songbook's own item objects do not carry voice_layout -- they are
+  // built from the order, not from the library row -- so the flag is read
+  // off the library copy.
+  function _sbSongHasChoir(song) {
+    if (!song) return false;
+    if (song.voiceLayout === 'two-part') return true;
+    var base = _sbBaseSongId(song);
+    var lib = (window.LHC_STATE && LHC_STATE.songs) || [];
+    for (var i = 0; i < lib.length; i++) {
+      if (lib[i] && lib[i].id === base) return lib[i].voiceLayout === 'two-part';
+    }
+    return false;
+  }
+
+  // Book mode and print are synchronous, so the lines have to be in hand
+  // before either runs. This fetches them once per song and re-renders when
+  // they land; until then the song simply has no choir pages, which is the
+  // right way to be wrong.
+  function _sbPrefetchVoiceLines(onReady) {
+    var want = (typeof songOrderSections !== 'undefined' ? songOrderSections : [])
+      .filter(_sbSongHasChoir)
+      .map(_sbBaseSongId)
+      .filter(function(id) { return id && !_sbVoiceWanted[id]; });
+    if (!want.length || !window.SBQ_VOICE_LINES) return Promise.resolve(false);
+    want.forEach(function(id) { _sbVoiceWanted[id] = true; });
+    return Promise.all(want.map(function(id) {
+      return window.SBQ_VOICE_LINES.forSong(id).then(function(rows) {
+        _sbVoiceLines[id] = rows || [];
+      });
+    })).then(function() {
+      if (typeof onReady === 'function') onReady();
+      return true;
+    }).catch(function() { return false; });
+  }
+
+  function _sbVoiceRowsFor(song) {
+    return _sbVoiceLines[_sbBaseSongId(song)] || [];
+  }
+
+  // The styles the choir pages need, independent of whatever the lyrics
+  // pages are using. Inlined per page because book mode and print both build
+  // standalone documents.
+  function _sbChoirCss() {
+    return '<style>' +
+      '.sb-choir{font-family:' + (_sbFontSettings.family || 'inherit') + ';color:#1e293b;padding:22px 34px 30px;}' +
+      '.sb-choir-head{display:flex;align-items:baseline;gap:12px;padding:0 0 10px;border-bottom:2px solid #e2e8f0;margin-bottom:14px;}' +
+      '.sb-choir-title{font-family:Cinzel,Georgia,serif;font-size:1.1rem;font-weight:700;color:#1e293b;}' +
+      '.sb-choir-sub{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:#6d28d9;font-weight:700;}' +
+      '.sb-choir-cont{font-size:.7rem;color:#94a3b8;margin-left:auto;font-style:italic;}' +
+      // A system must never be cut in half by a page break: half a system is
+      // a part with no partner, which is worse than a short page.
+      '.sb-choir .vl-sys{break-inside:avoid;page-break-inside:avoid;}' +
+      '.sb-choir .vl-section,.sb-choir .vl-together,.sb-choir .vl-gap{break-after:avoid;page-break-after:avoid;}' +
+      '</style>';
+  }
+
+  function _sbChoirHeadHtml(song, contd) {
+    return '<div class="sb-choir-head">' +
+      '<span class="sb-choir-title">' + escapeHtml(song.title || '') + '</span>' +
+      '<span class="sb-choir-sub">Choir parts</span>' +
+      (contd ? '<span class="sb-choir-cont">continued</span>' : '') +
+      '</div>';
+  }
+
+  // One block holding the whole arrangement. Print uses this as-is and lets
+  // the browser break it; book mode measures it and slices.
+  function _sbChoirBodyHtml(song) {
+    var rows = _sbVoiceRowsFor(song);
+    if (!rows.length || !window.lhcVoiceLines) return '';
+    return window.lhcVoiceLines.html(rows, { compact: true });
   }
 
   function _sbFsBuildPages() {
@@ -58957,6 +59093,48 @@ var WO = (function() {
                 fullContentHtml +
               '</div>' +
               taHtml +
+            '</div>');
+        });
+      }
+
+      // ── Choir parts: their own pages, after the song's lyrics ──
+      //
+      // Sliced at system boundaries by measuring the real block, rather than
+      // at a fixed pixel offset: a system cut in half leaves one part
+      // stranded at the bottom of a page without the other.
+      var _choirBody = _sbChoirBodyHtml(song);
+      if (_choirBody) {
+        var _cm = document.createElement('div');
+        _cm.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
+        _cm.innerHTML = _sbChoirCss() + '<div class="sb-choir">' +
+                        _sbChoirHeadHtml(song, false) + _choirBody + '</div>';
+        document.body.appendChild(_cm);
+        void _cm.offsetHeight;
+        var _cWrap = _cm.querySelector('.vl-score');
+        var _cTop = _cm.getBoundingClientRect().top;
+        var _cHeadH = 0;
+        var _cHeadEl = _cm.querySelector('.sb-choir-head');
+        if (_cHeadEl) _cHeadH = Math.round(_cHeadEl.getBoundingClientRect().bottom - _cTop) + 14;
+        var _cBlocks = _cWrap ? Array.prototype.slice.call(_cWrap.children) : [];
+        var _cAvail = A4H - _cHeadH - 40;
+        var _cStarts = [0], _cRunTop = _cBlocks.length ? (_cBlocks[0].getBoundingClientRect().top - _cTop) : 0;
+        _cBlocks.forEach(function(el, bi) {
+          var bot = el.getBoundingClientRect().bottom - _cTop;
+          if (bot - _cRunTop > _cAvail && bi > 0) {
+            _cStarts.push(bi);
+            _cRunTop = el.getBoundingClientRect().top - _cTop;
+          }
+        });
+        document.body.removeChild(_cm);
+
+        _cStarts.forEach(function(startIdx, pi) {
+          var endIdx = (pi + 1 < _cStarts.length) ? _cStarts[pi + 1] : _cBlocks.length;
+          var slice = _cBlocks.slice(startIdx, endIdx).map(function(el) { return el.outerHTML; }).join('');
+          pages.push(extraStyle + _sbChoirCss() +
+            '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
+              '<div class="sb-choir">' + _sbChoirHeadHtml(song, pi > 0) +
+                '<div class="vl-score vl-score--compact">' + slice + '</div>' +
+              '</div>' +
             '</div>');
         });
       }
