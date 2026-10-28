@@ -8884,6 +8884,24 @@
      It has to look answerable or nobody will try. */
   .vl-ln--rest[data-rest-part] .vl-blank { cursor: text; border-bottom: 1px dashed #cbd5e1; padding-bottom: 1px; }
   .vl-ln--rest[data-rest-part]:hover .vl-blank { color: var(--vl-cue); border-bottom-color: var(--vl-cue); }
+  /* Import sits beside the microphone and reads as its quieter twin:
+     the same size and shape, no red dot, because recording is the thing
+     you do here and importing is the thing you do instead. */
+  .vl-imp-btn { flex: 0 0 auto; width: 26px; height: 26px; margin-left: 4px; border: 1px solid #d7def0;
+    border-radius: 50%; background: #fff; color: #94a3b8; font-size: 11px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; transition: .13s; }
+  .vl-imp-btn:hover { border-color: var(--vl-cue); color: var(--vl-cue); }
+  .vl-imp-btn:focus-visible { outline: 2px solid var(--vl-cue); outline-offset: 1px; }
+  .vl-imp-song { margin-left: 8px; padding: 5px 11px; border: 1px solid #d7def0; border-radius: 14px;
+    background: #fff; color: #64748b; font-size: 11.5px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; transition: .13s; }
+  .vl-imp-song:hover { border-color: var(--vl-cue); color: var(--vl-cue); }
+  /* Beside Record in the songbook's panel, on its dark ground. */
+  .sb-rec-import { width: 100%; margin-top: 6px; padding: 7px 12px; border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 8px; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.78);
+    font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex;
+    align-items: center; justify-content: center; gap: 7px; transition: .14s; }
+  .sb-rec-import:hover { background: rgba(255,255,255,0.15); color: #fff; }
   /* The one control on the song bar people are sent here to use. */
   .sb-rec-cta { gap: 5px; font-weight: 700; color: #b91c1c; border-color: rgba(185,28,28,0.35); background: rgba(185,28,28,0.07); }
   .sb-rec-cta:hover { color: #fff; background: #b91c1c; border-color: #b91c1c; }
@@ -11475,6 +11493,10 @@ I once was lost but now am found"
             </div>
             <button class="sb-rec-btn" id="sbRecordBtn" onclick="WO.sbToggleRecording()">
               <span class="sb-rec-dot"></span> Record
+            </button>
+            <button class="sb-rec-import" id="sbRecImportBtn" onclick="WO.sbImportRecording()"
+                    title="Add an audio file you already have">
+              <i class="fa-solid fa-file-audio"></i> Add a file
             </button>
             <div id="sbRecList" class="sb-rec-list"></div>
           </div>
@@ -14971,6 +14993,9 @@ window.lhcVoiceRec = {
       '<button type="button" class="vl-rehearse-btn" data-rec-act="song" ' +
       'title="Record the whole song"><span class="vl-rehearse-dot"></span>' +
       '<span class="vl-rehearse-label">Record the song</span></button>' +
+      '<button type="button" class="vl-imp-song" data-rec-act="import-song" ' +
+      'title="Add an audio file for the whole song">' +
+      '<i class="fa-solid fa-file-audio"></i> Add a file</button>' +
       '<div class="vl-drafts" data-rec-drafts="1"></div></div>';
   },
 
@@ -15050,6 +15075,8 @@ window.lhcVoiceRec = {
       var act = btn.getAttribute('data-rec-act');
       if (act === 'toggle') R.toggle(root, btn.getAttribute('data-rec-line'));
       else if (act === 'song') R.toggle(root, null);
+      else if (act === 'import') R.pickFile(root, btn.getAttribute('data-rec-line'));
+      else if (act === 'import-song') R.pickFile(root, null);
       else if (act === 'play') R.play(root, btn.getAttribute('data-rec-id'), btn.getAttribute('data-rec-path'));
       else if (act === 'del') R.del(root, btn.getAttribute('data-rec-id'), btn.getAttribute('data-rec-path'));
     });
@@ -15125,15 +15152,109 @@ window.lhcVoiceRec = {
     btn.title = on ? 'Stop recording' : 'Record this line';
   },
 
-  _save: function(root, songId, lineId, part, blob, secs) {
+  // What to call the file in the bucket.
+  //
+  // MediaRecorder only ever gives webm, mp4 or ogg; an imported file can
+  // be anything the singer had on their phone. The extension is taken
+  // from the type where it is recognised and from the filename where it
+  // is not, because the bucket serves by path and a wav saved as .webm
+  // is a file nothing will play.
+  _ext: function(type, filename) {
+    var t = String(type || '').toLowerCase();
+    if (t.indexOf('mpeg') !== -1 || t.indexOf('mp3') !== -1) return 'mp3';
+    if (t.indexOf('mp4') !== -1 || t.indexOf('m4a') !== -1 || t.indexOf('aac') !== -1) return 'm4a';
+    if (t.indexOf('ogg') !== -1) return 'ogg';
+    if (t.indexOf('wav') !== -1) return 'wav';
+    if (t.indexOf('flac') !== -1) return 'flac';
+    if (t.indexOf('webm') !== -1) return 'webm';
+    var m = /\.([a-z0-9]{2,5})$/i.exec(String(filename || ''));
+    return m ? m[1].toLowerCase() : 'webm';
+  },
+
+  // How long it runs, read off the file rather than guessed.
+  //
+  // Resolves to 0 rather than rejecting: a duration nobody could read is
+  // a cosmetic loss on a chip, and refusing the import over it would
+  // throw away the audio for the sake of a number.
+  _durationOf: function(file) {
+    return new Promise(function(resolve) {
+      var url = null, settled = false;
+      var done = function(secs) {
+        if (settled) return;
+        settled = true;
+        if (url) { try { URL.revokeObjectURL(url); } catch (e) {} }
+        resolve(secs);
+      };
+      try {
+        url = URL.createObjectURL(file);
+        var a = new Audio();
+        a.preload = 'metadata';
+        a.onloadedmetadata = function() {
+          var d = a.duration;
+          done((isFinite(d) && d > 0) ? Math.round(d * 100) / 100 : 0);
+        };
+        a.onerror = function() { done(0); };
+        a.src = url;
+        // Some containers never fire either event. Do not hang on them.
+        setTimeout(function() { done(0); }, 6000);
+      } catch (e) { done(0); }
+    });
+  },
+
+  // Ask for a file, then take it. The input is made and dropped here so
+  // there is no hidden element to go stale when the view re-renders --
+  // and this view re-renders on every edit.
+  pickFile: function(root, lineId) {
+    var R = window.lhcVoiceRec;
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'audio/*';
+    inp.style.display = 'none';
+    document.body.appendChild(inp);
+    inp.addEventListener('change', function() {
+      var f = inp.files && inp.files[0];
+      document.body.removeChild(inp);
+      if (f) R.importFile(root, lineId, f);
+    });
+    inp.click();
+  },
+
+  // 25MB. Large enough for a full run-through at a sensible bitrate,
+  // small enough that a whole rehearsal video does not go up by mistake.
+  _MAX_IMPORT: 25 * 1024 * 1024,
+
+  importFile: function(root, lineId, file) {
+    var R = window.lhcVoiceRec;
+    var songId = R._songOf(root);
+    if (!songId) { showToast('Nothing to import against', 'error'); return; }
+    if (!file || !file.size) { showToast('That file is empty', 'error'); return; }
+    if (!/^audio\//i.test(file.type || '') && !/\.(mp3|m4a|aac|ogg|wav|flac|webm)$/i.test(file.name || '')) {
+      showToast('That does not look like an audio file', 'error');
+      return;
+    }
+    if (file.size > R._MAX_IMPORT) {
+      showToast('That file is larger than 25MB', 'error');
+      return;
+    }
+    var line = lineId == null ? null
+             : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
+    var part = !line ? 'general'
+             : line.classList.contains('vl-ln--women') ? 'women'
+             : line.classList.contains('vl-ln--men') ? 'men' : 'general';
+    R._durationOf(file).then(function(secs) {
+      // Straight into the ordinary save. An import is a take.
+      R._save(root, songId, lineId, part, file, secs, file.name);
+    });
+  },
+
+  _save: function(root, songId, lineId, part, blob, secs, label) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (!sb || !blob || !blob.size) { showToast('Nothing was recorded', 'error'); return; }
     // The songbook-recordings bucket was never given anon policies, so these
     // go in the app's working bucket under the same prefix the whole-song
     // takes already use.
-    var type = (blob.type || 'audio/webm').toLowerCase();
-    var ext = type.indexOf('mp4') !== -1 ? 'm4a' : type.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
+    var ext = R._ext(blob.type, blob.name);
     var whole = lineId == null;
     var path = 'practice-recordings/' + songId + '/' +
                (whole ? 'draft' : part) + '__' + Date.now() + '.' + ext;
@@ -15150,7 +15271,10 @@ window.lhcVoiceRec = {
       uploaded = true;
       return sb.from('song_recordings').insert({
         song_id: songId, line_id: whole ? null : lineId,
-        name: whole ? ('Run-through ' + n)
+        // An imported file keeps its own name, trimmed of the extension:
+        // "chorus-alto-take3" says more than "Women take 2" ever will.
+        name: label ? String(label).replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 80)
+            : whole ? ('Run-through ' + n)
             : (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Take') + ' take ' + n,
         storage_path: path, duration_sec: Math.round(secs * 100) / 100
       }).select();
@@ -15164,13 +15288,13 @@ window.lhcVoiceRec = {
       if (whole) {
         R._drafts[songId].push(row);
         R.paintDrafts(root);
-        showToast('Run-through saved', 'success');
+        showToast(label ? 'Audio added to this song' : 'Run-through saved', 'success');
         return;
       }
       var k = String(lineId);
       (R._takes[songId][k] = R._takes[songId][k] || []).push(row);
       R.paint(root, lineId);
-      showToast('Take saved', 'success');
+      showToast(label ? 'Audio added to this line' : 'Take saved', 'success');
     }).catch(function(err) {
       console.error(err);
       // The file is already in the bucket by the time the row fails, and
@@ -16004,6 +16128,9 @@ window.lhcVoiceLines = {
       '<button type="button" class="vl-rec-btn" data-rec-act="toggle" data-rec-line="' + id + '" ' +
       'title="Record this line" aria-label="Record this line">' +
       '<i class="fa-solid fa-microphone"></i></button>' +
+      '<button type="button" class="vl-imp-btn" data-rec-act="import" data-rec-line="' + id + '" ' +
+      'title="Add an audio file for this line" aria-label="Add an audio file for this line">' +
+      '<i class="fa-solid fa-file-audio"></i></button>' +
       '<span class="vl-rec-takes" data-rec-takes="' + id + '"></span></span>';
   }
 };
@@ -50109,6 +50236,39 @@ var WO = (function() {
       _sbRecTimerInt = setInterval(function() { _sbRecElapsed++; if (timerEl) { var m = Math.floor(_sbRecElapsed/60), s = _sbRecElapsed%60; timerEl.textContent = m+':'+(s<10?'0':'')+s; } }, 1000);
     }).catch(function(err) { sbShowRecStatus('Mic access denied: ' + err.message, 'error'); });
   }
+  // Bring in an audio file as a run-through for this song.
+  //
+  // Straight into _sbSaveRecording, so an imported file is stored, named,
+  // counted against the limit, played and deleted exactly as a recorded
+  // one is. The extension and the duration come from lhcVoiceRec, which
+  // already had to work them out for the choir page -- two answers to
+  // "what kind of file is this" would eventually disagree.
+  function sbImportRecording() {
+    var songId = _sbRecCurrentSongId;
+    if (!songId) { sbShowRecStatus('No song selected', 'error'); return; }
+    if (_sbOwnRecCount() >= 10) { sbShowRecStatus('Max 10 recordings per song \u2014 delete one first', 'error'); return; }
+    var R = window.lhcVoiceRec;
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'audio/*';
+    inp.style.display = 'none';
+    document.body.appendChild(inp);
+    inp.addEventListener('change', function() {
+      var f = inp.files && inp.files[0];
+      document.body.removeChild(inp);
+      if (!f) return;
+      if (!f.size) { sbShowRecStatus('That file is empty', 'error'); return; }
+      if (R && f.size > R._MAX_IMPORT) { sbShowRecStatus('That file is larger than 25MB', 'error'); return; }
+      if (!/^audio\//i.test(f.type || '') && !/\.(mp3|m4a|aac|ogg|wav|flac|webm)$/i.test(f.name || '')) {
+        sbShowRecStatus('That does not look like an audio file', 'error'); return;
+      }
+      sbShowRecStatus('Adding\u2026', '');
+      var dur = (R && R._durationOf) ? R._durationOf(f) : Promise.resolve(0);
+      dur.then(function(secs) { _sbSaveRecording(f, secs, f.name); });
+    });
+    inp.click();
+  }
+
   function _sbStopRecording() {
     if (_sbMediaRecorder && _sbMediaRecorder.state !== 'inactive') _sbMediaRecorder.stop();
     // onstop normally releases it. If the recorder is already inactive
@@ -50122,7 +50282,7 @@ var WO = (function() {
     sbShowRecStatus('Saving…', '');
   }
   function sbShowRecStatus(msg, type) { var el = document.getElementById('sbRecStatus'); if (!el) return; el.textContent = msg; el.style.display = msg ? '' : 'none'; el.style.color = type === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.5)'; }
-  function _sbSaveRecording(blob, durationSec) {
+  function _sbSaveRecording(blob, durationSec, label) {
     var songId = _sbRecCurrentSongId; if (!songId) { sbShowRecStatus('No song selected', 'error'); return; }
     var existing = _sbOwnRecCount();
     // Belt and braces. The real check is before the microphone opens --
@@ -50135,14 +50295,18 @@ var WO = (function() {
     // The 'songbook-recordings' bucket was never given anon policies (every
     // upload died on RLS) — practice takes live in the app's working bucket
     // under their own prefix instead.
-    var recType = (blob.type || 'audio/webm').toLowerCase();
-    var recExt = recType.indexOf('mp4') !== -1 ? 'm4a' : recType.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
+    var recExt = (window.lhcVoiceRec && window.lhcVoiceRec._ext)
+      ? window.lhcVoiceRec._ext(blob.type, blob.name)
+      : 'webm';
     var storagePath = 'practice-recordings/' + songId + '/' + recCat + '__' + Date.now() + '.' + recExt;
     var sup = window._supabase || null; if (!sup) { sbShowRecStatus('Storage unavailable', 'error'); return; }
     sup.storage.from(LHC_SUPABASE_BUCKET).upload(storagePath, blob, { contentType: blob.type || 'audio/webm', upsert: false })
       .then(function(res) {
         if (res.error) { sbShowRecStatus('Upload failed: ' + res.error.message, 'error'); return; }
-        return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: _sbRecCatLabel(recCat) + ' take ' + (existing + 1), storage_path: storagePath, duration_sec: durationSec });
+        var recName = label
+          ? String(label).replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 80)
+          : _sbRecCatLabel(recCat) + ' take ' + (existing + 1);
+        return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: recName, storage_path: storagePath, duration_sec: durationSec });
       }).then(function(res2) {
         if (!res2) return;
         if (res2.error) {
@@ -74784,6 +74948,7 @@ var WO = (function() {
     // Media / recordings tab
     sbToggleRecording: sbToggleRecording,
     sbOpenRecordings: sbOpenRecordings,
+    sbImportRecording: sbImportRecording,
     sbCloseRecordings: sbCloseRecordings,
     sbLoadRecordings: sbLoadRecordings,
     sbPlayRecording: sbPlayRecording,
