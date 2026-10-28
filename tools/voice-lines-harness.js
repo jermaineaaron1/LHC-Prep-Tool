@@ -841,6 +841,55 @@ check('rows are read in insertion order, not alphabetically',
   /\.order\('sort_order', \{ ascending: true \}\)[\s\S]{0,40}\.order\('id', \{ ascending: true \}\)/.test(raw), true);
 check('  and never by part', /\.order\('part'/.test(raw), false);
 
+console.log('\na moment with no matching lyric does not pretend otherwise');
+// A chord hangs on a lyric line in songs.lyrics. Edit a choir line's
+// words away from the song's and it matches nothing -- so there is
+// nowhere to put a chord, and offering "+ chords" there invited a click
+// that could only refuse.
+const orphanIdx = V.chordIndex(['C', 'known words'].join('\n'), isChord);
+const known = V.group([row('both', 'known words', 0)])[0];
+const unknown = V.group([row('both', 'words the song does not have', 0)])[0];
+const hKnown = V.html([row('both', 'known words', 0)], { chords: orphanIdx, chordEdit: true });
+const hOrphan = V.html([row('both', 'words the song does not have', 0)], { chords: orphanIdx, chordEdit: true });
+check('a matched moment is editable', /vl-chords--edit/.test(hKnown), true);
+check('an unmatched one is not', /vl-chords--edit/.test(hOrphan), false);
+check('  and is marked as having no lyric', /vl-chords--nolyric/.test(hOrphan), true);
+check('  and offers no "+ chords"', /\+ chords/.test(hOrphan), false);
+check('  and says why on hover', /there is nowhere to put a chord/.test(hOrphan), true);
+// Print asks for no editing at all, and must get neither.
+const hPrint = V.html([row('both', 'words the song does not have', 0)], { chords: orphanIdx, compact: true });
+check('print shows no hint either', /vl-chord-hint/.test(hPrint), false);
+
+// The printed songbook opens a standalone document with no app
+// stylesheet, so the score's rules have to travel with it. Without them
+// the chips lose their background, the line stops being a flex row, the
+// chord row loses its monospace face and white-space collapses the
+// leading spaces -- every chord slides to the left margin. Measured.
+check('the print stylesheet is lifted from the live one, not copied',
+  /function _sbChoirScoreCss\(\)/.test(raw), true);
+check('  and the choir CSS block includes it',
+  /return '<style>' \+ _sbChoirScoreCss\(\)/.test(raw), true);
+check('  deduplicated, since it is inlined once per song',
+  /if \(txt\.indexOf\('\.vl-'\) > -1 && !seen\[txt\]\)/.test(raw), true);
+
+console.log('\nreordering a songbook does not rename it');
+// SBQ_SONGBOOKS.save builds a WHOLE row, so a caller handing it
+// {id, songIds} gets name reset to 'Untitled Songbook' and items wiped
+// to []. Dragging a song to reorder did exactly that, taking every
+// saved choirView with it. Measured on a throwaway row: "AUDIT Keep
+// This Name" came back as "Untitled Songbook" with items [].
+check('a narrow write exists for the songbook row',
+  /updateFields: function\(id, patch\) \{[\s\S]{0,900}from\('songbooks'\)\.update\(row\)/.test(raw), true);
+check('  and the reorder uses it, not save',
+  /SBQ_SONGBOOKS\.updateFields\(_sbStandaloneId, \{[\s\S]{0,160}songIds:/.test(raw), true);
+check('  so nothing calls save with songIds alone',
+  /SBQ_SONGBOOKS\.save\(\{ id: _sbStandaloneId, songIds:/.test(raw), false);
+// The narrow write must not invent the columns it was not given.
+check('the patch writes only the keys it is handed',
+  /if \(patch && patch\.name != null\) row\.name = patch\.name;/.test(raw) &&
+  /if \(patch && patch\.songIds\) row\.song_ids = patch\.songIds;/.test(raw) &&
+  /if \(patch && patch\.items\) row\.items = patch\.items;/.test(raw), true);
+
 console.log('\nthe chords are the same width as the words under them');
 // Not a style preference. A chord is placed by CHARACTER OFFSET into the
 // lyric, so the chord row and the words have to be the same monospaced

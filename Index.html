@@ -8823,6 +8823,7 @@
   .vl-chord-hint { color: #94a3b8; font-size: 10.5px; letter-spacing: 0.4px;
     border: 1px dashed #cbd5e1; border-radius: 4px; padding: 0 5px; cursor: text; opacity: 0; transition: opacity .12s; }
   .vl-sys:hover .vl-chord-hint { opacity: 1; }
+  .vl-chord-hint--off { border-style: dotted; color: #cbd5e1; cursor: help; }
   .vl-chords--edit .vl-chord-text { cursor: text; }
   .vl-chord-in { width: 100%; box-sizing: border-box; border: 1px solid var(--vl-cue);
     border-radius: 4px; padding: 1px 5px; font-size: var(--vl-text); font-weight: 800; color: #14532d;
@@ -15711,7 +15712,11 @@ window.lhcVoiceLines = {
         var hit = V.chordFor(o.chords, g, o._cursor || (o._cursor = { at: 0 }));
         var over = V.leadText(g);
         if (hit || o.chordEdit) {
-          out.push(V._chordRow(hit, over, !!o.chordEdit));
+          // Editable only where there IS a lyric line to hang a chord on.
+          // A moment whose words have been edited away from the song's
+          // matches nothing, and offering "+ chords" there invited a
+          // click that could only refuse.
+          out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit));
         }
       }
 
@@ -16105,9 +16110,13 @@ window.lhcVoiceLines = {
   // Rendered in a monospaced lane so a chord sits over the character it
   // was typed above -- the same contract the Chords tab and the PDF use,
   // which is why the chords can be shared between them at all.
-  _chordRow: function(hit, over, editable) {
+  _chordRow: function(hit, over, editable, wanted) {
     var V = window.lhcVoiceLines;
     var chord = hit ? String(hit.chord || '') : '';
+    // Asked for, but there is no lyric line these words match, so there
+    // is nowhere in songs.lyrics to put a chord. Say why on hover rather
+    // than show an affordance that declines.
+    var orphan = !!wanted && !hit;
     var attrs = editable
       ? ' data-chord-lyric-at="' + V._esc(String(hit ? hit.lyricAt : '')) + '"' +
         ' data-chord-at="' + V._esc(String(hit ? hit.chordAt : -1)) + '"' +
@@ -16115,10 +16124,12 @@ window.lhcVoiceLines = {
       : '';
     var empty = !chord.trim();
     return '<div class="vl-chords' + (empty ? ' vl-chords--empty' : '') +
-      (editable ? ' vl-chords--edit' : '') + '"' + attrs + '>' +
+      (editable ? ' vl-chords--edit' : '') + (orphan ? ' vl-chords--nolyric' : '') + '"' + attrs +
+      (orphan ? ' title="These words are not in the song’s lyrics, so there is nowhere to put a chord. Edit the lyrics to match, or use the Lyrics tab."' : '') + '>' +
       '<span class="vl-who vl-who--chord" aria-hidden="true"></span>' +
       '<span class="vl-chord-text">' +
-        (empty ? (editable ? '<span class="vl-chord-hint">+ chords</span>' : '')
+        (empty ? (editable ? '<span class="vl-chord-hint">+ chords</span>'
+                         : orphan ? '<span class="vl-chord-hint vl-chord-hint--off">no lyric line</span>' : '')
                : V._esc(chord)) +
       '</span></div>';
   },
@@ -31679,6 +31690,30 @@ var SBQ_SONGBOOKS = {
           SBQ_SONGBOOKS._tableExists = true;
           return (r.data || []).map(SBQ_SONGBOOKS._fromRow);
         });
+    });
+  },
+
+  // One or two columns, leaving the rest of the row alone.
+  //
+  // save() below builds a WHOLE row, so a caller handing it {id, songIds}
+  // gets name reset to 'Untitled Songbook' and items wiped to []. That is
+  // not hypothetical: reordering songs by drag did exactly that, renaming
+  // the songbook and taking every saved choirView with it. Measured on a
+  // throwaway row before this was written.
+  //
+  // Same shape as SBQ_SONGS.updateFields, and for the same reason.
+  updateFields: function(id, patch) {
+    SBQ.invalidateUsageIndex();
+    var sb = SBQ_SONGBOOKS._sb();
+    if (!sb || !id) return Promise.reject(new Error('updateFields needs a songbook id'));
+    var row = {};
+    if (patch && patch.name != null) row.name = patch.name;
+    if (patch && patch.songIds) row.song_ids = patch.songIds;
+    if (patch && patch.items) row.items = patch.items;
+    if (!Object.keys(row).length) return Promise.resolve({ success: true });
+    return sb.from('songbooks').update(row).eq('id', id).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
     });
   },
 
@@ -60340,8 +60375,48 @@ var WO = (function() {
   // The styles the choir pages need, independent of whatever the lyrics
   // pages are using. Inlined per page because book mode and print both build
   // standalone documents.
+  // The score's own rules, lifted out of the live stylesheet.
+  //
+  // Print opens a standalone document: no app stylesheet, only what is
+  // inlined here. This used to inline the page-break rules and the
+  // header and nothing else, so every .vl- rule was missing and the
+  // printed choir pages came out wrong in four ways at once -- the part
+  // chips lost their background and became plain text, the line stopped
+  // being a flex row so the chip stacked ABOVE the words, the chord row
+  // lost its monospace face, and white-space went back to normal, which
+  // collapses the chord line's leading spaces and slides every chord to
+  // the left margin. Measured in an isolated frame; all four.
+  //
+  // Read from document.styleSheets rather than copied into a string here,
+  // because a copy is a second source of truth and the two would drift
+  // the first time anybody changed a colour.
+  var _sbChoirScoreCssCache = null;
+  function _sbChoirScoreCss() {
+    if (_sbChoirScoreCssCache !== null) return _sbChoirScoreCssCache;
+    // Deduplicated, because the same rule is in the document several
+    // times over and this block is inlined once per SONG: 572 rules and
+    // 67KB became a megabyte of repeated stylesheet in a twenty-song
+    // book. Identical text is the same rule however many sheets carry it.
+    var seen = Object.create(null), out = [];
+    try {
+      for (var i = 0; i < document.styleSheets.length; i++) {
+        var rules = null;
+        try { rules = document.styleSheets[i].cssRules; } catch (e) { continue; }
+        if (!rules) continue;
+        for (var j = 0; j < rules.length; j++) {
+          var txt = rules[j].cssText || '';
+          // cssText, not selectorText: it catches @media blocks whose
+          // inner rules are the responsive sizes of the same score.
+          if (txt.indexOf('.vl-') > -1 && !seen[txt]) { seen[txt] = 1; out.push(txt); }
+        }
+      }
+    } catch (e) {}
+    _sbChoirScoreCssCache = out.join('\n');
+    return _sbChoirScoreCssCache;
+  }
+
   function _sbChoirCss() {
-    return '<style>' +
+    return '<style>' + _sbChoirScoreCss() +
       '.sb-choir{font-family:' + (_sbFontSettings.family || 'inherit') + ';color:#1e293b;padding:22px 34px 30px;}' +
       '.sb-choir-head{display:flex;align-items:baseline;gap:12px;padding:0 0 10px;border-bottom:2px solid #e2e8f0;margin-bottom:14px;}' +
       '.sb-choir-title{font-family:Cinzel,Georgia,serif;font-size:1.1rem;font-weight:700;color:#1e293b;}' +
@@ -63725,7 +63800,12 @@ var WO = (function() {
       renderSongbookLive();
       autoSaveOrder();
       if (_sbStandaloneId) {
-        SBQ_SONGBOOKS.save({ id: _sbStandaloneId, songIds: songOrderSections.map(function(s) { return s.songId || s.id; }) }).catch(function() {});
+        // updateFields, not save: save writes the whole row, so this
+        // renamed the songbook to 'Untitled Songbook' and wiped items --
+        // every saved choirView -- every time a song was dragged.
+        SBQ_SONGBOOKS.updateFields(_sbStandaloneId, {
+          songIds: songOrderSections.map(function(s) { return s.songId || s.id; })
+        }).catch(function() {});
       }
     });
 

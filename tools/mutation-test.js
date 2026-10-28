@@ -319,6 +319,27 @@ const CASES = [
   ['voice-lines-harness.js', 'the rows are read back in alphabetical part order',
     s => s.replace(".order('id', { ascending: true })\r\n        .range(from, from + 999)",
                    ".order('part', { ascending: true })\r\n        .range(from, from + 999)")],
+  // Reordering a songbook by drag used to rename it and wipe its saved
+  // per-song state, because save() writes the whole row. Third table to
+  // be bitten by that, after songs and order_items.
+  ['voice-lines-harness.js', 'the reorder goes back to the full-row write',
+    s => s.replace('SBQ_SONGBOOKS.updateFields(_sbStandaloneId, {',
+                   'SBQ_SONGBOOKS.save({ id: _sbStandaloneId, songIds: [] }); SBQ_SONGBOOKS.save({')],
+  ['voice-lines-harness.js', 'the narrow write invents a name it was not given',
+    s => s.replace('if (patch && patch.name != null) row.name = patch.name;',
+                   "row.name = (patch && patch.name) || 'Untitled Songbook';")],
+  // The printed songbook opens a standalone document. Drop the score's
+  // rules from it and every chord slides to the left margin while the
+  // part chips stack above their words -- on the page the carolers hold.
+  ['voice-lines-harness.js', 'the print document loses the score stylesheet',
+    s => s.replace("return '<style>' + _sbChoirScoreCss() +", "return '<style>' +")],
+  ['voice-lines-harness.js', 'the lifted stylesheet stops being deduplicated',
+    s => s.replace("if (txt.indexOf('.vl-') > -1 && !seen[txt]) { seen[txt] = 1; out.push(txt); }",
+                   "if (txt.indexOf('.vl-') > -1) { out.push(txt); }")],
+  // A moment whose words are not in the song has nowhere to put a chord.
+  ['voice-lines-harness.js', 'an unmatched moment invites a chord it cannot take',
+    s => s.replace('out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit));',
+                   'out.push(V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit));')],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',
