@@ -872,6 +872,55 @@ check('  and the choir CSS block includes it',
 check('  deduplicated, since it is inlined once per song',
   /if \(txt\.indexOf\('\.vl-'\) > -1 && !seen\[txt\]\)/.test(raw), true);
 
+console.log('\ntransposing moves the chords the musicians read');
+// The transpose buttons rebuilt the lyrics in place and never touched
+// the choir page, so the singers' page and the musicians' page
+// disagreed about the key the moment anybody pressed one.
+const xIdx = V.chordIndex(['C       F', 'Said the night wind'].join('\n'), isChord);
+const xg = [row('both', 'Said the night wind', 0)];
+const up2 = (line, n) => line.replace(/[A-G][#b]?/g, c => {
+  const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const M = { Db:'C#', Eb:'D#', Gb:'F#', Ab:'G#', Bb:'A#' };
+  const i = N.indexOf(M[c] || c); return i < 0 ? c : N[(i + n + 12) % 12];
+});
+const atOri = V.html(xg, { chords: xIdx, chordEdit: true });
+const moved = V.html(xg, { chords: xIdx, chordEdit: true, transpose: 2, transposeFn: up2 });
+check('at the original key the chord is as stored', /&gt;|C {7}F/.test(atOri) || /C {7}F/.test(atOri), true);
+check('transposed, it is shown a tone up', /D {7}G/.test(moved), true);
+// The column each chord sits in must survive the transpose, or the
+// alignment the page exists for is lost. The app's transposer rewrites
+// in place, so "Bb" becoming "B" dragged every later chord one column
+// left -- off its syllable.
+// Through the real render, with a chord that changes length -- single
+// characters transpose to single characters and would pass either way.
+const lenIdx = V.chordIndex(['Bb                  Dm', 'Found no place'].join('\n'), isChord);
+const lenHtml = V.html([row('both', 'Found no place', 0)],
+  { chords: lenIdx, transpose: 1, transposeFn: up2 });
+const shown = (lenHtml.match(/<span class="vl-chord-text">([^<]*)</) || [])[1] || '';
+check('the rendered row keeps Dm in its own column',
+  shown.indexOf('D#m'), 'Bb                  Dm'.indexOf('Dm'));
+
+const shrink = V._transposeAligned('Bb                  Dm', 1, up2);
+check('a chord that gets shorter does not drag the next one left',
+  shrink.indexOf('D#m'), 'Bb                  Dm'.indexOf('Dm'));
+check('  and the shorter chord still starts at column 0', shrink.indexOf('B'), 0);
+const grow = V._transposeAligned('B   C', 1, up2);
+check('a chord that gets longer keeps the next one readable',
+  /^C {3}C#$|^C {2}C#$/.test(grow) || grow.indexOf('C#') >= 4, true);
+check('no steps, no change', V._transposeAligned('Bb   Dm', 0, up2), 'Bb   Dm');
+check('an empty line survives', V._transposeAligned('', 2, up2), '');
+// The STORED chord must not move with the display.
+check('  while the row still carries the original', /data-chord-raw="C {7}F"/.test(moved), true);
+// ...and editing is refused, because saving would transpose back down
+// through a transposer that respells every flat as a sharp.
+check('  and the row is not editable while transposed',
+  /vl-chords--edit/.test(moved), false);
+check('  which it says on hover', /Press Ori to edit/.test(moved), true);
+check('at Ori it is editable again', /vl-chords--edit/.test(atOri), true);
+check('  and needs no such warning', /Press Ori to edit/.test(atOri), false);
+check('zero steps changes nothing at all',
+  V.html(xg, { chords: xIdx, chordEdit: true, transpose: 0, transposeFn: up2 }), atOri);
+
 console.log('\nreordering a songbook does not rename it');
 // SBQ_SONGBOOKS.save builds a WHOLE row, so a caller handing it
 // {id, songIds} gets name reset to 'Untitled Songbook' and items wiped

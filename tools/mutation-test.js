@@ -319,6 +319,26 @@ const CASES = [
   ['voice-lines-harness.js', 'the rows are read back in alphabetical part order',
     s => s.replace(".order('id', { ascending: true })\r\n        .range(from, from + 999)",
                    ".order('part', { ascending: true })\r\n        .range(from, from + 999)")],
+  // Transposing in place drags every chord after one that changed
+  // length, which on a page placed by character offset means every
+  // chord after the first Bb lands on the wrong syllable.
+  ['voice-lines-harness.js', 'transposing rewrites in place and shifts the columns',
+    s => s.replace("? V._transposeAligned(raw, steps, o.transposeFn) : raw;",
+                   "? o.transposeFn(raw, steps) : raw;")],
+  ['voice-lines-harness.js', 'a transposed chord stops returning to its column',
+    s => s.replace("if (out.length < col) out += new Array(col - out.length + 1).join(' ');",
+                   "if (out.length) out += ' ';")],
+  // The musicians read the choir page, so it has to move with the key.
+  ['voice-lines-harness.js', 'the choir page ignores the transpose buttons again',
+    s => s.replace("var chord = (steps && raw && typeof o.transposeFn === 'function')",
+                   "var chord = (false && raw && typeof o.transposeFn === 'function')")],
+  // Transposing the display must never move what is stored, and editing
+  // while transposed would write a chord back through a transposer that
+  // respells every flat as a sharp.
+  ['voice-lines-harness.js', 'a transposed row can be edited, respelling the song',
+    s => s.replace('if (steps) editable = false;', '')],
+  ['voice-lines-harness.js', 'the row forgets the chord it actually stores',
+    s => s.replace('if (hit) attrs += \' data-chord-raw="\' + V._esc(raw) + \'"\';', '')],
   // Reordering a songbook by drag used to rename it and wipe its saved
   // per-song state, because save() writes the whole row. Third table to
   // be bitten by that, after songs and order_items.
@@ -338,8 +358,8 @@ const CASES = [
                    "if (txt.indexOf('.vl-') > -1) { out.push(txt); }")],
   // A moment whose words are not in the song has nowhere to put a chord.
   ['voice-lines-harness.js', 'an unmatched moment invites a chord it cannot take',
-    s => s.replace('out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit));',
-                   'out.push(V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit));')],
+    s => s.replace('out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit, o));',
+                   'out.push(V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit, o));')],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',

@@ -13642,9 +13642,12 @@ function renderLyricsPreviewContent() {
     var _vlChords = window.lhcVoiceLines.chordIndex(
       currentLyricsPreviewSong.lyrics || '',
       (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
+    var _vlXpose = (typeof currentTransposeValue === 'number') ? currentTransposeValue : 0;
     container.innerHTML = _vlRows.length
       ? (window.lhcVoiceRec ? window.lhcVoiceRec.songBarHtml() : '') +
-        window.lhcVoiceLines.html(_vlRows, { record: true, chords: _vlChords, chordEdit: true })
+        window.lhcVoiceLines.html(_vlRows, { record: true, chords: _vlChords, chordEdit: true,
+          transpose: _vlXpose,
+          transposeFn: (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null })
       : '<div class="p-8 text-center text-slate-400">' +
         '<i class="fa-solid fa-users text-4xl mb-3 opacity-50"></i>' +
         '<p>No choir parts for this song yet.</p></div>';
@@ -15716,7 +15719,7 @@ window.lhcVoiceLines = {
           // A moment whose words have been edited away from the song's
           // matches nothing, and offering "+ chords" there invited a
           // click that could only refuse.
-          out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit));
+          out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit, o));
         }
       }
 
@@ -16110,9 +16113,45 @@ window.lhcVoiceLines = {
   // Rendered in a monospaced lane so a chord sits over the character it
   // was typed above -- the same contract the Chords tab and the PDF use,
   // which is why the chords can be shared between them at all.
-  _chordRow: function(hit, over, editable, wanted) {
+  // Transpose a chord line WITHOUT moving its chords.
+  //
+  // The app's transposer rewrites in place, so a chord that changes
+  // length drags everything after it: "Bb                  Dm" at +1
+  // became "B                  D#m", and because a chord is placed by
+  // character offset, every chord after the first short one slid off its
+  // syllable. Transposing broke the very alignment it is read for.
+  //
+  // Each token is transposed on its own and put back at the column it
+  // came from. A token that has grown and would collide with the next
+  // keeps a single space instead -- a chord one column late is readable,
+  // two chords run together are not.
+  _transposeAligned: function(line, steps, fn) {
+    if (!steps || !line || typeof fn !== 'function') return line;
+    var out = '', re = /\S+/g, m;
+    while ((m = re.exec(line))) {
+      var col = m.index;
+      var tok = String(fn(m[0], steps));
+      if (out.length < col) out += new Array(col - out.length + 1).join(' ');
+      else if (out.length) out += ' ';
+      out += tok;
+    }
+    return out;
+  },
+
+  _chordRow: function(hit, over, editable, wanted, o) {
     var V = window.lhcVoiceLines;
-    var chord = hit ? String(hit.chord || '') : '';
+    o = o || {};
+    var raw = hit ? String(hit.chord || '') : '';
+    // Transposed for the eye, never for the database. The steps and the
+    // transposer are both handed in -- the transposer lives in the app,
+    // and a pure module that reached for a global could not be sliced.
+    var steps = parseInt(o.transpose, 10) || 0;
+    var chord = (steps && raw && typeof o.transposeFn === 'function')
+      ? V._transposeAligned(raw, steps, o.transposeFn) : raw;
+    // Editing is refused while transposed: saving would have to transpose
+    // the typed chord back down, and that round trip rewrites every flat
+    // as a sharp. Better to ask for Ori than to quietly respell the song.
+    if (steps) editable = false;
     // Asked for, but there is no lyric line these words match, so there
     // is nowhere in songs.lyrics to put a chord. Say why on hover rather
     // than show an affordance that declines.
@@ -16122,10 +16161,15 @@ window.lhcVoiceLines = {
         ' data-chord-at="' + V._esc(String(hit ? hit.chordAt : -1)) + '"' +
         ' data-chord-over="' + V._esc(over || '') + '"'
       : '';
+    // The untransposed text, so a repaint transposes the ORIGINAL rather
+    // than whatever is currently on screen. Transposing a transpose
+    // drifts, and the drift is silent.
+    if (hit) attrs += ' data-chord-raw="' + V._esc(raw) + '"';
     var empty = !chord.trim();
     return '<div class="vl-chords' + (empty ? ' vl-chords--empty' : '') +
       (editable ? ' vl-chords--edit' : '') + (orphan ? ' vl-chords--nolyric' : '') + '"' + attrs +
-      (orphan ? ' title="These words are not in the song’s lyrics, so there is nowhere to put a chord. Edit the lyrics to match, or use the Lyrics tab."' : '') + '>' +
+      (orphan ? ' title="These words are not in the song’s lyrics, so there is nowhere to put a chord. Edit the lyrics to match, or use the Lyrics tab."'
+              : steps ? ' title="Showing a transposed key. Press Ori to edit the chords."' : '') + '>' +
       '<span class="vl-who vl-who--chord" aria-hidden="true"></span>' +
       '<span class="vl-chord-text">' +
         (empty ? (editable ? '<span class="vl-chord-hint">+ chords</span>'
@@ -51292,6 +51336,8 @@ var WO = (function() {
     } else {
       song.transposeSteps = 0;
     }
+    // The choir page's chords go back with the rest of the song.
+    _sbRepaintChoirChords(songId, 0);
     sbAutoSave();
   }
 
@@ -55557,6 +55603,41 @@ var WO = (function() {
     return line.replace(/\S+/g, function(tok) { return sbTransposeToken(tok, semitones); });
   }
 
+  // Move the choir page's chords with the rest of the song.
+  //
+  // Repainted from data-chord-raw rather than re-rendered: re-rendering
+  // the page would drop an open editor, the recording chips and the
+  // scroll position for a change that is only ever cosmetic.
+  function _sbRepaintChoirChords(songId, steps) {
+    var base = songId.indexOf('__sb__') !== -1 ? songId.split('__sb__')[0] : songId;
+    var item = (typeof songOrderSections !== 'undefined' ? songOrderSections : [])
+      .find(function(s) { return s && s.id === base; });
+    var realId = item ? _sbBaseSongId(item) : base;
+    var page = document.querySelector('.sb-song-page--choir[data-choir-song="' + realId + '"]');
+    if (!page) return;
+    var n = parseInt(steps, 10) || 0;
+    page.querySelectorAll('.vl-chords').forEach(function(rowEl) {
+      var cell = rowEl.querySelector('.vl-chord-text');
+      if (!cell) return;
+      var raw = rowEl.getAttribute('data-chord-raw');
+      if (raw == null) return;                       // nothing to show here
+      if (rowEl.querySelector('.vl-chord-in')) return;   // being typed into
+      // Through _transposeAligned, the same as the first render. Calling
+      // the transposer straight sent every chord after a shortened one a
+      // column left -- the first render was aligned and the repaint was
+      // not, so the page drifted the moment a button was pressed.
+      cell.textContent = n
+        ? window.lhcVoiceLines._transposeAligned(raw, n, transposeChordLinePrint)
+        : raw;
+      // While transposed the row is read-only: saving would respell the
+      // song's flats as sharps on the way back down.
+      rowEl.classList.toggle('vl-chords--edit', !n && !!raw.trim() === !!raw.trim());
+      if (n) { rowEl.classList.remove('vl-chords--edit');
+               rowEl.setAttribute('title', 'Showing a transposed key. Press Ori to edit the chords.'); }
+      else rowEl.removeAttribute('title');
+    });
+  }
+
   function sbTranspose(songId, steps) {
     // Support virtual IDs (e.g. 'song-xxx__sb__response' for duplicate songbook pages)
     var baseSongId = songId.indexOf('__sb__') !== -1 ? songId.split('__sb__')[0] : songId;
@@ -55603,6 +55684,8 @@ var WO = (function() {
     } else {
       song.transposeSteps = semitones;
     }
+    // The musicians read the choir page; it has to move with the key.
+    _sbRepaintChoirChords(songId, semitones);
     sbAutoSave();
   }
 
@@ -60458,8 +60541,18 @@ var WO = (function() {
     var chords = window.lhcVoiceLines.chordIndex(
       (lib && lib.lyrics) || song.lyrics || '',
       (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
+    // Whatever key this song is currently showing in. Read on render as
+    // well as repainted on the button, or reopening a transposed songbook
+    // would show the singers one key and the musicians another.
+    var xpose = 0;
+    try {
+      xpose = (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null)
+        ? sbTransposeSteps[song.id] : (song.transposeSteps || 0);
+    } catch (e) { xpose = song.transposeSteps || 0; }
     return window.lhcVoiceLines.html(rows, {
-      compact: !live, record: !!live, chords: chords, chordEdit: !!live });
+      compact: !live, record: !!live, chords: chords, chordEdit: !!live,
+      transpose: xpose,
+      transposeFn: (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null });
   }
 
   function _sbFsBuildPages() {
