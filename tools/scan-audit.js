@@ -41,6 +41,7 @@
 //   node tools/scan-audit.js --repeat 3      scan each sheet N times, all must pass
 //   node tools/scan-audit.js --gap 9000      ms between scans (default 9000)
 //   node tools/scan-audit.js --endpoint https://...   somewhere other than production
+//   node tools/scan-audit.js --bypass <secret>        get past preview protection
 //
 // WHY --endpoint EXISTS
 // The prompt this audits lives in a route, and a route only runs where it is
@@ -49,6 +50,12 @@
 // whose whole purpose is to prove a correction helped. Point it at a preview
 // deployment, or at a local server with the key set, and the change can be
 // measured on the branch that makes it.
+//
+// A preview needs --bypass too, and that was the gap that kept the promise
+// above from being kept: Vercel guards preview URLs, and its refusal is
+// itself valid JSON, so the audit parsed the refusal as a scan and reported
+// every fixture as a content failure -- a locked door looking exactly like
+// a wrong answer. It now says which it is.
 //
 // Scanning back to back trips the provider's rate limit, so the gap is generous
 // by default. One Gemini call per sheet per repeat; nothing is written anywhere.
@@ -65,6 +72,22 @@ const ENDPOINT = (() => {
   const i = process.argv.indexOf('--endpoint');
   const v = i >= 0 ? process.argv[i + 1] : null;
   return v ? v.replace(/\/+$/, '') : PROD_ENDPOINT;
+})();
+
+// --endpoint alone is not enough to reach a preview.
+//
+// Vercel puts deployment protection in front of preview URLs, so a branch's
+// route answers 401 with {"protection":{"vercel_auth_enabled":true}} and the
+// prompt it deploys cannot be measured -- which defeats the whole reason
+// --endpoint exists. The project's Protection Bypass for Automation secret
+// (Vercel → Settings → Deployment Protection) lets a script through.
+//
+// Passed as --bypass <secret>, or left in VERCEL_AUTOMATION_BYPASS_SECRET so
+// it stays out of shell history. Production needs neither.
+const BYPASS = (() => {
+  const i = process.argv.indexOf('--bypass');
+  const v = i >= 0 ? process.argv[i + 1] : null;
+  return v || process.env.VERCEL_AUTOMATION_BYPASS_SECRET || null;
 })();
 
 const HTML = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
@@ -117,12 +140,23 @@ async function listSheets() {
 }
 
 async function scan(url, vocab) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (BYPASS) headers['x-vercel-protection-bypass'] = BYPASS;
   const res = await fetch(ENDPOINT + '/api/parse-song-sheet', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers,
     body: JSON.stringify({ url, vocab }),
   });
   const txt = await res.text();
-  try { return JSON.parse(txt); } catch { return { error: 'not JSON (HTTP ' + res.status + ')' }; }
+  let d;
+  try { d = JSON.parse(txt); } catch { return { error: 'not JSON (HTTP ' + res.status + ')' }; }
+  // Vercel's protection refusal is itself valid JSON, so without this it
+  // parses cleanly, gets judged as a scan, and every fixture reports a
+  // content failure -- a locked door misread as a wrong answer.
+  if (d && d.protection) {
+    return { error: 'deployment protection (HTTP ' + res.status + '). ' +
+      'Pass --bypass <secret>, or set VERCEL_AUTOMATION_BYPASS_SECRET.' };
+  }
+  return d;
 }
 
 // Every assertion the fixture makes, checked against one scan.
