@@ -569,12 +569,24 @@ the anon key -- verify as `postgres`, not as the app.
 
 18. **Editing one line uses `updateLine`, never `replaceAll`.**
     Double-clicking a line's words, or its part chip, writes one column of
-    one row. `replaceAll` deletes and re-inserts everything, which would
-    detach the practice takes on lines nobody touched and clear the bars on
-    rows nobody was editing. Inline edits preserve both; the full editor is
-    for restructuring, and pays the price above.
+    one row. `replaceAll` deletes and re-inserts everything, which clears
+    the bars on rows nobody was editing. Inline edits preserve them; the
+    full editor is for restructuring, and pays the price above.
 
-19. **A songbook item's `id` is not a song id.** It is
+19. **A practice take follows its line by its WORDS, not by its id.**
+    `replaceAll` gives every row a new id, and `song_recordings.line_id`
+    is `ON DELETE SET NULL`, so without help every take in a song comes
+    loose on every save -- including a save where nothing was typed, which
+    is how a song's line recordings silently became unlabelled drafts.
+    `lhcVoiceLines.rematch` re-points them: same part, same place, same
+    words; failing that, same part and same words if those pick out ONE
+    line on each side. So a take survives a reorder, a bar change and an
+    edit to any OTHER line, and detaches only when its own words change --
+    deliberately, because it is a recording of the old words. Repeated
+    words that all move (this carol has "Lis-ten to what I say" twice) are
+    ambiguous and are left detached rather than guessed at.
+
+20. **A songbook item's `id` is not a song id.** It is
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.

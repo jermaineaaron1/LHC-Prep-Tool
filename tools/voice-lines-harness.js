@@ -71,7 +71,7 @@ if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(
 // A ceiling, because an end-anchor matching far away would swallow the file
 // and still parse. 400 rather than 200 since the editor's round trip moved
 // in; it is a tripwire against a runaway match, not a budget for the module.
-if (end - start > 400) {
+if (end - start > 500) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -559,6 +559,106 @@ check('11 silent moments are shown as blanks',
 check('13 lines are labelled ALL', (realHtml.match(/>All</g) || []).length, 13);
 check('no banner and no cue class remain',
   /vl-together|vl-sys--together/.test(realHtml), false);
+
+console.log('\nwhich takes survive a full-editor save');
+// replaceAll deletes every row and inserts new ones, so a practice take
+// only keeps its line if rematch can say which new row is which old one.
+// Get this wrong in the lenient direction and a take plays against words
+// it is not a recording of; get it wrong the other way and a save that
+// changed nothing silently empties the song of its recordings. That one
+// was the live bug.
+const asRows = ls => ls.map((r, i) => ({
+  id: 'old' + i, part: r.part, sort_order: r.sortOrder, text: r.text
+}));
+const reId = rows => rows.map(r => Object.assign({}, r, { id: 'new' + r.id.slice(3) }));
+
+const same = asRows(L);
+const noop = V.rematch(same, reId(same));
+check('a save with no edits keeps every one of the ' + L.length + ' lines',
+  Object.keys(noop).length, L.length);
+check('  and each one lands on its own row',
+  Object.keys(noop).every(k => noop[k] === 'new' + k.slice(3)), true);
+
+// One word typed into one line. That line's takes are of the old words
+// and must let go; nothing else may move.
+const edited = asRows(L).map((r, i) => i === 5 ? Object.assign({}, r, { text: r.text + ' X' }) : r);
+const afterEdit = V.rematch(same, reId(edited));
+check('editing one line detaches that line alone', afterEdit['old5'], undefined);
+check('  and the other ' + (L.length - 1) + ' lines keep their takes',
+  Object.keys(afterEdit).length, L.length - 1);
+
+// A verse inserted at the top shifts every sort_order below it. The words
+// did not change, so neither should the links.
+// The two exceptions are real and are the point: "Lis-ten to what I say"
+// is sung twice, at 28 and 30. Once both have moved, the words no longer
+// say which is which, and a take belonging to one of them stays a draft
+// rather than being attached to the wrong moment of the song.
+const shifted = reId(asRows(L).map(r => Object.assign({}, r, { sort_order: r.sort_order + 10 })));
+const afterShift = V.rematch(same, shifted);
+check('shifting every line down keeps all but the repeated line',
+  Object.keys(afterShift).length, L.length - 2);
+check('  and the two it drops are the repeated words',
+  L.filter((r, i) => !afterShift['old' + i]).map(r => r.text),
+  ['Lis-ten to what I say', 'Lis-ten to what I say']);
+
+// Deleting a line is the one case where losing the link is right.
+const minusOne = reId(asRows(L).filter((r, i) => i !== 3));
+const afterDel = V.rematch(same, minusOne);
+check('a deleted line takes its own link with it', afterDel['old3'], undefined);
+check('  and only its own', Object.keys(afterDel).length, L.length - 1);
+
+// Two identical lines in different places: pass one pins them by position.
+const twin = [
+  { id: 'oldA', part: 'women', sort_order: 1, text: 'sing' },
+  { id: 'oldB', part: 'women', sort_order: 9, text: 'sing' }
+];
+const twinNew = [
+  { id: 'newA', part: 'women', sort_order: 1, text: 'sing' },
+  { id: 'newB', part: 'women', sort_order: 9, text: 'sing' }
+];
+const twinMap = V.rematch(twin, twinNew);
+check('identical words at different moments stay apart',
+  [twinMap.oldA, twinMap.oldB], ['newA', 'newB']);
+
+// ...and when both of those moved, the words no longer identify either.
+// Guessing would attach a recording to the wrong moment of the song.
+const twinMoved = [
+  { id: 'newA', part: 'women', sort_order: 4, text: 'sing' },
+  { id: 'newB', part: 'women', sort_order: 12, text: 'sing' }
+];
+check('but if both move, neither is guessed at',
+  Object.keys(V.rematch(twin, twinMoved)).length, 0);
+
+// The ambiguity can also appear on only one side: one line, copied, and
+// the copies moved. The take belongs to one of the two and there is no
+// way to say which, so it belongs to neither.
+check('a line duplicated and moved is ambiguous too',
+  Object.keys(V.rematch(
+    [{ id: 'o', part: 'women', sort_order: 1, text: 'sing' }],
+    [{ id: 'n1', part: 'women', sort_order: 4, text: 'sing' },
+     { id: 'n2', part: 'women', sort_order: 12, text: 'sing' }])).length, 0);
+// Duplicated but left where it was: pass one pins it, and the copy is
+// simply a new line with no take of its own.
+check('  unless one of them stayed put',
+  V.rematch(
+    [{ id: 'o', part: 'women', sort_order: 1, text: 'sing' }],
+    [{ id: 'n1', part: 'women', sort_order: 1, text: 'sing' },
+     { id: 'n2', part: 'women', sort_order: 12, text: 'sing' }]).o, 'n1');
+
+check('the same words in the other part are a different line',
+  Object.keys(V.rematch(
+    [{ id: 'o', part: 'women', sort_order: 1, text: 'sing' }],
+    [{ id: 'n', part: 'men', sort_order: 1, text: 'sing' }])).length, 0);
+
+// Whitespace and case are not an edit to the words.
+check('re-spacing a line is not a retype',
+  Object.keys(V.rematch(
+    [{ id: 'o', part: 'men', sort_order: 2, text: 'A star  a star' }],
+    [{ id: 'n', part: 'men', sort_order: 2, text: 'a  star a star ' }])).length, 1);
+
+check('nothing in, nothing out', Object.keys(V.rematch([], [])).length, 0);
+check('every line deleted detaches everything',
+  Object.keys(V.rematch(same, [])).length, 0);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

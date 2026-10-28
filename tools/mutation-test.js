@@ -278,6 +278,21 @@ const CASES = [
     // restyles a stylesheet and leaves the element untouched: a mutation
     // that changes the file and nothing else. Anchor on the markup.
     s => s.replace('class="vl-blank" aria-hidden', 'class="vl-nothing" aria-hidden')],
+  // rematch decides whether a practice take survives a save, and it can
+  // fail in two opposite directions. Too strict and a save that changed
+  // nothing empties the song of its recordings -- the bug this was written
+  // for. Too loose and a take plays against words it is not a recording
+  // of, which is quieter and worse. One mutation each way.
+  ['voice-lines-harness.js', 'the words stop counting, so any line matches any line',
+    s => s.replace("var strict = function(r) { return r.part + '|' + so(r) + '|' + norm(r.text); };",
+                   "var strict = function(r) { return r.part + '|' + so(r); };")],
+  ['voice-lines-harness.js', 'a line that moved loses its take again',
+    s => s.replace("if (oldLoose[k].length !== 1) return;", "return;")],
+  ['voice-lines-harness.js', 'repeated words are guessed at instead of left alone',
+    s => s.replace("if (!cand || cand.length !== 1) return;", "if (!cand) return;")],
+  ['voice-lines-harness.js', 'a part change no longer detaches the take',
+    s => s.replace("var loose = function(r) { return r.part + '|' + norm(r.text); };",
+                   "var loose = function(r) { return norm(r.text); };")],
 
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',

@@ -14630,10 +14630,14 @@ window.lhcVoiceEdit = {
 //
 // The association is the row id of a song_voice_lines row, not an offset
 // into the words, so re-typing a verse above a line does not silently
-// re-point its recordings at a different line. Re-typing the line ITSELF
-// does detach them -- replaceAll deletes and re-inserts, and the ON DELETE
-// SET NULL drops the link -- which is the honest outcome, because after a
-// retype nobody can say the old take is still of the new words.
+// re-point its recordings at a different line.
+//
+// Those ids do not survive a full-editor save: replaceAll deletes and
+// re-inserts every row, and the ON DELETE SET NULL cuts every take loose.
+// lhcVoiceLines.rematch puts them back by matching on the words, so a take
+// survives everything EXCEPT an edit to its own line's words -- and that
+// one detaches on purpose, because after a retype nobody can say the old
+// take is still of the new words.
 window.lhcVoiceRec = {
   // Keyed by song, because the preview shows one song and a songbook shows
   // a stack of them. With a single store the second song to load wiped the
@@ -15201,6 +15205,67 @@ window.lhcVoiceLines = {
   // Bars first, then the part. A line with no bars joins the one above it,
   // which is how the two parts are placed at the same moment. No prefix
   // means both sing it. A leading ~ marks a held note.
+  // Which new row is which old row, after the editor rewrote the lot.
+  //
+  // replaceAll deletes every row and inserts fresh ones, so every id
+  // changes and every practice take hanging off one is cut loose by the
+  // ON DELETE SET NULL. Saving the editor WITHOUT TYPING ANYTHING turned
+  // all of a song's line takes into unlabelled whole-song drafts, which is
+  // not an honest outcome, only a lossy one.
+  //
+  // The rule is: a take follows its line as long as the words are the
+  // same. Edit a different line, reorder the verses, restructure the bars
+  // -- the take stays put. Change THAT line's words and it detaches,
+  // because the take is a recording of the old words and nobody can say
+  // it is of the new ones.
+  //
+  // Returns { oldLineId: newLineId } for the rows that carry over.
+  rematch: function(oldRows, newRows) {
+    var map = {};
+    var so = function(r) { return (r.sortOrder == null ? r.sort_order : r.sortOrder); };
+    var norm = function(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim().toLowerCase(); };
+    var strict = function(r) { return r.part + '|' + so(r) + '|' + norm(r.text); };
+    var loose = function(r) { return r.part + '|' + norm(r.text); };
+    var taken = {}, left = [], byStrict = {};
+
+    // Pass one: same part, same place, same words. This is the no-op save,
+    // and the edit-one-line-leave-the-rest save, which between them are
+    // nearly every save there is.
+    (newRows || []).forEach(function(n) {
+      var k = strict(n);
+      (byStrict[k] = byStrict[k] || []).push(n);
+    });
+    (oldRows || []).forEach(function(o) {
+      var bucket = byStrict[strict(o)] || [], hit = null;
+      for (var i = 0; i < bucket.length; i++) {
+        if (!taken[bucket[i].id]) { hit = bucket[i]; break; }
+      }
+      if (hit) { map[o.id] = hit.id; taken[hit.id] = true; }
+      else left.push(o);
+    });
+
+    // Pass two: the line kept its words but moved -- somebody inserted a
+    // verse above it and every sort_order below shifted by one. Only when
+    // those words pick out ONE line on each side: a refrain sung twice is
+    // genuinely ambiguous, and attaching a take to the wrong moment is
+    // worse than leaving it unattached.
+    var oldLoose = {}, newLoose = {};
+    left.forEach(function(o) {
+      var k = loose(o); (oldLoose[k] = oldLoose[k] || []).push(o);
+    });
+    (newRows || []).forEach(function(n) {
+      if (taken[n.id]) return;
+      var k = loose(n); (newLoose[k] = newLoose[k] || []).push(n);
+    });
+    Object.keys(oldLoose).forEach(function(k) {
+      if (oldLoose[k].length !== 1) return;
+      var cand = newLoose[k];
+      if (!cand || cand.length !== 1) return;
+      map[oldLoose[k][0].id] = cand[0].id;
+    });
+    return map;
+  },
+
   toVoiceText: function(lines) {
     var V = window.lhcVoiceLines;
     var blocks = [], section = null;
@@ -30654,11 +30719,27 @@ var SBQ_VOICE_LINES = {
         sustained: !!ln.sustained
       };
     });
-    return sb.from('song_voice_lines').delete().eq('song_id', songId)
+    // What is there now, and which takes hang off it. Read BEFORE the
+    // delete: the foreign key nulls line_id on the way out, so afterwards
+    // there is nothing left to say where a take belonged.
+    var oldRows = [], oldTakes = [];
+    return sb.from('song_voice_lines').select('id,part,sort_order,text').eq('song_id', songId)
+      .then(function(r) {
+        if (!r.error) oldRows = r.data || [];
+        return sb.from('song_recordings').select('id,line_id').eq('song_id', songId);
+      })
+      .then(function(r) {
+        if (!r.error) oldTakes = (r.data || []).filter(function(t) { return t.line_id != null; });
+        return sb.from('song_voice_lines').delete().eq('song_id', songId);
+      })
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
         if (!rows.length) return null;
         return sb.from('song_voice_lines').insert(rows).select();
+      })
+      .then(function(r) {
+        return SBQ_VOICE_LINES._carryTakes(oldRows, (r && r.data) || [], oldTakes)
+          .then(function() { return r; });
       })
       .then(function(r) {
         if (r && r.error) throw new Error(r.error.message);
@@ -30670,6 +30751,36 @@ var SBQ_VOICE_LINES = {
           voice_layout: rows.length ? 'two-part' : null
         }).then(function() { return { success: true, count: rows.length }; });
       });
+  },
+
+  // Point each surviving take back at its line's new row.
+  //
+  // Best effort on purpose. A take that cannot be placed stays a draft,
+  // and a failure here must not turn a saved arrangement into a thrown
+  // error: losing a link is a nuisance, losing the words is not.
+  _carryTakes: function(oldRows, newRows, oldTakes) {
+    if (!oldTakes || !oldTakes.length || !oldRows.length || !newRows.length) return Promise.resolve(0);
+    var VL = window.lhcVoiceLines;
+    if (!VL || typeof VL.rematch !== 'function') return Promise.resolve(0);
+    var sb = SBQ_VOICE_LINES._sb();
+    if (!sb) return Promise.resolve(0);
+    var map = VL.rematch(oldRows, newRows);
+
+    // Grouped by destination, so a line with four takes is one write.
+    var byNew = {};
+    oldTakes.forEach(function(t) {
+      var dest = map[t.line_id];
+      if (!dest) return;
+      (byNew[dest] = byNew[dest] || []).push(t.id);
+    });
+    var dests = Object.keys(byNew);
+    if (!dests.length) return Promise.resolve(0);
+    return Promise.all(dests.map(function(dest) {
+      return sb.from('song_recordings').update({ line_id: dest }).in('id', byNew[dest]);
+    })).then(function() { return dests.length; }).catch(function(e) {
+      console.warn('[VoiceLines] takes kept, links not restored:', e && e.message);
+      return 0;
+    });
   },
 
   // One line, one column. replaceAll deletes and re-inserts every row,
