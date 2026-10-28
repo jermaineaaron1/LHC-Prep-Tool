@@ -79,11 +79,12 @@ function check(label, got, want) {
 // ---------------------------------------------------------------------------
 // The sliced source.
 // ---------------------------------------------------------------------------
-let renderSrc, ownCountSrc, catOfSrc, forgetSrc;
+let renderSrc, ownCountSrc, catOfSrc, forgetSrc, baseIdSrc;
 try {
   renderSrc = extract(/^  function sbRenderRecordings\(/, 'sbRenderRecordings');
   ownCountSrc = extract(/^  function _sbOwnRecCount\(/, '_sbOwnRecCount');
   catOfSrc = extract(/^  function _sbRecCatOf\(/, '_sbRecCatOf');
+  baseIdSrc = extract(/^  function _sbBaseSongId\(/, '_sbBaseSongId');
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -148,10 +149,10 @@ const sandbox = {
 const body =
   catsLine.replace(/\r$/, '').trim() + '\n' +
   'function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || "General"; }\n' +
-  catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' +
+  catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
   'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ' };\n' +
   'window.lhcVoiceRec = lhcVoiceRec;\n' +
-  'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec };';
+  'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec, baseId: _sbBaseSongId };';
 
 const S = new Function('document', 'escapeHtml', '_sbFmtDur', 'window', body)(
   sandbox.document, sandbox.escapeHtml, sandbox._sbFmtDur, sandbox.window);
@@ -218,6 +219,27 @@ check('and nothing else was touched', R._takes.s1['402'].map(t => t.id), ['z']);
 R.forget('nope');
 check('forgetting something absent is harmless',
   [R._takes.s1['402'].length, R._drafts.s1.length], [1, 1]);
+
+console.log('\nwhich song a take is filed against');
+// Found in live data: two of the operator's own recordings stored with
+// song_id "sbsong_song_1793116967624_0" -- the songbook ITEM id, not the
+// song. Nothing could ever find them again: the choir view loads by the
+// library id and so does every other songbook the song appears in.
+//
+// Both recorder paths built the id by chopping the item id at '--', which
+// is right for an order-backed songbook and does nothing whatever for a
+// standalone one. _sbBaseSongId had existed the whole time.
+check('an order-backed item yields the song it is of',
+  S.baseId({ id: 'song_123--verse2' }), 'song_123');
+check('a standalone item is not chopped at --',
+  S.baseId({ id: 'sbsong_song_123_0', songId: 'song_123' }), 'song_123');
+// The shape that actually bit: chopping leaves the item id untouched, so
+// the take is filed under a song that does not exist and never surfaces.
+check('  chopping one would have filed it under a song that does not exist',
+  'sbsong_song_123_0'.split('--')[0], 'sbsong_song_123_0');
+check('songId beats anything parsed out of the id',
+  S.baseId({ id: 'song_999--x', songId: 'song_123' }), 'song_123');
+check('nothing in, empty string out', S.baseId(null), '');
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

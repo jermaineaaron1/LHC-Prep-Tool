@@ -49731,7 +49731,16 @@ var WO = (function() {
     // operator sang a take and was then told it could not be kept.
     if (_sbOwnRecCount() >= 10) { sbShowRecStatus('Max 10 recordings per song \u2014 delete one first', 'error'); return; }
     var curPage = document.querySelector('#sbBody .sb-song-page');
-    if (curPage) { var pid = (curPage.id || '').replace(/^sbPage-/, ''); if (pid) _sbRecCurrentSongId = pid.split('--')[0]; }
+    if (curPage) {
+      // Same trap as sbOpenRecordings: resolve the page back to its item
+      // and ask the item which song it is. Only overrides when it can be
+      // resolved, so a page this cannot place leaves the id the panel
+      // already established rather than replacing it with a wrong one.
+      var pid = (curPage.id || '').replace(/^sbPage-/, '');
+      var pItem = pid ? (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(x) { return x && String(x.id) === pid; }) : null;
+      var pResolved = pItem ? _sbBaseSongId(pItem) : '';
+      if (pResolved) _sbRecCurrentSongId = pResolved;
+    }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       var mimeType = '';
       ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].some(function(candidate) {
@@ -49824,12 +49833,16 @@ var WO = (function() {
   // 🎙 button on any song's control bar summons it into a bottom sheet —
   // the ONE element is reparented, never duplicated, so its logic stays put.
   function sbOpenRecordings(sid) {
-    _sbRecCurrentSongId = String(sid).split('--')[0];
+    // Through the item, not by chopping its id. A standalone songbook's
+    // item is 'sbsong_<songId>_<idx>', which no amount of chopping at
+    // '--' turns back into a song -- so takes recorded here were filed
+    // against a song that does not exist, where nothing could find them.
+    var song = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(item) { return item && String(item.id) === String(sid); });
+    _sbRecCurrentSongId = song ? _sbBaseSongId(song) : String(sid).split('--')[0];
     var host = document.getElementById('sbRecSheetHost');
     var section = document.getElementById('sbRecSection');
     if (host && section && section.parentNode !== host) host.appendChild(section);
     var title = document.getElementById('sbRecSheetSong');
-    var song = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(item) { return item && String(item.id).split('--')[0] === _sbRecCurrentSongId; });
     if (title) title.textContent = song ? (song.title || '') : '';
     var sheet = document.getElementById('sbRecSheet');
     if (sheet) sheet.style.display = 'block';

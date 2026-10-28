@@ -324,6 +324,11 @@ const CASES = [
   // One line, not a block: Index.html is CRLF throughout, and a multi-line
   // anchor written with \n matches nothing in it. This went in as a block
   // first and came back STALE.
+  // The one that reached live data: a standalone songbook's item id is
+  // sbsong_<songId>_<idx>, and chopping it at '--' leaves it whole, so
+  // the take is filed against a song that does not exist.
+  ['recordings-harness.js', 'the item id is chopped instead of asked',
+    s => s.replace("    if (song.songId) return String(song.songId);\r\n", "")],
   ['recordings-harness.js', 'a deleted take is left in the drafts',
     s => s.replace('R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });',
                    'R._drafts[sid] = R._drafts[sid];')],
