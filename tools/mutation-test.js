@@ -203,11 +203,31 @@ const CASES = [
   // the melody and, in this carol, the line without the engraving typos.
   // One line, not two: Index.html is CRLF, so a pattern spanning a newline
   // matches nothing and goes stale instead of going red.
+  // The pick moved into leadLine, which toPlainLyrics and the chord row
+  // now share -- a chord has to sit over the lyric its moment contributed,
+  // so if the two ever chose differently every chord after the first
+  // disagreement would print above the wrong words.
   ['voice-lines-harness.js', "the song's suggested words come from the men instead",
-    s => s.replace(': (g.women && !g.women.sustained) ? g.women',
-                   ': (g.men && !g.men.sustained) ? g.men')],
+    s => s.replace('if (g.women && !g.women.sustained) return g.women;',
+                   'if (g.men && !g.men.sustained) return g.men;')],
   ['voice-lines-harness.js', 'a held vowel is offered as if it were a lyric',
-    s => s.replace(': (g.women && !g.women.sustained) ? g.women', ': g.women ? g.women')],
+    s => s.replace('if (g.women && !g.women.sustained) return g.women;', 'if (g.women) return g.women;')],
+  // The chord row reads and writes the song's own lyrics column. Too
+  // loose and a chord lands over words it is not played against; too
+  // eager and the write puts a chord line where a lyric should be.
+  ['voice-lines-harness.js', 'chords are matched by spelling, so hyphenation misses',
+    s => s.replace("var n = function(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); };",
+                   "var n = function(s) { return String(s == null ? '' : s); };")],
+  ['voice-lines-harness.js', 'a repeated line always takes the first chord line',
+    s => s.replace('if (cursor) cursor.at = i + 1;', '')],
+  ['voice-lines-harness.js', 'clearing a chord leaves a blank line above the words',
+    s => s.replace("if (!text.trim()) lines.splice(chordAt, 1);          // drop the row",
+                   "if (!text.trim()) lines[chordAt] = '';")],
+  ['voice-lines-harness.js', 'a new chord row overwrites the lyric instead of going above it',
+    s => s.replace('lines.splice(lyricAt, 0, text);                      // a new row above',
+                   'lines[lyricAt] = text;')],
+  ['voice-lines-harness.js', 'a section header is taken for a lyric a chord can sit over',
+    s => s.replace("      if (/^\\s*\\[.+\\]\\s*$/.test(line)) continue;          // a section header\r\n", "")],
   ['voice-lines-harness.js', 'the bar-later echo is offered as a second line',
     s => s.replace("if (!t || t === last) return;", "if (!t) return;")],
   ['voice-lines-harness.js', 'lyrics stop being escaped on the way into the page',

@@ -8793,6 +8793,31 @@
   .vl-ln--women { background: rgba(168,71,95,0.055); }
   .vl-ln--men { background: rgba(29,107,104,0.055); }
   .vl-ln--other { background: rgba(138,90,43,0.055); }
+
+  /* The chord row, above the moment it is played against.
+     A chord sits over a CHARACTER OFFSET into the lyric -- that is how
+     chords are stored in this app and how the Chords tab, the songbook
+     and the PDF all read them -- so the chord row and the words under it
+     have to be the same monospaced face at the same size, or every chord
+     after the first drifts off the syllable it belongs to. The songbook
+     does exactly this; the stack is copied from it so the two pages
+     cannot disagree. */
+  .vl-chords { display: flex; align-items: baseline; gap: 11px; min-width: 0; padding: 1px 6px 0; }
+  .vl-who--chord { visibility: hidden; height: 0; padding: 0; margin: 0; }
+  .vl-chord-text { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: break-word;
+    font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace;
+    font-size: 0.82em; font-weight: 700; color: #14532d; letter-spacing: 0; }
+  .vl-sys:has(.vl-chords:not(.vl-chords--empty)) .vl-words {
+    font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace; font-size: 0.94em; }
+  .vl-chords--empty .vl-chord-text { font-weight: 600; }
+  .vl-chord-hint { color: #94a3b8; font-size: 10.5px; letter-spacing: 0.4px;
+    border: 1px dashed #cbd5e1; border-radius: 4px; padding: 0 5px; cursor: text; opacity: 0; transition: opacity .12s; }
+  .vl-sys:hover .vl-chord-hint { opacity: 1; }
+  .vl-chords--edit .vl-chord-text { cursor: text; }
+  .vl-chord-in { width: 100%; box-sizing: border-box; border: 1px solid var(--vl-cue);
+    border-radius: 4px; padding: 1px 5px; font-size: 0.82em; font-weight: 700; color: #14532d;
+    font-family: ui-monospace,'SF Mono','Cascadia Mono','Segoe UI Mono','Roboto Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono','Courier New',monospace; }
+  .vl-score--compact .vl-chord-text { font-size: 0.8em; }
   .vl-ln--rest { background: transparent; }
   .vl-blank { color: #cbd5e1; font-weight: 400; letter-spacing: 0.1em; }
   .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -13578,9 +13603,15 @@ function renderLyricsPreviewContent() {
         '<p>Loading the choir parts\u2026</p></div>';
       return;
     }
+    // Chords come from the song's own lyrics column, where every other
+    // view in the app already reads them. The detector is handed in
+    // rather than reached for, so the pure module stays sliceable.
+    var _vlChords = window.lhcVoiceLines.chordIndex(
+      currentLyricsPreviewSong.lyrics || '',
+      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
     container.innerHTML = _vlRows.length
       ? (window.lhcVoiceRec ? window.lhcVoiceRec.songBarHtml() : '') +
-        window.lhcVoiceLines.html(_vlRows, { record: true })
+        window.lhcVoiceLines.html(_vlRows, { record: true, chords: _vlChords, chordEdit: true })
       : '<div class="p-8 text-center text-slate-400">' +
         '<i class="fa-solid fa-users text-4xl mb-3 opacity-50"></i>' +
         '<p>No choir parts for this song yet.</p></div>';
@@ -14557,6 +14588,15 @@ window.lhcVoiceEdit = {
     root.addEventListener('dblclick', function(e) {
       var chip = e.target.closest ? e.target.closest('.vl-who') : null;
       var line = e.target.closest ? e.target.closest('.vl-ln[data-line-id]') : null;
+      // The chord row belongs to the song, not to the arrangement, so it
+      // is written back into songs.lyrics rather than into a voice line.
+      var chordRow = e.target.closest ? e.target.closest('.vl-chords--edit') : null;
+      if (chordRow && root.contains(chordRow)) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.lhcVoiceEdit.editChords(root, chordRow);
+        return;
+      }
       // A silent lane has no row behind it yet. Double-clicking it writes
       // one, so the moment can be filled in where it is read rather than
       // in the full editor.
@@ -14619,6 +14659,71 @@ window.lhcVoiceEdit = {
         console.error(err);
         showToast('Could not save that line', 'error');
         body.replaceChild(words, inp);
+      }).finally(function() { E._busy = false; });
+    };
+
+    inp.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+    inp.addEventListener('blur', function() { finish(true); });
+  },
+
+  // Type the chords for one moment.
+  //
+  // These are the SONG's chords, shared with the Chords tab, the songbook
+  // and the PDF -- so this writes the lyrics column, and writes nothing
+  // in it but the chord line. The words are never touched: that is the
+  // whole of the carve-out that lets the chords be shared at all.
+  editChords: function(root, rowEl) {
+    var E = window.lhcVoiceEdit;
+    if (E._busy) return;
+    var cell = rowEl.querySelector('.vl-chord-text');
+    if (!cell || rowEl.querySelector('.vl-chord-in')) return;
+    var songId = root.__vlEditSong;
+    if (!songId) return;
+    var lyricAt = parseInt(rowEl.getAttribute('data-chord-lyric-at'), 10);
+    if (isNaN(lyricAt)) {
+      showToast('This moment has no line in the song\u2019s lyrics to hang a chord on', 'info');
+      return;
+    }
+    var chordAt = parseInt(rowEl.getAttribute('data-chord-at'), 10);
+    var original = rowEl.classList.contains('vl-chords--empty') ? '' : cell.textContent;
+
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'vl-chord-in';
+    inp.value = original;
+    inp.placeholder = 'C       F        G';
+    inp.spellcheck = false;
+    var shown = cell.innerHTML;
+    cell.innerHTML = '';
+    cell.appendChild(inp);
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+
+    var done = false;
+    var finish = function(save) {
+      if (done) return;
+      done = true;
+      var next = inp.value.replace(/\s+$/, '');
+      if (!save || next === original.replace(/\s+$/, '')) { cell.innerHTML = shown; return; }
+      var song = (typeof STATE !== 'undefined' && STATE.songs)
+        ? STATE.songs.find(function(s) { return s && s.id === songId; }) : null;
+      if (!song) { cell.innerHTML = shown; showToast('Could not find that song', 'error'); return; }
+      E._busy = true;
+      inp.disabled = true;
+      var updated = window.lhcVoiceLines.withChord(song.lyrics || '', lyricAt, chordAt, next);
+      // updateLyrics, not update(): the lyrics column alone, and it
+      // announces the change so an open order repaints with it.
+      SBQ_SONGS.updateLyrics(songId, updated).then(function() {
+        song.lyrics = updated;
+        if (typeof root.__vlEditSaved === 'function') root.__vlEditSaved();
+        showToast(next.trim() ? 'Chords saved' : 'Chords cleared', 'success');
+      }).catch(function(err) {
+        console.error(err);
+        showToast('Could not save those chords', 'error');
+        cell.innerHTML = shown;
       }).finally(function() { E._busy = false; });
     };
 
@@ -15333,6 +15438,37 @@ window.lhcVoiceLines = {
   // part generally carries the melody, and a part holding a vowel is not
   // singing words at all. Consecutive duplicates collapse, because the two
   // parts answering each other a bar apart is one line of the song, not two.
+  // Which line of a moment stands for it.
+  //
+  // The upper part generally carries the melody, and a part holding a
+  // vowel is not singing words at all. Pulled out of toPlainLyrics so the
+  // chord row can ask the same question: a chord sits over the lyric that
+  // moment contributed to the song, and if the two disagreed about which
+  // line that is, every chord after the first disagreement would be
+  // written above the wrong words.
+  leadLine: function(g) {
+    if (!g) return null;
+    if (g.both) return g.both;
+    if (g.women && !g.women.sustained) return g.women;
+    if (g.men && !g.men.sustained) return g.men;
+    // Nothing but held vowels. No line, deliberately: such a moment
+    // contributes nothing to the song's lyrics, and so it has no chord
+    // row either -- there is no lyric line for a chord to sit over. A
+    // fallback here looked harmless and quietly put "oh……" into the
+    // lyrics column of every song built from an arrangement.
+    return null;
+  },
+
+  // The first phrase of that line -- what a chord row is positioned over.
+  // A row holding two phrases draws as two visual lines and only the first
+  // can carry a chord row without guessing where the second begins.
+  leadText: function(g) {
+    var V = window.lhcVoiceLines;
+    var pick = V.leadLine(g);
+    if (!pick) return '';
+    return String(pick.text || '').split(/\s*\u00b7\s*/)[0].trim();
+  },
+
   toPlainLyrics: function(lines) {
     var V = window.lhcVoiceLines;
     var out = [], section = null, last = null;
@@ -15343,10 +15479,7 @@ window.lhcVoiceLines = {
         section = g.section;
         last = null;
       }
-      var pick = g.both ? g.both
-               : (g.women && !g.women.sustained) ? g.women
-               : (g.men && !g.men.sustained) ? g.men
-               : null;
+      var pick = V.leadLine(g);
       if (!pick) return;
       String(pick.text || '').split(/\s*\u00b7\s*/).forEach(function(piece) {
         var t = piece.trim();
@@ -15400,6 +15533,18 @@ window.lhcVoiceLines = {
       out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '">');
       out.push('<div class="vl-sys-lines">');
 
+      // One chord row per MOMENT, above the lines that sound in it. Not
+      // one per lane: there is a single accompaniment and the parts sing
+      // over it, so a chord row on each lane would say the same thing two
+      // or three times and claim the parts were differently accompanied.
+      if (o.chords) {
+        var hit = V.chordFor(o.chords, g, o._cursor || (o._cursor = { at: 0 }));
+        var over = V.leadText(g);
+        if (hit || o.chordEdit) {
+          out.push(V._chordRow(hit, over, !!o.chordEdit));
+        }
+      }
+
       if (g.both) {
         out.push(V._line('both', 'All', g.both, o));
       } else {
@@ -15438,6 +15583,88 @@ window.lhcVoiceLines = {
   // Bars first, then the part. A line with no bars joins the one above it,
   // which is how the two parts are placed at the same moment. No prefix
   // means both sing it. A leading ~ marks a held note.
+  // Words reduced to what they sound like, for deciding whether a voice
+  // line and a lyric line are the same line. The arrangement and the
+  // lyrics column spell the same word differently often enough
+  // ("little" against "lit-tle") that comparing the printed text would
+  // call a match a miss.
+  _sameWords: function(a, b) {
+    var n = function(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+    return n(a) !== '' && n(a) === n(b);
+  },
+
+  // songs.lyrics -> the chord line above each lyric line.
+  //
+  // Chords live in the lyrics column as a plain text line above the words,
+  // each chord positioned by character offset. That is how sixty of the
+  // seventy songs in this library are written and how the Chords tab, the
+  // songbook and the PDF all already read them; the choir page reads the
+  // same thing rather than keeping a second copy that could disagree.
+  //
+  // isChord is injected -- the detector lives in the app, not in here, and
+  // a pure function that reached for a global could not be sliced out.
+  chordIndex: function(lyrics, isChord) {
+    var rows = [];
+    var lines = String(lyrics == null ? '' : lyrics).split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!String(line).trim()) continue;
+      if (/^\s*\[.+\]\s*$/.test(line)) continue;          // a section header
+      if (isChord && isChord(line, lines[i + 1])) {
+        // The chord line belongs to the next non-blank line that is not
+        // itself chords. A chord line with nothing under it is dropped:
+        // there is no lyric for it to sit over.
+        var j = i + 1;
+        while (j < lines.length && !String(lines[j]).trim()) j++;
+        if (j < lines.length && !(isChord && isChord(lines[j], lines[j + 1])) &&
+            !/^\s*\[.+\]\s*$/.test(lines[j])) {
+          rows.push({ lyric: lines[j], chord: line, lyricAt: j, chordAt: i });
+          i = j;
+        }
+        continue;
+      }
+      rows.push({ lyric: line, chord: '', lyricAt: i, chordAt: -1 });
+    }
+    return rows;
+  },
+
+  // The chord line for one moment, and where it came from.
+  //
+  // Matched in READING ORDER, not by looking the words up: a refrain sung
+  // three times has three chord lines and they are allowed to differ. A
+  // cursor walks forward through the lyrics so each moment takes the next
+  // occurrence of its words rather than always the first.
+  chordFor: function(index, g, cursor) {
+    var V = window.lhcVoiceLines;
+    var want = V.leadText(g);
+    if (!want || !index || !index.length) return null;
+    for (var i = (cursor && cursor.at) || 0; i < index.length; i++) {
+      if (V._sameWords(want, index[i].lyric)) {
+        if (cursor) cursor.at = i + 1;
+        return index[i];
+      }
+    }
+    return null;
+  },
+
+  // Put a chord line back above its lyric, and change nothing else.
+  //
+  // The whole point of the carve-out: this writes chord lines and only
+  // chord lines. An empty chord removes the row rather than leaving a
+  // blank line above the words.
+  withChord: function(lyrics, lyricAt, chordAt, chord) {
+    var lines = String(lyrics == null ? '' : lyrics).split(/\r?\n/);
+    var text = String(chord == null ? '' : chord).replace(/\s+$/, '');
+    if (lyricAt == null || lyricAt < 0 || lyricAt >= lines.length) return lines.join('\n');
+    if (chordAt != null && chordAt >= 0 && chordAt < lines.length) {
+      if (!text.trim()) lines.splice(chordAt, 1);          // drop the row
+      else lines[chordAt] = text;
+    } else if (text.trim()) {
+      lines.splice(lyricAt, 0, text);                      // a new row above
+    }
+    return lines.join('\n');
+  },
+
   // Which new row is which old row, after the editor rewrote the lot.
   //
   // replaceAll deletes every row and inserts fresh ones, so every id
@@ -15676,6 +15903,29 @@ window.lhcVoiceLines = {
       '<span class="vl-who" title="' + V._esc(tag || '') + '">' + V._esc(tag || '') + '</span>' +
       '<span class="vl-body"><span class="vl-blank" aria-hidden="true">' +
       '(\u2014)</span><span class="vl-sr">silent here</span></span></div>';
+  },
+
+  // A chord line, positioned over the words it is played against.
+  //
+  // Rendered in a monospaced lane so a chord sits over the character it
+  // was typed above -- the same contract the Chords tab and the PDF use,
+  // which is why the chords can be shared between them at all.
+  _chordRow: function(hit, over, editable) {
+    var V = window.lhcVoiceLines;
+    var chord = hit ? String(hit.chord || '') : '';
+    var attrs = editable
+      ? ' data-chord-lyric-at="' + V._esc(String(hit ? hit.lyricAt : '')) + '"' +
+        ' data-chord-at="' + V._esc(String(hit ? hit.chordAt : -1)) + '"' +
+        ' data-chord-over="' + V._esc(over || '') + '"'
+      : '';
+    var empty = !chord.trim();
+    return '<div class="vl-chords' + (empty ? ' vl-chords--empty' : '') +
+      (editable ? ' vl-chords--edit' : '') + '"' + attrs + '>' +
+      '<span class="vl-who vl-who--chord" aria-hidden="true"></span>' +
+      '<span class="vl-chord-text">' +
+        (empty ? (editable ? '<span class="vl-chord-hint">+ chords</span>' : '')
+               : V._esc(chord)) +
+      '</span></div>';
   },
 
   _recSlot: function(id) {
@@ -47935,6 +48185,8 @@ var WO = (function() {
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
             '<div class="sb-choir-hint">Double-click a line to change its words, ' +
               'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
+              'Double-click the <b>chord row</b> above a moment to type its chords — ' +
+              'those are the song’s own, and show in the Chords tab too. ' +
               'The microphone on a line records just that line. ' +
               'Use <b>Edit parts</b> to add or regroup moments.</div>' +
             _edBar +
@@ -59851,7 +60103,16 @@ var WO = (function() {
   function _sbChoirBodyHtml(song, live) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
-    return window.lhcVoiceLines.html(rows, { compact: !live, record: !!live });
+    // The library row carries the lyrics, not the songbook item: the item
+    // may hold a customised copy for this book, but the chords belong to
+    // the song and are shared with every other page that shows them.
+    var lib = (typeof STATE !== 'undefined' && STATE.songs)
+      ? STATE.songs.find(function(s) { return s && s.id === _sbBaseSongId(song); }) : null;
+    var chords = window.lhcVoiceLines.chordIndex(
+      (lib && lib.lyrics) || song.lyrics || '',
+      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
+    return window.lhcVoiceLines.html(rows, {
+      compact: !live, record: !!live, chords: chords, chordEdit: !!live });
   }
 
   function _sbFsBuildPages() {

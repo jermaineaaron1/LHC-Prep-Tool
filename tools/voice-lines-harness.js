@@ -71,7 +71,7 @@ if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(
 // A ceiling, because an end-anchor matching far away would swallow the file
 // and still parse. 400 rather than 200 since the editor's round trip moved
 // in; it is a tripwire against a runaway match, not a budget for the module.
-if (end - start > 620) {
+if (end - start > 820) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -690,6 +690,68 @@ check('re-spacing a line is not a retype',
 check('nothing in, nothing out', Object.keys(V.rematch([], [])).length, 0);
 check('every line deleted detaches everything',
   Object.keys(V.rematch(same, [])).length, 0);
+
+console.log('\nchords, read from the song and written back to it');
+// Chords live in songs.lyrics as a plain text line above the words, each
+// positioned by character offset. Sixty of the seventy songs in the
+// library are written that way and the Chords tab, the songbook and the
+// PDF all already read it. The choir page reads the SAME thing rather
+// than keeping a second copy that could drift out of agreement.
+const isChord = l => /^[\sA-G#b/0-9majinsudg()]+$/.test(l) && /[A-G]/.test(l) && !/[a-z]{3,}/.test(l);
+const LY = [
+  '[Verse 1]',
+  'C       F        G',
+  'Said the night wind to the little lamb',
+  'Do you see what I see',
+  'Am          D',
+  'Way up in the sky lit-tle lamb'
+].join('\n');
+
+const idx = V.chordIndex(LY, isChord);
+check('a section header is not mistaken for a lyric', idx.length, 3);
+check('each lyric carries the chord line above it',
+  idx.map(r => [r.lyric.slice(0, 12), r.chord]),
+  [['Said the nig', 'C       F        G'],
+   ['Do you see w', ''],
+   ['Way up in th', 'Am          D']]);
+check('  and remembers where both lines are',
+  idx.map(r => [r.lyricAt, r.chordAt]), [[2, 1], [3, -1], [5, 4]]);
+// A chord line with nothing under it has no lyric to sit over.
+check('a trailing chord line with no words is dropped',
+  V.chordIndex('C  G\nwords here\nAm', isChord).length, 1);
+
+// The moment -> chord lookup. Hyphenation differs between the arrangement
+// and the lyrics column ("little" against "lit-tle"), so the match is on
+// what the words sound like, not how they are spelt.
+const cg = V.group([row('both', 'Said the night wind to the lit-tle lamb', 0)])[0];
+check('hyphenation does not defeat the match',
+  (V.chordFor(idx, cg, { at: 0 }) || {}).chord, 'C       F        G');
+check('a moment with no matching lyric gets no chords',
+  V.chordFor(idx, V.group([row('both', 'nothing like this', 0)])[0], { at: 0 }), null);
+
+// Matched in reading order: a refrain sung twice has two chord lines and
+// they are allowed to differ, so the second occurrence must not be handed
+// the first one's chords.
+const REP = ['C', 'sing it', 'G', 'sing it'].join('\n');
+const rIdx = V.chordIndex(REP, isChord);
+const cur = { at: 0 };
+const g1 = V.group([row('both', 'sing it', 0)])[0];
+check('a repeated line takes the next chord line, not the first again',
+  [V.chordFor(rIdx, g1, cur).chord, V.chordFor(rIdx, g1, cur).chord], ['C', 'G']);
+
+// Writing back. This is the carve-out the whole design rests on: chord
+// lines change, words never do.
+const withNew = V.withChord(LY, 3, -1, 'Dm   G7');
+check('a chord row is inserted above its lyric',
+  withNew.split('\n').slice(3, 5), ['Dm   G7', 'Do you see what I see']);
+check('  and not one word is touched',
+  withNew.split('\n').filter(l => !isChord(l)),
+  LY.split('\n').filter(l => !isChord(l)));
+check('an existing chord row is replaced, not duplicated',
+  V.withChord(LY, 2, 1, 'F  C').split('\n').slice(1, 3), ['F  C', 'Said the night wind to the little lamb']);
+check('clearing a chord removes the row rather than leaving a blank',
+  V.withChord(LY, 2, 1, '   ').split('\n').slice(0, 2), ['[Verse 1]', 'Said the night wind to the little lamb']);
+check('an out-of-range lyric changes nothing', V.withChord(LY, 99, -1, 'X'), LY);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
