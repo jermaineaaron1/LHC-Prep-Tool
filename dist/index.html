@@ -47304,7 +47304,7 @@ var WO = (function() {
       // song's Choir parts tab; typing here would be offering an edit with
       // nowhere to go.
       if (_sbSongHasChoir(song) && _cv !== 'lyrics') {
-        var _edChoir = _sbChoirBodyHtml(song);
+        var _edChoir = _sbChoirBodyHtml(song, false);
         // The timeline goes on the editing view and nowhere else. Print has
         // no buttons, and book mode's pages are sliced static snapshots, so
         // a recorder drawn into either would be a control that does nothing.
@@ -59097,10 +59097,14 @@ var WO = (function() {
 
   // One block holding the whole arrangement. Print uses this as-is and lets
   // the browser break it; book mode measures it and slices.
-  function _sbChoirBodyHtml(song) {
+  // compact is the PRINTED variant -- tighter, no controls. The editing
+  // view is a page on a screen that someone scrolls, so it gets the roomier
+  // rendering; print and book mode are fitting systems onto A4 and keep the
+  // tight one.
+  function _sbChoirBodyHtml(song, compact) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
-    return window.lhcVoiceLines.html(rows, { compact: true });
+    return window.lhcVoiceLines.html(rows, { compact: compact !== false });
   }
 
   function _sbFsBuildPages() {
