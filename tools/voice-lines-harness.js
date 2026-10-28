@@ -872,6 +872,39 @@ check('  and the choir CSS block includes it',
 check('  deduplicated, since it is inlined once per song',
   /if \(txt\.indexOf\('\.vl-'\) > -1 && !seen\[txt\]\)/.test(raw), true);
 
+console.log('\none transposition convention, not two');
+// The app had two. transposeAllChords, behind the songbook's lyrics
+// page, spells with flats going down; transposeChordLinePrint, behind
+// the preview, print and now the choir page, spelled everything with
+// sharps. Taken down two, the lyrics page read "Eb  Ab" and the choir
+// page beside it read "D#  G#" -- same song, same key, both on screen.
+const tcStart = lines.findIndex(l => /^function transposeChordLinePrint\(/.test(l));
+let TC = null;
+if (tcStart >= 0) {
+  let depth = 0, started = false, body = [];
+  for (let i = tcStart; i < lines.length; i++) {
+    body.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; } else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) break;
+  }
+  TC = new Function(body.join('\n') + '\nreturn transposeChordLinePrint;')();
+}
+check('the transposer was found', typeof TC, 'function');
+// Up: sharps, as a chart going up is written.
+check('up a semitone spells with sharps', [TC('C', 1), TC('F', 1), TC('G', 1)], ['C#', 'F#', 'G#']);
+// Down: flats. This is the half that was wrong.
+check('down a semitone spells with flats', [TC('D', -1), TC('E', -1), TC('A', -1)], ['Db', 'Eb', 'Ab']);
+check('down two from the real song', [TC('F', -2), TC('Bb', -2)], ['Eb', 'Ab']);
+check('  including the minor', TC('Dm', -1), 'Dbm');
+// Suffixes and existing flats survive either direction.
+check('a seventh keeps its seventh', [TC('G7', -2), TC('Cmaj7', 2)], ['F7', 'Dmaj7']);
+check('a sus keeps its sus', TC('Asus4', -2), 'Gsus4');
+check('a flat root reads as a note, not a letter', TC('Bb', 1), 'B');
+check('no steps, no change', TC('Bb  Dm', 0), 'Bb  Dm');
+check('twelve semitones comes home', TC('Bb', 12), 'A#');
+
 console.log('\ntransposing moves the chords the musicians read');
 // The transpose buttons rebuilt the lyrics in place and never touched
 // the choir page, so the singers' page and the musicians' page

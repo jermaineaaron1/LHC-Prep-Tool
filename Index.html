@@ -16568,10 +16568,23 @@ function isChordLinePrint(line) {
   return isChordLineGlobal(line);
 }
 
+// Sharps going up, FLATS going down -- the convention a chart is written
+// in, and the one transposeAllChords has always used for the songbook's
+// lyrics page.
+//
+// This spelled everything with sharps, so the two surfaces disagreed
+// about the same song in the same key: taken down two, the lyrics page
+// read "Eb  Ab" and the choir page beside it read "D#  G#". Measured on
+// a real song, both on screen at once.
+//
+// Changed here rather than at each caller, because here is the only
+// place the app had two answers to one question.
 function transposeChordLinePrint(line, steps) {
   if (!steps) return line;
   var NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  var FLATS = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
   var MAP   = {Db:'C#',Eb:'D#',Fb:'E',Gb:'F#',Ab:'G#',Bb:'A#',Cb:'B'};
+  var OUT   = steps < 0 ? FLATS : NOTES;
   return line.replace(/[A-G][#b]?m?(aj|in|dim|aug|sus|add)?[0-9]*/g, function(chord) {
     var rm = chord.match(/^([A-G][#b]?)/);
     if (!rm) return chord;
@@ -16579,7 +16592,7 @@ function transposeChordLinePrint(line, steps) {
     var idx  = NOTES.indexOf(norm);
     if (idx === -1) idx = NOTES.indexOf(norm[0]);
     if (idx === -1) return chord;
-    return chord.replace(/^[A-G][#b]?/, NOTES[(idx + steps + 12) % 12]);
+    return chord.replace(/^[A-G][#b]?/, OUT[(idx + steps + 12) % 12]);
   });
 }
 

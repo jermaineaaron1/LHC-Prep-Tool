@@ -319,6 +319,13 @@ const CASES = [
   ['voice-lines-harness.js', 'the rows are read back in alphabetical part order',
     s => s.replace(".order('id', { ascending: true })\r\n        .range(from, from + 999)",
                    ".order('part', { ascending: true })\r\n        .range(from, from + 999)")],
+  // One transposition convention. With two, the songbook's lyrics page
+  // and the choir page beside it spelled the same key differently --
+  // "Eb Ab" against "D# G#", both on screen at once.
+  ['voice-lines-harness.js', 'going down spells with sharps again',
+    s => s.replace('var OUT   = steps < 0 ? FLATS : NOTES;', 'var OUT   = NOTES;')],
+  ['voice-lines-harness.js', 'going up spells with flats',
+    s => s.replace('var OUT   = steps < 0 ? FLATS : NOTES;', 'var OUT   = steps < 0 ? NOTES : FLATS;')],
   // Transposing in place drags every chord after one that changed
   // length, which on a page placed by character offset means every
   // chord after the first Bb lands on the wrong syllable.
