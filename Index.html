@@ -8744,20 +8744,19 @@
      songbook's "2 Col" button does -- would stack the men's half below the
      women's, which is the one arrangement of this that cannot be read. */
   .vl-score { --vl-w: #a8475f; --vl-m: #1d6b68; --vl-all: #4a6da7; --vl-cue: #7c3aed; }
-  .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 22px 0 10px; background: #dcf5e5; color: #15803d; }
+  .vl-section { display: inline-block; padding: 3px 14px; border-radius: 999px; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; margin: 30px 0 12px; background: #dcf5e5; color: #15803d; }
   .vl-score > .vl-section:first-child { margin-top: 0; }
 
-  /* One system: a bar number in the gutter, the parts stacked beside it.
-     Women above men, the order the staves are printed in, with time running
-     left to right across BOTH of them -- which is what makes a part that
-     joins mid-phrase line up under the words it shares. */
-  .vl-sys { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 0 8px; padding: 7px 0; border-bottom: 1px solid #eef1f6; }
-  .vl-sys-bar { font-variant-numeric: tabular-nums; font-size: 12px; color: #94a3b8; white-space: nowrap; padding-top: 4px; }
-  .vl-sys-lines { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  /* One system: the parts stacked, women above men, the order the staves
+     are printed in, with time running left to right across both -- which
+     is what makes a part that joins mid-phrase line up under the words it
+     shares. No bar gutter; the rows keep their bars for the editor. */
+  .vl-sys { padding: 11px 0; border-bottom: 1px solid #eef1f6; }
+  .vl-sys-lines { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   /* The brace a score puts round staves that sound together. */
-  .vl-sys:not(.vl-sys--unison) .vl-sys-lines { border-left: 2px solid #e2e8f0; padding-left: 9px; margin-left: -1px; }
+  .vl-sys:not(.vl-sys--unison) .vl-sys-lines { border-left: 2px solid #e2e8f0; padding-left: 11px; }
 
-  .vl-ln { display: flex; align-items: baseline; gap: 9px; min-width: 0; padding: 2px 0; border-radius: 4px; }
+  .vl-ln { display: flex; align-items: baseline; gap: 11px; min-width: 0; padding: 4px 6px; border-radius: 5px; }
   /* Fixed width, so the words of both parts begin at the same x. Everything
      about the time alignment depends on this one number. */
   /* With the banners gone this label is the whole signal, so it is a filled
@@ -8780,7 +8779,28 @@
   .vl-blank { color: #cbd5e1; font-weight: 400; letter-spacing: 0.1em; }
   .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-  .vl-gap { padding: 7px 0 7px 62px; font-size: 12px; color: #94a3b8; font-style: italic; }
+  .vl-gap { padding: 10px 0 10px 13px; font-size: 12px; color: #94a3b8; font-style: italic; }
+
+  /* Which pages a song shows. Shared, not per-browser: this is stored on
+     the songbook so every caroler opening it sees the same book. */
+  .sb-cv { display: inline-flex; border: 1px solid rgba(255,255,255,0.22); border-radius: 7px; overflow: hidden; margin-right: 6px; }
+  .sb-cv-btn { border: 0; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 700; padding: 5px 11px; cursor: pointer; border-right: 1px solid rgba(255,255,255,0.14); }
+  .sb-cv-btn:last-child { border-right: 0; }
+  .sb-cv-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  .sb-cv-btn.active { background: #6d28d9; color: #fff; }
+
+  /* Editing the arrangement from the songbook. */
+  .sb-choir-edit { float: right; border: 1px solid #ddd3fb; background: #f6f3ff; color: #6d28d9; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; cursor: pointer; margin: -34px 0 0; }
+  .sb-choir-edit:hover { background: #ede9fe; }
+  .sb-choir-editor { margin: 0 0 16px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px; }
+  .sb-choir-ed-help { font-size: 11.5px; line-height: 1.6; color: #4c3a79; background: #f6f3ff; border: 1px solid #ddd3fb; border-radius: 6px; padding: 8px 11px; margin-bottom: 9px; }
+  .sb-choir-ed-help code { background: #fff; border: 1px solid #ddd3fb; border-radius: 3px; padding: 0 4px; font-family: ui-monospace, Consolas, monospace; font-weight: 700; }
+  .sb-choir-ta { width: 100%; min-height: 260px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; line-height: 1.75; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; resize: vertical; }
+  .sb-choir-ed-actions { display: flex; gap: 8px; margin-top: 9px; }
+  .sb-choir-save, .sb-choir-cancel { border-radius: 6px; font-size: 12px; font-weight: 700; padding: 7px 15px; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+  .sb-choir-save { background: #15803d; border-color: #15803d; color: #fff; }
+  /* A printed page has neither. */
+  .vl-score--compact ~ .sb-choir-editor, .sb-song-page--choir .sb-choir-editor:empty { display: none; }
 
   /* The whole-song recorder: one button and every run-through kept, each
      with the time it was sung so Tuesday can be told from Thursday. */
@@ -8817,15 +8837,14 @@
   .vl-ln--has-take { box-shadow: inset 2px 0 0 var(--vl-cue); }
 
   /* Printed into a songbook page: no controls, tighter, ink-economical. */
-  .vl-score--compact .vl-sys { padding: 4px 0; }
+  .vl-score--compact .vl-sys { padding: 7px 0; }
   .vl-score--compact .vl-body { font-size: inherit; line-height: 1.4; }
   .vl-score--compact .vl-who { flex-basis: 46px; }
   .vl-score--compact .vl-ln--women, .vl-score--compact .vl-ln--men { background: transparent; }
 
   @media (max-width: 680px) {
-    .vl-sys { grid-template-columns: 40px minmax(0, 1fr); }
-    .vl-who { flex-basis: 44px; font-size: 9px; }
-    .vl-gap { padding-left: 48px; }
+    .vl-who { min-width: 44px; font-size: 9px; }
+    .vl-gap { padding-left: 11px; }
   }
   
   /* Lyrics Editor Button */
@@ -15000,8 +15019,10 @@ window.lhcVoiceLines = {
                  ' \u2014 both parts rest</div>');
       }
 
+      // No bar column. The rows still carry their bars and the editor still
+      // places by them, but on the page somebody sings from they were a
+      // gutter of numbers crowding every line to say nothing a singer needs.
       out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '">');
-      out.push('<div class="vl-sys-bar">' + V._esc(V.barLabel(g.barStart, g.barEnd)) + '</div>');
       out.push('<div class="vl-sys-lines">');
 
       if (g.both) {
@@ -46017,6 +46038,9 @@ var WO = (function() {
           removedLibraryDocUrls: saved.removedLibraryDocUrls || [],
           removedLibraryYoutubeUrls: saved.removedLibraryYoutubeUrls || [],
           sbLyricsColumns: saved.sbLyricsColumns || 1,
+          // Which pages this song shows: 'choir', 'lyrics' or 'both'. Saved
+          // on the songbook, so every caroler who opens it sees the same.
+          choirView: saved.choirView || '',
           textAnnotations: saved.textAnnotations || [],
           slides: saved.slides || [], savedSlides: saved.savedSlides || [],
           sectionId: '', backgrounds: saved.backgrounds || {},
@@ -47113,6 +47137,7 @@ var WO = (function() {
         });
         html += '</div></div>';
       }
+      html += _sbChoirViewToggleHtml(song, sid);
       html += '<button class="sb-col-toggle-btn' + (song.sbLyricsColumns === 2 ? ' active' : '') + '" id="sbColBtn-' + sid + '" onclick="WO.sbToggleLyricsColumns(\'' + sid + '\')" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i> 2 Col</button>';
       // 575 — Liturgist Notes button: always shows label; active (amber) when notes exist
       var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
@@ -47130,7 +47155,12 @@ var WO = (function() {
       html += '</div>'; // .sb-page-controls-bar
 
       // ── White A4 page — compact header matching book mode / print ──
-      html += '<div class="sb-song-page" id="sbPage-' + sid + '" data-song-id="' + sid + '">';
+      // Hidden rather than skipped: the pagination, annotation canvas and
+      // lyrics editor all look this element up by id, and half the songbook
+      // would go looking for something that was never written.
+      var _cv = _sbChoirView(song);
+      html += '<div class="sb-song-page" id="sbPage-' + sid + '" data-song-id="' + sid + '"' +
+        (_cv === 'choir' ? ' style="display:none"' : '') + '>';
       html += '<div class="sb-page-header">';
       html += '<div class="sb-page-num">' + (idx + 1) + '</div>';
       html += '<div class="sb-page-info">';
@@ -47273,16 +47303,20 @@ var WO = (function() {
       // arrangement's words live in song_voice_lines and are edited from the
       // song's Choir parts tab; typing here would be offering an edit with
       // nowhere to go.
-      if (_sbSongHasChoir(song)) {
+      if (_sbSongHasChoir(song) && _cv !== 'lyrics') {
         var _edChoir = _sbChoirBodyHtml(song);
         // The timeline goes on the editing view and nowhere else. Print has
         // no buttons, and book mode's pages are sliced static snapshots, so
         // a recorder drawn into either would be a control that does nothing.
         var _edBar = (_edChoir && window.lhcVoiceRec) ? window.lhcVoiceRec.songBarHtml() : '';
-        html += '<div class="sb-song-page sb-song-page--choir" id="sbChoirPage-' + sid + '" data-song-id="' + sid + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
+        var _baseId = _sbBaseSongId(song);
+        html += '<div class="sb-song-page sb-song-page--choir" id="sbChoirPage-' + sid + '" data-song-id="' + sid + '" data-choir-song="' + escapeHtml(_baseId) + '">' +
           _sbChoirCss() +
           '<div class="sb-choir" contenteditable="false">' +
-            _sbChoirHeadHtml(song, false) + _edBar +
+            _sbChoirHeadHtml(song, false) +
+            '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeHtml(_baseId) + '\')">' +
+              '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
+            _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
           '</div></div>';
       }
@@ -50516,6 +50550,60 @@ var WO = (function() {
     sbApplySongFontOverrides();
   }
 
+  // Edit the arrangement from the songbook, in place.
+  //
+  // The rendered score stays read-only -- it is a grid, and letting someone
+  // type into it would mean parsing a layout back into rows. The editor is
+  // the same text source the song's own Choir parts tab uses, so there is
+  // one format to learn and one parser behind it.
+  function sbEditChoirParts(baseSongId) {
+    var page = document.querySelector('.sb-song-page--choir[data-choir-song="' + baseSongId + '"]');
+    if (!page || !window.lhcVoiceLines) return;
+    if (page.querySelector('.sb-choir-editor')) return;   // already open
+    var rows = _sbVoiceLines[baseSongId] || [];
+    var box = page.querySelector('.sb-choir');
+    if (!box) return;
+    var src = window.lhcVoiceLines.toVoiceText(rows);
+    var ed = document.createElement('div');
+    ed.className = 'sb-choir-editor';
+    ed.setAttribute('contenteditable', 'false');
+    ed.innerHTML =
+      '<div class="sb-choir-ed-help"><b>One line per part.</b> Bars first, then ' +
+        '<code>W:</code> or <code>M:</code>. A line with <b>no bars</b> joins the one ' +
+        'above it, so the two parts sing at the same moment. No prefix means ' +
+        'everyone. <code>~</code> marks a held note.</div>' +
+      '<textarea class="sb-choir-ta" spellcheck="false" wrap="off"></textarea>' +
+      '<div class="sb-choir-ed-actions">' +
+        '<button class="sb-choir-save">Save parts</button>' +
+        '<button class="sb-choir-cancel">Cancel</button></div>';
+    box.insertBefore(ed, box.querySelector('.vl-score') || null);
+    var ta = ed.querySelector('.sb-choir-ta');
+    ta.value = src;
+    ta.focus();
+
+    ed.querySelector('.sb-choir-cancel').onclick = function() { ed.remove(); };
+    ed.querySelector('.sb-choir-save').onclick = function() {
+      var parsed = window.lhcVoiceLines.parseVoiceText(ta.value);
+      if (!parsed.length) { showToast('Nothing to save \u2014 the editor is empty', 'error'); return; }
+      if (typeof showLoader === 'function') showLoader(true);
+      window.SBQ_VOICE_LINES.replaceAll(baseSongId, parsed).then(function() {
+        // Re-read, so the rows carry the ids a recording attaches to rather
+        // than the ones the parse invented.
+        return window.SBQ_VOICE_LINES.forSong(baseSongId);
+      }).then(function(fresh) {
+        _sbVoiceLines[baseSongId] = fresh || [];
+        ed.remove();
+        renderSongbookLive();
+        showToast('Choir parts saved', 'success');
+      }).catch(function(err) {
+        console.error(err);
+        showToast('Could not save the choir parts', 'error');
+      }).finally(function() {
+        if (typeof showLoader === 'function') showLoader(false);
+      });
+    };
+  }
+
   // Wire the recorder to every choir page on screen.
   //
   // Each page binds against its OWN song id, read off the element, so a
@@ -51973,6 +52061,7 @@ var WO = (function() {
       lyrics:          s.lyrics       || '',
       transposeSteps:  s.transposeSteps || 0,
       sbLyricsColumns: s.sbLyricsColumns || 1,
+      choirView:       s.choirView || '',
       // Notes & slides
       liturgistNotes:  s.liturgistNotes  || '',
       slides:          Array.isArray(s.slides)      ? s.slides      : [],
@@ -58915,6 +59004,66 @@ var WO = (function() {
       if (typeof onReady === 'function') onReady();
       return true;
     }).catch(function() { return false; });
+  }
+
+  // 'choir' | 'lyrics' | 'both'.
+  //
+  // A song with an arrangement defaults to CHOIR: the carolers open the
+  // songbook to sing their part, and the plain lyrics are a click away
+  // rather than a page to scroll past every time. A song without parts has
+  // no choice to make.
+  function _sbChoirView(song) {
+    if (!_sbSongHasChoir(song)) return 'lyrics';
+    var v = song && song.choirView;
+    return (v === 'lyrics' || v === 'both' || v === 'choir') ? v : 'choir';
+  }
+
+  function sbSetChoirView(songId, view) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    song.choirView = view;
+    renderSongbookLive();
+    sbAutoSave();
+    _sbPersistChoirView(song, view);
+  }
+
+  // The whole point of this setting is that everyone opening the songbook
+  // sees the same pages, so it cannot live in the browser.
+  //
+  // sbAutoSave carries it for an order-backed songbook, which writes its
+  // per-song state to order_items. A STANDALONE songbook has no order, so
+  // that path returns early at the currentOrderData check and the choice
+  // would have been lost on reload -- as, it turns out, every other
+  // per-song setting in a standalone songbook already is. This writes the
+  // one setting that was asked to be shared, onto the songbook row itself.
+  function _sbPersistChoirView(song, view) {
+    if (!_sbStandaloneId || !window.SBQ_SONGBOOKS) return;
+    var baseId = _sbBaseSongId(song);
+    if (!baseId) return;
+    SBQ_SONGBOOKS.loadAll().then(function(list) {
+      var sb = (list || []).find(function(s) { return s.id === _sbStandaloneId; });
+      if (!sb) return;
+      var items = Array.isArray(sb.items) ? sb.items.slice() : [];
+      var row = items.find(function(it) { return it && it.songId === baseId; });
+      if (row) row.choirView = view;
+      else items.push({ songId: baseId, choirView: view });
+      sb.items = items;
+      return SBQ_SONGBOOKS.save(sb);
+    }).catch(function(err) {
+      console.error(err);
+      showToast('The view changed here but could not be saved for everyone', 'error');
+    });
+  }
+
+  function _sbChoirViewToggleHtml(song, sid) {
+    if (!_sbSongHasChoir(song)) return '';
+    var v = _sbChoirView(song);
+    var one = function(val, label) {
+      return '<button class="sb-cv-btn' + (v === val ? ' active' : '') + '" ' +
+        'onclick="WO.sbSetChoirView(\'' + sid + '\',\'' + val + '\')">' + label + '</button>';
+    };
+    return '<span class="sb-cv" title="Which pages this song shows, for everyone who opens this songbook">' +
+      one('choir', 'Choir') + one('lyrics', 'Lyrics') + one('both', 'Both') + '</span>';
   }
 
   function _sbVoiceRowsFor(song) {
@@ -73587,6 +73736,8 @@ var WO = (function() {
     sbClearEditingSid: sbClearEditingSid,
     sbApplySectionBadges: sbApplySectionBadges,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
+    sbSetChoirView: sbSetChoirView,
+    sbEditChoirParts: sbEditChoirParts,
     sbInsertColBreak: sbInsertColBreak,
     sbRemoveColBreak: sbRemoveColBreak,
     sbPatchColBreakMarkers: sbPatchColBreakMarkers,

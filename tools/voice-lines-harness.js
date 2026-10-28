@@ -405,6 +405,22 @@ check('the three labels are distinguishable by class',
 check('no banner survives anywhere',
   /in together|vl-together/.test(V.html(L)), false);
 
+// The bar gutter came off the page: numbers down the left edge of every
+// line, saying something only the editor needs.
+check('the drawn score has no bar column', /vl-sys-bar/.test(V.html(L)), false);
+check('  and no bar numbers in its text',
+  /\b11–13\b/.test(V.html([row('women', 'Oh', 0, { barStart: 11, barEnd: 13 })])), false);
+// ...but the rows still carry them, and the EDITOR still shows them,
+// because a line with no bars means something specific there: it joins the
+// line above. Strip bars from the source and placement stops working.
+check('the rows still carry their bars',
+  V.group(L).slice(0, 2).map(g => [g.barStart, g.barEnd]), [[1, 3], [4, 4]]);
+check('the editor source still leads with the bar',
+  /^1–3\s/.test(V.toVoiceText(L).split('\n')[1]), true);
+check('  so an untouched round trip still places every row',
+  V.parseVoiceText(V.toVoiceText(L)).map(r => [r.barStart, r.barEnd]),
+  L.map(r => [r.barStart, r.barEnd]));
+
 // A silent part shows an empty bracket rather than a mark to decode. Most
 // of these are echoes -- one part answering the other a bar later -- and a
 // singer wants to see at a glance that the moment is not theirs.

@@ -264,6 +264,11 @@ const CASES = [
   // break. What replaced them guards the label and the blank.
   ['voice-lines-harness.js', 'a unison line is labelled BOTH again',
     s => s.replace("V._line('both', 'All', g.both, '', o)", "V._line('both', 'Both', g.both, '', o)")],
+  // Bars came off the page but must stay in the editor source, where a
+  // line WITHOUT them means something specific: it joins the line above.
+  ['voice-lines-harness.js', 'the editor source stops leading with the bar',
+    s => s.replace("out.push(pad(i === 0 ? V.barLabel(g.barStart, g.barEnd) : '') + '  ' +",
+                   "out.push(pad('') + '  ' +")],
   ['voice-lines-harness.js', 'a silent part goes back to a mark instead of a blank',
     // The class name appears twice -- the CSS rule first, then the markup.
     // String.replace takes only the first, so renaming "vl-blank" alone

@@ -536,7 +536,23 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbVoiceLines` on render -- a songbook that has not prefetched yet
     silently has no choir pages.
 
-15. **A songbook item's `id` is not a song id.** It is
+15. **Which pages a song shows in a songbook is SHARED, not per-browser.**
+    `choirView` (`choir` | `lyrics` | `both`, defaulting to `choir` when
+    an arrangement exists) is written onto the songbooks row so every
+    caroler opening it sees the same book. `sbAutoSave` carries it for an
+    order-backed songbook; a STANDALONE one has no order, so that path
+    returns early and `_sbPersistChoirView` writes the songbook row
+    directly. Note every OTHER per-song setting in a standalone songbook
+    still does not persist -- that is pre-existing, not fixed here.
+
+16. **Bars are off the page but still in the editor.** The rendered score
+    has no bar column -- it crowded every line to say something only the
+    editor needs. The rows still carry `bar_start`/`bar_end` and
+    `toVoiceText` still leads each group with them, because a line
+    WITHOUT bars means something specific in that format: it joins the
+    line above. Strip them from the source and placement stops working.
+
+17. **A songbook item's `id` is not a song id.** It is
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.
