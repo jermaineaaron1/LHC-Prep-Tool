@@ -13531,7 +13531,7 @@ function renderLyricsPreviewContent() {
     // so switching tabs does not cost a round trip.
     if (_vlRows.length && window.lhcVoiceRec) {
       window.lhcVoiceRec.bind(container, currentLyricsPreviewSong.id);
-      if (window.lhcVoiceRec._songId === currentLyricsPreviewSong.id) {
+      if (window.lhcVoiceRec.loaded(currentLyricsPreviewSong.id)) {
         window.lhcVoiceRec.paintAll(container);
       } else {
         window.lhcVoiceRec.load(currentLyricsPreviewSong.id).then(function() {
@@ -14478,10 +14478,14 @@ function applyTranspose() {
 // SET NULL drops the link -- which is the honest outcome, because after a
 // retype nobody can say the old take is still of the new words.
 window.lhcVoiceRec = {
-  _takes: {},          // lineId -> [rows]
-  _drafts: [],         // whole-song takes, newest last
-  _songId: null,
-  _rec: null,          // MediaRecorder while running
+  // Keyed by song, because the preview shows one song and a songbook shows
+  // a stack of them. With a single store the second song to load wiped the
+  // first's takes and the draft list showed whichever answered last.
+  _takes: {},          // songId -> lineId -> [rows]
+  _drafts: {},         // songId -> [rows], oldest first
+  _loaded: {},         // songId -> true once read
+  _recSong: null,      // song being recorded right now
+  _rec: null,
   _recLine: null,
   _stream: null,
   _started: 0,
@@ -14490,28 +14494,45 @@ window.lhcVoiceRec = {
 
   _sb: function() { return window._supabase || null; },
 
+  // Which song a container belongs to. Set by bind(), so a click anywhere
+  // inside resolves to the right song without the module holding one.
+  _songOf: function(root) { return (root && root.__vlRecSong) || null; },
+
+  _takesFor: function(songId, lineId) {
+    var R = window.lhcVoiceRec;
+    return ((R._takes[songId] || {})[String(lineId)]) || [];
+  },
+
+  _draftsFor: function(songId) {
+    return window.lhcVoiceRec._drafts[songId] || [];
+  },
+
+  loaded: function(songId) { return !!window.lhcVoiceRec._loaded[songId]; },
+
   // One read for both kinds. A take with a line_id is a reference for that
   // line; one without is a draft of the whole song.
   load: function(songId) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
-    R._songId = songId;
-    R._takes = {};
-    R._drafts = [];
     if (!sb || !songId) return Promise.resolve({});
+    R._takes[songId] = {};
+    R._drafts[songId] = [];
     return sb.from('song_recordings').select('*')
       .eq('song_id', songId)
       .order('created_at', { ascending: true })
       .then(function(r) {
-        if (r.error) return R._takes;      // unmigrated column: show nothing
+        // An unmigrated line_id column must leave the page as it is rather
+        // than blanking a song's recordings.
+        if (r.error) return R._takes[songId];
         (r.data || []).forEach(function(row) {
-          if (row.line_id == null) { R._drafts.push(row); return; }
+          if (row.line_id == null) { R._drafts[songId].push(row); return; }
           var k = String(row.line_id);
-          (R._takes[k] = R._takes[k] || []).push(row);
+          (R._takes[songId][k] = R._takes[songId][k] || []).push(row);
         });
-        return R._takes;
+        R._loaded[songId] = true;
+        return R._takes[songId];
       })
-      .catch(function() { return R._takes; });
+      .catch(function() { return R._takes[songId]; });
   },
 
   // "28 Oct 09:41" -- the point of a draft list is telling Tuesday's
@@ -14542,12 +14563,14 @@ window.lhcVoiceRec = {
     var R = window.lhcVoiceRec;
     var box = root && root.querySelector('[data-rec-drafts]');
     if (!box) return;
-    if (!R._drafts.length) {
+    var songId = R._songOf(root);
+    var drafts = R._draftsFor(songId);
+    if (!drafts.length) {
       box.innerHTML = '<span class="vl-drafts-none">No run-throughs yet</span>';
       return;
     }
-    // Newest first: the one you just sang is the one you want to hear.
-    box.innerHTML = R._drafts.slice().reverse().map(function(t) {
+    // Newest first: the one just sung is the one anybody wants to hear.
+    box.innerHTML = drafts.slice().reverse().map(function(t) {
       var esc = window.lhcVoiceLines._esc;
       return '<span class="vl-draft' + (R._playing === t.id ? ' is-playing' : '') + '">' +
         '<button type="button" class="vl-draft-play" data-rec-act="play" ' +
@@ -14576,16 +14599,17 @@ window.lhcVoiceRec = {
     var R = window.lhcVoiceRec;
     var slot = root.querySelector('[data-rec-takes="' + lineId + '"]');
     if (!slot) return;
-    var takes = R._takes[String(lineId)] || [];
+    var takes = R._takesFor(R._songOf(root), lineId);
     slot.innerHTML = takes.map(function(t, i) {
+      var esc = window.lhcVoiceLines._esc;
       return '<button type="button" class="vl-take' +
         (R._playing === t.id ? ' is-playing' : '') + '" data-rec-act="play" ' +
-        'data-rec-id="' + t.id + '" data-rec-path="' + window.lhcVoiceLines._esc(t.storage_path) + '" ' +
+        'data-rec-id="' + t.id + '" data-rec-path="' + esc(t.storage_path) + '" ' +
         'title="Play take ' + (i + 1) + '">' +
         '<i class="fa-solid fa-' + (R._playing === t.id ? 'stop' : 'play') + '"></i>' +
         (takes.length > 1 ? ' ' + (i + 1) : '') + '</button>' +
         '<button type="button" class="vl-take-del" data-rec-act="del" data-rec-id="' + t.id + '" ' +
-        'data-rec-path="' + window.lhcVoiceLines._esc(t.storage_path) + '" ' +
+        'data-rec-path="' + esc(t.storage_path) + '" ' +
         'title="Delete take ' + (i + 1) + '" aria-label="Delete take ' + (i + 1) + '">' +
         '<i class="fa-solid fa-xmark"></i></button>';
     }).join('');
@@ -14593,12 +14617,15 @@ window.lhcVoiceRec = {
     if (line) line.classList.toggle('vl-ln--has-take', takes.length > 0);
   },
 
-  // One delegated listener per container. The choir view is re-rendered
-  // whenever anything changes, so binding each button individually would
-  // leave a trail of listeners on elements that no longer exist.
+  // One delegated listener per container, and the container remembers its
+  // song. The choir view is re-rendered whenever anything changes, so
+  // binding each button individually would leave a trail of listeners on
+  // elements that no longer exist.
   bind: function(root, songId) {
     var R = window.lhcVoiceRec;
-    if (!root || root._vlRecBound) return;
+    if (!root) return;
+    root.__vlRecSong = songId;
+    if (root._vlRecBound) return;
     root._vlRecBound = true;
     root.addEventListener('click', function(e) {
       var btn = e.target.closest ? e.target.closest('[data-rec-act]') : null;
@@ -14620,6 +14647,8 @@ window.lhcVoiceRec = {
       showToast('This browser cannot record audio', 'error');
       return;
     }
+    var songId = R._songOf(root);
+    if (!songId) { showToast('Nothing to record against', 'error'); return; }
     // lineId null is the whole song: a rehearsal draft, not a line reference.
     var line = lineId == null ? null
              : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
@@ -14630,6 +14659,7 @@ window.lhcVoiceRec = {
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       R._stream = stream;
       R._recLine = lineId;
+      R._recSong = songId;
       R._started = Date.now();
       var mr = new MediaRecorder(stream);
       R._rec = mr;
@@ -14640,8 +14670,8 @@ window.lhcVoiceRec = {
         stream.getTracks().forEach(function(t) { t.stop(); });
         R._stream = null;
         R._setBtn(root, lineId, false);
-        R._save(root, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs);
-        R._rec = null; R._recLine = null;
+        R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs);
+        R._rec = null; R._recLine = null; R._recSong = null;
       };
       mr.start();
       R._setBtn(root, lineId, true);
@@ -14671,7 +14701,7 @@ window.lhcVoiceRec = {
     btn.title = on ? 'Stop recording' : 'Record this line';
   },
 
-  _save: function(root, lineId, part, blob, secs) {
+  _save: function(root, songId, lineId, part, blob, secs) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (!sb || !blob || !blob.size) { showToast('Nothing was recorded', 'error'); return; }
@@ -14681,16 +14711,19 @@ window.lhcVoiceRec = {
     var type = (blob.type || 'audio/webm').toLowerCase();
     var ext = type.indexOf('mp4') !== -1 ? 'm4a' : type.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
     var whole = lineId == null;
-    var path = 'practice-recordings/' + R._songId + '/' +
+    var path = 'practice-recordings/' + songId + '/' +
                (whole ? 'draft' : part) + '__' + Date.now() + '.' + ext;
-    var n = whole ? (R._drafts.length + 1) : ((R._takes[String(lineId)] || []).length + 1);
+    R._takes[songId] = R._takes[songId] || {};
+    R._drafts[songId] = R._drafts[songId] || [];
+    var n = whole ? (R._drafts[songId].length + 1)
+                  : (R._takesFor(songId, lineId).length + 1);
     if (typeof showLoader === 'function') showLoader(true);
     sb.storage.from(LHC_SUPABASE_BUCKET).upload(path, blob, {
       contentType: blob.type || 'audio/webm', upsert: false
     }).then(function(up) {
       if (up.error) throw new Error(up.error.message);
       return sb.from('song_recordings').insert({
-        song_id: R._songId, line_id: whole ? null : lineId,
+        song_id: songId, line_id: whole ? null : lineId,
         name: whole ? ('Run-through ' + n)
             : (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Take') + ' take ' + n,
         storage_path: path, duration_sec: Math.round(secs * 100) / 100
@@ -14703,12 +14736,13 @@ window.lhcVoiceRec = {
       var row = (res.data || [])[0];
       if (!row) throw new Error('the take did not come back from the database');
       if (whole) {
-        R._drafts.push(row);
+        R._drafts[songId].push(row);
         R.paintDrafts(root);
         showToast('Run-through saved', 'success');
         return;
       }
-      (R._takes[String(lineId)] = R._takes[String(lineId)] || []).push(row);
+      var k = String(lineId);
+      (R._takes[songId][k] = R._takes[songId][k] || []).push(row);
       R.paint(root, lineId);
       showToast('Take saved', 'success');
     }).catch(function(err) {
@@ -14741,7 +14775,7 @@ window.lhcVoiceRec = {
     var sb = R._sb();
     if (!sb) return;
     var ask = (typeof window.customConfirm === 'function')
-      ? window.customConfirm('Delete this take?', 'The recording will be removed for everyone.')
+      ? window.customConfirm('Delete this recording?', 'It will be removed for everyone.')
       : Promise.resolve(true);
     ask.then(function(ok) {
       if (!ok) return;
@@ -14749,10 +14783,17 @@ window.lhcVoiceRec = {
         if (r.error) throw new Error(r.error.message);
         return sb.storage.from(LHC_SUPABASE_BUCKET).remove([path]);
       }).then(function() {
-        Object.keys(R._takes).forEach(function(k) {
-          R._takes[k] = R._takes[k].filter(function(t) { return String(t.id) !== String(id); });
+        // Swept from every song's store, not just this container's: the
+        // same recording can be on screen twice, in the preview and in a
+        // songbook page.
+        Object.keys(R._takes).forEach(function(sid) {
+          Object.keys(R._takes[sid]).forEach(function(k) {
+            R._takes[sid][k] = R._takes[sid][k].filter(function(t) { return String(t.id) !== String(id); });
+          });
         });
-        R._drafts = R._drafts.filter(function(t) { return String(t.id) !== String(id); });
+        Object.keys(R._drafts).forEach(function(sid) {
+          R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });
+        });
         R.paintAll(root);
         showToast('Recording deleted', 'success');
       });
@@ -46467,6 +46508,11 @@ var WO = (function() {
     // this a freshly opened songbook would print a song's lyrics and
     // silently leave its choir pages out.
     if (typeof sbEnsureVoiceLines === 'function') sbEnsureVoiceLines();
+    // After the DOM for this render exists. The choir pages are written in
+    // the same pass, so a timeout of 0 is enough to get behind them.
+    setTimeout(function() {
+      if (typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();
+    }, 0);
     var body = $('sbBody');
     if (!body) return;
 
@@ -47229,10 +47275,14 @@ var WO = (function() {
       // nowhere to go.
       if (_sbSongHasChoir(song)) {
         var _edChoir = _sbChoirBodyHtml(song);
-        html += '<div class="sb-song-page sb-song-page--choir" id="sbChoirPage-' + sid + '" data-song-id="' + sid + '">' +
+        // The timeline goes on the editing view and nowhere else. Print has
+        // no buttons, and book mode's pages are sliced static snapshots, so
+        // a recorder drawn into either would be a control that does nothing.
+        var _edBar = (_edChoir && window.lhcVoiceRec) ? window.lhcVoiceRec.songBarHtml() : '';
+        html += '<div class="sb-song-page sb-song-page--choir" id="sbChoirPage-' + sid + '" data-song-id="' + sid + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbChoirCss() +
           '<div class="sb-choir" contenteditable="false">' +
-            _sbChoirHeadHtml(song, false) +
+            _sbChoirHeadHtml(song, false) + _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
           '</div></div>';
       }
@@ -49106,6 +49156,12 @@ var WO = (function() {
     if (sheet) sheet.style.display = 'block';
     sbLoadRecordings(_sbRecCurrentSongId);
   }
+  // Leaving the songbook stops anything still recording, which also hands
+  // the microphone back.
+  function sbStopChoirRecording() {
+    if (window.lhcVoiceRec) window.lhcVoiceRec.stop();
+  }
+
   function sbCloseRecordings() {
     if (_sbRecording) _sbStopRecording();
     var sheet = document.getElementById('sbRecSheet');
@@ -50458,6 +50514,30 @@ var WO = (function() {
     }
     // Re-apply per-song overrides on top of the global settings
     sbApplySongFontOverrides();
+  }
+
+  // Wire the recorder to every choir page on screen.
+  //
+  // Each page binds against its OWN song id, read off the element, so a
+  // songbook holding two arrangements keeps two separate draft lists
+  // instead of both pages showing whichever song answered last.
+  function sbBindChoirRecorders() {
+    if (!window.lhcVoiceRec) return;
+    document.querySelectorAll('.sb-song-page--choir[data-choir-song]').forEach(function(page) {
+      var songId = page.getAttribute('data-choir-song');
+      if (!songId) return;
+      window.lhcVoiceRec.bind(page, songId);
+      if (window.lhcVoiceRec.loaded(songId)) {
+        window.lhcVoiceRec.paintAll(page);
+      } else {
+        window.lhcVoiceRec.load(songId).then(function() {
+          // The songbook may have been redrawn while this was in flight,
+          // so the element is looked up again rather than captured.
+          var live = document.querySelector('.sb-song-page--choir[data-choir-song="' + songId + '"]');
+          if (live) { window.lhcVoiceRec.bind(live, songId); window.lhcVoiceRec.paintAll(live); }
+        });
+      }
+    });
   }
 
   // Fetch the arrangements the songbook needs, once, and redraw when they

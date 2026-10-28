@@ -519,7 +519,15 @@ the anon key -- verify as `postgres`, not as the app.
     share; a part that rests still keeps its line, or the singing part
     slides into the slot the reader has learnt is theirs.
 
-13. **The songbook gives the arrangement its OWN pages**, after the song's
+13. **Recordings are keyed by song, not held one at a time.**
+    `lhcVoiceRec` stores `_takes[songId][lineId]` and `_drafts[songId]`,
+    and each container remembers its own song via `bind(root, songId)`.
+    A songbook is a stack of songs; with a single store the second one to
+    load wiped the first's takes. A take with `line_id` set is a
+    reference for that line, one without is a draft of the whole song, and
+    one read loads both.
+
+14. **The songbook gives the arrangement its OWN pages**, after the song's
     lyrics, in all three paths (editing view, print, book mode). It does
     not render into a lyrics page, because `_sbComputePageStarts`
     paginates from the lyrics TEXT and would not break a rendered view at
@@ -528,7 +536,7 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbVoiceLines` on render -- a songbook that has not prefetched yet
     silently has no choir pages.
 
-14. **A songbook item's `id` is not a song id.** It is
+15. **A songbook item's `id` is not a song id.** It is
     `sbsong_<songId>_<idx>` in a standalone songbook and
     `<songId>--<suffix>` in one built from a Worship Order. Neither
     survives being chopped at `--`. Use the item's `songId` field.
