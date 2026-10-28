@@ -47460,7 +47460,7 @@ var WO = (function() {
       // song's Choir parts tab; typing here would be offering an edit with
       // nowhere to go.
       if (_sbSongHasChoir(song) && _cv !== 'lyrics') {
-        var _edChoir = _sbChoirBodyHtml(song, false);
+        var _edChoir = _sbChoirBodyHtml(song, true);
         // The timeline goes on the editing view and nowhere else. Print has
         // no buttons, and book mode's pages are sliced static snapshots, so
         // a recorder drawn into either would be a control that does nothing.
@@ -47474,6 +47474,7 @@ var WO = (function() {
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
             '<div class="sb-choir-hint">Double-click a line to change its words, ' +
               'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
+              'The microphone on a line records just that line. ' +
               'Use <b>Edit parts</b> to add or regroup moments.</div>' +
             _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
@@ -59267,14 +59268,18 @@ var WO = (function() {
 
   // One block holding the whole arrangement. Print uses this as-is and lets
   // the browser break it; book mode measures it and slices.
-  // compact is the PRINTED variant -- tighter, no controls. The editing
-  // view is a page on a screen that someone scrolls, so it gets the roomier
-  // rendering; print and book mode are fitting systems onto A4 and keep the
-  // tight one.
-  function _sbChoirBodyHtml(song, compact) {
+  // live = the editing view: the roomier rendering AND a microphone on
+  // every line. Print and book mode take the tight, control-free one --
+  // they are fitting systems onto A4, and a button on paper does nothing.
+  //
+  // The line chips were left off this page at first, on the grounds that it
+  // was for reading from while singing. It has since become the view that
+  // carries the timeline, the inline editing and Edit parts, so that
+  // reasoning stopped being true.
+  function _sbChoirBodyHtml(song, live) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
-    return window.lhcVoiceLines.html(rows, { compact: compact !== false });
+    return window.lhcVoiceLines.html(rows, { compact: !live, record: !!live });
   }
 
   function _sbFsBuildPages() {
