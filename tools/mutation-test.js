@@ -599,6 +599,45 @@ const CASES = [
   ['songbooks-ribbon-harness.js', 'the columns split before a title fits in one',
     s => s.replace('@container sfcatalogue (min-width: 1120px)', '@container sfcatalogue (min-width: 820px)')],
 
+  // Opening a roster cell on a phone. A PIC signed in on an iPhone and
+  // found that nothing he did to a Live Streaming cell had any effect:
+  // the cells answered dblclick alone, which iOS does not dependably
+  // send, and the touch shim that existed was wired to scripture cells
+  // only. Silent and total -- no error, no toast, and the PIC concludes
+  // the system has locked them out.
+  ['roster-touch-edit-harness.js', 'the touch shim goes back to scripture cells only',
+    s => s.replace('        self._bindDoubleTap(td, onDouble);',
+                   "        if (td.hasAttribute('data-ref')) self._bindDoubleTap(td, onDouble);")],
+  ['roster-touch-edit-harness.js', 'nothing binds the second tap at all',
+    s => s.replace('        self._bindDoubleTap(td, onDouble);', '')],
+  ['roster-touch-edit-harness.js', 'two taps are never close enough together',
+    s => s.replace('(now - self._tapTime) < 400', '(now - self._tapTime) < 0')],
+  // Without this the second tap is a zoom and the editor opens under a
+  // page that has just jumped.
+  ['roster-touch-edit-harness.js', 'the zoom is left to happen over the editor',
+    s => s.replace('          e.preventDefault();\r\n          self._tapCell = null;',
+                   '          self._tapCell = null;')],
+  // A PIC login does not re-render this table, so an action that
+  // captured the mode would keep acting on whichever was in force at the
+  // last render -- signing in would appear to do nothing.
+  ['roster-touch-edit-harness.js', 'the cell captures PIC mode at bind time',
+    s => s.replace('          : function() { if (STATE.picMode) self.editCell(td); };',
+                   '          : (function(pm) { return function() { if (pm) self.editCell(td); }; })(STATE.picMode);')],
+  ['roster-touch-edit-harness.js', 'the options button swallows the cell edit',
+    s => s.replace("        if (e.target && e.target.closest && e.target.closest('.roster-cell-dropdown-icon')) return;\r\n", '')],
+  // The toggle buttons are the whole interaction surface on that row;
+  // a text editor behind them is a second, conflicting answer.
+  ['roster-touch-edit-harness.js', 'the service-type row gets a text editor behind its toggles',
+    s => s.replace('        if (isServiceTypeCell) return;', '        if (false) return;')],
+  // 7px at 35% opacity is a smudge, not a control -- and it is the route
+  // a PIC finds when the gesture does not occur to them.
+  ['roster-touch-edit-harness.js', 'the cell menu shrinks back to a smudge',
+    s => s.replace('        opacity: 0.55 !important; font-size: 10px !important;\r\n        padding: 5px 6px !important;',
+                   '        opacity: 0.35 !important; font-size: 7px !important;')],
+  ['roster-touch-edit-harness.js', 'nobody tells a PIC on a phone what the gesture is',
+    s => s.replace('<div class="rmp-edit-hint pic-only" id="rmpEditHint">',
+                   '<div class="rmp-edit-hint-gone pic-only" id="rmpEditHint">')],
+
   // Showing one part at a time. Each of these leaves a page that still
   // looks like a score, which is the whole reason the checks exist.
   ['voice-lines-harness.js', 'a unison line is filtered away with the other parts',
