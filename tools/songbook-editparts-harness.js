@@ -107,6 +107,8 @@ const WANTED = [
   [/^  function sbmEdDupSec\(/, 'sbmEdDupSec'],
   [/^  function sbmEdMoveMoment\(/, 'sbmEdMoveMoment'],
   [/^  function _sbmEdClose\(/, '_sbmEdClose'],
+  [/^  function _sbmEdKey\(/, '_sbmEdKey'],
+  [/^  function sbmEdToText\(/, 'sbmEdToText'],
   [/^  function sbmEdSave\(/, 'sbmEdSave']
 ];
 
@@ -122,7 +124,8 @@ try {
   const decls = [
     line(/^  var _sbmEd = null;/, 'var _sbmEd'),
     line(/^  var _SBM_ED_PARTS = \[/, 'var _SBM_ED_PARTS'),
-    line(/^  var _sbmEdSeq = 0;/, 'var _sbmEdSeq')
+    line(/^  var _sbmEdSeq = 0;/, 'var _sbmEdSeq'),
+    line(/^  var _sbmEdPvTimer = null;/, 'var _sbmEdPvTimer')
   ].join('\n');
   const src = decls + '\n' + WANTED.map(([re, name]) => extract(re, name)).join('\n');
 
@@ -189,7 +192,7 @@ function fresh() {
       forSong: (id) => { calls.forSong.push(id); return Promise.resolve(calls.fresh || []); }
     }
   };
-  const doc = { getElementById: () => null, querySelector: () => null };
+  const doc = { getElementById: () => null, querySelector: () => null, addEventListener() {}, removeEventListener() {} };
   const api = make(windowStub, doc,
     (msg, kind) => calls.toasts.push([msg, kind]),
     () => { calls.confirms++; return true; },

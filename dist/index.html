@@ -6645,6 +6645,9 @@
             <button id="lyricsPreviewSaveBtn" class="lhc-pill-button text-sm hidden" title="Save lyrics" onclick="lyricsPreviewSaveInlineEdit()" style="background:#ecfdf5;border-color:#6ee7b7;color:#047857;">
               <i class="fa-solid fa-check mr-1"></i> Save
             </button>
+            <button id="lyricsPreviewStructuredBtn" class="lhc-pill-button text-sm hidden" title="Edit the parts as sections and lines, with the score beside them" onclick="lyricsPreviewOpenStructured()" style="background:#f6f3ff;border-color:#ddd3fb;color:#6d28d9;">
+              <i class="fa-solid fa-table-list mr-1"></i> Structured editor
+            </button>
             <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewCancelInlineEdit()" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-xmark mr-1"></i> Cancel
             </button>
@@ -8952,7 +8955,7 @@
   .sb-choir-ed-help code { background: #fff; border: 1px solid #ddd3fb; border-radius: 3px; padding: 0 4px; font-family: ui-monospace, Consolas, monospace; font-weight: 700; }
   .sb-choir-ta { width: 100%; min-height: 272px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; line-height: 1.75; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; resize: vertical; }
   .sb-choir-ed-actions { display: flex; gap: 8px; margin-top: 9px; }
-  .sb-choir-save, .sb-choir-cancel { border-radius: 6px; font-size: 12px; font-weight: 700; padding: 7px 15px; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+  .sb-choir-save, .sb-choir-cancel, .sb-choir-structured { border-radius: 6px; font-size: 12px; font-weight: 700; padding: 7px 15px; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; }
   .sb-choir-save { background: #15803d; border-color: #15803d; color: #fff; }
   /* A printed page has neither. */
   .vl-score--compact ~ .sb-choir-editor, .sb-song-page--choir .sb-choir-editor:empty { display: none; }
@@ -13981,6 +13984,10 @@ function lyricsPreviewToggleInlineEdit(enter) {
   if (editBtn) editBtn.classList.toggle('hidden', enter);
   if (saveBtn) saveBtn.classList.toggle('hidden', !enter);
   if (cancelBtn) cancelBtn.classList.toggle('hidden', !enter);
+  // The structured editor is for the choir parts, so it shows only while
+  // that tab's textarea is open.
+  var structBtn = document.getElementById('lyricsPreviewStructuredBtn');
+  if (structBtn) structBtn.classList.toggle('hidden', !(enter && currentLyricsPreviewMode === 'choir'));
   ['lyricsPreviewLyricsBtn', 'lyricsPreviewChordsBtn', 'lyricsPreviewResourcesBtn', 'lyricsPreviewTwoColBtn'].forEach(function(id) {
     var b = document.getElementById(id);
     if (b) { b.disabled = !!enter; b.style.opacity = enter ? '0.45' : ''; b.style.pointerEvents = enter ? 'none' : ''; }
@@ -14002,6 +14009,25 @@ function lyricsPreviewToggleInlineEdit(enter) {
   renderLyricsPreviewContent();
 }
 window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
+
+// The choir parts as sections and lines, over this tab's textarea. The
+// dialog never writes: it hands the text back, and the save is this tab's
+// own -- _lpSaveVoiceLines, with its pending-conversion state -- so a new
+// arrangement saved through the dialog is settled exactly as one saved
+// through the textarea. The textarea is updated first, so a save that
+// fails leaves the edited text on screen rather than the old.
+function lyricsPreviewOpenStructured() {
+  var song = currentLyricsPreviewSong;
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  if (!song || !ta || !window.lhcVoiceLines || !window.WO || typeof WO.sbOpenPartsDialog !== 'function') return;
+  WO.sbOpenPartsDialog({
+    base: song.id, title: song.title || '', artist: song.artist || '',
+    rows: window.lhcVoiceLines.parseVoiceText(ta.value), lyrics: song.lyrics || '',
+    onText: function(t) { ta.value = t; ta.focus(); },
+    onSave: function(t) { ta.value = t; _lpSaveVoiceLines(song, t); }
+  });
+}
+window.lyricsPreviewOpenStructured = lyricsPreviewOpenStructured;
 
 // True only while the inline editor is open AND its text differs from the
 // snapshot taken when it opened.
@@ -48632,24 +48658,60 @@ var WO = (function() {
     return null;
   }
 
-  function sbmEditParts() {
-    var song = _sbmSong(); if (!song || !window.lhcVoiceLines) return;
-    var base = _sbBaseSongId(song);
-    var rows = _sbVoiceLines[base] || [];
+  // The arrangement to edit, from either layout. `rows` are the song's
+  // lines as forSong hands them over (or as the parser made them from a
+  // textarea); with none, the song's own words seed it, everyone singing,
+  // so the first thing to do is split a line rather than type a verse in.
+  //
+  //   desktop     a dialog over whatever is open, the score drawn live
+  //               beside the parts; otherwise the phone's full-screen page
+  //   onSave(t)   another screen owns the save and takes the text -- the
+  //               library's Choir parts tab -- instead of the songbook path
+  //   onText(t)   offers "Edit as text" and receives the arrangement as
+  //               the textarea grammar when it is taken
+  function _sbmEdOpen(o) {
+    if (!window.lhcVoiceLines) return;
+    var rows = Array.isArray(o.rows) ? o.rows : [];
     var built;
     if (rows.length) built = _sbmEdFromRows(rows);
     else {
-      // An ordinary song becoming one with parts: start from its words,
-      // everyone singing, so the first thing to do is split a line, not
-      // type a verse back in.
-      var seed = (typeof window.lhcVoiceLines.fromLyrics === 'function') ? window.lhcVoiceLines.fromLyrics(song.lyrics || '') : [];
+      var seed = (typeof window.lhcVoiceLines.fromLyrics === 'function') ? window.lhcVoiceLines.fromLyrics(o.lyrics || '') : [];
       built = _sbmEdFromRows(Array.isArray(seed) ? seed : []);
       if (!built.sections.length) built.sections.push({ id: _sbmEdId(), name: 'Verse 1', open: true, moments: [] });
     }
-    _sbmEd = { base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
-               sections: built.sections, parts: built.parts, reorder: false, dirty: false };
-    _sbmStopPlayer();
+    _sbmEd = { base: o.base, sid: o.sid || null, title: o.title || '', artist: o.artist || '',
+               sections: built.sections, parts: built.parts, reorder: false, dirty: false,
+               desktop: !!o.desktop, previewOpts: o.previewOpts || null,
+               onSave: (typeof o.onSave === 'function') ? o.onSave : null,
+               onText: (typeof o.onText === 'function') ? o.onText : null };
+    // Capture phase, so the songbook's own Escape never sees a key meant
+    // for the dialog sitting over it.
+    document.addEventListener('keydown', _sbmEdKey, true);
     _sbmEdPaint();
+  }
+  // The phone's entry: the song on screen, full screen.
+  function sbmEditParts() {
+    var song = _sbmSong(); if (!song) return;
+    var base = _sbBaseSongId(song);
+    _sbmStopPlayer();
+    _sbmEdOpen({ base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
+                 rows: _sbVoiceLines[base] || [], lyrics: song.lyrics || '', desktop: false });
+  }
+  // Anyone else's entry: the dialog. The library's Choir parts tab uses it
+  // with its own save.
+  function sbOpenPartsDialog(o) {
+    _sbmEdOpen(Object.assign({ desktop: !_sbFoldPhone() }, o || {}));
+  }
+  function _sbmEdKey(ev) {
+    if (!_sbmEd) return;
+    if (ev.key === 'Escape') {
+      ev.stopPropagation(); ev.preventDefault();
+      if (document.getElementById('sbmSheet')) { _sbmCloseSheet(); return; }
+      sbmEdCancel();
+    } else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      ev.stopPropagation(); ev.preventDefault();
+      sbmEdSave();
+    }
   }
 
   function _sbmEdPartsOn() {
@@ -48661,23 +48723,57 @@ var WO = (function() {
   function _sbmEdPaint() {
     var ed = _sbmEd; if (!ed) return;
     var host = document.getElementById('sbmEdit');
-    if (!host) { host = document.createElement('div'); host.id = 'sbmEdit'; host.className = 'sbm'; document.body.appendChild(host); }
+    if (!host) {
+      host = document.createElement('div'); host.id = 'sbmEdit';
+      host.className = 'sbm' + (ed.desktop ? ' sbm-ed--desktop' : '');
+      document.body.appendChild(host);
+    }
     host.classList.toggle('is-reorder', !!ed.reorder);
+    // A repaint replaces the markup; the reader's place in it is kept.
+    var oldBody = host.querySelector('.sbm-ed__body'), keep = oldBody ? oldBody.scrollTop : 0;
+    var oldPv = host.querySelector('.sbm-ed__pv'), keepPv = oldPv ? oldPv.scrollTop : 0;
+    var body = _sbmEdBodyHtml(ed);
+    var song = escapeHtml(ed.title) + (ed.artist ? ' \u00b7 ' + escapeHtml(ed.artist) : '');
+    if (ed.desktop) {
+      host.innerHTML = '<div class="sbm-ed__dlg" role="dialog" aria-label="Edit choir parts">' +
+        '<div class="sbm-ed__hero">' +
+          '<div style="min-width:0;"><div class="sbm-ed__title">Edit Choir Parts</div><div class="sbm-ed__song">' + song + '</div></div>' +
+          (ed.onText ? '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmEdToText()" title="The same arrangement as text: W: and M: lines, [Name] for any other part, a blank line between moments"><i class="fa-solid fa-i-cursor"></i>Edit as text</button>' : '') +
+          '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
+        '<div class="sbm-ed__panes">' +
+          '<div class="sbm-ed__body">' + body + '</div>' +
+          '<div class="sbm-ed__pv"><div class="sbm-label"><i class="fa-solid fa-eye"></i>As it will print</div>' +
+            '<div class="sb-choir sbm-ed__pvscore" id="sbmEdPreview"></div></div></div>' +
+        '<div class="sbm-ed__foot"><span class="sbm-ed__hint">Esc cancels \u00b7 Ctrl+Enter saves</span>' +
+          '<button class="sbm-btn" onclick="WO.sbmEdCancel()">Cancel</button>' +
+          '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div></div>';
+      _sbmEdDrawPreview();
+    } else {
+      host.innerHTML = '<div class="sbm-ed__hero">' +
+        '<button class="sbm-ed__back" onclick="WO.sbmEdCancel()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>' +
+        '<div style="min-width:0;"><div class="sbm-ed__title">Edit Parts</div><div class="sbm-ed__song">' + song + '</div></div>' +
+        '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
+        '<div class="sbm-ed__body">' + body + '</div>' +
+        '<div class="sbm-sticky sbm-ed__sticky">' +
+          '<button class="sbm-btn" style="min-height:var(--sbm-primary);" onclick="WO.sbmEdCancel()">Cancel</button>' +
+          '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div>';
+    }
+    var nb = host.querySelector('.sbm-ed__body'); if (nb && keep) nb.scrollTop = keep;
+    var np = host.querySelector('.sbm-ed__pv'); if (np && keepPv) np.scrollTop = keepPv;
+  }
+
+  // The parts themselves -- the actions, which parts the song uses, the
+  // sections -- the same markup on both layouts; the CSS lays it out.
+  function _sbmEdBodyHtml(ed) {
     var on = _sbmEdPartsOn();
     var fam = function(p) { return _sbmPartFamily(p); };
-
-    var html = '<div class="sbm-ed__hero">' +
-      '<button class="sbm-ed__back" onclick="WO.sbmEdCancel()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>' +
-      '<div style="min-width:0;"><div class="sbm-ed__title">Edit Parts</div><div class="sbm-ed__song">' + escapeHtml(ed.title) + (ed.artist ? ' \u00b7 ' + escapeHtml(ed.artist) : '') + '</div></div>' +
-      '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>';
-
-    html += '<div class="sbm-ed__body">';
+    var html = '';
     html += '<div class="sbm-card"><div class="sbm-ed__actions">' +
       '<button class="sbm-tile sbm-tile--blue" onclick="WO.sbmEdAddSection()"><i class="fa-solid fa-circle-plus"></i>Add Section</button>' +
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmEdAddPart(null)"><i class="fa-solid fa-circle-plus"></i>Add Part</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdAddHarmony()"><i class="fa-solid fa-people-group"></i>Add Harmony</button>' +
       '<button class="sbm-tile' + (ed.reorder ? ' is-on' : '') + '" onclick="WO.sbmEdReorder()"><i class="fa-solid fa-arrow-down-up-across-line"></i>Reorder</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmEdPreview()"><i class="fa-solid fa-eye"></i>Preview</button></div></div>';
+      (ed.desktop ? '' : '<button class="sbm-tile" onclick="WO.sbmEdPreview()"><i class="fa-solid fa-eye"></i>Preview</button>') + '</div></div>';
 
     // which parts this song uses
     var names = _SBM_ED_PARTS.slice();
@@ -48730,17 +48826,36 @@ var WO = (function() {
       html += '</div>';
     });
     if (!ed.sections.length) html += '<div class="sbm-card"><p class="sbm-empty">No sections yet. Add one to begin.</p></div>';
-    html += '<div style="height:12px;"></div></div>';
+    html += '<div style="height:12px;"></div>';
+    return html;
+  }
 
-    html += '<div class="sbm-sticky sbm-ed__sticky">' +
-      '<button class="sbm-btn" style="min-height:var(--sbm-primary);" onclick="WO.sbmEdCancel()">Cancel</button>' +
-      '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div>';
-    host.innerHTML = html;
+  // The desktop's live preview: the same html() the saved song is drawn
+  // with, from the same text the save would write.
+  function _sbmEdDrawPreview() {
+    var ed = _sbmEd, box = document.getElementById('sbmEdPreview'); if (!ed || !box) return;
+    var V = window.lhcVoiceLines;
+    var parsed = V.parseVoiceText(_sbmEdToText(ed));
+    box.innerHTML = parsed.length ? V.html(parsed, ed.previewOpts || {}) :
+      '<p class="sbm-empty">Nothing to show yet \u2014 add a section and some words.</p>';
+  }
+  var _sbmEdPvTimer = null;
+  function _sbmEdPreviewSoon() {
+    if (!_sbmEd || !_sbmEd.desktop) return;
+    if (_sbmEdPvTimer) clearTimeout(_sbmEdPvTimer);
+    _sbmEdPvTimer = setTimeout(_sbmEdDrawPreview, 150);
+  }
+  // Hand the arrangement to whoever offered the textarea, as text.
+  function sbmEdToText() {
+    var ed = _sbmEd; if (!ed || !ed.onText) return;
+    var text = _sbmEdToText(ed), take = ed.onText;
+    ed.dirty = false; _sbmEdClose();
+    take(text);
   }
 
   // ---- edits ----
   function _sbmEdTouch() { if (_sbmEd) _sbmEd.dirty = true; }
-  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); } }
+  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); _sbmEdPreviewSoon(); } }
   function sbmEdHold(id) { var f = _sbmEdFind(id); if (f && f.line) { f.line.sustained = !f.line.sustained; _sbmEdTouch(); _sbmEdPaint(); } }
   function sbmEdToggleSec(id) { var f = _sbmEdFind(id); if (f && f.sec) { f.sec.open = !f.sec.open; _sbmEdPaint(); } }
   function sbmEdRenameSec(id) {
@@ -48909,6 +49024,8 @@ var WO = (function() {
   }
   function _sbmEdClose() {
     _sbmCloseSheet();
+    document.removeEventListener('keydown', _sbmEdKey, true);
+    if (_sbmEdPvTimer) { clearTimeout(_sbmEdPvTimer); _sbmEdPvTimer = null; }
     var host = document.getElementById('sbmEdit'); if (host) host.remove();
     _sbmEd = null;
   }
@@ -48917,6 +49034,15 @@ var WO = (function() {
     var V = window.lhcVoiceLines;
     var parsed = V.parseVoiceText(_sbmEdToText(ed));
     if (!parsed.length) { showToast('Nothing to save \u2014 there are no lines', 'error'); return; }
+    if (ed.onSave) {
+      // Another screen owns this song's save and takes the text -- the
+      // library's Choir parts tab, which has its own pending-conversion
+      // state to settle. Nothing is written from here.
+      var text = _sbmEdToText(ed), done = ed.onSave;
+      ed.dirty = false; _sbmEdClose();
+      done(text, parsed);
+      return;
+    }
     if (typeof showLoader === 'function') showLoader(true);
     window.SBQ_VOICE_LINES.replaceAll(ed.base, parsed).then(function() {
       return window.SBQ_VOICE_LINES.forSong(ed.base);
@@ -53424,7 +53550,25 @@ var WO = (function() {
   // type into it would mean parsing a layout back into rows. The editor is
   // the same text source the song's own Choir parts tab uses, so there is
   // one format to learn and one parser behind it.
+  // "Edit parts" on the choir page. On a desktop it is the structured
+  // editor as a dialog over the book, the score drawn live beside it, with
+  // the textarea one click away; on a phone's Page view it stays the
+  // textarea, because the phone has its own full-screen editor and the A4
+  // page is the one place the grammar is still typed.
   function sbEditChoirParts(baseSongId) {
+    if (_sbFoldPhone() || typeof _sbmEdOpen !== 'function') { _sbChoirTextEditor(baseSongId); return; }
+    _sbOpenPartsDialogFor(baseSongId, null);
+  }
+  function _sbOpenPartsDialogFor(baseSongId, text) {
+    var V = window.lhcVoiceLines; if (!V) return;
+    var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; }) || {};
+    var rows = (text != null) ? V.parseVoiceText(text) : (_sbVoiceLines[baseSongId] || []);
+    _sbmEdOpen({ base: baseSongId, sid: item.id || null, title: item.title || '', artist: item.artist || '',
+                 rows: rows, lyrics: item.customLyrics || item.lyrics || '',
+                 desktop: !_sbFoldPhone(), previewOpts: { compact: true },
+                 onText: function(t) { _sbChoirTextEditor(baseSongId, t); } });
+  }
+  function _sbChoirTextEditor(baseSongId, initialText) {
     var page = document.querySelector('.sb-song-page--choir[data-choir-song="' + baseSongId + '"]');
     if (!page || !window.lhcVoiceLines) return;
     if (page.querySelector('.sb-choir-editor')) return;   // already open
@@ -53446,13 +53590,15 @@ var WO = (function() {
       '<textarea class="sb-choir-ta" spellcheck="false" wrap="off"></textarea>' +
       '<div class="sb-choir-ed-actions">' +
         '<button class="sb-choir-save">Save parts</button>' +
-        '<button class="sb-choir-cancel">Cancel</button></div>';
+        '<button class="sb-choir-cancel">Cancel</button>' +
+        '<button class="sb-choir-structured" title="The same arrangement as sections and lines, with the score beside them">Structured editor</button></div>';
     box.insertBefore(ed, box.querySelector('.vl-score') || null);
     var ta = ed.querySelector('.sb-choir-ta');
-    ta.value = src;
+    ta.value = (initialText != null) ? initialText : src;
     ta.focus();
 
     ed.querySelector('.sb-choir-cancel').onclick = function() { ed.remove(); };
+    ed.querySelector('.sb-choir-structured').onclick = function() { var t = ta.value; ed.remove(); _sbOpenPartsDialogFor(baseSongId, t); };
     ed.querySelector('.sb-choir-save').onclick = function() {
       var parsed = window.lhcVoiceLines.parseVoiceText(ta.value);
       if (!parsed.length) { showToast('Nothing to save \u2014 the editor is empty', 'error'); return; }
@@ -76808,6 +76954,7 @@ var WO = (function() {
     sbmEdCyclePart: sbmEdCyclePart, sbmEdDupLine: sbmEdDupLine, sbmEdDelLine: sbmEdDelLine, sbmEdMoveMoment: sbmEdMoveMoment,
     sbmEdReorder: sbmEdReorder, sbmEdDragStart: sbmEdDragStart, sbmEdDragOver: sbmEdDragOver, sbmEdDrop: sbmEdDrop,
     sbmEdDragEnd: sbmEdDragEnd, sbmEdPreview: sbmEdPreview, sbmEdCancel: sbmEdCancel, sbmEdSave: sbmEdSave,
+    sbmEdToText: sbmEdToText, sbOpenPartsDialog: sbOpenPartsDialog,
     sbTranspose: sbTranspose,
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
@@ -94128,6 +94275,34 @@ function filterLiturgyItems() {
 .sbm-pdf__thumb { flex: 0 0 auto; width: 44px; height: 58px; border-radius: 5px; border: 2px solid rgba(255,255,255,0.18); background: #fff; overflow: hidden; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .sbm-pdf__thumb.is-on { border-color: var(--sbm-gold); box-shadow: 0 0 0 1px var(--sbm-gold); }
 .sbm-pdf__thumb canvas { display: block; max-width: 100%; max-height: 100%; }
+
+/* ---- Edit Parts on a desktop: a dialog, the score drawn live beside the parts ---- */
+#sbmEdit.sbm-ed--desktop { background: rgba(4,12,28,0.58); align-items: center; justify-content: center; padding: 24px; }
+.sbm-ed__dlg {
+  width: min(1280px, 100%); height: min(92vh, 980px); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--sbm-surface); border-radius: 18px; box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+}
+.sbm-ed--desktop .sbm-ed__hero { grid-template-columns: 1fr auto 44px; padding: 14px 20px; }
+.sbm-ed--desktop .sbm-ed__hero .sbm-btn--ghost { min-height: 40px; }
+.sbm-ed__panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 11fr) minmax(0, 9fr); }
+.sbm-ed--desktop .sbm-ed__body { padding: 16px 18px 0; }
+.sbm-ed__pv { min-width: 0; overflow: auto; border-left: 1px solid var(--sbm-line); background: #fff; padding: 18px 22px 30px; }
+.sbm-ed__pvscore { font-family: var(--sbm-font-body); color: #1e293b; }
+.sbm-ed__pvscore .vl-score { font-size: 15px; }
+.sbm-ed--desktop .sbm-ed__actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sbm-ed--desktop .sbm-ed__actions .sbm-tile { min-height: 54px; flex-direction: row; gap: 10px; font-size: 14px; }
+.sbm-ed--desktop .sbm-ed__row { grid-template-columns: 22px auto minmax(0, 1fr) 36px 36px 36px; grid-template-areas: "h p t hold dup del"; padding: 3px 0; }
+.sbm-ed--desktop .sbm-ed__row + .sbm-ed__row { border-top: 0; }
+#sbmEdit.sbm-ed--desktop.is-reorder .sbm-ed__row { grid-template-columns: 22px auto minmax(0, 1fr); grid-template-areas: "h p t"; }
+.sbm-ed--desktop .sbm-ed__text { min-height: 40px; }
+.sbm-ed__foot { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--sbm-line); background: rgba(246,248,252,0.96); }
+.sbm-ed__hint { margin-right: auto; font: 500 12px/1 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-ed__foot .sbm-btn { padding: 0 22px; }
+/* A sheet opened on a wide screen is a card in the middle, not a drawer at the bottom. */
+@media (min-width: 821px) {
+  .sbm-sheet { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: min(460px, 92vw); max-height: 84vh; border-radius: 18px; }
+  .sbm-sheet__grab { display: none; }
+}
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
