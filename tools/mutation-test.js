@@ -359,7 +359,7 @@ const CASES = [
   // rules from it and every chord slides to the left margin while the
   // part chips stack above their words -- on the page the carolers hold.
   ['voice-lines-harness.js', 'the print document loses the score stylesheet',
-    s => s.replace("return '<style>' + _sbChoirScoreCss() +", "return '<style>' +")],
+    s => s.replace("'<style>' + _sbChoirScoreCss() +", "'<style>' +")],
   ['voice-lines-harness.js', 'the lifted stylesheet stops being deduplicated',
     s => s.replace("if (txt.indexOf('.vl-') > -1 && !seen[txt]) { seen[txt] = 1; out.push(txt); }",
                    "if (txt.indexOf('.vl-') > -1) { out.push(txt); }")],
@@ -1076,7 +1076,7 @@ const CASES = [
   // a held vowel printed as a lyric, a second line for a part quietly
   // overwritten by the first.
   ['songbook-editparts-harness.js', "a women's line is saved as everyone's",
-    s => s.replace("(k === 'women') ? 'W: '", "(k === 'women') ? ''")],
+    s => s.replace("? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] '", "? '' : (k === 'men') ? 'M: ' : '[' + l.part + '] '")],
   ['songbook-editparts-harness.js', 'the blank line between moments is dropped, so they merge',
     s => s.replace("out.push(body.join('\\n\\n'));", "out.push(body.join('\\n'));")],
   ['songbook-editparts-harness.js', 'a held note loses its ~',
@@ -1102,6 +1102,22 @@ const CASES = [
     s => s.replace("var who = String(partName || '').trim() || (part === 'men'", "var who = (part === 'men'")],
   ['recordings-harness.js', 'an imported file loses its name',
     s => s.replace("    if (label) return String(label).replace(/", "    if (false) return String(label).replace(/")],
+
+  // Overview Edit: the arrangement as a pad. Every one of these saves
+  // cleanly -- a chord line sung by everyone, a section that took the next
+  // section's chords, a section put back without the others, a colour
+  // drawn for every song on the screen.
+  ['songbook-overview-harness.js', 'a chord line is left in the parts text, sung by everyone',
+    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\]\), chord: l\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
+  ['songbook-overview-harness.js', "a section edited on its own takes the next section's chords",
+    s => s.replace("      var hit = V.chordFor(index, g, cursor);\r\n      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;",
+                   "      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;\r\n      var hit = V.chordFor(index, g, cursor);")],
+  ['songbook-overview-harness.js', 'putting one section back drops the others',
+    s => s.replace("      if (inTarget) continue;\r\n      out.push(lines[i]);", "      if (inTarget) continue;")],
+  ['songbook-overview-harness.js', "a part's colour is drawn for every song on the screen",
+    s => s.replace("    var scope = '[data-choir-song=\"' + String(base).replace(/[\"\\\\]/g, '') + '\"] ';", "    var scope = '';")],
+  ['songbook-overview-harness.js', 'an unchanged colour map is written on every save',
+    s => s.replace("    if (JSON.stringify(_sbPartColours(base)) === JSON.stringify(colours)) return Promise.resolve();", "")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
