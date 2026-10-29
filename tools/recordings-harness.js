@@ -125,6 +125,28 @@ if (recStart < 0) {
   }
 }
 
+// window.lhcVoiceRec._takeName, the same way.
+let takeNameSrc = null;
+{
+  const tStart = lines.findIndex((l, i) => i > recStart && /^  _takeName: function\(/.test(l));
+  if (tStart < 0) {
+    if (EXPECT_BROKEN) {
+      console.log('--expect-broken: lhcVoiceRec._takeName is absent, as expected.');
+      process.exit(0);
+    }
+    throw new Error('not found: lhcVoiceRec._takeName');
+  }
+  let depth = 0, started = false, out = [];
+  for (let i = tStart; i < lines.length; i++) {
+    out.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) { takeNameSrc = out.join('\n').replace(/,\s*$/, ''); break; }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // A document, and the few globals the sliced code reaches for.
 // ---------------------------------------------------------------------------
@@ -150,7 +172,7 @@ const body =
   catsLine.replace(/\r$/, '').trim() + '\n' +
   'function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || "General"; }\n' +
   catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
-  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ' };\n' +
+  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ', ' + takeNameSrc + ' };\n' +
   'window.lhcVoiceRec = lhcVoiceRec;\n' +
   'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec, baseId: _sbBaseSongId };';
 
@@ -240,6 +262,21 @@ check('  chopping one would have filed it under a song that does not exist',
 check('songId beats anything parsed out of the id',
   S.baseId({ id: 'song_999--x', songId: 'song_123' }), 'song_123');
 check('nothing in, empty string out', S.baseId(null), '');
+
+// ---------------------------------------------------------------------------
+// What a take is called. Every take on a line of a named part -- Melody,
+// 1st Part, 2nd Part -- was "Take take 1", because the name knew only the
+// two lanes. The chip on the line is what the singer reads, so it is what
+// the take is named after.
+// ---------------------------------------------------------------------------
+const nm = S.rec._takeName;
+check('a line of a named part is named after the part', nm(false, 'general', '2nd Part', 1), '2nd Part take 1');
+check('a women\'s line, after its chip', nm(false, 'women', 'Women', 2), 'Women take 2');
+check('a chip that cannot be read falls back to the lane', nm(false, 'men', '', 3), 'Men take 3');
+check('and never to "Take take"', nm(false, 'general', '', 1), 'Line take 1');
+check('a whole-song take is a run-through', nm(true, 'general', '', 3), 'Run-through 3');
+check('an imported file keeps its own name, without the extension',
+  nm(false, 'general', '2nd Part', 1, 'chorus-alto-take3.mp3'), 'chorus-alto-take3');
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

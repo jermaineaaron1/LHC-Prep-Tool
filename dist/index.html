@@ -15077,6 +15077,28 @@ window.lhcVoiceRec = {
   _changed: function(songId) {
     try { window.dispatchEvent(new CustomEvent('lhc:recordings-changed', { detail: { songId: songId } })); } catch (e) {}
   },
+  // Which part a line belongs to: the lane, for the file's path and the
+  // category it is listed under (women / men / general), and the name on
+  // its chip -- ALL, MELODY, 2ND PART -- for what the take is called.
+  _partOf: function(root, lineId) {
+    var line = (lineId == null || !root) ? null
+             : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
+    var lane = !line ? 'general'
+             : line.classList.contains('vl-ln--women') ? 'women'
+             : line.classList.contains('vl-ln--men') ? 'men' : 'general';
+    var chip = line ? line.querySelector('.vl-who') : null;
+    return { part: lane, name: chip ? String(chip.textContent || '').trim() : '' };
+  },
+  // "2nd Part take 1", "Women take 2", "Run-through 3". An imported file
+  // keeps its own name, trimmed of the extension: "chorus-alto-take3" says
+  // more than any of these. Never "Take take 1": a line whose chip cannot
+  // be read is a "Line".
+  _takeName: function(whole, part, partName, n, label) {
+    if (label) return String(label).replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 80);
+    if (whole) return 'Run-through ' + n;
+    var who = String(partName || '').trim() || (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Line');
+    return who + ' take ' + n;
+  },
   _songOf: function(root) { return (root && root.__vlRecSong) || null; },
 
   _takesFor: function(songId, lineId) {
@@ -15236,11 +15258,8 @@ window.lhcVoiceRec = {
     var songId = R._songOf(root);
     if (!songId) { showToast('Nothing to record against', 'error'); return; }
     // lineId null is the whole song: a rehearsal draft, not a line reference.
-    var line = lineId == null ? null
-             : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
-    var part = !line ? 'general'
-             : line.classList.contains('vl-ln--women') ? 'women'
-             : line.classList.contains('vl-ln--men') ? 'men' : 'general';
+    var who = R._partOf(root, lineId);
+    var part = who.part;
 
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       R._stream = stream;
@@ -15256,7 +15275,7 @@ window.lhcVoiceRec = {
         stream.getTracks().forEach(function(t) { t.stop(); });
         R._stream = null;
         R._setBtn(root, lineId, false);
-        R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs);
+        R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs, null, who.name);
         R._rec = null; R._recLine = null; R._recSong = null;
       };
       // Without this a recorder that dies mid-take leaves the button
@@ -15380,18 +15399,14 @@ window.lhcVoiceRec = {
       showToast('That file is larger than 25MB', 'error');
       return;
     }
-    var line = lineId == null ? null
-             : root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
-    var part = !line ? 'general'
-             : line.classList.contains('vl-ln--women') ? 'women'
-             : line.classList.contains('vl-ln--men') ? 'men' : 'general';
+    var who = R._partOf(root, lineId);
     R._durationOf(file).then(function(secs) {
       // Straight into the ordinary save. An import is a take.
-      R._save(root, songId, lineId, part, file, secs, file.name);
+      R._save(root, songId, lineId, who.part, file, secs, file.name, who.name);
     });
   },
 
-  _save: function(root, songId, lineId, part, blob, secs, label) {
+  _save: function(root, songId, lineId, part, blob, secs, label, partName) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (!sb || !blob || !blob.size) { showToast('Nothing was recorded', 'error'); return; }
@@ -15415,11 +15430,7 @@ window.lhcVoiceRec = {
       uploaded = true;
       return sb.from('song_recordings').insert({
         song_id: songId, line_id: whole ? null : lineId,
-        // An imported file keeps its own name, trimmed of the extension:
-        // "chorus-alto-take3" says more than "Women take 2" ever will.
-        name: label ? String(label).replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 80)
-            : whole ? ('Run-through ' + n)
-            : (part === 'men' ? 'Men' : part === 'women' ? 'Women' : 'Take') + ' take ' + n,
+        name: R._takeName(whole, part, partName, n, label),
         storage_path: path, duration_sec: Math.round(secs * 100) / 100
       }).select();
     }).then(function(res) {
