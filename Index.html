@@ -48296,14 +48296,134 @@ var WO = (function() {
     var recs = _sbmRecs[_sbBaseSongId(song)];
     return (recs && recs.length) ? String(recs.length) : '';
   }
+  // A part's slot in a file's name: "1st Part" -> "1st-part".
+  function _sbmRecSlug(key) { return String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general'; }
   function _sbmRecPart(rec, song) {
     // A take recorded against one line belongs to that line's part.
     if (rec.line_id != null) {
       var rows = _sbVoiceRowsFor(song);
       for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(rec.line_id)) return rows[i].part || '';
     }
+    // Otherwise the slot in its file name: one of this song's parts, by
+    // slug, or one of the lanes every song has.
+    var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(rec.storage_path || '');
+    var tok = m ? m[1] : 'general';
+    var V = window.lhcVoiceLines;
+    var lanes = (V && _sbSongHasChoir(song)) ? V.lanes(_sbVoiceRowsFor(song)) : [];
+    for (var k = 0; k < lanes.length; k++) if (_sbmRecSlug(V.partKey(lanes[k])) === tok) return lanes[k];
     var cat = _sbRecCatOf(rec.storage_path);
     return (cat && cat !== 'general' && cat !== 'instrumental' && cat.indexOf('harmony') !== 0) ? cat : '';
+  }
+  // ---- one take: rename it, move it to a part, delete it ----
+  function _sbmRecById(id) {
+    var song = _sbmSong(); if (!song) return null;
+    var recs = _sbmRecs[_sbBaseSongId(song)] || [];
+    var rec = recs.find(function(r) { return String(r.id) === String(id); });
+    return rec ? { song: song, rec: rec, base: _sbBaseSongId(song) } : null;
+  }
+  function _sbmRecRefresh(base) {
+    delete _sbmRecsAt[base];
+    if (window.lhcVoiceRec) {
+      delete window.lhcVoiceRec._loaded[base];
+      document.querySelectorAll('.sb-song-page--choir[data-choir-song="' + base + '"]').forEach(function(el) {
+        window.lhcVoiceRec.load(base).then(function() { window.lhcVoiceRec.paintAll(el); });
+      });
+      if (window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(base);
+    }
+    var song = _sbmSong(); if (song) _sbmLoadRecs(song);
+  }
+  function sbmRecMenu(id) {
+    var h = _sbmRecById(id); if (!h) return;
+    var r = h.rec, q = escapeHtml(String(r.id));
+    var p = _sbmRecPart(r, h.song);
+    var where = p ? (window.lhcVoiceLines ? window.lhcVoiceLines.partLabel(p) : p) : _sbRecCatLabel(_sbRecCatOf(r.storage_path));
+    _sbmSheet(r.name || 'Recording', '<div class="sbm-menu">' +
+      '<p class="sbm-rec-menu__sub">' + escapeHtml(where) + (r.line_id != null ? ' \u00b7 one line: ' + escapeHtml(_sbmLineWords(r, h.song)) : '') + ' \u00b7 ' + _sbFmtDur(r.duration_sec) + '</p>' +
+      '<button class="sbm-btn" onclick="WO.sbmRecRename(\'' + q + '\')"><i class="fa-solid fa-pen"></i>Rename</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmRecMove(\'' + q + '\')"><i class="fa-solid fa-people-group"></i>Belongs to\u2026 (part or category)</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbmRecord()"><i class="fa-solid fa-sliders"></i>Recordings panel</button>' +
+      '<button class="sbm-btn sbm-btn--danger" style="margin-top:10px;" onclick="WO.sbmRecDelete(\'' + q + '\')"><i class="fa-solid fa-trash"></i>Delete this take</button></div>');
+  }
+  function sbmRecRename(id) {
+    var h = _sbmRecById(id); if (!h) return;
+    var name = prompt('Name this take', h.rec.name || '');
+    if (name == null) return;
+    name = String(name).trim().slice(0, 80); if (!name) return;
+    var sup = window._supabase; if (!sup) return;
+    sup.from('song_recordings').update({ name: name }).eq('id', h.rec.id).then(function(res) {
+      if (res.error) throw new Error(res.error.message);
+      h.rec.name = name;
+      _sbmCloseSheet(); _sbmRecRefresh(h.base);
+      showToast('Renamed', 'success');
+    }).catch(function(err) { console.error(err); showToast('Could not rename: ' + err.message, 'error'); });
+  }
+  // The choices: everyone, this song's parts, and the categories every
+  // song has -- one list, since a part and a category are the same slot
+  // in the file's name.
+  function sbmRecMove(id) {
+    var h = _sbmRecById(id); if (!h) return;
+    var V = window.lhcVoiceLines;
+    var opts = [['general', 'General \u2014 everyone']], seen = { general: 1 };
+    var lanes = (V && _sbSongHasChoir(h.song)) ? V.lanes(_sbVoiceRowsFor(h.song)) : [];
+    lanes.forEach(function(p) { var k = _sbmRecSlug(V.partKey(p)); if (!seen[k]) { seen[k] = 1; opts.push([k, V.partLabel(p)]); } });
+    Object.keys(_SB_REC_CATS).forEach(function(k) { if (!seen[k]) { seen[k] = 1; opts.push([k, _SB_REC_CATS[k]]); } });
+    var curTok = (/\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(h.rec.storage_path || '') || [])[1] || 'general';
+    _sbmSheet('Belongs to', '<div class="sbm-menu">' + opts.map(function(o) {
+      return '<button class="sbm-btn' + (o[0] === curTok && h.rec.line_id == null ? ' is-on' : '') + '" onclick="WO.sbmRecMoveTo(\'' + escapeHtml(String(h.rec.id)) + '\',\'' + o[0] + '\')">' +
+        '<i class="fa-solid ' + (_SBM_PART_ICON[_sbmPartFamily(o[0].replace(/-/g, ' '))] || 'fa-tag') + '"></i>' + escapeHtml(o[1]) + '</button>';
+    }).join('') + (h.rec.line_id != null ? '<p class="sbm-rec-menu__sub">This take is attached to one line; moving it makes it a take for the whole part.</p>' : '') + '</div>');
+  }
+  // The file is copied to a name in the new slot and the old one removed:
+  // upload and remove are the two things the bucket lets the app do.
+  function sbmRecMoveTo(id, tok) {
+    var h = _sbmRecById(id); if (!h) return;
+    var sup = window._supabase; if (!sup) return;
+    var rec = h.rec, old = rec.storage_path || '';
+    var m = /\.([a-z0-9]+)$/i.exec(old), ext = m ? m[1] : 'webm';
+    var cat = _sbmRecSlug(tok);
+    var next = 'practice-recordings/' + rec.song_id + '/' + cat + '__' + Date.now() + '.' + ext;
+    var url = sup.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(old).data.publicUrl;
+    _sbmCloseSheet();
+    if (typeof showLoader === 'function') showLoader(true);
+    var uploaded = false;
+    fetch(url).then(function(r) { if (!r.ok) throw new Error('could not read the file'); return r.blob(); })
+      .then(function(blob) { return sup.storage.from(LHC_SUPABASE_BUCKET).upload(next, blob, { contentType: blob.type || 'audio/webm', upsert: false }); })
+      .then(function(up) {
+        if (up.error) throw new Error(up.error.message);
+        uploaded = true;
+        return sup.from('song_recordings').update({ storage_path: next, line_id: null }).eq('id', rec.id).select();
+      })
+      .then(function(res) {
+        if (res.error) throw new Error(res.error.message);
+        if (!(res.data || []).length) throw new Error('the row did not come back from the database');
+        return sup.storage.from(LHC_SUPABASE_BUCKET).remove([old]).catch(function() {});
+      })
+      .then(function() {
+        rec.storage_path = next; rec.line_id = null;
+        _sbmRecRefresh(h.base);
+        showToast('Moved', 'success');
+      })
+      .catch(function(err) {
+        console.error(err);
+        if (uploaded) sup.storage.from(LHC_SUPABASE_BUCKET).remove([next]).catch(function() {});
+        showToast('Could not move the take: ' + err.message, 'error');
+      })
+      .finally(function() { if (typeof showLoader === 'function') showLoader(false); });
+  }
+  function sbmRecDelete(id) {
+    var h = _sbmRecById(id); if (!h) return;
+    if (!confirm('Delete "' + (h.rec.name || 'this take') + '"? It is removed for everyone.')) return;
+    var sup = window._supabase; if (!sup) return;
+    _sbmCloseSheet();
+    sup.from('song_recordings').delete().eq('id', h.rec.id).then(function(res) {
+      if (res.error) throw new Error(res.error.message);
+      return sup.storage.from(LHC_SUPABASE_BUCKET).remove([h.rec.storage_path]).catch(function() {});
+    }).then(function() {
+      if (window.lhcVoiceRec) window.lhcVoiceRec.forget(h.rec.id);
+      if (_sbmPlayer && _sbmPlayer.rec && String(_sbmPlayer.rec.id) === String(h.rec.id)) _sbmStopPlayer();
+      _sbmRecRefresh(h.base);
+      showToast('Recording deleted', 'success');
+    }).catch(function(err) { console.error(err); showToast('Could not delete: ' + err.message, 'error'); });
   }
 
   // ---- recordings for the song, fetched once a minute at most ----
@@ -48572,7 +48692,7 @@ var WO = (function() {
         '<button class="sbm-rec__play" onclick="WO.sbmPlay(\'' + escapeHtml(String(r.id)) + '\')" aria-label="Play"><i class="fa-solid fa-play"></i></button>' +
         '<div><div class="sbm-rec__name">' + escapeHtml(r.name || 'Recording') + '</div><div class="sbm-rec__sub">' + escapeHtml(sub) + '</div></div>' +
         '<div class="sbm-rec__dur">' + _sbFmtDur(r.duration_sec) + '</div>' +
-        '<button class="sbm-rec__more" onclick="WO.sbmRecord()" aria-label="Manage recordings"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
+        '<button class="sbm-rec__more" onclick="WO.sbmRecMenu(\'' + escapeHtml(String(r.id)) + '\')" aria-label="Rename, move or delete"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
     }).join('') : '<p class="sbm-empty">No practice tracks yet. Record one, or import a file.</p>';
     _sbmPaintPlayer();
   }
@@ -48745,12 +48865,12 @@ var WO = (function() {
         : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i>Lyrics' + (noChords ? '' : ' &amp; chords') + '</div>' +
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span></div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true);
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Choir parts' + (cur ? ' \u2014 ' + escapeHtml(V.partLabel(cur)) : '') +
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' +
           '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button></div>' +
         '<div class="sbm-score sb-song-page--choir' + (_sbmMics ? ' sbm-score--mics' : '') + '" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
@@ -49190,13 +49310,13 @@ var WO = (function() {
       if (_sbmPad === P) { P.dirty = false; _sbmPadClose(); }
     }).catch(function() { if (btn) btn.disabled = false; });
   }
-  // From the song on screen: the whole arrangement, or one section of it.
-  function sbmOverview(sectionName) {
-    var song = _sbmSong(); if (!song || !window.lhcVoiceLines) return;
-    var V = window.lhcVoiceLines, base = _sbBaseSongId(song);
+  // The whole arrangement, or one section of it, for any song: the reading
+  // view's song on screen, or a printed choir page's.
+  function _sbOverviewOpen(base, sid, title, sectionName) {
+    var V = window.lhcVoiceLines; if (!V || !base) return;
     var rows = _sbVoiceLines[base] || [];
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
-    var lyrics = (lib && lib.lyrics) || song.lyrics || '';
+    var lyrics = (lib && lib.lyrics) || '';
     if (!rows.length) {
       // An ordinary song: its own words, everyone singing, as the editor does.
       var seed = (typeof V.fromLyrics === 'function') ? V.fromLyrics(lyrics) : [];
@@ -49206,31 +49326,42 @@ var WO = (function() {
     var full = _sbmPadText(rows, lyrics, null, isChord);
     var text = (sectionName != null) ? _sbmPadText(rows, lyrics, sectionName, isChord) : full;
     _sbmCloseSheet();
-    _sbmPadOpen({ title: song.title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
+    _sbmPadOpen({ title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
       onSave: function(t, colours) {
         var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t) : t;
-        return _sbmPadSaveSong(base, song.id, whole, colours);
+        return _sbmPadSaveSong(base, sid, whole, colours);
       } });
   }
-  // From the structured editor: one section of its MODEL, applied back
-  // into the model; the dialog's Save is what persists. Chords and
-  // colours wait for that save too.
+  function sbmOverview(sectionName) {
+    var song = _sbmSong(); if (!song) return;
+    _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', sectionName);
+  }
+  // From a printed choir page, which knows its song by the base id.
+  function sbOverviewFor(baseSongId, sectionName) {
+    var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; }) || {};
+    _sbOverviewOpen(baseSongId, item.id || null, item.title || '', sectionName == null ? null : sectionName);
+  }
+  // From the structured editor: one section of its MODEL, or all of it,
+  // applied back into the model; the dialog's Save is what persists.
+  // Chords and colours wait for that save too.
   function sbmEdOverview(secId) {
     var ed = _sbmEd; if (!ed || !window.lhcVoiceLines) return;
-    var f = _sbmEdFind(secId); if (!f || !f.sec) return;
+    var f = secId ? _sbmEdFind(secId) : null;
+    if (secId && (!f || !f.sec)) return;
     var V = window.lhcVoiceLines, isChord = _sbmIsChord();
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === ed.base; }) : null;
     var lyrics = (lib && lib.lyrics) || '';
     var rowsAll = V.parseVoiceText(_sbmEdToText(ed));
-    var name = f.sec.name || '';
+    var name = f ? (f.sec.name || '') : null;
     _sbmCloseSheet();
-    _sbmPadOpen({ title: ed.title, sectionName: name || 'Untitled section', text: _sbmPadText(rowsAll, lyrics, name, isChord),
+    _sbmPadOpen({ title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord),
       roles: _sbmPadRoles(rowsAll), colours: ed.pendingColours || _sbPartColours(ed.base), saveLabel: 'Apply',
       onSave: function(t, colours) {
         var split = _sbmPadSplit(t, isChord);
         var built = _sbmEdFromRows(V.parseVoiceText(split.text));
         if (built.sections.length) built.sections[0].open = true;
-        Array.prototype.splice.apply(ed.sections, [f.si, 1].concat(built.sections));
+        if (f) Array.prototype.splice.apply(ed.sections, [f.si, 1].concat(built.sections));
+        else ed.sections = built.sections;
         built.parts.forEach(_sbmEdEnable);
         ed.pendingChords = (ed.pendingChords || []).concat(split.chords);
         ed.pendingColours = colours;
@@ -49447,6 +49578,7 @@ var WO = (function() {
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmEdAddPart(null)"><i class="fa-solid fa-circle-plus"></i>Add Part</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdAddHarmony()"><i class="fa-solid fa-people-group"></i>Add Harmony</button>' +
       '<button class="sbm-tile' + (ed.reorder ? ' is-on' : '') + '" onclick="WO.sbmEdReorder()"><i class="fa-solid fa-arrow-down-up-across-line"></i>Reorder</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview</button>' +
       (ed.desktop ? '' : '<button class="sbm-tile" onclick="WO.sbmEdPreview()"><i class="fa-solid fa-eye"></i>Preview</button>') + '</div></div>';
 
     // which parts this song uses
@@ -50871,6 +51003,8 @@ var WO = (function() {
             _sbChoirHeadHtml(song, false) +
             '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeHtml(_baseId) + '\')">' +
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
+            '<button class="sb-choir-edit sb-choir-overview" onclick="WO.sbOverviewFor(\'' + escapeHtml(_baseId) + '\')" title="The whole arrangement as text, with its chords">' +
+              '<i class="fa-solid fa-align-left"></i> Overview edit</button>' +
             '<div class="sb-choir-hint">Double-click a line to change its words, ' +
               'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
               'Double-click the <b>chord row</b> above a moment to type its chords — ' +
@@ -52710,7 +52844,15 @@ var WO = (function() {
       var btn = document.getElementById('sbRecordBtn'); if (btn) { btn.classList.add('recording'); btn.innerHTML = '<span class="sb-rec-dot"></span> Stop'; }
       var act = document.getElementById('sbRecActivity'); if (act) act.style.display = 'flex';
       var timerEl = document.getElementById('sbRecTimer');
-      _sbRecTimerInt = setInterval(function() { _sbRecElapsed++; if (timerEl) { var m = Math.floor(_sbRecElapsed/60), s = _sbRecElapsed%60; timerEl.textContent = m+':'+(s<10?'0':'')+s; } }, 1000);
+      _sbRecTimerInt = setInterval(function() {
+        _sbRecElapsed++;
+        var m = Math.floor(_sbRecElapsed / 60), sec = _sbRecElapsed % 60, txt = m + ':' + (sec < 10 ? '0' : '') + sec;
+        if (timerEl) timerEl.textContent = txt;
+        var fl = document.getElementById('sbRecFloatTime'); if (fl) fl.textContent = txt;
+      }, 1000);
+      // The panel folds away while the take runs, so the words are there
+      // to sing from; a small bar keeps the clock and the Stop.
+      _sbRecCollapse();
     }).catch(function(err) { sbShowRecStatus('Mic access denied: ' + err.message, 'error'); });
   }
   // Bring in an audio file as a run-through for this song.
@@ -52746,7 +52888,20 @@ var WO = (function() {
     inp.click();
   }
 
+  function _sbRecCollapse() {
+    var sheet = document.getElementById('sbRecSheet');
+    if (sheet && sheet.style.display !== 'none') sheet.style.display = 'none';
+    var fl = document.getElementById('sbRecFloat');
+    if (!fl) {
+      fl = document.createElement('div');
+      fl.id = 'sbRecFloat'; fl.className = 'sb-rec-float'; fl.setAttribute('role', 'status');
+      fl.innerHTML = '<span class="sb-rec-dot"></span><span class="sb-rec-float__lbl">Recording</span><b id="sbRecFloatTime">0:00</b>' +
+        '<button type="button" class="sb-rec-float__stop" onclick="WO.sbToggleRecording()"><i class="fa-solid fa-stop"></i> Stop</button>';
+      document.body.appendChild(fl);
+    }
+  }
   function _sbStopRecording() {
+    var fl = document.getElementById('sbRecFloat'); if (fl) fl.remove();
     if (_sbMediaRecorder && _sbMediaRecorder.state !== 'inactive') _sbMediaRecorder.stop();
     // onstop normally releases it. If the recorder is already inactive
     // onstop will never fire, and the microphone would stay open with
@@ -52800,6 +52955,7 @@ var WO = (function() {
           showToast('Recording saved', 'success');
         }
         sbLoadRecordings(songId);
+        if (window.lhcVoiceRec && window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(songId);
       }).catch(function(err) { sbShowRecStatus('Error: ' + err.message, 'error'); });
   }
   function sbLoadRecordings(songId) {
@@ -52923,6 +53079,7 @@ var WO = (function() {
         });
       }
       sbLoadRecordings(_sbRecCurrentSongId);
+      if (window.lhcVoiceRec && window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(_sbRecCurrentSongId);
     });
   }
   function sbRenameRecording(id) {
@@ -77643,6 +77800,7 @@ var WO = (function() {
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmLineMics: sbmLineMics,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
+    sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
     sbmOverview: sbmOverview, sbmEdOverview: sbmEdOverview, sbmPadCancel: sbmPadCancel, sbmPadSave: sbmPadSave, sbmPadInput: sbmPadInput,
     sbmPadScroll: sbmPadScroll, sbmPadInsertSection: sbmPadInsertSection, sbmPadPrefix: sbmPadPrefix, sbmPadHold: sbmPadHold,
@@ -94879,7 +95037,7 @@ function filterLiturgyItems() {
 .sbm-ed__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px var(--sbm-gutter) 0; display: flex; flex-direction: column; gap: 12px; }
 /* a flex column squashes its children to fit before it scrolls; nothing in here may shrink */
 .sbm-ed__body > *, .sbm-ed__secbody > *, .sbm-ed__moment > * { flex: 0 0 auto; }
-.sbm-ed__actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.sbm-ed__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .sbm-ed__actions .sbm-tile { min-height: 74px; }
 .sbm-ed__actions .sbm-tile i { font-size: 20px; }
 .sbm-ed__actions .sbm-tile--blue i { color: var(--sbm-part-tenor); }
@@ -94991,7 +95149,7 @@ function filterLiturgyItems() {
 .sbm-ed__pvscore { font-family: var(--sbm-font-body); color: #1e293b; }
 .sbm-ed__pvscore .vl-score { font-size: 15px; }
 .sbm-ed__pvscore .vl-who { flex-basis: 84px; width: 84px; font-size: 11px; }
-.sbm-ed--desktop .sbm-ed__actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sbm-ed--desktop .sbm-ed__actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .sbm-ed--desktop .sbm-ed__actions .sbm-tile { min-height: 62px; gap: 5px; padding: 8px 4px; font-size: 12px; line-height: 1.15; text-align: center; }
 .sbm-ed--desktop .sbm-ed__actions .sbm-tile i { font-size: 17px; }
 .sbm-ed--desktop .sbm-ed__row { grid-template-columns: 22px auto minmax(0, 1fr) 36px 36px 36px; grid-template-areas: "h p t hold dup del"; padding: 3px 0; }
@@ -95205,10 +95363,96 @@ function filterLiturgyItems() {
 .sbm-score .vl-section { display: inline-flex; align-items: center; gap: 8px; }
 .sbm-sec-edit { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-navy); font-size: 11px; cursor: pointer; }
 .sbm--wide .sbm-score__ov, .sbm--wide .sbm-score__mics { min-height: 32px; }
+
+/* ---- Titles on the cards, the take menu, the printed page's Overview --- */
+.sbm-label__t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-label__part { flex: 0 0 auto; margin-left: 6px; padding: 3px 8px; border-radius: 999px; background: var(--sbm-teal-soft); color: var(--sbm-teal); font-size: 10px; letter-spacing: 0.08em; }
+.sbm-rec-menu__sub { margin: 0 0 10px; font: 500 13px/1.4 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sb-choir-overview { margin-left: 6px; }
+#sbmRoot:not(.sbm--wide) .sbm-label:has(.sbm-label__t) { flex-wrap: wrap; row-gap: 8px; }
+#sbmRoot:not(.sbm--wide) .sbm-label__t { flex: 1 1 100%; white-space: normal; }
+#sbmRoot:not(.sbm--wide) .sbm-score__ov { margin-left: 0; }
+
+/* ---- The recording bar: the panel folds away while a take runs --------- */
+.sb-rec-float {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3800;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 999px;
+  background: #1e293b; color: #fff; box-shadow: 0 12px 36px rgba(0,0,0,0.45); font: 600 14px/1 'Poppins', system-ui, sans-serif; white-space: nowrap;
+}
+.sb-rec-float .sb-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; animation: vlRecPulse 1.2s ease-in-out infinite; }
+.sb-rec-float b { font-variant-numeric: tabular-nums; min-width: 40px; }
+.sb-rec-float__stop { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 0; background: #ef4444; color: #fff; font: 700 14px/1 'Poppins', system-ui, sans-serif; cursor: pointer; }
+
+/* ---- Another 5px off, everywhere on a desk ------------------------------ */
+#sbmRoot.sbm--wide { --sbm-btn: 36px; --sbm-touch: 34px; --sbm-primary: 40px; --sbm-card-pad: 10px; --sbm-space-md: 6px; --sbm-t-song: 20px; --sbm-t-label: 10.5px; }
+.sbm--wide .sbm-top { min-height: 52px; padding: 6px 16px; }
+.sbm--wide .sbm-top .sbm-btn { min-height: 36px; padding: 0 10px; }
+.sbm--wide .sbm-top__saved { min-height: 36px; }
+.sbm--wide .sbm-side { top: 52px; max-height: calc(100vh - 52px); padding: 10px 8px 16px 12px; }
+.sbm--wide .sbm-side__item { min-height: 38px; padding: 4px 8px; gap: 8px; }
+.sbm--wide .sbm-side__hdr { padding: 4px 8px 8px; }
+.sbm--wide .sbm-main { padding: 10px 18px 36px; }
+.sbm--wide .sbm-song { padding: 8px 12px 8px; margin-bottom: 8px; }
+.sbm--wide .sbm-song__num { width: 34px; height: 34px; font-size: 15px; }
+.sbm--wide .sbm-song__artist { font-size: 13px; }
+.sbm--wide .sbm-song__nav button { width: 30px; height: 30px; }
+.sbm--wide .sbm-song__badges { margin-top: 6px; }
+.sbm--wide .sbm-badge { min-height: 24px; font-size: 11.5px; padding: 0 8px; }
+.sbm--wide .sbm-toolbar { margin-bottom: 8px; gap: 5px; }
+.sbm--wide .sbm-toolbar .sbm-btn--ghost { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.sbm--wide .sbm-stack { gap: 8px; }
+.sbm--wide .sbm-card { padding: 10px 12px; }
+.sbm--wide .sbm-label { margin-bottom: 4px; }
+.sbm--wide .sbm-seg__btn { min-height: 32px; font-size: 13px; }
+.sbm--wide .sbm-pair { gap: 6px; margin-top: 6px; }
+.sbm--wide .sbm-pair .sbm-btn { min-height: 34px; }
+.sbm--wide .sbm-tiles { margin: 6px -2px 0; }
+.sbm--wide .sbm-tile-row { gap: 5px; }
+.sbm--wide .sbm-tile { min-height: 52px; padding: 5px 4px; gap: 3px; font-size: 11.5px; }
+.sbm--wide .sbm-tile i { font-size: 16px; }
+.sbm--wide .sbm-parts { gap: 5px; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+.sbm--wide .sbm-part { min-height: 62px; padding: 6px 5px; }
+.sbm--wide .sbm-part i { font-size: 17px; }
+.sbm--wide .sbm-practice-open { min-height: 38px; }
+.sbm--wide .sbm-chip, .sbm--wide .sbm-score__ov, .sbm--wide .sbm-score__mics { min-height: 30px; font-size: 11.5px; }
+.sbm--wide .sbm-lyrics { line-height: 1.45; }
+.sbm--wide .sbm-score .vl-ln { padding: 0 6px; }
+.sbm--wide .sbm-rec { min-height: 46px; }
+/* the editor */
+.sbm-ed--desktop .sbm-ed__hero { padding: 10px 16px; }
+.sbm-ed--desktop .sbm-ed__title { font-size: 19px; }
+.sbm-ed--desktop .sbm-ed__body { padding: 10px 12px 0; gap: 6px; }
+.sbm-ed--desktop .sbm-ed__actions { gap: 4px; }
+.sbm-ed--desktop .sbm-ed__actions .sbm-tile { min-height: 46px; font-size: 11.5px; }
+.sbm-ed--desktop .sbm-ed__tg { min-height: 30px; padding: 0 7px 0 9px; font-size: 12.5px; }
+.sbm-ed--desktop .sbm-ed__sechead { min-height: 38px; padding: 3px 5px 3px 2px; }
+.sbm-ed--desktop .sbm-ed__ib { width: 30px; height: 30px; font-size: 12px; }
+.sbm-ed--desktop .sbm-ed__secbody { padding: 4px 6px 6px; gap: 5px; }
+.sbm-ed--desktop .sbm-ed__row { gap: 3px 4px; }
+.sbm-ed--desktop .sbm-ed__row .sbm-ed__ib { width: 30px; height: 30px; }
+.sbm-ed--desktop .sbm-ed__part { min-height: 30px; font-size: 10px; }
+.sbm-ed--desktop .sbm-ed__text { min-height: 32px; padding: 5px 9px; font-size: 13.5px; }
+.sbm-ed--desktop .sbm-ed__add { min-height: 36px; font-size: 12.5px; }
+.sbm-ed--desktop .sbm-ed__pv { padding: 10px 14px 20px; }
+.sbm-ed__pvscore .vl-score { font-size: 13.5px; }
+.sbm-ed--desktop .sbm-ed__foot { padding: 6px 14px; }
+.sbm-ed--desktop .sbm-ed__foot .sbm-btn { min-height: 36px; }
+.sbm-ed--desktop .sbm-card { padding: 8px 10px; }
+/* the practice page and the pad */
+.sbm-prac--desktop .sbm-ed__hero { padding: 10px 16px; }
+.sbm-prac--desktop .sbm-stack { padding: 8px 12px 0; }
+.sbm-prac--desktop .sbm-rec { min-height: 44px; }
+.sbm-prac--desktop .sbm-player { padding: 8px 10px; }
+.sbm-pad--desktop .sbm-ed__hero { padding: 8px 16px; }
+.sbm-pad--desktop .sbm-pad__body { padding: 8px 12px 0; gap: 6px; }
+.sbm-pad--desktop .sbm-pad__tb { min-height: 30px; padding: 0 8px; font-size: 12px; }
+.sbm-pad--desktop .sbm-pad__sw input { width: 26px; height: 26px; }
+.sbm-pad--desktop .sbm-pad__sw span { min-height: 24px; line-height: 24px; font-size: 11.5px; }
+.sbm-pad--desktop .sbm-ed__foot { padding: 6px 14px; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
-<div id="sbRecSheet" style="display:none;position:fixed;inset:0;z-index:3400;background:rgba(2,10,22,0.6);" onclick="if(event.target===this)WO.sbCloseRecordings()">
+<div id="sbRecSheet" style="display:none;position:fixed;inset:0;z-index:3750;background:rgba(2,10,22,0.6);" onclick="if(event.target===this)WO.sbCloseRecordings()">
   <div style="position:absolute;left:0;right:0;bottom:0;max-height:78vh;overflow-y:auto;background:#0e2033;border-radius:16px 16px 0 0;border-top:1px solid rgba(94,234,212,.3);padding:14px 16px 22px;box-shadow:0 -12px 40px rgba(0,0,0,.5);">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
       <i class="fa-solid fa-microphone" style="color:#5eead4;"></i>
