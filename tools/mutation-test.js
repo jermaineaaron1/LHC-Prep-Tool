@@ -1124,6 +1124,17 @@ const CASES = [
   ['voice-lines-harness.js', 'a chord in the gap before a word lands on the word that has ended',
     s => s.replace("      for (var i = 0; i < words.length; i++) { if (words[i].e > col) { hit = words[i]; break; } }",
                    "      for (var i = 0; i < words.length; i++) { if (words[i].e >= col) { hit = words[i]; break; } }")],
+  // Cutting a run-through into line takes. A wav with the wrong byte rate
+  // is a file some players refuse; a take numbered as the one before it
+  // reads as the same take twice; a flat waveform hides the choir.
+  ['songbook-cut-harness.js', 'the wav claims the wrong byte rate',
+    s => s.replace("v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);", "v.setUint32(24, rate, true); v.setUint32(28, rate, true);")],
+  ['songbook-cut-harness.js', 'a new take takes the number of the one before it',
+    s => s.replace("    return label + ' take ' + (Math.max(n, (names || []).length) + 1);", "    return label + ' take ' + Math.max(n, (names || []).length, 1);")],
+  ['songbook-cut-harness.js', 'a column of the waveform shows its last sample, not its loudest',
+    s => s.replace("      for (var i = a; i < b; i++) { var v = Math.abs(samples[i]); if (v > m) m = v; }", "      for (var i = a; i < b; i++) { m = Math.abs(samples[i]); }")],
+  ['songbook-cut-harness.js', 'the clamp flings a span of exactly a breath to the end',
+    s => s.replace("    var EPS = 1e-9;", "    var EPS = 0;")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
