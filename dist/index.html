@@ -103212,6 +103212,29 @@ window.LHC_Install = (function() {
   #songFinderView .sf-catalog-hint { color:var(--sf-muted);font-size:.7rem; }
   #songFinderView .sf-catalog-hint i { margin-right:4px;color:var(--sf-blue); }
   #songFinderView #songListContainer { padding:4px;background:var(--sf-surface); }
+
+  /* Two columns once the catalogue is wide enough to carry them.
+     Asked of the LIST's width, not the window's. The window is the wrong
+     question twice over: the sidebar takes 340px of it, and when a song
+     is open the list becomes a 400px rail beside the workspace -- at
+     which point a viewport rule would still say "wide" and split a rail
+     in half. A container query asks the only thing that matters.
+     1120px is measured, not chosen: an item spends 307px on its
+     monogram, its row of actions, the gaps and the padding whatever the
+     width, so at 1120 each column still leaves ~249px for the title,
+     artist and pills. Below that the title is the part that gives, and
+     an ellipsis where the song's name should be is worse than a long
+     page. Unsupported? Then nothing matches and the list stays as it
+     was. */
+  #songFinderView #sfSongListCard { container-type:inline-size;container-name:sfcatalogue; }
+  @container sfcatalogue (min-width: 1120px) {
+    #songFinderView #songListContainer {
+      display:grid;grid-template-columns:1fr 1fr;column-gap:8px;align-items:start;
+    }
+    /* The A-Z letters are wayfinding for the whole list, not for one
+       column of it. */
+    #songFinderView #songListContainer > .song-atlas-section-header { grid-column:1 / -1; }
+  }
   /* The A-Z divider is wayfinding, not decoration, so it takes --sf-muted:
      --sf-soft lands at 4.42 against this tinted sticky background. */
   #songFinderView .song-atlas-section-header { position:sticky;top:0;z-index:5;margin:2px 0 4px;padding:3px 7px;border:0;background:rgba(247,249,253,.94);backdrop-filter:blur(8px);color:var(--sf-muted);font-family:inherit;font-size:.65rem;letter-spacing:.16em; }

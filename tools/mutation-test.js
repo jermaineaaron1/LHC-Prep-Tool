@@ -582,6 +582,23 @@ const CASES = [
     s => s.replace('      margin: 0 0 14px; padding: 11px 16px;',
                    '      margin: -18px -18px 14px; padding: 11px 18px;')],
 
+  // Two columns, asked of the LIST's width. A viewport rule would still
+  // say "wide" when the catalogue has become a 400px rail beside an open
+  // song, and split the rail down the middle.
+  ['songbooks-ribbon-harness.js', 'the split asks the window instead of the list',
+    s => s.replace('  @container sfcatalogue (min-width: 1120px) {', '  @media (min-width: 1520px) {')],
+  ['songbooks-ribbon-harness.js', 'the card stops being a container to ask',
+    s => s.replace('  #songFinderView #sfSongListCard { container-type:inline-size;container-name:sfcatalogue; }\r\n', '')],
+  ['songbooks-ribbon-harness.js', 'the two columns stop being even',
+    s => s.replace('display:grid;grid-template-columns:1fr 1fr;column-gap:8px;align-items:start;',
+                   'display:grid;grid-template-columns:1.4fr 1fr;column-gap:8px;align-items:start;')],
+  ['songbooks-ribbon-harness.js', 'an A-Z letter is trapped in one column',
+    s => s.replace('    #songFinderView #songListContainer > .song-atlas-section-header { grid-column:1 / -1; }\r\n', '')],
+  // 307px of every item is monogram, actions, gaps and padding whatever
+  // the width, so below ~1120 the song's name is what gives.
+  ['songbooks-ribbon-harness.js', 'the columns split before a title fits in one',
+    s => s.replace('@container sfcatalogue (min-width: 1120px)', '@container sfcatalogue (min-width: 820px)')],
+
   // Showing one part at a time. Each of these leaves a page that still
   // looks like a score, which is the whole reason the checks exist.
   ['voice-lines-harness.js', 'a unison line is filtered away with the other parts',
