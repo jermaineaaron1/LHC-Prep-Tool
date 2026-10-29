@@ -15900,10 +15900,16 @@ window.lhcVoiceLines = {
       // one per lane: there is a single accompaniment and the parts sing
       // over it, so a chord row on each lane would say the same thing two
       // or three times and claim the parts were differently accompanied.
+      var inl = '';
       if (o.chords) {
         var hit = V.chordFor(o.chords, g, o._cursor || (o._cursor = { at: 0 }));
         var over = V.leadText(g);
-        if (hit || o.chordEdit) {
+        if (o.inlineChords) {
+          // On a narrow screen the chords ride on the words they sit over,
+          // so a line that wraps keeps its chords with it. The chord row is
+          // the desk's, where it can be double-clicked to edit.
+          inl = hit ? V._chordShown(hit, o) : '';
+        } else if (hit || o.chordEdit) {
           // Editable only where there IS a lyric line to hang a chord on.
           // A moment whose words have been edited away from the song's
           // matches nothing, and offering "+ chords" there invited a
@@ -15913,15 +15919,16 @@ window.lhcVoiceLines = {
       }
 
       if (g.both) {
-        out.push(V._line('both', 'All', g.both, o));
+        out.push(V._line('both', 'All', g.both, o, inl));
       } else {
+        var lead = V.leadLine(g);
         // Every lane the song has, in the order it first used them, so the
         // stack never shifts under the reader from one system to the next.
         // A lane with nothing to sing here keeps its line and shows (-),
         // which can be double-clicked to give it words.
         (lanesBySection[g.section || ''] || []).forEach(function(p) {
           var ln = g.byPart[V.partKey(p)];
-          out.push(ln ? V._line(V.partFamily(p), V.partLabel(ln.part), ln, o)
+          out.push(ln ? V._line(V.partFamily(p), V.partLabel(ln.part), ln, o, ln === lead ? inl : '')
                       : V._rest(V.partFamily(p), V.partLabel(p), p, g));
         });
       }
@@ -16284,7 +16291,7 @@ window.lhcVoiceLines = {
     return shown;
   },
 
-  _line: function(cls, tag, ln, opts) {
+  _line: function(cls, tag, ln, opts, inlineChord) {
     var V = window.lhcVoiceLines;
     var o = opts || {};
     var id = (ln.id == null) ? '' : String(ln.id);
@@ -16298,11 +16305,12 @@ window.lhcVoiceLines = {
     // left edge on a page whose whole job is to be scanned down. Every
     // line now begins at the same x and the grouping says what is sung
     // together.
-    var words = phrases.map(function(p) {
-      return '<span class="vl-words">' + V._esc(p) + '</span>';
+    var inl = String(inlineChord || '');
+    var words = phrases.map(function(p, i) {
+      return '<span class="vl-words">' + ((inl && i === 0) ? V._inlineWords(p, inl) : V._esc(p)) + '</span>';
     }).join('');
 
-    return '<div class="vl-ln vl-ln--' + cls + (ln.sustained ? ' vl-ln--hold' : '') + '"' +
+    return '<div class="vl-ln vl-ln--' + cls + (ln.sustained ? ' vl-ln--hold' : '') + (inl ? ' vl-ln--inl' : '') + '"' +
       (id ? ' data-line-id="' + V._esc(id) + '"' : '') +
       ' data-part="' + V._esc(V.partKey(ln.part)) + '">' +
       '<span class="vl-who" title="' + V._esc(tag) + '">' + V._esc(tag) + '</span>' +
@@ -16365,16 +16373,46 @@ window.lhcVoiceLines = {
     return out;
   },
 
+  // The chord line as shown: transposed for the eye, never for the
+  // database. The steps and the transposer are both handed in -- the
+  // transposer lives in the app, and a pure module that reached for a
+  // global could not be sliced.
+  _chordShown: function(hit, o) {
+    var V = window.lhcVoiceLines;
+    o = o || {};
+    var raw = hit ? String(hit.chord || '') : '';
+    var steps = parseInt(o.transpose, 10) || 0;
+    return (steps && raw && typeof o.transposeFn === 'function') ? V._transposeAligned(raw, steps, o.transposeFn) : raw;
+  },
+  // The words of a line with their chords riding on them: each chord goes
+  // on the word under its column, or on the next word along, or on a tail
+  // after the last word when it sits past the end. The chords then stay
+  // with their words when the line wraps, which a chord row of its own
+  // cannot do -- on a phone it put every chord a chip's width to the
+  // right of its word and the end of the line under the beginning.
+  _inlineWords: function(text, chordStr) {
+    var V = window.lhcVoiceLines;
+    var t = String(text || ''), c = String(chordStr || '');
+    var words = [], m, re = /\S+/g;
+    while ((m = re.exec(t))) words.push({ w: m[0], s: m.index, e: m.index + m[0].length, c: [] });
+    var tail = [], cm, cre = /\S+/g;
+    while ((cm = cre.exec(c))) {
+      var col = cm.index, hit = null;
+      for (var i = 0; i < words.length; i++) { if (words[i].e > col) { hit = words[i]; break; } }
+      if (hit) hit.c.push(cm[0]); else tail.push(cm[0]);
+    }
+    var out = words.map(function(w) {
+      return '<span class="vl-w">' + (w.c.length ? '<span class="vl-w__c">' + V._esc(w.c.join(' ')) + '</span>' : '') + V._esc(w.w) + '</span>';
+    }).join(' ');
+    if (tail.length) out += ' <span class="vl-w vl-w--tail"><span class="vl-w__c">' + V._esc(tail.join(' ')) + '</span>&nbsp;</span>';
+    return out;
+  },
   _chordRow: function(hit, over, editable, wanted, o) {
     var V = window.lhcVoiceLines;
     o = o || {};
     var raw = hit ? String(hit.chord || '') : '';
-    // Transposed for the eye, never for the database. The steps and the
-    // transposer are both handed in -- the transposer lives in the app,
-    // and a pure module that reached for a global could not be sliced.
     var steps = parseInt(o.transpose, 10) || 0;
-    var chord = (steps && raw && typeof o.transposeFn === 'function')
-      ? V._transposeAligned(raw, steps, o.transposeFn) : raw;
+    var chord = V._chordShown(hit, o);
     // Editing is refused while transposed: saving would have to transpose
     // the typed chord back down, and that round trip rewrites every flat
     // as a sharp. Better to ask for Ori than to quietly respell the song.
@@ -48788,19 +48826,28 @@ var WO = (function() {
     var nOther = res.length - nVid - nPdf;
     var steps = (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (song.transposeSteps || 0);
     var keyLabel = song.key ? ('Key: ' + song.key) : (steps ? ((steps > 0 ? '+' : '') + steps + ' semitones') : '');
-    var songCard = '<div class="sbm-song"><div class="sbm-song__row">' +
+    // On a phone the way around the book is a bar of its own above the
+    // title: Contents, which song this is of how many, and the arrows --
+    // red for back, green for on. A desk has the contents beside it.
+    var navBar = '<div class="sbm-song__bar">' +
+      '<button class="sbm-song__contents" onclick="WO.sbmIndex()"><i class="fa-solid fa-list-ol"></i>Contents</button>' +
+      '<span class="sbm-song__count">Song ' + (idx + 1) + ' of ' + list.length + '</span>' +
+      '<div class="sbm-song__nav sbm-song__nav--bar">' +
+        '<button class="sbm-song__prev" onclick="WO.sbmStep(-1)" ' + (idx <= 0 ? 'disabled' : '') + ' aria-label="Previous song"><i class="fa-solid fa-chevron-left"></i></button>' +
+        '<button class="sbm-song__next" onclick="WO.sbmStep(1)" ' + (idx >= list.length - 1 ? 'disabled' : '') + ' aria-label="Next song"><i class="fa-solid fa-chevron-right"></i></button></div></div>';
+    var songCard = '<div class="sbm-song">' + (wide ? '' : navBar) + '<div class="sbm-song__row">' +
       '<div class="sbm-song__num">' + (idx + 1) + '</div>' +
       '<div style="flex:1 1 auto;min-width:0;"><div class="sbm-song__title">' + escapeHtml(song.title || '') + '</div>' +
         (song.artist ? '<div class="sbm-song__artist">by ' + escapeHtml(song.artist) + '</div>' : '') + '</div>' +
-      '<div class="sbm-song__nav"><button onclick="WO.sbmStep(-1)" ' + (idx <= 0 ? 'disabled' : '') + ' aria-label="Previous song"><i class="fa-solid fa-chevron-left"></i></button>' +
-        '<button onclick="WO.sbmStep(1)" ' + (idx >= list.length - 1 ? 'disabled' : '') + ' aria-label="Next song"><i class="fa-solid fa-chevron-right"></i></button></div></div>';
+      (wide ? '<div class="sbm-song__nav"><button onclick="WO.sbmStep(-1)" ' + (idx <= 0 ? 'disabled' : '') + ' aria-label="Previous song"><i class="fa-solid fa-chevron-left"></i></button>' +
+        '<button onclick="WO.sbmStep(1)" ' + (idx >= list.length - 1 ? 'disabled' : '') + ' aria-label="Next song"><i class="fa-solid fa-chevron-right"></i></button></div>' : '') + '</div>';
     var badges = '';
     if (song.theme) String(song.theme).split(',').slice(0, 3).forEach(function(t) { if (t.trim()) badges += '<span class="sbm-badge">' + escapeHtml(t.trim()) + '</span>'; });
     if (keyLabel) badges += '<span class="sbm-badge sbm-badge--key"><i class="fa-solid fa-music"></i>' + escapeHtml(keyLabel) + '</span>';
     if (nVid) badges += '<span class="sbm-badge sbm-badge--yt sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-brands fa-youtube"></i>' + nVid + ' video' + (nVid === 1 ? '' : 's') + '</span>';
     if (nPdf) badges += '<span class="sbm-badge sbm-badge--pdf sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-file-pdf"></i>PDF' + (nPdf > 1 ? ' \u00d7' + nPdf : '') + '</span>';
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
-    badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
+    if (wide) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
     songCard += '<div class="sbm-song__badges">' + badges + '</div></div>';
 
     // -- toolbar --
@@ -48883,7 +48930,7 @@ var WO = (function() {
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     if (showScore) {
-      var score = _sbChoirBodyHtml(song, true);
+      var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' +
           '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button></div>' +
@@ -63256,7 +63303,7 @@ var WO = (function() {
     if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function _sbChoirBodyHtml(song, live) {
+  function _sbChoirBodyHtml(song, live, inline) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
     // The library row carries the lyrics, not the songbook item: the item
@@ -63276,7 +63323,7 @@ var WO = (function() {
         ? sbTransposeSteps[song.id] : (song.transposeSteps || 0);
     } catch (e) { xpose = song.transposeSteps || 0; }
     return window.lhcVoiceLines.html(rows, {
-      compact: !live, record: !!live, chords: chords, chordEdit: !!live,
+      compact: !live, record: !!live, chords: chords, chordEdit: !!live && !inline, inlineChords: !!inline,
       transpose: xpose,
       transposeFn: (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null });
   }
@@ -95480,6 +95527,49 @@ function filterLiturgyItems() {
 .sbm-pad--desktop .sbm-pad__sw input { width: 26px; height: 26px; }
 .sbm-pad--desktop .sbm-pad__sw span { min-height: 24px; line-height: 24px; font-size: 11.5px; }
 .sbm-pad--desktop .sbm-ed__foot { padding: 6px 14px; }
+
+/* ---- The way around the book, on a phone ------------------------------ */
+.sbm-song__bar { display: flex; align-items: center; gap: 8px; margin: -2px 0 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.16); }
+.sbm-song__contents {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: 10px;
+  border: 1.5px solid var(--sbm-gold); background: rgba(201,162,39,0.2); color: #ffe8a3;
+  font: 700 13px/1 var(--sbm-font-ui); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sbm-song__count { flex: 1 1 auto; text-align: center; font: 700 13px/1 var(--sbm-font-ui); letter-spacing: 0.04em; color: var(--sbm-on-dark); white-space: nowrap; }
+.sbm-song__nav--bar button { width: 46px; height: 40px; font-size: 16px; }
+.sbm-song__nav .sbm-song__prev { background: #c0392b; border-color: #e3867b; }
+.sbm-song__nav .sbm-song__next { background: #1b5e3b; border-color: #6cc492; }
+.sbm-song__nav .sbm-song__prev:disabled, .sbm-song__nav .sbm-song__next:disabled { opacity: 0.35; }
+
+/* ---- The parts card, 15px shorter -------------------------------------- */
+#sbmRoot:not(.sbm--wide) .sbm-parts { grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
+#sbmRoot:not(.sbm--wide) .sbm-part { min-height: 70px; padding: 6px 4px; gap: 2px; }
+#sbmRoot:not(.sbm--wide) .sbm-part i { font-size: 18px; }
+#sbmRoot:not(.sbm--wide) .sbm-part__name { font-size: 13px; }
+#sbmRoot:not(.sbm--wide) .sbm-part__n { font-size: 10.5px; }
+#sbmRoot:not(.sbm--wide) .sbm-parts-row { gap: 6px; }
+#sbmRoot:not(.sbm--wide) .sbm-practice-open { min-height: 40px; }
+
+/* ---- The score on a phone: each line on one line, chords over their words ----
+   The part chip has its own row above the words, so the words begin at the
+   row's edge -- and the chord row's chip-width placeholder, which lines the
+   chords up with the words on a desk, pushed every chord 87px to the right
+   of its word here. No placeholder, the same monospace at the same size on
+   both rows, and no wrapping: a line longer than the screen scrolls
+   sideways with its chords rather than breaking away from them. */
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score { font-size: calc(17px * var(--sbm-lyrics-scale)); }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-who--chord { display: none; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-chords { padding: 0 6px; gap: 0; min-height: 0; margin: 0; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-words { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; font-family: var(--sbm-font-body); }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl { padding-top: 1em; row-gap: 0.6em; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl .vl-words { line-height: 1.95; }
+.vl-w { display: inline-block; position: relative; white-space: nowrap; line-height: 1.25; }
+.vl-w__c { position: absolute; left: 0; top: -0.92em; font: 800 0.8em/1 ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace; color: #14532d; white-space: nowrap; letter-spacing: 0; }
+.vl-w--tail { min-width: 1.4em; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln { padding: 0 6px; row-gap: 2px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-who { height: 18px; line-height: 18px; font-size: 9.5px; flex-basis: 70px; width: 70px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-sys { padding: 3px 0; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-rec { padding-left: 0; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->

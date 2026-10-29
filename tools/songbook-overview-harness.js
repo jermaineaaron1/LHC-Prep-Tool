@@ -101,7 +101,7 @@ try {
   const vStart = lines.findIndex(l => /^window\.lhcVoiceLines = \{/.test(l));
   if (vStart < 0) throw new Error('not found: window.lhcVoiceLines');
   const vEnd = lines.findIndex((l, i) => i > vStart && l.replace(/\r$/, '') === '};');
-  if (vEnd < 0 || vEnd - vStart > 820) throw new Error('window.lhcVoiceLines: no close, or a span that looks wrong');
+  if (vEnd < 0 || vEnd - vStart > 900) throw new Error('window.lhcVoiceLines: no close, or a span that looks wrong');
   V = new Function('var window = {};\n' + lines.slice(vStart, vEnd + 1).map(l => l.replace(/\r$/, '')).join('\n') + '\nreturn window.lhcVoiceLines;')();
 
   const src = line(/^  var _SB_PART_DEFAULTS = \{/, 'var _SB_PART_DEFAULTS') + '\n' +

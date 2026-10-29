@@ -71,7 +71,7 @@ if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(
 // A ceiling, because an end-anchor matching far away would swallow the file
 // and still parse. 400 rather than 200 since the editor's round trip moved
 // in; it is a tripwire against a runaway match, not a budget for the module.
-if (end - start > 820) {
+if (end - start > 900) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -817,6 +817,35 @@ check('  and the line after them still gets its own',
 
 check('a repeated line takes the next chord line, not the first again',
   [V.chordFor(rIdx, g1, cur).chord, V.chordFor(rIdx, g1, cur).chord], ['C', 'G']);
+
+// ---------------------------------------------------------------------------
+// Chords riding on their words -- the phone. A chord row of its own is
+// placed by column, which only holds while the words sit on one line in
+// one monospace face; on a phone the line wraps and the chord row does
+// not, so the end of the line's chords sat over its beginning. Each
+// chord now goes on the word under its column and wraps with it.
+// ---------------------------------------------------------------------------
+console.log('\nchords riding on their words');
+check('a chord goes on the word under its column',
+  V._inlineWords('A family hiding from the storm', '           E'),
+  '<span class="vl-w">A</span> <span class="vl-w">family</span> <span class="vl-w"><span class="vl-w__c">E</span>hiding</span> ' +
+  '<span class="vl-w">from</span> <span class="vl-w">the</span> <span class="vl-w">storm</span>');
+// Column 2 is the space after "Do": the chord belongs to the word that
+// follows, not the one that has ended.
+check('a chord in the gap before a word goes on that word, not the one before',
+  V._inlineWords('Do you see', '  G').indexOf('<span class="vl-w__c">G</span>you') > -1, true);
+check('two chords over one word share it',
+  V._inlineWords('Ohhh', 'C G').indexOf('<span class="vl-w__c">C G</span>Ohhh') > -1, true);
+check('a chord past the end of the words rides on a tail of its own',
+  (function() { var h = V._inlineWords('Oh', '      D'); return h.indexOf('vl-w--tail') > -1 && h.indexOf('<span class="vl-w__c">D</span>&nbsp;') > -1; })(), true);
+check('the words are escaped', V._inlineWords('a <b> c', 'C').indexOf('&lt;b&gt;') > -1, true);
+check('html() puts the chords on the words when asked, and draws no chord row',
+  (function() {
+    var h = V.html([row('both', 'Said the night wind to the little lamb', 0)], { chords: V.chordIndex(LY, isChord), inlineChords: true });
+    return [h.indexOf('vl-chords') === -1, h.indexOf('vl-w__c') > -1, h.indexOf('vl-ln--inl') > -1];
+  })(), [true, true, true]);
+check('  and still draws the row when not asked',
+  V.html([row('both', 'Said the night wind to the little lamb', 0)], { chords: V.chordIndex(LY, isChord) }).indexOf('vl-chords') > -1, true);
 
 // Writing back. This is the carve-out the whole design rests on: chord
 // lines change, words never do.
