@@ -34,8 +34,14 @@
 // app/api is beyond it however many cases are listed below:
 //
 //   calendar-pending-harness   reads app/api/calendar/route.ts
+//   route-url-guard-harness    reads route files too
 //   scan-text-tests            reads app/api/parse-song-sheet/route.ts
 //   multipage-scan-harness     its route section, for the same reason
+//
+// Three more have no case here and are not in `npm run check` either, so
+// nothing runs them at all, let alone mutates them: autosuggest-skip,
+// duty-pairing and duty-settings-audit. That is a different gap from this
+// one and is not fixed by adding cases.
 //
 // Those assertions are not worthless -- they bite on a real edit to the
 // route, and the multipage ones were proved by hand -- but nothing here
@@ -165,6 +171,15 @@ const PREFILL =
   '        if (titleInput) titleInput.value = bbSuggestedTitle(result.reference || reference);';
 const SUGGEST_BODY =
   "    return String(ref == null ? '' : ref).replace(/^(\\s*)Psalms(\\s+\\d)/, '$1Psalm$2');";
+
+// Four harnesses that ran on every commit with nothing proving they could
+// fail. Each anchor below is the one line carrying the behaviour its harness
+// is there to defend, so breaking it breaks a check rather than a signature.
+const BRAND_GREEN = '--brand: #188e44;';
+const WATCHNIGHT_KEY = "dateStr:'Dec 31 PM'";
+const SHUFFLE_SALT = 'var _shuffleSalt = Math.random()';
+const SHUFFLE_HASH = 'var h = 2166136261 ^ Math.floor(_shuffleSalt * 4294967295);';
+const PAIRING_ANSWERED = '      if (answered) return;';
 
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
@@ -986,7 +1001,37 @@ const CASES = [
   // nothing else. Unanchored, it rewrites any title with the word in it.
   ['reading-slot-title-harness.js', 'the suggestion loses its anchor',
     s => s.replace(SUGGEST_BODY,
-                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")]
+                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")],
+
+  // Four harnesses that nothing here reached. These are their first cases.
+  //
+  // The altar colours and the jubilee green are the whole visual identity of
+  // the app, and reverting --brand to the pre-rebrand blue is the regression a
+  // careless sweep would actually make.
+  ['theme-colour-harness.js', 'the jubilee green reverts to the old blue',
+    s => s.replace(BRAND_GREEN, '--brand: #4a6da7;')],
+
+  // Two services fall on 31 December. Give the Watchnight the morning's key
+  // and they collide: one row overwrites the other, and whoever is rostered
+  // for the evening quietly disappears.
+  ['watchnight-service-harness.js', 'the Watchnight shares the morning service key',
+    s => s.replace(WATCHNIGHT_KEY, "dateStr:'Dec 31'")],
+
+  // Auto-Suggest exists so that a second press gives a different answer.
+  // Two ways to lose that, caught in two different places: the salt drawn
+  // once per run is a textual check, while a salt that never reaches the
+  // hash only shows in the spread over 200 runs. The second is why one
+  // case here would not have been enough.
+  ['autosuggest-shuffle-harness.js', 'the shuffle salt stops being random',
+    s => s.replace(SHUFFLE_SALT, 'var _shuffleSalt = 0.5')],
+  ['autosuggest-shuffle-harness.js', 'the salt stops reaching the hash',
+    s => s.replace(SHUFFLE_HASH, 'var h = 2166136261;')],
+
+  // The one the source comment warns about in so many words: a group rule is
+  // satisfied ONCE. Without that, a strict rule demands the same person in
+  // every singer row -- she fills Singer 2, and Singer 3 is still required.
+  ['duty-group-pairing-harness.js', 'a group rule is never satisfied, so it keeps firing',
+    s => s.replace(PAIRING_ANSWERED, '      if (false) return;')]
 ];
 
 let caught = 0, missed = 0, stale = 0;
