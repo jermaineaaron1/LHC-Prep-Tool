@@ -1052,6 +1052,12 @@ const CASES = [
   ['songbook-editparts-harness.js', 'a failed write closes the editor and loses the edits',
     s => s.replace(/(_sbVoiceLines\[ed\.base\] = fresh \|\| \[\];[\s\S]*?)showToast\('Could not save the choir parts', 'error'\);/,
                    "$1_sbmEdClose(); showToast('Could not save the choir parts', 'error');")],
+  // The library's Choir parts tab hands the dialog its rows and takes the
+  // text back; the dialog must write nothing of its own in that case.
+  ['songbook-editparts-harness.js', "another screen's save is written from here anyway",
+    s => s.replace("    if (ed.onSave) {", "    if (false && ed.onSave) {")],
+  ['songbook-editparts-harness.js', '"Edit as text" hands over an empty page',
+    s => s.replace("    var text = _sbmEdToText(ed), take = ed.onText;", "    var text = '', take = ed.onText;")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
