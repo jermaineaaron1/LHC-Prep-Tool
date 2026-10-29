@@ -1058,6 +1058,11 @@ const CASES = [
     s => s.replace("    if (ed.onSave) {", "    if (false && ed.onSave) {")],
   ['songbook-editparts-harness.js', '"Edit as text" hands over an empty page',
     s => s.replace("    var text = _sbmEdToText(ed), take = ed.onText;", "    var text = '', take = ed.onText;")],
+  // What a take is called: after the chip on its line, never "Take take".
+  ['recordings-harness.js', "a named part's take is called Take again",
+    s => s.replace("var who = String(partName || '').trim() || (part === 'men'", "var who = (part === 'men'")],
+  ['recordings-harness.js', 'an imported file loses its name',
+    s => s.replace("    if (label) return String(label).replace(/", "    if (false) return String(label).replace(/")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
