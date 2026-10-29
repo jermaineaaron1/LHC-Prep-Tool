@@ -11369,6 +11369,11 @@ I once was lost but now am found"
 
   <!-- ==================== WORSHIP SONGBOOK LIVE VIEW ==================== -->
   <div id="songbookLiveModal" style="display:none;position:fixed;inset:0;z-index:2200;flex-direction:column;overflow:hidden;background:#141e2e;">
+    <!-- The phone's songbook. Drawn by _sbmRender instead of the A4 pages
+         below; the header and layout under it are hidden while it is on.
+         Everything it shows is the same state, driven by the same
+         functions -- it is a different surface, not a different book. -->
+    <div id="sbmRoot" class="sbm" style="display:none;"></div>
 
     <!-- ── PRIMARY HEADER ── -->
     <div class="sb-header">
@@ -47751,6 +47756,9 @@ var WO = (function() {
     }
     if (window.lhcVoiceRec) window.lhcVoiceRec.stopPlayback(null);
     if (_sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} _sbPlayingAudio = null; _sbPlayingId = null; }
+    if (typeof _sbmStopPlayer === 'function') { _sbmStopPlayer(); _sbmCloseSheet(); }
+    if (typeof _sbmEdClose === 'function') _sbmEdClose();
+    if (typeof _sbmPdfClose === 'function') _sbmPdfClose();
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
     if (_sbStandaloneId) {
       var _closeSbId = _sbStandaloneId;
@@ -47965,6 +47973,1273 @@ var WO = (function() {
     return tmp.innerHTML;
   }
 
+  // ==================== THE SONGBOOK ON A PHONE ====================
+  //
+  // Phones used to be shown the same 794px A4 sheet as a desktop, scaled
+  // to fit by a CSS transform, so a page of lyrics arrived at roughly half
+  // size with eleven buttons above it. That scaling exists for a reason --
+  // annotations are drawn in page coordinates and must land on the same
+  // word on every device -- and it is kept, as "Page view" under More.
+  //
+  // What a phone draws by default is this: the same book, the same song
+  // state, driven by the same functions, laid out as cards that read at
+  // the size a hand-held screen wants. Nothing below invents a new way to
+  // transpose, record, attach or edit; it calls the one that exists and
+  // redraws. Where an existing function patches the A4 page directly
+  // (sbTranspose, sbToggleLyricsColumns), it guards on that page being
+  // present and falls through to the song's own state, which is what is
+  // read here.
+  var _sbmSid = null;            // the song in front of you
+  var _sbmPageView = false;      // true = show the A4 book instead
+  var _sbmScale = 1;             // lyrics size, A- / A+
+  var _sbmPlayer = null;         // { audio, rec, songId }
+  var _sbmRecs = {};             // songId -> rows from song_recordings
+  var _sbmRecsAt = {};           // songId -> when they were fetched
+  var _sbmInited = false;
+
+  function _sbmActive() {
+    return _sbFoldPhone() && !_sbmPageView;
+  }
+
+  function _sbmInit() {
+    if (_sbmInited) return;
+    _sbmInited = true;
+    try { _sbmScale = parseFloat(localStorage.getItem('lhc_sbm_scale')) || 1; } catch (e) {}
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(max-width: 820px)');
+      var onChange = function() { if (typeof renderSongbookLive === 'function') renderSongbookLive(); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    }
+    // The recordings sheet is the existing one. When it closes, whatever
+    // was recorded or deleted in it has to show in the practice card.
+    var sheet = document.getElementById('sbRecSheet');
+    if (sheet && window.MutationObserver) {
+      var wasOpen = false;
+      new MutationObserver(function() {
+        var open = sheet.style.display !== 'none';
+        if (wasOpen && !open && _sbmActive() && _sbmSid) {
+          var song = _sbmSong();
+          if (song) { delete _sbmRecsAt[_sbBaseSongId(song)]; _sbmRender(); }
+        }
+        wasOpen = open;
+      }).observe(sheet, { attributes: true, attributeFilter: ['style'] });
+    }
+  }
+
+  function _sbmSongs() {
+    return (songOrderSections || []).filter(function(x) { return x && x.itemType !== 'blank'; });
+  }
+  function _sbmSong() {
+    var list = _sbmSongs();
+    var hit = list.find(function(x) { return x.id === _sbmSid; });
+    if (hit) return hit;
+    var key = 'lhc_sbm_song_' + (_sbStandaloneId || (currentOrderData && currentOrderData.id) || '');
+    var remembered = null;
+    try { remembered = localStorage.getItem(key); } catch (e) {}
+    hit = list.find(function(x) { return x.id === remembered; }) || list[0] || null;
+    _sbmSid = hit ? hit.id : null;
+    return hit;
+  }
+  function sbmSelectSong(sid) {
+    _sbmSid = sid;
+    try { localStorage.setItem('lhc_sbm_song_' + (_sbStandaloneId || (currentOrderData && currentOrderData.id) || ''), sid); } catch (e) {}
+    _sbmCloseSheet();
+    _sbmRender();
+    var root = document.getElementById('sbmRoot');
+    if (root) root.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function sbmStep(delta) {
+    var list = _sbmSongs(), i = list.findIndex(function(x) { return x.id === _sbmSid; });
+    var next = list[i + delta];
+    if (next) sbmSelectSong(next.id);
+  }
+
+  // ---- lyric size: a size, not a zoom ----
+  function sbmScale(delta) {
+    _sbmScale = Math.min(1.8, Math.max(0.7, Math.round((_sbmScale + delta) * 10) / 10));
+    try { localStorage.setItem('lhc_sbm_scale', String(_sbmScale)); } catch (e) {}
+    var root = document.getElementById('sbmRoot');
+    if (root) root.style.setProperty('--sbm-lyrics-scale', String(_sbmScale));
+    var pct = document.getElementById('sbmPct');
+    if (pct) pct.textContent = Math.round(_sbmScale * 100) + '%';
+  }
+
+  // ---- what the song carries ----
+  function _sbmResources(song) {
+    var removedDocUrls = Array.isArray(song.removedLibraryDocUrls) ? song.removedLibraryDocUrls : [];
+    var docs = (Array.isArray(song.attachments) ? song.attachments : [])
+      .filter(function(a) { return removedDocUrls.indexOf(a.url || '') === -1; })
+      .concat(Array.isArray(song.customDocs) ? song.customDocs : []);
+    var removedVidUrls = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
+    var vids = (Array.isArray(song.youtube) ? song.youtube :
+      (typeof song.youtube === 'string' && song.youtube.trim() ?
+        song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []))
+      .filter(function(u) { return removedVidUrls.indexOf(u) === -1; })
+      .concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
+    var files = Array.isArray(song.sbFiles) ? song.sbFiles : [];
+    var links = Array.isArray(song.sbLinks) ? song.sbLinks : [];
+    var out = [];
+    docs.forEach(function(d, i) {
+      var url = d.url || '', name = d.name || d.title || url.split('/').pop() || 'Document';
+      var pdf = /\.pdf(\?|$)/i.test(url) || /\.pdf$/i.test(name);
+      out.push({ kind: pdf ? 'pdf' : 'doc', title: name, url: url, sub: pdf ? 'PDF' : (url.replace(/^https?:\/\//, '').split('/')[0] || 'Document') });
+    });
+    vids.forEach(function(u) {
+      var info = window.detectMediaType ? window.detectMediaType(u) : null;
+      out.push({ kind: 'yt', title: 'YouTube video', url: u, sub: (info && info.label) || 'youtube.com', ytId: info && info.id });
+    });
+    files.forEach(function(f) {
+      var pdf = /\.pdf$/i.test(f.name || '') || /pdf/i.test(f.mimeType || '');
+      var img = /^image\//i.test(f.mimeType || '');
+      out.push({ kind: pdf ? 'pdf' : (img ? 'img' : 'file'), title: f.name || 'File', url: f.url || '', sub: pdf ? 'PDF' : (img ? 'Image' : (f.mimeType || 'File')) });
+    });
+    links.forEach(function(l) {
+      var info = window.detectMediaType ? window.detectMediaType(l.url) : null;
+      var yt = info && info.type === 'youtube';
+      out.push({ kind: yt ? 'yt' : 'link', title: l.label || l.url, url: l.url, sub: (l.url || '').replace(/^https?:\/\//, '').split('/')[0], ytId: yt ? info.id : null });
+    });
+    return out;
+  }
+
+  // ---- the choir: lanes, families, colours ----
+  function _sbmPartFamily(p) {
+    var V = window.lhcVoiceLines, k = V ? V.partKey(p) : String(p || '').toLowerCase();
+    if (k === '' || k === 'all' || k === 'both') return 'all';
+    if (k.indexOf('soprano') > -1) return 'soprano';
+    if (k.indexOf('alto') > -1) return 'alto';
+    if (k.indexOf('tenor') > -1) return 'tenor';
+    if (k.indexOf('bass') > -1) return 'bass';
+    if (k.indexOf('women') > -1) return 'women';
+    if (k.indexOf('men') > -1) return 'men';
+    return 'other';
+  }
+  var _SBM_PART_ICON = { all: 'fa-people-group', soprano: 'fa-user', alto: 'fa-user', tenor: 'fa-user', bass: 'fa-user', women: 'fa-user-group', men: 'fa-user-group', other: 'fa-user' };
+
+  function _sbmRecPart(rec, song) {
+    // A take recorded against one line belongs to that line's part.
+    if (rec.line_id != null) {
+      var rows = _sbVoiceRowsFor(song);
+      for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(rec.line_id)) return rows[i].part || '';
+    }
+    var cat = _sbRecCatOf(rec.storage_path);
+    return (cat && cat !== 'general' && cat !== 'instrumental' && cat.indexOf('harmony') !== 0) ? cat : '';
+  }
+
+  // ---- recordings for the song, fetched once a minute at most ----
+  function _sbmLoadRecs(song) {
+    var base = _sbBaseSongId(song);
+    var sup = window._supabase || null;
+    if (!base || !sup) return;
+    if (_sbmRecsAt[base] && Date.now() - _sbmRecsAt[base] < 60000) return;
+    _sbmRecsAt[base] = Date.now();
+    sup.from('song_recordings').select('*').eq('song_id', base).order('created_at', { ascending: false })
+      .then(function(res) {
+        if (res.error) return;
+        _sbmRecs[base] = res.data || [];
+        if (!_sbmPlayer && _sbmRecs[base].length) _sbmLoad(_sbmRecs[base][0], song);
+        if (_sbmActive() && _sbmSid === song.id) _sbmPaintPractice(song);
+      });
+  }
+
+  // ---- player ----
+  function _sbmStopPlayer() {
+    if (_sbmPlayer && _sbmPlayer.audio) { try { _sbmPlayer.audio.pause(); } catch (e) {} }
+    _sbmPlayer = null;
+  }
+  // Put a take in the player without starting it: name, part and length
+  // show, and the big button plays it.
+  function _sbmLoad(rec, song) {
+    var sup = window._supabase || null; if (!sup || !rec) return;
+    _sbmStopPlayer();
+    var url = sup.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(rec.storage_path).data.publicUrl;
+    var audio = new Audio(url); audio.preload = 'metadata';
+    _sbmPlayer = { audio: audio, rec: rec, songId: song.id };
+    ['timeupdate','loadedmetadata','play','pause','ended'].forEach(function(ev) { audio.addEventListener(ev, _sbmPaintPlayer); });
+    audio.addEventListener('error', function() { _sbmStopPlayer(); _sbmPaintPlayer(); });
+  }
+  function sbmPlay(recId) {
+    var song = _sbmSong(); if (!song) return;
+    var recs = _sbmRecs[_sbBaseSongId(song)] || [];
+    var rec = recs.find(function(r) { return String(r.id) === String(recId); });
+    if (!rec) return;
+    if (_sbmPlayer && String(_sbmPlayer.rec.id) === String(rec.id)) {
+      var a = _sbmPlayer.audio;
+      if (a.paused) a.play(); else a.pause();
+      _sbmPaintPlayer(); return;
+    }
+    _sbmStopPlayer();
+    // The desktop panel's player and the per-line recorder must not play over this.
+    if (typeof _sbPlayingAudio !== 'undefined' && _sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} }
+    if (window.lhcVoiceRec && window.lhcVoiceRec.stopPlayback) window.lhcVoiceRec.stopPlayback(null);
+    var sup = window._supabase || null; if (!sup) return;
+    var url = sup.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(rec.storage_path).data.publicUrl;
+    var audio = new Audio(url);
+    _sbmPlayer = { audio: audio, rec: rec, songId: song.id };
+    audio.addEventListener('timeupdate', _sbmPaintPlayer);
+    audio.addEventListener('loadedmetadata', _sbmPaintPlayer);
+    audio.addEventListener('play', _sbmPaintPlayer);
+    audio.addEventListener('pause', _sbmPaintPlayer);
+    audio.addEventListener('ended', function() { _sbmPaintPlayer(); });
+    audio.addEventListener('error', function() { showToast('That recording would not play', 'error'); _sbmStopPlayer(); _sbmPaintPlayer(); });
+    var p = audio.play(); if (p && p.catch) p.catch(function() {});
+    _sbmPaintPlayer();
+  }
+  function sbmSeek(ev) {
+    if (!_sbmPlayer || !_sbmPlayer.audio) return;
+    var track = ev.currentTarget, r = track.getBoundingClientRect();
+    var x = (ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX) - r.left;
+    var frac = Math.max(0, Math.min(1, x / r.width));
+    var a = _sbmPlayer.audio;
+    if (isFinite(a.duration)) a.currentTime = frac * a.duration;
+  }
+  function _sbmPaintPlayer() {
+    var box = document.getElementById('sbmPlayer'); if (!box) return;
+    var p = _sbmPlayer;
+    var song = _sbmSong();
+    var btn = box.querySelector('.sbm-player__btn'), nm = box.querySelector('.sbm-player__name'),
+        pt = box.querySelector('.sbm-player__part'), fill = box.querySelector('.sbm-player__fill'),
+        tm = box.querySelector('.sbm-player__time');
+    box.classList.toggle('sbm-player--idle', !p);
+    if (!p) {
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-play"></i>'; btn.disabled = true; }
+      if (nm) nm.textContent = 'Choose a recording';
+      if (pt) pt.textContent = '';
+      if (fill) fill.style.width = '0';
+      if (tm) tm.textContent = '0:00 / 0:00';
+    } else {
+      var a = p.audio, dur = isFinite(a.duration) ? a.duration : (p.rec.duration_sec || 0);
+      if (btn) { btn.disabled = false; btn.innerHTML = a.paused ? '<i class="fa-solid fa-play"></i>' : '<i class="fa-solid fa-pause"></i>'; }
+      if (nm) nm.textContent = p.rec.name || 'Recording';
+      if (pt) { var part = song ? _sbmRecPart(p.rec, song) : ''; pt.textContent = part ? (window.lhcVoiceLines ? window.lhcVoiceLines.partLabel(part) : part) : _sbRecCatLabel(_sbRecCatOf(p.rec.storage_path)); }
+      if (fill) fill.style.width = (dur ? (a.currentTime / dur) * 100 : 0) + '%';
+      if (tm) tm.textContent = _sbFmtDur(a.currentTime) + ' / ' + _sbFmtDur(dur);
+    }
+    var list = document.getElementById('sbmRecList');
+    if (list) Array.prototype.forEach.call(list.querySelectorAll('.sbm-rec'), function(row) {
+      var mine = p && String(row.getAttribute('data-rec')) === String(p.rec.id);
+      row.classList.toggle('is-current', !!mine);
+      var b = row.querySelector('.sbm-rec__play');
+      if (b) b.innerHTML = (mine && !p.audio.paused) ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>';
+    });
+  }
+
+  // ---- actions that reach existing functions, then redraw this surface ----
+  function sbmTranspose(delta) {
+    var song = _sbmSong(); if (!song) return;
+    if (delta === 0) sbResetTranspose(song.id); else sbTranspose(song.id, delta);
+    _sbmRender();
+  }
+  function sbmView(mode) {
+    var song = _sbmSong(); if (!song) return;
+    if (mode === 'cols') { sbToggleLyricsColumns(song.id); _sbmRender(); return; }
+    if (song.sbLyricsColumns === 2) { song.sbLyricsColumns = 1; sbAutoSave(); }
+    if (_sbSongHasChoir(song)) { sbSetChoirView(song.id, mode); return; }   // re-renders
+    song.sbmLyricsMode = mode; _sbmRender();
+  }
+  function sbmPart(idx) {
+    var song = _sbmSong(); if (!song) return;
+    sbSetChoirPart(song.id, idx);
+    _sbmRender();
+  }
+  function sbmRecord() {
+    var song = _sbmSong(); if (!song) return;
+    // The existing sheet records and lists. Its category defaults to the
+    // part chosen here, so a soprano's take is filed as one.
+    sbOpenRecordings(song.id);
+    var sel = document.getElementById('sbRecCategory');
+    if (sel) {
+      var lanes = window.lhcVoiceLines ? window.lhcVoiceLines.lanes(_sbVoiceRowsFor(song)) : [];
+      var cur = _sbChoirPartFor(song, lanes);
+      var fam = _sbmPartFamily(cur);
+      if (fam !== 'all' && fam !== 'other' && sel.querySelector('option[value="' + fam + '"]')) sel.value = fam;
+    }
+  }
+  function sbmEdit() {
+    var song = _sbmSong(); if (!song) return;
+    if (_sbSongHasChoir(song) && _sbChoirView(song) === 'choir') { sbmEditParts(); return; }
+    sbOpenLyricsEditor(song.id);
+  }
+  function sbmPageView(on) {
+    _sbmPageView = !!on;
+    var modal = document.getElementById('songbookLiveModal');
+    if (modal) modal.classList.toggle('sbm-on', _sbmActive());
+    renderSongbookLive();
+    if (!on) return;
+    var song = _sbmSong();
+    if (song && typeof sbScrollToSong === 'function') setTimeout(function() { sbScrollToSong(song.id); }, 30);
+  }
+  function sbmReset() {
+    var song = _sbmSong(); if (!song) return;
+    _sbmScale = 1; try { localStorage.setItem('lhc_sbm_scale', '1'); } catch (e) {}
+    sbResetSongPageLayout(song.id);
+    _sbmRender();
+  }
+
+  // ---- sheets ----
+  function _sbmSheet(title, bodyHtml) {
+    _sbmCloseSheet();
+    var bd = document.createElement('div');
+    bd.className = 'sbm-sheet-backdrop is-open sbm'; bd.id = 'sbmSheet';
+    bd.innerHTML = '<div class="sbm-sheet" role="dialog" aria-label="' + escapeHtml(title) + '">' +
+      '<div class="sbm-sheet__grab"></div>' +
+      '<div class="sbm-sheet__head"><div class="sbm-sheet__title">' + escapeHtml(title) + '</div>' +
+        '<button class="sbm-btn" style="min-height:40px;padding:0 12px;" onclick="WO.sbmCloseSheet()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
+      bodyHtml + '</div>';
+    bd.addEventListener('click', function(e) { if (e.target === bd) _sbmCloseSheet(); });
+    document.body.appendChild(bd);
+  }
+  function _sbmCloseSheet() { var el = document.getElementById('sbmSheet'); if (el) el.remove(); }
+  function sbmCloseSheet() { _sbmCloseSheet(); }
+
+  function sbmContents() {
+    var list = _sbmSongs();
+    _sbmSheet('Contents', '<div class="sbm-contents">' + list.map(function(x, i) {
+      return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeHtml(x.id) + '\')">' +
+        '<span class="n">' + (i + 1) + '</span><span>' + escapeHtml(x.title || 'Song ' + (i + 1)) +
+        (x.artist ? '<small>' + escapeHtml(x.artist) + '</small>' : '') + '</span></button>';
+    }).join('') + '</div>');
+  }
+
+  function sbmMore() {
+    var song = _sbmSong();
+    var rows = [
+      ['fa-list-ol', 'Contents', 'WO.sbmContents()'],
+      ['fa-file-lines', 'Page view \u2014 the printed page, with annotations', 'WO.sbmPageView(true)'],
+      ['fa-book-open', 'Read in full screen', 'WO.sbmCloseSheet();WO.sbOpenFullscreen()'],
+      ['fa-list-music', 'Playlist', 'WO.sbmCloseSheet();WO.sbOpenPlaylist()'],
+      ['fa-file-pdf', 'Save as PDF', 'WO.sbmCloseSheet();WO.sbSavePDF()'],
+      ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()'],
+      ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()'],
+      ['fa-arrows-rotate', 'Reset this song\u2019s layout', 'WO.sbmCloseSheet();WO.sbmReset()'],
+      ['fa-people-group', 'Edit choir parts', 'WO.sbmCloseSheet();WO.sbmEditParts()']
+    ];
+    var html = '<div class="sbm-menu">' + rows.map(function(r) {
+      return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '"></i>' + r[1] + '</button>';
+    }).join('');
+    if (song) html += '<button class="sbm-btn sbm-btn--danger" style="margin-top:10px;" onclick="WO.sbmCloseSheet();WO.sbRemoveSong(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-trash"></i>Remove this song from the songbook</button>';
+    _sbmSheet('More', html + '</div>');
+  }
+
+  function sbmResources() {
+    var song = _sbmSong(); if (!song) return;
+    var res = _sbmResources(song);
+    var html = res.length ? res.map(function(r, i) {
+      var kind = { pdf: 'PDF', doc: 'Document', yt: 'YouTube', link: 'Link', file: 'File', img: 'Image' }[r.kind] || 'File';
+      var icon = { pdf: 'fa-file-pdf', doc: 'fa-file-lines', yt: 'fa-brands fa-youtube', link: 'fa-link', file: 'fa-paperclip', img: 'fa-image' }[r.kind] || 'fa-file';
+      var thumb = r.ytId ? '<img src="https://img.youtube.com/vi/' + escapeHtml(r.ytId) + '/mqdefault.jpg" alt="">' :
+                  (r.kind === 'img' ? '<img src="' + escapeHtml(r.url) + '" alt="">' : '<i class="' + (icon.indexOf('fa-brands') === 0 ? icon : 'fa-solid ' + icon) + '"></i>');
+      return '<div class="sbm-res" onclick="WO.sbmOpenResource(' + i + ')">' +
+        '<div class="sbm-res__thumb">' + thumb + '</div>' +
+        '<div><span class="sbm-res__kind sbm-res__kind--' + r.kind + '"><i class="' + (icon.indexOf('fa-brands') === 0 ? icon : 'fa-solid ' + icon) + '"></i>' + kind + '</span>' +
+          '<div class="sbm-res__title">' + escapeHtml(r.title) + '</div><div class="sbm-res__sub">' + escapeHtml(r.sub || '') + '</div></div>' +
+        '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmOpenExternal(' + i + ')" aria-label="Open in a new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></div>';
+    }).join('') : '<p class="sbm-empty">Nothing attached to this song yet.</p>';
+    html += '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAttachFile(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-paperclip"></i>Attach a file</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAddSongLink(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-link"></i>Add a link</button></div>';
+    _sbmSheet('Attached resources (' + res.length + ')', html);
+  }
+  function sbmOpenExternal(i) {
+    var song = _sbmSong(); if (!song) return;
+    var r = _sbmResources(song)[i]; if (!r || !r.url) return;
+    window.open(r.url, '_blank', 'noopener');
+  }
+  function sbmOpenResource(i) {
+    var song = _sbmSong(); if (!song) return;
+    var r = _sbmResources(song)[i]; if (!r) return;
+    if (r.kind === 'pdf' && typeof sbmOpenPdf === 'function') { sbmOpenPdf(r); return; }
+    if (r.ytId) {
+      _sbmSheet(r.title, '<div class="sbm-embed"><iframe src="https://www.youtube.com/embed/' + escapeHtml(r.ytId) + '?rel=0&autoplay=1" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>');
+      return;
+    }
+    if (r.kind === 'img') { _sbmSheet(r.title, '<img src="' + escapeHtml(r.url) + '" alt="" style="width:100%;border-radius:12px;">'); return; }
+    var emb = (typeof sbBuildEmbedUrl === 'function') ? sbBuildEmbedUrl(r.url) : r.url;
+    _sbmSheet(r.title, '<div class="sbm-embed" style="aspect-ratio:3/4;"><iframe src="' + escapeHtml(emb) + '"></iframe></div>' +
+      '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmOpenExternal(' + i + ')"><i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>');
+  }
+
+  // ---- paint ----
+  function _sbmPaintPractice(song) {
+    var box = document.getElementById('sbmPractice'); if (!box) return;
+    var V = window.lhcVoiceLines;
+    var base = _sbBaseSongId(song);
+    var recs = _sbmRecs[base] || [];
+    var lanes = (V && _sbSongHasChoir(song)) ? V.lanes(_sbVoiceRowsFor(song)) : [];
+    var cur = lanes.length ? _sbChoirPartFor(song, lanes) : '';
+    var curKey = V ? V.partKey(cur) : '';
+    var fam = _sbmPartFamily(cur);
+    var mine = [], rest = [];
+    recs.forEach(function(r) {
+      var p = _sbmRecPart(r, song), pk = V ? V.partKey(p) : String(p).toLowerCase();
+      if (curKey && (pk === curKey || _sbmPartFamily(p) === fam)) mine.push(r); else rest.push(r);
+    });
+    var ordered = mine.concat(rest);
+    var label = cur ? (V.partLabel(cur) + ' parts selected') : 'All parts';
+    box.querySelector('.sbm-practice__sel').textContent = label;
+    box.querySelector('.sbm-practice__sel').style.setProperty('--p', 'var(--sbm-part-' + fam + ')');
+    box.querySelector('.sbm-practice__sel').style.setProperty('--p-soft', 'color-mix(in srgb, var(--sbm-part-' + fam + ') 14%, #fff)');
+    var list = box.querySelector('#sbmRecList');
+    list.innerHTML = ordered.length ? ordered.map(function(r) {
+      var p = _sbmRecPart(r, song);
+      var sub = (p ? (V ? V.partLabel(p) : p) : _sbRecCatLabel(_sbRecCatOf(r.storage_path))) + (r.line_id != null ? ' \u00b7 one line' : '');
+      return '<div class="sbm-rec" data-rec="' + escapeHtml(String(r.id)) + '">' +
+        '<button class="sbm-rec__play" onclick="WO.sbmPlay(\'' + escapeHtml(String(r.id)) + '\')" aria-label="Play"><i class="fa-solid fa-play"></i></button>' +
+        '<div><div class="sbm-rec__name">' + escapeHtml(r.name || 'Recording') + '</div><div class="sbm-rec__sub">' + escapeHtml(sub) + '</div></div>' +
+        '<div class="sbm-rec__dur">' + _sbFmtDur(r.duration_sec) + '</div>' +
+        '<button class="sbm-rec__more" onclick="WO.sbmRecord()" aria-label="Manage recordings"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
+    }).join('') : '<p class="sbm-empty">No practice tracks yet. Record one, or import a file.</p>';
+    _sbmPaintPlayer();
+  }
+
+  function _sbmRender() {
+    _sbmInit();
+    var modal = document.getElementById('songbookLiveModal');
+    var root = document.getElementById('sbmRoot');
+    if (!modal || !root) return;
+    modal.classList.add('sbm-on');
+    root.style.setProperty('--sbm-lyrics-scale', String(_sbmScale));
+
+    var V = window.lhcVoiceLines;
+    var list = _sbmSongs();
+    var song = _sbmSong();
+    var orderTitle = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || '') : '';
+    var idx = song ? list.indexOf(song) : -1;
+
+    var html = '';
+    // -- hero --
+    html += '<div class="sbm-hero"><div class="sbm-hero__row"><i class="fa-solid fa-book-open sbm-hero__book"></i><div>' +
+      '<div class="sbm-hero__kicker">LHC WORSHIP PREP</div>' +
+      '<div class="sbm-hero__title">Worship Songbook</div>' +
+      '<div class="sbm-hero__sub">' + (orderTitle ? escapeHtml(orderTitle).toUpperCase() : 'SONGS \u2022 PREPARE \u2022 WORSHIP TOGETHER') + '</div>' +
+      '</div></div><button class="sbm-hero__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div>';
+
+    if (!song) {
+      html += '<div class="sbm-stack"><div class="sbm-card"><p class="sbm-empty">This songbook is empty. Add songs from Song Finder with the bookmark button.</p></div></div>';
+      root.innerHTML = html; return;
+    }
+
+    // -- the song --
+    var res = _sbmResources(song);
+    var nVid = res.filter(function(r) { return r.kind === 'yt'; }).length;
+    var nPdf = res.filter(function(r) { return r.kind === 'pdf'; }).length;
+    var nOther = res.length - nVid - nPdf;
+    var steps = (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (song.transposeSteps || 0);
+    var keyLabel = song.key ? ('Key: ' + song.key) : (steps ? ((steps > 0 ? '+' : '') + steps + ' semitones') : '');
+    html += '<div class="sbm-song"><div class="sbm-song__row">' +
+      '<div class="sbm-song__num">' + (idx + 1) + '</div>' +
+      '<div style="flex:1 1 auto;min-width:0;"><div class="sbm-song__title">' + escapeHtml(song.title || '') + '</div>' +
+        (song.artist ? '<div class="sbm-song__artist">by ' + escapeHtml(song.artist) + '</div>' : '') + '</div>' +
+      '<div class="sbm-song__nav"><button onclick="WO.sbmStep(-1)" ' + (idx <= 0 ? 'disabled' : '') + ' aria-label="Previous song"><i class="fa-solid fa-chevron-left"></i></button>' +
+        '<button onclick="WO.sbmStep(1)" ' + (idx >= list.length - 1 ? 'disabled' : '') + ' aria-label="Next song"><i class="fa-solid fa-chevron-right"></i></button></div></div>';
+    var badges = '';
+    if (song.theme) String(song.theme).split(',').slice(0, 3).forEach(function(t) { if (t.trim()) badges += '<span class="sbm-badge">' + escapeHtml(t.trim()) + '</span>'; });
+    if (keyLabel) badges += '<span class="sbm-badge sbm-badge--key"><i class="fa-solid fa-music"></i>' + escapeHtml(keyLabel) + '</span>';
+    if (nVid) badges += '<span class="sbm-badge sbm-badge--yt sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-brands fa-youtube"></i>' + nVid + ' video' + (nVid === 1 ? '' : 's') + '</span>';
+    if (nPdf) badges += '<span class="sbm-badge sbm-badge--pdf sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-file-pdf"></i>PDF' + (nPdf > 1 ? ' \u00d7' + nPdf : '') + '</span>';
+    if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
+    badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
+    html += '<div class="sbm-song__badges">' + badges + '</div></div>';
+
+    // -- toolbar --
+    html += '<div class="sbm-toolbar">' +
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmShare()"><i class="fa-solid fa-share-nodes"></i>Share</button>' +
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbUndo();WO.sbmRedraw()"><i class="fa-solid fa-rotate-left"></i>Undo</button>' +
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbRefresh()"><i class="fa-solid fa-rotate"></i>Refresh</button>' +
+      '<div class="sbm-toolbar__rule"></div>' +
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmScale(-0.1)" aria-label="Smaller lyrics">A<sup>\u2212</sup></button>' +
+      '<div class="sbm-toolbar__pct" id="sbmPct">' + Math.round(_sbmScale * 100) + '%</div>' +
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmScale(0.1)" aria-label="Larger lyrics">A<sup>+</sup></button></div>';
+
+    html += '<div class="sbm-stack">';
+
+    // -- controls card: key / view mode / notes / tiles --
+    var hasChoir = _sbSongHasChoir(song);
+    var view = hasChoir ? _sbChoirView(song) : (song.sbmLyricsMode || 'both');
+    var cols = song.sbLyricsColumns === 2;
+    var seg = function(val, label, on) {
+      return '<button class="sbm-seg__btn' + (on ? ' is-on' : '') + '" onclick="WO.sbmView(\'' + val + '\')">' + label + '</button>';
+    };
+    html += '<div class="sbm-card"><div class="sbm-two">' +
+      '<div><div class="sbm-label"><i class="fa-solid fa-music"></i>Key / Transpose</div>' +
+        '<div class="sbm-seg sbm-seg--xp">' +
+          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(-1)" aria-label="Transpose down a semitone">\u266d</button>' +
+          '<button class="sbm-seg__btn' + (steps === 0 ? ' is-on' : '') + '" onclick="WO.sbmTranspose(0)">' + (steps === 0 ? 'Original' : (steps > 0 ? '+' : '') + steps) + '</button>' +
+          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone">\u266f</button></div></div>' +
+      '<div class="sbm-sep"><div class="sbm-label"><i class="fa-solid fa-file-lines"></i>View mode</div>' +
+        '<div class="sbm-seg sbm-seg--teal">' +
+          (hasChoir ? seg('choir', 'Choir', view === 'choir' && !cols) : '') +
+          seg('lyrics', 'Lyrics', view === 'lyrics' && !cols) +
+          seg('both', 'Both', view === 'both' && !cols) +
+          seg('cols', '2 Col', cols) + '</div></div></div>';
+    var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
+    html += '<div class="sbm-pair">' +
+      '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
+    html += '<div class="sbm-tile-row sbm-tiles">' +
+      '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
+      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmRecord()"><i class="fa-solid fa-headphones"></i>Recordings</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-paperclip"></i>Files</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button></div></div>';
+
+    // -- choir parts --
+    var lanes = (V && hasChoir) ? V.lanes(_sbVoiceRowsFor(song)) : [];
+    var cur = lanes.length ? _sbChoirPartFor(song, lanes) : '';
+    if (lanes.length) {
+      var recs = _sbmRecs[_sbBaseSongId(song)] || [];
+      var countFor = function(p) {
+        if (!p) return recs.length;
+        var k = V.partKey(p), f = _sbmPartFamily(p);
+        return recs.filter(function(r) { var rp = _sbmRecPart(r, song); return V.partKey(rp) === k || (rp && _sbmPartFamily(rp) === f); }).length;
+      };
+      var chip = function(idx, p, label) {
+        var fam = _sbmPartFamily(p), n = countFor(p);
+        var on = p ? (V.partKey(p) === V.partKey(cur)) : !cur;
+        return '<button class="sbm-part' + (on ? ' is-on' : '') + '" style="--p:var(--sbm-part-' + fam + ')" onclick="WO.sbmPart(' + idx + ')">' +
+          '<i class="fa-solid ' + _SBM_PART_ICON[fam] + '"></i><span class="sbm-part__name">' + escapeHtml(label) + '</span>' +
+          '<span class="sbm-part__n">' + n + ' track' + (n === 1 ? '' : 's') + '</span></button>';
+      };
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Choir parts available</div><div class="sbm-parts">' +
+        chip(-1, '', 'All') + lanes.map(function(p, i) { return chip(i, p, V.partLabel(p)); }).join('') + '</div></div>';
+    }
+
+    // -- practice --
+    html += '<div class="sbm-card" id="sbmPractice"><div class="sbm-label"><i class="fa-solid fa-music"></i>Practice tracks<span class="sbm-practice__sel"></span></div>' +
+      '<div class="sbm-player" id="sbmPlayer"><button class="sbm-player__btn" onclick="WO.sbmPlayToggle()"><i class="fa-solid fa-play"></i></button>' +
+        '<div style="min-width:0;"><div class="sbm-player__name"></div><div class="sbm-player__part"></div>' +
+        '<div class="sbm-player__bar"><div class="sbm-player__track" onclick="WO.sbmSeek(event)"><div class="sbm-player__fill"></div></div><div class="sbm-player__time"></div></div></div></div>' +
+      '<div class="sbm-recs" id="sbmRecList"></div>' +
+      '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record a take</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmImport()"><i class="fa-solid fa-file-import"></i>Import audio</button></div></div>';
+
+    // -- lyrics --
+    var showLyrics = !hasChoir || view !== 'choir';
+    var showScore = hasChoir && view !== 'lyrics';
+    if (showLyrics) {
+      var lyricsHtml = song.richLyrics
+        ? _sbStripTrailingEmptyHtml(song.richLyrics)
+        : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+      if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
+      var noChords = (view === 'lyrics');
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i>Lyrics' + (noChords ? '' : ' &amp; chords') + '</div>' +
+        '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
+    }
+    if (showScore) {
+      var score = _sbChoirBodyHtml(song, true);
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Choir parts' + (cur ? ' \u2014 ' + escapeHtml(V.partLabel(cur)) : '') + '</div>' +
+        '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
+          (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
+    }
+    html += '</div>';
+    root.innerHTML = html;
+
+    var ly = document.getElementById('sbmLyrics');
+    if (ly && typeof sbApplySectionBadges === 'function') sbApplySectionBadges(ly);
+    if (showScore && V && cur) {
+      var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
+      if (sc) V.filterPart(sc, cur);
+    }
+    _sbmLoadRecs(song);
+    _sbmPaintPractice(song);
+  }
+
+  // ==================== EDIT PARTS, ON A PHONE ====================
+  //
+  // The arrangement is sections of moments of lines. A moment is the
+  // set of lines sung at the same time -- one per part, or one for
+  // everyone -- which is exactly the grouping lhcVoiceLines.group makes
+  // of the rows in song_voice_lines. This editor shows that structure
+  // instead of a textarea with a prefix grammar, and saves the way the
+  // textarea did: by writing the grammar out and handing it to the same
+  // parser, so what is stored is byte-for-byte what the old editor would
+  // have stored for the same arrangement.
+  var _sbmEd = null;
+  var _SBM_ED_PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass', 'Women', 'Men'];
+  var _SBM_ED_SECTIONS = ['Verse', 'Chorus', 'Pre-Chorus', 'Bridge', 'Ending', 'Intro', 'Interlude', 'Last Line'];
+  var _sbmEdSeq = 0;
+  function _sbmEdId() { return 'e' + (++_sbmEdSeq); }
+
+  function _sbmEdPartKey(p) { return window.lhcVoiceLines ? window.lhcVoiceLines.partKey(p) : String(p || '').toLowerCase(); }
+  function _sbmEdPartLabel(p) {
+    var k = _sbmEdPartKey(p);
+    if (k === 'both' || k === 'all' || !k) return 'All';
+    return window.lhcVoiceLines ? window.lhcVoiceLines.partLabel(p) : p;
+  }
+  function _sbmEdCanonical(name) {
+    // "women" and "men" are the two shorthand lanes; everything else keeps
+    // the name the choir gave it.
+    var k = String(name || '').trim().toLowerCase();
+    if (k === 'all' || k === 'both' || k === '') return 'both';
+    if (k === 'women') return 'women';
+    if (k === 'men') return 'men';
+    return String(name).trim();
+  }
+
+  function _sbmEdFromRows(rows) {
+    var V = window.lhcVoiceLines;
+    var secs = [], byName = {}, parts = [];
+    var seen = {};
+    V.group(rows).forEach(function(g) {
+      var name = g.section || '';
+      var sec = byName[name];
+      if (!sec) { sec = { id: _sbmEdId(), name: name, open: secs.length === 0, moments: [] }; byName[name] = sec; secs.push(sec); }
+      var lines = [];
+      if (g.both) lines.push({ id: _sbmEdId(), part: 'both', text: g.both.text || '', sustained: !!g.both.sustained });
+      Object.keys(g.byPart).forEach(function(p) {
+        var ln = g.byPart[p];
+        lines.push({ id: _sbmEdId(), part: ln.part, text: ln.text || '', sustained: !!ln.sustained });
+        var k = _sbmEdPartKey(ln.part);
+        if (!seen[k]) { seen[k] = true; parts.push(String(ln.part).trim()); }
+      });
+      sec.moments.push({ id: _sbmEdId(), lines: lines });
+    });
+    return { sections: secs, parts: parts };
+  }
+
+  function _sbmEdToText(ed) {
+    var out = [];
+    ed.sections.forEach(function(sec) {
+      var body = [];
+      sec.moments.forEach(function(m) {
+        var ls = m.lines.filter(function(l) { return String(l.text || '').trim() || l.sustained; });
+        if (!ls.length) return;
+        body.push(ls.map(function(l) {
+          var k = _sbmEdPartKey(l.part);
+          var pre = (k === 'both') ? '' : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] ';
+          return pre + (l.sustained ? '~' : '') + String(l.text || '').replace(/\r?\n/g, ' ');
+        }).join('\n'));
+      });
+      if (!body.length) return;
+      if (sec.name) out.push('[' + sec.name + ']');
+      out.push(body.join('\n\n'));
+      out.push('');
+    });
+    return out.join('\n');
+  }
+
+  function _sbmEdFind(id) {
+    var ed = _sbmEd; if (!ed) return null;
+    for (var i = 0; i < ed.sections.length; i++) {
+      var sec = ed.sections[i];
+      if (sec.id === id) return { sec: sec, si: i };
+      for (var j = 0; j < sec.moments.length; j++) {
+        var m = sec.moments[j];
+        if (m.id === id) return { sec: sec, si: i, m: m, mi: j };
+        for (var k = 0; k < m.lines.length; k++) if (m.lines[k].id === id) return { sec: sec, si: i, m: m, mi: j, line: m.lines[k], li: k };
+      }
+    }
+    return null;
+  }
+
+  function sbmEditParts() {
+    var song = _sbmSong(); if (!song || !window.lhcVoiceLines) return;
+    var base = _sbBaseSongId(song);
+    var rows = _sbVoiceLines[base] || [];
+    var built;
+    if (rows.length) built = _sbmEdFromRows(rows);
+    else {
+      // An ordinary song becoming one with parts: start from its words,
+      // everyone singing, so the first thing to do is split a line, not
+      // type a verse back in.
+      var seed = (typeof window.lhcVoiceLines.fromLyrics === 'function') ? window.lhcVoiceLines.fromLyrics(song.lyrics || '') : [];
+      built = _sbmEdFromRows(Array.isArray(seed) ? seed : []);
+      if (!built.sections.length) built.sections.push({ id: _sbmEdId(), name: 'Verse 1', open: true, moments: [] });
+    }
+    _sbmEd = { base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
+               sections: built.sections, parts: built.parts, reorder: false, dirty: false };
+    _sbmStopPlayer();
+    _sbmEdPaint();
+  }
+
+  function _sbmEdPartsOn() {
+    var on = {};
+    (_sbmEd.parts || []).forEach(function(p) { on[_sbmEdPartKey(p)] = p; });
+    return on;
+  }
+
+  function _sbmEdPaint() {
+    var ed = _sbmEd; if (!ed) return;
+    var host = document.getElementById('sbmEdit');
+    if (!host) { host = document.createElement('div'); host.id = 'sbmEdit'; host.className = 'sbm'; document.body.appendChild(host); }
+    host.classList.toggle('is-reorder', !!ed.reorder);
+    var on = _sbmEdPartsOn();
+    var fam = function(p) { return _sbmPartFamily(p); };
+
+    var html = '<div class="sbm-ed__hero">' +
+      '<button class="sbm-ed__back" onclick="WO.sbmEdCancel()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div style="min-width:0;"><div class="sbm-ed__title">Edit Parts</div><div class="sbm-ed__song">' + escapeHtml(ed.title) + (ed.artist ? ' \u00b7 ' + escapeHtml(ed.artist) : '') + '</div></div>' +
+      '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>';
+
+    html += '<div class="sbm-ed__body">';
+    html += '<div class="sbm-card"><div class="sbm-ed__actions">' +
+      '<button class="sbm-tile sbm-tile--blue" onclick="WO.sbmEdAddSection()"><i class="fa-solid fa-circle-plus"></i>Add Section</button>' +
+      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmEdAddPart(null)"><i class="fa-solid fa-circle-plus"></i>Add Part</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdAddHarmony()"><i class="fa-solid fa-people-group"></i>Add Harmony</button>' +
+      '<button class="sbm-tile' + (ed.reorder ? ' is-on' : '') + '" onclick="WO.sbmEdReorder()"><i class="fa-solid fa-arrow-down-up-across-line"></i>Reorder</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdPreview()"><i class="fa-solid fa-eye"></i>Preview</button></div></div>';
+
+    // which parts this song uses
+    var names = _SBM_ED_PARTS.slice();
+    (ed.parts || []).forEach(function(p) { if (names.map(_sbmEdPartKey).indexOf(_sbmEdPartKey(p)) === -1) names.push(p); });
+    html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Available choir parts</div><div class="sbm-ed__toggles">' +
+      '<span class="sbm-ed__tg is-on" style="--p:var(--sbm-part-all)" title="Everyone sings these lines"><span>All</span><span class="sw"></span></span>' +
+      names.map(function(p) {
+        var k = _sbmEdPartKey(p), isOn = !!on[k];
+        return '<button class="sbm-ed__tg' + (isOn ? ' is-on' : '') + '" style="--p:var(--sbm-part-' + fam(p) + ')" onclick="WO.sbmEdTogglePart(\'' + escapeHtml(p).replace(/'/g, '&#39;') + '\')" aria-pressed="' + (isOn ? 'true' : 'false') + '"><span>' + escapeHtml(_sbmEdPartLabel(p)) + '</span><span class="sw"></span></button>';
+      }).join('') + '</div></div>';
+
+    // the sections
+    ed.sections.forEach(function(sec, si) {
+      var n = sec.moments.reduce(function(a, m) { return a + m.lines.length; }, 0);
+      html += '<div class="sbm-ed__sec" data-sec="' + sec.id + '">' +
+        '<div class="sbm-ed__sechead' + (sec.open ? '' : ' is-closed') + '">' +
+          '<button class="chev" onclick="WO.sbmEdToggleSec(\'' + sec.id + '\')" aria-expanded="' + (sec.open ? 'true' : 'false') + '"><i class="fa-solid fa-chevron-' + (sec.open ? 'down' : 'right') + '"></i></button>' +
+          '<button class="sbm-ed__secname" onclick="WO.sbmEdRenameSec(\'' + sec.id + '\')" title="Rename this section">' + escapeHtml(sec.name || 'Untitled section') +
+            (sec.open ? '' : '<span class="sbm-ed__secmeta">' + n + ' part' + (n === 1 ? '' : 's') + '</span>') + '</button>' +
+          '<div class="sbm-ed__secbtns">' +
+            (ed.reorder ? '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveSec(\'' + sec.id + '\',-1)" ' + (si === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+                          '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveSec(\'' + sec.id + '\',1)" ' + (si === ed.sections.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' : '') +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdDupSec(\'' + sec.id + '\')" aria-label="Duplicate section"><i class="fa-regular fa-copy"></i></button>' +
+            '<button class="sbm-ed__ib sbm-ed__ib--danger" onclick="WO.sbmEdDelSec(\'' + sec.id + '\')" aria-label="Delete section"><i class="fa-regular fa-trash-can"></i></button>' +
+          '</div></div>';
+      if (sec.open) {
+        html += '<div class="sbm-ed__secbody">';
+        sec.moments.forEach(function(m, mi) {
+          html += '<div class="sbm-ed__moment" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)">';
+          m.lines.forEach(function(l) {
+            var ph = (_sbmEdPartKey(l.part) === 'both') ? 'Words everyone sings' : 'Add lyrics for ' + _sbmEdPartLabel(l.part) + ' (optional)';
+            html += '<div class="sbm-ed__row" data-line="' + l.id + '">' +
+              '<span class="sbm-ed__handle" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>' +
+              '<button class="sbm-ed__part" style="--p:var(--sbm-part-' + fam(l.part) + ')" onclick="WO.sbmEdCyclePart(\'' + l.id + '\')" title="Change which part sings this">' + escapeHtml(_sbmEdPartLabel(l.part)) + '</button>' +
+              '<input class="sbm-ed__text" value="' + escapeHtml(l.text) + '" placeholder="' + escapeHtml(ph) + '" oninput="WO.sbmEdInput(\'' + l.id + '\',this.value)">' +
+              '<button class="sbm-ed__ib sbm-ed__ib--hold' + (l.sustained ? ' is-on' : '') + '" onclick="WO.sbmEdHold(\'' + l.id + '\')" title="Held note" aria-pressed="' + (l.sustained ? 'true' : 'false') + '"><i class="fa-solid fa-wave-square"></i></button>' +
+              '<button class="sbm-ed__ib sbm-ed__ib--dup" onclick="WO.sbmEdDupLine(\'' + l.id + '\')" aria-label="Duplicate line"><i class="fa-regular fa-copy"></i></button>' +
+              '<button class="sbm-ed__ib sbm-ed__ib--danger sbm-ed__ib--del" onclick="WO.sbmEdDelLine(\'' + l.id + '\')" aria-label="Delete line"><i class="fa-regular fa-trash-can"></i></button>' +
+              '</div>';
+          });
+          html += '<div class="sbm-ed__mbtns">' +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',-1)" ' + (mi === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',1)" ' + (mi === sec.moments.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
+            '<button class="sbm-ed__ib sbm-ed__ib--teal" onclick="WO.sbmEdAddPart(\'' + sec.id + '\',\'' + m.id + '\')" aria-label="Add a part to this moment"><i class="fa-solid fa-plus"></i></button></div>';
+          html += '</div>';
+        });
+        html += '<button class="sbm-ed__add" onclick="WO.sbmEdAddPart(\'' + sec.id + '\')"><i class="fa-solid fa-circle-plus"></i>Add Part to ' + escapeHtml(sec.name || 'this section') + '</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    if (!ed.sections.length) html += '<div class="sbm-card"><p class="sbm-empty">No sections yet. Add one to begin.</p></div>';
+    html += '<div style="height:12px;"></div></div>';
+
+    html += '<div class="sbm-sticky sbm-ed__sticky">' +
+      '<button class="sbm-btn" style="min-height:var(--sbm-primary);" onclick="WO.sbmEdCancel()">Cancel</button>' +
+      '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div>';
+    host.innerHTML = html;
+  }
+
+  // ---- edits ----
+  function _sbmEdTouch() { if (_sbmEd) _sbmEd.dirty = true; }
+  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); } }
+  function sbmEdHold(id) { var f = _sbmEdFind(id); if (f && f.line) { f.line.sustained = !f.line.sustained; _sbmEdTouch(); _sbmEdPaint(); } }
+  function sbmEdToggleSec(id) { var f = _sbmEdFind(id); if (f && f.sec) { f.sec.open = !f.sec.open; _sbmEdPaint(); } }
+  function sbmEdRenameSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var name = prompt('Section name', f.sec.name || '');
+    if (name == null) return;
+    f.sec.name = String(name).trim(); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdMoveSec(id, d) {
+    var f = _sbmEdFind(id); if (!f) return;
+    var a = _sbmEd.sections, i = f.si, j = i + d;
+    if (j < 0 || j >= a.length) return;
+    a.splice(j, 0, a.splice(i, 1)[0]); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDupSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var copy = JSON.parse(JSON.stringify(f.sec));
+    copy.id = _sbmEdId();
+    copy.moments.forEach(function(m) { m.id = _sbmEdId(); m.lines.forEach(function(l) { l.id = _sbmEdId(); }); });
+    copy.name = _sbmEdNextName(copy.name);
+    _sbmEd.sections.splice(f.si + 1, 0, copy); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDelSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var n = f.sec.moments.reduce(function(a, m) { return a + m.lines.length; }, 0);
+    if (n && !confirm('Delete "' + (f.sec.name || 'this section') + '" and its ' + n + ' line' + (n === 1 ? '' : 's') + '?')) return;
+    _sbmEd.sections.splice(f.si, 1); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function _sbmEdNextName(base) {
+    // "Verse 1" -> "Verse 2"; "Chorus" -> "Chorus 2"; never a name already in use.
+    base = String(base || '').trim();
+    if (!base) return '';
+    var used = {}; _sbmEd.sections.forEach(function(s) { used[String(s.name || '').trim().toLowerCase()] = true; });
+    var m = /^(.*?)(?:\s+(\d+))?$/.exec(base);
+    var stem = m[1] || base, n = m[2] ? parseInt(m[2], 10) + 1 : 2;
+    if (!m[2] && !used[stem.toLowerCase()]) return stem;
+    while (used[(stem + ' ' + n).toLowerCase()]) n++;
+    return stem + ' ' + n;
+  }
+  function sbmEdAddSection() {
+    var html = '<div class="sbm-choice">' + _SBM_ED_SECTIONS.map(function(nm) {
+      return '<button class="sbm-btn" onclick="WO.sbmEdAddSectionNamed(\'' + nm + '\')"><i class="fa-solid fa-plus"></i>' + nm + '</button>';
+    }).join('') + '<button class="sbm-btn" onclick="WO.sbmEdAddSectionNamed(null)"><i class="fa-solid fa-pen"></i>Custom section\u2026</button></div>';
+    _sbmSheet('Add a section', html);
+  }
+  function sbmEdAddSectionNamed(nm) {
+    _sbmCloseSheet();
+    if (nm == null) { nm = prompt('Section name'); if (!nm) return; nm = String(nm).trim(); }
+    else if (/^verse$/i.test(nm)) nm = 'Verse 1';   // verses are numbered by custom
+    if (_sbmEd.sections.some(function(s) { return String(s.name || '').trim().toLowerCase() === nm.toLowerCase(); })) nm = _sbmEdNextName(nm);
+    _sbmEd.sections.forEach(function(s) { s.open = false; });
+    _sbmEd.sections.push({ id: _sbmEdId(), name: nm, open: true, moments: [{ id: _sbmEdId(), lines: [{ id: _sbmEdId(), part: 'both', text: '', sustained: false }] }] });
+    _sbmEdTouch(); _sbmEdPaint();
+    var host = document.getElementById('sbmEdit');
+    var body = host && host.querySelector('.sbm-ed__body');
+    if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+  }
+  function sbmEdAddPart(secId, momentId) {
+    var ed = _sbmEd; if (!ed) return;
+    var sec = secId ? _sbmEdFind(secId).sec : (ed.sections.find(function(s) { return s.open; }) || ed.sections[0]);
+    if (!sec) { sbmEdAddSection(); return; }
+    var on = _sbmEdPartsOn();
+    var options = [['both', 'All']];
+    Object.keys(on).forEach(function(k) { options.push([on[k], _sbmEdPartLabel(on[k])]); });
+    var html = '<div class="sbm-choice">' + options.map(function(o) {
+      return '<button class="sbm-btn" style="--p:var(--sbm-part-' + _sbmPartFamily(o[0]) + ');color:var(--p)" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',\'' + escapeHtml(o[0]).replace(/'/g, '&#39;') + '\')"><i class="fa-solid ' + _SBM_PART_ICON[_sbmPartFamily(o[0])] + '"></i>' + escapeHtml(o[1]) + '</button>';
+    }).join('') + '<button class="sbm-btn" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',null)"><i class="fa-solid fa-pen"></i>Custom part\u2026</button></div>';
+    _sbmSheet('Add a part to ' + (sec.name || 'this section'), html);
+  }
+  function sbmEdAddPartNamed(secId, momentId, part) {
+    _sbmCloseSheet();
+    var f = _sbmEdFind(secId); if (!f || !f.sec) return;
+    if (part == null) { part = prompt('Part name (e.g. Soprano, Descant)'); if (!part) return; part = _sbmEdCanonical(part); }
+    var k = _sbmEdPartKey(part);
+    if (k !== 'both') _sbmEdEnable(part);   // using a part switches it on
+    var m = momentId ? (_sbmEdFind(momentId) || {}).m : f.sec.moments[f.sec.moments.length - 1];
+    // A moment holds each part once, and "everyone" cannot share a moment
+    // with a named part -- that is what the parser would split anyway, so
+    // the editor says it up front with a fresh moment.
+    var clash = !m || m.lines.some(function(l) { var lk = _sbmEdPartKey(l.part); return lk === k || lk === 'both' || k === 'both'; });
+    if (clash) { m = { id: _sbmEdId(), lines: [] }; f.sec.moments.push(m); }
+    m.lines.push({ id: _sbmEdId(), part: part, text: '', sustained: false });
+    f.sec.open = true; _sbmEdTouch(); _sbmEdPaint();
+    var inp = document.querySelector('#sbmEdit [data-line="' + m.lines[m.lines.length - 1].id + '"] .sbm-ed__text');
+    if (inp) inp.focus();
+  }
+  function _sbmEdEnable(part) {
+    var k = _sbmEdPartKey(part); if (!k || k === 'both') return;
+    if (!_sbmEd.parts.some(function(p) { return _sbmEdPartKey(p) === k; })) _sbmEd.parts.push(part);
+  }
+  function sbmEdTogglePart(part) {
+    var ed = _sbmEd, k = _sbmEdPartKey(part);
+    var on = ed.parts.some(function(p) { return _sbmEdPartKey(p) === k; });
+    if (!on) { _sbmEdEnable(_sbmEdCanonical(part)); _sbmEdTouch(); _sbmEdPaint(); return; }
+    var n = 0; ed.sections.forEach(function(s) { s.moments.forEach(function(m) { m.lines.forEach(function(l) { if (_sbmEdPartKey(l.part) === k) n++; }); }); });
+    if (n && !confirm('Turn off ' + _sbmEdPartLabel(part) + ' and remove its ' + n + ' line' + (n === 1 ? '' : 's') + '?')) return;
+    ed.parts = ed.parts.filter(function(p) { return _sbmEdPartKey(p) !== k; });
+    ed.sections.forEach(function(s) { s.moments.forEach(function(m) { m.lines = m.lines.filter(function(l) { return _sbmEdPartKey(l.part) !== k; }); }); s.moments = s.moments.filter(function(m) { return m.lines.length; }); });
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdAddHarmony() {
+    var name = prompt('Name the harmony part (e.g. Soprano, Alto, Descant)');
+    if (!name) return;
+    _sbmEdEnable(_sbmEdCanonical(name)); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdCyclePart(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    var on = _sbmEdPartsOn();
+    var ring = ['both'].concat(Object.keys(on).map(function(k) { return on[k]; }));
+    var taken = {}; f.m.lines.forEach(function(l) { if (l !== f.line) taken[_sbmEdPartKey(l.part)] = true; });
+    var others = Object.keys(taken).length > 0;
+    var cur = ring.map(_sbmEdPartKey).indexOf(_sbmEdPartKey(f.line.part));
+    for (var step = 1; step <= ring.length; step++) {
+      var cand = ring[(cur + step) % ring.length], ck = _sbmEdPartKey(cand);
+      if (taken[ck] || ck === _sbmEdPartKey(f.line.part)) continue;
+      if (ck === 'both' && others) continue;          // everyone cannot share a moment
+      if (ck !== 'both' && taken.both) continue;
+      f.line.part = cand; _sbmEdTouch(); _sbmEdPaint(); return;
+    }
+    showToast('Every available part already sings in this moment', 'info');
+  }
+  function sbmEdDupLine(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    var copy = { id: _sbmEdId(), part: f.line.part, text: f.line.text, sustained: f.line.sustained };
+    f.sec.moments.splice(f.mi + 1, 0, { id: _sbmEdId(), lines: [copy] });
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDelLine(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    if (String(f.line.text || '').trim() && !confirm('Delete this line?')) return;
+    f.m.lines.splice(f.li, 1);
+    if (!f.m.lines.length) f.sec.moments.splice(f.mi, 1);
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdMoveMoment(id, d) {
+    var f = _sbmEdFind(id); if (!f || !f.m) return;
+    var a = f.sec.moments, i = f.mi, j = i + d;
+    if (j < 0 || j >= a.length) return;
+    a.splice(j, 0, a.splice(i, 1)[0]); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdReorder() { _sbmEd.reorder = !_sbmEd.reorder; _sbmEdPaint(); }
+
+  // Drag of a moment within its section. Pointer-based reorder is what
+  // the arrows above are for; this is the desktop nicety.
+  var _sbmEdDragId = null;
+  function sbmEdDragStart(ev, id) { _sbmEdDragId = id; ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', id); } catch (e) {} ev.currentTarget.classList.add('is-drag'); }
+  function sbmEdDragOver(ev) { if (_sbmEdDragId) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; } }
+  function sbmEdDragEnd(ev) { ev.currentTarget.classList.remove('is-drag'); _sbmEdDragId = null; }
+  function sbmEdDrop(ev, targetId) {
+    ev.preventDefault();
+    var from = _sbmEdFind(_sbmEdDragId), to = _sbmEdFind(targetId);
+    _sbmEdDragId = null;
+    if (!from || !to || !from.m || !to.m || from.sec !== to.sec || from.m === to.m) return;
+    var a = from.sec.moments; a.splice(from.mi, 1); a.splice(to.mi, 0, from.m);
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+
+  function sbmEdPreview() {
+    var V = window.lhcVoiceLines;
+    var parsed = V.parseVoiceText(_sbmEdToText(_sbmEd));
+    _sbmSheet('Preview', '<div class="sbm-ed__preview sb-choir">' + (parsed.length ? V.html(parsed, { compact: true }) : '<p class="sbm-empty">Nothing to show yet.</p>') + '</div>');
+  }
+  function sbmEdCancel() {
+    if (_sbmEd && _sbmEd.dirty && !confirm('Discard your changes to the parts?')) return;
+    _sbmEdClose();
+  }
+  function _sbmEdClose() {
+    _sbmCloseSheet();
+    var host = document.getElementById('sbmEdit'); if (host) host.remove();
+    _sbmEd = null;
+  }
+  function sbmEdSave() {
+    var ed = _sbmEd; if (!ed) return;
+    var V = window.lhcVoiceLines;
+    var parsed = V.parseVoiceText(_sbmEdToText(ed));
+    if (!parsed.length) { showToast('Nothing to save \u2014 there are no lines', 'error'); return; }
+    if (typeof showLoader === 'function') showLoader(true);
+    window.SBQ_VOICE_LINES.replaceAll(ed.base, parsed).then(function() {
+      return window.SBQ_VOICE_LINES.forSong(ed.base);
+    }).then(function(fresh) {
+      _sbVoiceLines[ed.base] = fresh || [];
+      // The library copy has to know it is a song with parts now, or the
+      // next render will not look for them.
+      var lib = (window.STATE && window.STATE.songs) ? window.STATE.songs.find(function(x) { return x && x.id === ed.base; }) : null;
+      if (lib) lib.voiceLayout = 'two-part';
+      var item = songOrderSections.find(function(x) { return x && x.id === ed.sid; });
+      if (item) item.voiceLayout = 'two-part';
+      _sbmEdClose();
+      renderSongbookLive();
+      showToast('Choir parts saved', 'success');
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Could not save the choir parts', 'error');
+    }).finally(function() {
+      if (typeof showLoader === 'function') showLoader(false);
+    });
+  }
+
+  // ==================== THE SCORE, FULL SCREEN ====================
+  //
+  // A PDF on a phone is a page you scroll and pinch, not a frame inside a
+  // sheet. pdf.js (already on the page for the song-sheet importer) draws
+  // each page to a canvas at the width of the screen times the zoom; an
+  // iframe would hand the file to the browser's own viewer, which on iOS
+  // shows the first page and nothing else. When the file cannot be fetched
+  // -- a Drive link, a host without CORS -- the sheet with the iframe
+  // stands in, as it did before this existed.
+  var _sbmPdf = null;
+  var _sbmPdfLastR = null;
+  var _SBM_PDF_ZOOMS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+  var _SBM_PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var _SBM_PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  function _sbmPdfLib() {
+    if (window.pdfjsLib) {
+      if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = _SBM_PDFJS_WORKER;
+      return Promise.resolve(window.pdfjsLib);
+    }
+    if (_sbmPdfLib._p) return _sbmPdfLib._p;
+    _sbmPdfLib._p = new Promise(function(res, rej) {
+      var sc = document.createElement('script');
+      sc.src = _SBM_PDFJS;
+      sc.onload = function() {
+        if (!window.pdfjsLib) { rej(new Error('pdf.js did not load')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = _SBM_PDFJS_WORKER;
+        res(window.pdfjsLib);
+      };
+      sc.onerror = function() { _sbmPdfLib._p = null; rej(new Error('pdf.js did not load')); };
+      document.head.appendChild(sc);
+    });
+    return _sbmPdfLib._p;
+  }
+
+  function sbmOpenPdf(r) {
+    if (!r || !r.url) return;
+    _sbmCloseSheet();
+    _sbmPdfClose();
+    _sbmPdfLastR = r;
+    var host = document.createElement('div');
+    host.id = 'sbmPdf'; host.className = 'sbm';
+    host.innerHTML = '<div class="sbm-pdf__hero">' +
+      '<button class="sbm-ed__back" onclick="WO.sbmPdfClose()" aria-label="Back to the song"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div style="min-width:0;"><div class="sbm-pdf__title">' + escapeHtml(r.title || 'Score') + '</div><div class="sbm-pdf__sub" id="sbmPdfSub">Opening\u2026</div></div>' +
+      '<button class="sbm-ed__back" onclick="WO.sbmPdfOpenLast()" aria-label="Open in a new tab or download"><i class="fa-solid fa-download"></i></button></div>' +
+      '<div class="sbm-pdf__stage" id="sbmPdfStage"><div class="sbm-pdf__loading"><i class="fa-solid fa-spinner fa-spin"></i>&nbsp; Opening the score\u2026</div></div>' +
+      '<div class="sbm-pdf__bar">' +
+        '<div class="sbm-pdf__zoom" role="group" aria-label="Zoom">' +
+          '<button onclick="WO.sbmPdfZoom(-1)" aria-label="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
+          '<button class="pct" id="sbmPdfPct" onclick="WO.sbmPdfZoom(0)" title="Fit to the screen">Fit</button>' +
+          '<button onclick="WO.sbmPdfZoom(1)" aria-label="Zoom in"><i class="fa-solid fa-plus"></i></button></div>' +
+        '<div class="sbm-pdf__thumbs" id="sbmPdfThumbs" aria-label="Pages"></div></div>';
+    document.body.appendChild(host);
+    document.addEventListener('keydown', _sbmPdfKey);
+    var P = _sbmPdf = { r: r, host: host, doc: null, n: 0, zoom: 1, cur: 1, pages: [], baseW: 612, baseH: 792, stageW: 0, io: null };
+    _sbmPdfLib().then(function(lib) {
+      return lib.getDocument({ url: r.url, withCredentials: false }).promise;
+    }).then(function(doc) {
+      if (_sbmPdf !== P) { try { doc.destroy(); } catch (e) {} return; }   // closed while loading
+      P.doc = doc; P.n = doc.numPages;
+      return doc.getPage(1).then(function(page) {
+        if (_sbmPdf !== P) return;
+        var vp = page.getViewport({ scale: 1 });
+        P.baseW = vp.width; P.baseH = vp.height;
+        _sbmPdfBuild();
+      });
+    }).catch(function(err) {
+      console.warn('[songbook] pdf.js could not open the score; showing it in a frame instead', err);
+      if (_sbmPdf !== P) return;
+      _sbmPdfClose();
+      _sbmPdfFallback(r);
+    });
+  }
+
+  function _sbmPdfBuild() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    stage.innerHTML = '<div class="sbm-pdf__pages" id="sbmPdfPages"></div>';
+    var wrap = stage.firstChild;
+    P.pages = [];
+    for (var i = 1; i <= P.n; i++) {
+      var pg = document.createElement('div');
+      pg.className = 'sbm-pdf__page'; pg.setAttribute('data-page', i);
+      pg.innerHTML = '<canvas></canvas><span class="pn">' + i + '</span>';
+      wrap.appendChild(pg);
+      P.pages.push({ el: pg, canvas: pg.firstChild, task: null, at: 0 });
+    }
+    P.stageW = Math.max(200, stage.clientWidth - 20);
+    P.io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) { if (e.isIntersecting) _sbmPdfRenderPage(parseInt(e.target.getAttribute('data-page'), 10)); });
+    }, { root: stage, rootMargin: '500px 0px' });
+    P.pages.forEach(function(p) { P.io.observe(p.el); });
+    stage.addEventListener('scroll', _sbmPdfOnScroll, { passive: true });
+    stage.addEventListener('dblclick', function() { _sbmPdfSetZoom(P.zoom > 1 ? 1 : 2); });
+    _sbmPdfPinch(stage);
+    _sbmPdfLayout();
+    _sbmPdfThumbs();
+  }
+
+  function _sbmPdfScale() { var P = _sbmPdf; return (P.stageW / P.baseW) * P.zoom; }
+
+  // Size every page box first, so the document has its full height before
+  // a single page is drawn and a jump to page 5 lands on page 5.
+  function _sbmPdfLayout() {
+    var P = _sbmPdf; if (!P) return;
+    var sc = _sbmPdfScale();
+    P.pages.forEach(function(p) {
+      p.el.style.width = Math.floor(P.baseW * sc) + 'px';
+      p.el.style.height = Math.floor(P.baseH * sc) + 'px';
+      p.at = 0;
+    });
+    var wrap = document.getElementById('sbmPdfPages'); if (wrap) wrap.classList.toggle('is-wide', P.zoom > 1);
+    var pct = document.getElementById('sbmPdfPct'); if (pct) pct.textContent = P.zoom === 1 ? 'Fit' : Math.round(P.zoom * 100) + '%';
+    _sbmPdfRenderVisible();
+    _sbmPdfPaintCur();
+  }
+
+  function _sbmPdfRenderVisible() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var top = stage.scrollTop - 500, bot = stage.scrollTop + stage.clientHeight + 500;
+    P.pages.forEach(function(p, idx) {
+      var y = p.el.offsetTop, h = p.el.offsetHeight;
+      if (y + h >= top && y <= bot) _sbmPdfRenderPage(idx + 1);
+    });
+  }
+
+  // Draw into a fresh canvas and swap it in when it is done; the old one
+  // stays up, stretched to the new size, so a zoom never shows a blank page.
+  function _sbmPdfRenderPage(i) {
+    var P = _sbmPdf; if (!P || !P.doc) return;
+    var p = P.pages[i - 1]; if (!p) return;
+    var sc = _sbmPdfScale();
+    if (p.at === sc) return;
+    if (p.task) { try { p.task.cancel(); } catch (e) {} p.task = null; }
+    p.at = sc;
+    P.doc.getPage(i).then(function(page) {
+      if (_sbmPdf !== P || p.at !== sc) return;
+      var vp = page.getViewport({ scale: sc });
+      var dpr = Math.min(window.devicePixelRatio || 1, 3);
+      var w = Math.floor(vp.width), h = Math.floor(vp.height);
+      p.el.style.width = w + 'px'; p.el.style.height = h + 'px';
+      p.canvas.style.width = w + 'px'; p.canvas.style.height = h + 'px';
+      var nc = document.createElement('canvas');
+      nc.width = Math.floor(vp.width * dpr); nc.height = Math.floor(vp.height * dpr);
+      nc.style.width = w + 'px'; nc.style.height = h + 'px';
+      var task = page.render({ canvasContext: nc.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      p.task = task;
+      task.promise.then(function() {
+        if (p.task === task) p.task = null;
+        if (_sbmPdf !== P || p.at !== sc) return;
+        p.el.replaceChild(nc, p.canvas); p.canvas = nc;
+      }).catch(function(err) {
+        if (p.task === task) p.task = null;
+        if (p.at === sc) p.at = 0;
+        if (!err || err.name !== 'RenderingCancelledException') console.warn('[songbook] page ' + i + ' did not render', err);
+      });
+    }).catch(function(err) { p.at = 0; console.warn(err); });
+  }
+
+  function _sbmPdfOnScroll() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var mid = stage.scrollTop + stage.clientHeight * 0.4, cur = 1;
+    P.pages.forEach(function(p, idx) { if (p.el.offsetTop <= mid) cur = idx + 1; });
+    if (cur !== P.cur) { P.cur = cur; _sbmPdfPaintCur(); }
+    // the observer draws pages as they come into view; this catches a
+    // browser that reports the intersection late
+    if (P._rv) clearTimeout(P._rv);
+    P._rv = setTimeout(_sbmPdfRenderVisible, 120);
+  }
+
+  function _sbmPdfPaintCur() {
+    var P = _sbmPdf; if (!P) return;
+    var sub = document.getElementById('sbmPdfSub');
+    if (sub) sub.textContent = P.n ? 'Page ' + P.cur + ' of ' + P.n : 'Opening\u2026';
+    var th = document.querySelectorAll('#sbmPdfThumbs .sbm-pdf__thumb');
+    Array.prototype.forEach.call(th, function(t, i) { t.classList.toggle('is-on', i + 1 === P.cur); });
+    var on = document.querySelector('#sbmPdfThumbs .sbm-pdf__thumb.is-on');
+    if (on && on.scrollIntoView) { try { on.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {} }
+  }
+
+  function _sbmPdfThumbs() {
+    var P = _sbmPdf, strip = document.getElementById('sbmPdfThumbs'); if (!P || !strip) return;
+    if (P.n < 2 || P.n > 40) { strip.style.display = 'none'; return; }
+    strip.innerHTML = '';
+    var TW = 88, TH = 116;   // twice the box, for a sharp thumbnail
+    for (var i = 1; i <= P.n; i++) {
+      var b = document.createElement('button');
+      b.className = 'sbm-pdf__thumb'; b.type = 'button';
+      b.setAttribute('aria-label', 'Page ' + i);
+      b.innerHTML = '<canvas width="' + TW + '" height="' + TH + '"></canvas>';
+      b.onclick = (function(n) { return function() { sbmPdfGo(n); }; })(i);
+      strip.appendChild(b);
+      (function(n, canvas) {
+        P.doc.getPage(n).then(function(page) {
+          if (_sbmPdf !== P) return;
+          var vp0 = page.getViewport({ scale: 1 });
+          var vp = page.getViewport({ scale: Math.min(TW / vp0.width, TH / vp0.height) });
+          canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+          return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        }).catch(function() {});
+      })(i, b.firstChild);
+    }
+    _sbmPdfPaintCur();
+  }
+
+  // A jump lands at once and draws its page at once; the scroll handler
+  // would get there too, but a tap on a thumbnail should not wait for it.
+  function sbmPdfGo(n) {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var p = P.pages[n - 1]; if (!p) return;
+    stage.scrollTop = Math.max(0, p.el.offsetTop - 10);
+    P.cur = n;
+    _sbmPdfPaintCur();
+    _sbmPdfRenderVisible();
+  }
+
+  function _sbmPdfSetZoom(z) {
+    var P = _sbmPdf; if (!P || !P.doc) return;
+    z = Math.max(_SBM_PDF_ZOOMS[0], Math.min(_SBM_PDF_ZOOMS[_SBM_PDF_ZOOMS.length - 1], z));
+    if (z === P.zoom) return;
+    var stage = document.getElementById('sbmPdfStage');
+    var frac = (stage && stage.scrollHeight) ? stage.scrollTop / stage.scrollHeight : 0;
+    P.zoom = z;
+    _sbmPdfLayout();
+    if (stage) stage.scrollTop = frac * stage.scrollHeight;
+  }
+  function sbmPdfZoom(d) {
+    var P = _sbmPdf; if (!P) return;
+    if (d === 0) { _sbmPdfSetZoom(1); return; }
+    var i = _SBM_PDF_ZOOMS.indexOf(P.zoom);
+    if (i === -1) { i = 0; while (i < _SBM_PDF_ZOOMS.length - 1 && _SBM_PDF_ZOOMS[i] < P.zoom) i++; }
+    _sbmPdfSetZoom(_SBM_PDF_ZOOMS[Math.max(0, Math.min(_SBM_PDF_ZOOMS.length - 1, i + d))]);
+  }
+
+  // Two fingers: the pages scale as a preview while they move, and the real
+  // zoom is set, and the pages redrawn sharp, when they lift.
+  function _sbmPdfPinch(stage) {
+    var P = _sbmPdf, pts = {}, start = 0, k = 1;
+    function count() { return Object.keys(pts).length; }
+    function dist() {
+      var a = Object.keys(pts).map(function(id) { return pts[id]; });
+      return a.length < 2 ? 0 : Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+    }
+    stage.addEventListener('pointerdown', function(ev) {
+      if (ev.pointerType !== 'touch') return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (count() === 2) { start = dist(); k = 1; }
+    });
+    stage.addEventListener('pointermove', function(ev) {
+      if (!pts[ev.pointerId]) return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (start && count() === 2) {
+        k = dist() / start;
+        var wrap = document.getElementById('sbmPdfPages');
+        if (wrap) wrap.style.transform = 'scale(' + k.toFixed(3) + ')';
+      }
+    });
+    function up(ev) {
+      if (!pts[ev.pointerId]) return;
+      delete pts[ev.pointerId];
+      if (start && count() < 2) {
+        start = 0;
+        var wrap = document.getElementById('sbmPdfPages');
+        if (wrap) wrap.style.transform = '';
+        if (_sbmPdf === P && Math.abs(k - 1) > 0.05) _sbmPdfSetZoom(Math.round(P.zoom * k * 4) / 4);
+      }
+    }
+    stage.addEventListener('pointerup', up);
+    stage.addEventListener('pointercancel', up);
+  }
+
+  function _sbmPdfKey(ev) { if (ev.key === 'Escape') sbmPdfClose(); }
+  function sbmPdfClose() { _sbmPdfClose(); }
+  function _sbmPdfClose() {
+    var P = _sbmPdf; _sbmPdf = null;
+    document.removeEventListener('keydown', _sbmPdfKey);
+    if (!P) return;
+    if (P.io) { try { P.io.disconnect(); } catch (e) {} }
+    P.pages.forEach(function(p) { if (p.task) { try { p.task.cancel(); } catch (e) {} } });
+    if (P.doc) { try { P.doc.destroy(); } catch (e) {} }
+    if (P.host && P.host.parentNode) P.host.parentNode.removeChild(P.host);
+  }
+  function sbmPdfOpenLast() { if (_sbmPdfLastR && _sbmPdfLastR.url) window.open(_sbmPdfLastR.url, '_blank', 'noopener'); }
+  function _sbmPdfFallback(r) {
+    _sbmPdfLastR = r;
+    var emb = (typeof sbBuildEmbedUrl === 'function') ? sbBuildEmbedUrl(r.url) : r.url;
+    _sbmSheet(r.title, '<div class="sbm-embed" style="aspect-ratio:3/4;"><iframe src="' + escapeHtml(emb) + '"></iframe></div>' +
+      '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmPdfOpenLast()"><i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>');
+  }
+
+  function sbmRedraw() { if (_sbmActive()) _sbmRender(); }
+  function sbmPlayToggle() { if (_sbmPlayer) sbmPlay(_sbmPlayer.rec.id); }
+  function sbmImport() { var song = _sbmSong(); if (!song) return; _sbRecCurrentSongId = _sbBaseSongId(song); sbImportRecording(); setTimeout(function() { delete _sbmRecsAt[_sbBaseSongId(song)]; }, 3000); }
+  function sbmShare() {
+    // The desktop popover is positioned off its header button, which is
+    // hidden here; a sheet says the same two things at a size for a thumb.
+    _sbmSheet('Share this songbook', '<div class="sbm-menu">' +
+      '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmCloseSheet();WO.sbShareWhatsApp()"><i class="fa-brands fa-whatsapp"></i>Share on WhatsApp</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbCopyLink()"><i class="fa-solid fa-link"></i>Copy the link</button></div>');
+  }
+
   function renderSongbookLive() {
     // Arrangements the songbook needs, fetched once and redrawn when they
     // land. Book mode and print read the cache synchronously, so without
@@ -47976,6 +49251,10 @@ var WO = (function() {
     setTimeout(function() {
       if (typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();
     }, 0);
+    // A phone draws its own surface from the same state. See _sbmRender.
+    if (typeof _sbmActive === 'function' && _sbmActive()) { _sbmRender(); return; }
+    var _m = document.getElementById('songbookLiveModal');
+    if (_m) _m.classList.remove('sbm-on');
     var body = $('sbBody');
     if (!body) return;
 
@@ -75515,6 +76794,20 @@ var WO = (function() {
     openSongbookByOrderId: openSongbookByOrderId,
     openSongbookStandalone: openSongbookStandalone,
     closeSongbook: closeSongbook,
+    sbmSelectSong: sbmSelectSong, sbmStep: sbmStep, sbmScale: sbmScale, sbmTranspose: sbmTranspose,
+    sbmView: sbmView, sbmPart: sbmPart, sbmRecord: sbmRecord, sbmEdit: sbmEdit, sbmPageView: sbmPageView,
+    sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
+    sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
+    sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
+    sbmShare: sbmShare, sbmRedraw: sbmRedraw,
+    sbmOpenPdf: sbmOpenPdf, sbmPdfClose: sbmPdfClose, sbmPdfZoom: sbmPdfZoom, sbmPdfGo: sbmPdfGo, sbmPdfOpenLast: sbmPdfOpenLast,
+    sbmEditParts: sbmEditParts, sbmEdInput: sbmEdInput, sbmEdHold: sbmEdHold, sbmEdToggleSec: sbmEdToggleSec,
+    sbmEdRenameSec: sbmEdRenameSec, sbmEdMoveSec: sbmEdMoveSec, sbmEdDupSec: sbmEdDupSec, sbmEdDelSec: sbmEdDelSec,
+    sbmEdAddSection: sbmEdAddSection, sbmEdAddSectionNamed: sbmEdAddSectionNamed, sbmEdAddPart: sbmEdAddPart,
+    sbmEdAddPartNamed: sbmEdAddPartNamed, sbmEdTogglePart: sbmEdTogglePart, sbmEdAddHarmony: sbmEdAddHarmony,
+    sbmEdCyclePart: sbmEdCyclePart, sbmEdDupLine: sbmEdDupLine, sbmEdDelLine: sbmEdDelLine, sbmEdMoveMoment: sbmEdMoveMoment,
+    sbmEdReorder: sbmEdReorder, sbmEdDragStart: sbmEdDragStart, sbmEdDragOver: sbmEdDragOver, sbmEdDrop: sbmEdDrop,
+    sbmEdDragEnd: sbmEdDragEnd, sbmEdPreview: sbmEdPreview, sbmEdCancel: sbmEdCancel, sbmEdSave: sbmEdSave,
     sbTranspose: sbTranspose,
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
@@ -92314,6 +93607,527 @@ function filterLiturgyItems() {
     #songbookLiveModal .sb-badge-drop {
       left:8px !important; right:8px !important; max-width:none !important; z-index:60; }
   }
+</style>
+<style id="sbm-tokens-css">
+/* ==================== SONGBOOK ON A PHONE: TOKENS AND PARTS ====================
+   The design system for the mobile songbook. Everything the phone layout
+   draws is built from these; nothing in it carries a pixel of its own.
+
+   Scoped to the songbook modal rather than :root, so the roster, the song
+   finder and the liturgy pages never see a variable they did not ask for.
+
+   Values are proportional to a 390-430px viewport. The mockups are the
+   reference: a 44px touch target, 48-56px for a primary action, lyrics
+   never under 20px, titles 22-28px. Where a number is not from the
+   mockups it is from the brief, and where it is from neither it is here
+   so it can be changed in one place. */
+#songbookLiveModal, .sbm {
+  /* colour */
+  --sbm-navy:        #0f1f3d;
+  --sbm-navy-2:      #16305c;
+  --sbm-navy-ink:    #0a1630;
+  --sbm-teal:        #0d9488;
+  --sbm-teal-2:      #14b8a6;
+  --sbm-teal-soft:   rgba(20,184,166,0.16);
+  --sbm-gold:        #c9a227;
+  --sbm-gold-soft:   rgba(201,162,39,0.18);
+  --sbm-surface:     #f6f8fc;
+  --sbm-card:        #ffffff;
+  --sbm-card-2:      #eef3fa;
+  --sbm-line:        rgba(15,31,61,0.10);
+  --sbm-text:        #0f172a;
+  --sbm-text-2:      #334155;
+  --sbm-muted:       #64748b;
+  --sbm-on-dark:     #ffffff;
+  --sbm-on-dark-2:   rgba(255,255,255,0.78);
+  --sbm-danger:      #dc2626;
+  --sbm-danger-soft: rgba(220,38,38,0.10);
+  --sbm-chord:       #0f766e;
+
+  /* the choir, one colour per family -- never relied on alone, the part's
+     name is always beside it */
+  --sbm-part-all:     #1d4ed8;
+  --sbm-part-soprano: #be185d;
+  --sbm-part-alto:    #b7791f;
+  --sbm-part-tenor:   #2563eb;
+  --sbm-part-bass:    #0f766e;
+  --sbm-part-women:   #c026d3;
+  --sbm-part-men:     #0284c7;
+  --sbm-part-other:   #6d28d9;
+
+  /* space */
+  --sbm-space-xs: 4px;
+  --sbm-space-sm: 8px;
+  --sbm-space-md: 12px;
+  --sbm-space-lg: 16px;
+  --sbm-space-xl: 24px;
+  --sbm-gutter:   14px;        /* page edge to card edge */
+  --sbm-card-pad: 14px;        /* card edge to content */
+
+  /* shape */
+  --sbm-radius-sm: 8px;
+  --sbm-radius-md: 12px;
+  --sbm-radius-lg: 16px;
+  --sbm-radius-xl: 22px;
+  --sbm-shadow:    0 6px 22px rgba(10,22,48,0.14), 0 1px 3px rgba(10,22,48,0.08);
+  --sbm-shadow-sm: 0 2px 8px rgba(10,22,48,0.10);
+
+  /* sizes */
+  --sbm-touch:    44px;        /* anything you tap */
+  --sbm-btn:      48px;        /* an ordinary button */
+  --sbm-primary:  52px;        /* the one button the screen is for */
+  --sbm-toolbar:  56px;
+  --sbm-sticky:   76px;        /* the Cancel / Save bar */
+
+  /* type */
+  --sbm-font-ui:    'Poppins', system-ui, sans-serif;
+  --sbm-font-serif: 'Cinzel', Georgia, serif;
+  --sbm-font-body:  'Lato', system-ui, sans-serif;
+  --sbm-font-mono:  ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sbm-t-brand:    28px;      /* "Worship Songbook" */
+  --sbm-t-song:     24px;      /* the song's title */
+  --sbm-t-section:  20px;      /* a section heading inside a card */
+  --sbm-t-label:    12px;      /* small caps labels: KEY / TRANSPOSE */
+  --sbm-t-control:  15px;      /* button text */
+  --sbm-t-body:     16px;
+  --sbm-t-small:    13px;
+  --sbm-t-lyrics:   22px;      /* scaled by the user's A- / A+ */
+  --sbm-t-chord:    16px;
+  --sbm-lyrics-scale: 1;       /* set from the font control */
+}
+
+/* ---- Primitives ------------------------------------------------------- */
+.sbm-card {
+  background: var(--sbm-card);
+  border-radius: var(--sbm-radius-lg);
+  box-shadow: var(--sbm-shadow-sm);
+  padding: var(--sbm-card-pad);
+}
+.sbm-card + .sbm-card { margin-top: var(--sbm-space-md); }
+
+.sbm-label {
+  display: flex; align-items: center; gap: 8px;
+  font: 700 11px/1 var(--sbm-font-ui); white-space: nowrap;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--sbm-text-2);
+  margin: 0 0 var(--sbm-space-sm);
+}
+.sbm-label i { font-size: 14px; color: var(--sbm-navy); }
+
+.sbm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--sbm-btn); padding: 0 14px;
+  border-radius: var(--sbm-radius-md);
+  border: 1px solid var(--sbm-line);
+  background: var(--sbm-card); color: var(--sbm-navy);
+  font: 600 var(--sbm-t-control)/1.2 var(--sbm-font-ui);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+.sbm-btn i { font-size: 16px; }
+.sbm-btn:active { transform: translateY(1px); }
+.sbm-btn--primary { background: var(--sbm-teal); border-color: var(--sbm-teal); color: var(--sbm-on-dark); min-height: var(--sbm-primary); }
+.sbm-btn--ghost   { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.28); color: var(--sbm-on-dark); }
+.sbm-btn--danger  { background: var(--sbm-danger-soft); border-color: rgba(220,38,38,0.25); color: var(--sbm-danger); }
+.sbm-btn--block   { width: 100%; }
+.sbm-btn[aria-pressed="true"], .sbm-btn.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: var(--sbm-on-dark); }
+
+/* A row of equal buttons, like Share | Undo | Refresh */
+.sbm-btn-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sbm-space-sm); }
+
+/* Square icon-only button with a word under it: Record / Recordings / ... */
+.sbm-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 68px; padding: 9px 2px; min-width: 0;
+  border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line);
+  background: var(--sbm-card); color: var(--sbm-navy);
+  font: 600 10px/1.1 var(--sbm-font-ui); letter-spacing: -0.02em; white-space: nowrap;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sbm-tile i { font-size: 19px; }
+.sbm-tile--teal   { color: var(--sbm-teal);   background: var(--sbm-teal-soft);   border-color: transparent; }
+.sbm-tile--danger { color: var(--sbm-danger); background: var(--sbm-danger-soft); border-color: transparent; }
+.sbm-tile-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+@media (max-width: 359px) { .sbm-tile-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Segmented control: [ Choir ] [ Lyrics ] [ Both ] [ 2 Col ] */
+.sbm-seg {
+  display: flex; border-radius: var(--sbm-radius-md); overflow: hidden;
+  border: 1px solid var(--sbm-line); background: var(--sbm-card);
+}
+.sbm-seg__btn {
+  flex: 1 1 0; min-width: 0; min-height: var(--sbm-touch); padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 0; border-left: 1px solid var(--sbm-line); background: transparent;
+  color: var(--sbm-text-2); font: 600 var(--sbm-t-control)/1 var(--sbm-font-ui);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sbm-seg__btn:first-child { border-left: 0; }
+.sbm-seg__btn.is-on { background: var(--sbm-navy-2); color: var(--sbm-on-dark); }
+.sbm-seg--teal .sbm-seg__btn.is-on { background: var(--sbm-teal); }
+
+/* Chips (part selector, year, filters) */
+.sbm-chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-text-2);
+  font: 600 var(--sbm-t-small)/1 var(--sbm-font-ui);
+  cursor: pointer; -webkit-tap-highlight-color: transparent; white-space: nowrap;
+}
+.sbm-chip.is-on { background: var(--sbm-teal); border-color: var(--sbm-teal); color: var(--sbm-on-dark); }
+
+/* Small badge: 2 videos / PDF / Link */
+.sbm-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 30px; padding: 0 10px; border-radius: 999px;
+  background: rgba(255,255,255,0.14); color: var(--sbm-on-dark);
+  font: 600 var(--sbm-t-small)/1 var(--sbm-font-ui);
+}
+.sbm-badge i { font-size: 13px; }
+.sbm-badge--yt  i { color: #ff4d4d; }
+.sbm-badge--pdf i { color: #ffb3b3; }
+
+/* A bottom sheet */
+.sbm-sheet-backdrop {
+  position: fixed; inset: 0; z-index: 3700;
+  background: rgba(4,12,28,0.62); display: none;
+}
+.sbm-sheet-backdrop.is-open { display: block; }
+.sbm-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 86vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: var(--sbm-surface);
+  border-radius: var(--sbm-radius-xl) var(--sbm-radius-xl) 0 0;
+  padding: 10px var(--sbm-gutter) calc(var(--sbm-gutter) + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -10px 40px rgba(4,12,28,0.35);
+}
+.sbm-sheet__grab { width: 40px; height: 4px; border-radius: 2px; background: rgba(15,31,61,0.22); margin: 0 auto 12px; }
+.sbm-sheet__head { display: flex; align-items: center; gap: 10px; margin: 0 0 var(--sbm-space-md); }
+.sbm-sheet__title { font: 700 var(--sbm-t-section)/1.2 var(--sbm-font-serif); color: var(--sbm-text); flex: 1 1 auto; min-width: 0; }
+
+/* Sticky bottom action bar: Cancel | Save Parts */
+.sbm-sticky {
+  position: sticky; bottom: 0; z-index: 5;
+  display: grid; grid-template-columns: 1fr 1.3fr; gap: var(--sbm-space-md);
+  padding: var(--sbm-space-md) var(--sbm-gutter) calc(var(--sbm-space-md) + env(safe-area-inset-bottom, 0px));
+  background: rgba(246,248,252,0.94); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--sbm-line);
+}
+
+/* Visually hidden, for labels screen readers still need */
+.sbm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+<style id="sbm-layout-css">
+/* ==================== SONGBOOK ON A PHONE: LAYOUT ====================
+   Only while the modal carries .sbm-on, which _sbmRender sets on a phone
+   and "Page view" clears. Desktop never gets the class, so none of this
+   can reach it. */
+#songbookLiveModal.sbm-on .sb-header,
+#songbookLiveModal.sbm-on .sb-layout,
+#songbookLiveModal.sbm-on #sbFsHoverZone { display: none !important; }
+#songbookLiveModal.sbm-on #sbmRoot { display: flex !important; }
+
+#sbmRoot {
+  flex: 1 1 auto; min-height: 0; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, var(--sbm-navy-ink) 0, var(--sbm-navy) 190px, var(--sbm-surface) 420px, var(--sbm-surface) 100%);
+  font-family: var(--sbm-font-ui); color: var(--sbm-text);
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.sbm * { box-sizing: border-box; }
+
+/* ---- Hero: the module ------------------------------------------------- */
+.sbm-hero {
+  position: relative; flex: 0 0 auto;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) var(--sbm-gutter) 14px;
+  color: var(--sbm-on-dark);
+  background:
+    radial-gradient(420px 160px at 90% 20%, rgba(201,162,39,0.18), transparent 70%),
+    linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2));
+  overflow: hidden;
+}
+.sbm-hero::after {
+  /* a church, quietly, in the corner */
+  content: '\f51d'; font-family: 'Font Awesome 6 Free'; font-weight: 900;
+  position: absolute; right: 54px; top: 8px; font-size: 92px;
+  color: rgba(255,255,255,0.06); pointer-events: none;
+}
+.sbm-hero__row { display: flex; align-items: flex-start; gap: 12px; padding-right: 52px; }
+.sbm-hero__book { font-size: 40px; color: var(--sbm-gold); line-height: 1; margin-top: 4px; flex: 0 0 auto; }
+.sbm-hero__kicker { font: 600 11px/1 var(--sbm-font-ui); letter-spacing: 0.22em; color: var(--sbm-on-dark-2); margin: 2px 0 6px; }
+.sbm-hero__title { font: 700 clamp(20px, 6vw, var(--sbm-t-brand))/1.05 var(--sbm-font-serif); color: var(--sbm-on-dark); white-space: nowrap; }
+.sbm-hero__sub { font: 600 10px/1 var(--sbm-font-ui); letter-spacing: 0.2em; color: var(--sbm-teal-2); margin-top: 8px; }
+.sbm-hero__close {
+  position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: var(--sbm-gutter);
+  width: var(--sbm-touch); height: var(--sbm-touch); border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff;
+  font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+
+/* ---- The song in front of you ----------------------------------------- */
+.sbm-song {
+  margin: 0 var(--sbm-gutter); padding: 14px 14px 12px;
+  background: rgba(10,22,48,0.55); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: var(--sbm-radius-lg); color: var(--sbm-on-dark);
+  backdrop-filter: blur(6px);
+}
+.sbm-song__row { display: flex; align-items: center; gap: 12px; }
+.sbm-song__num {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid rgba(255,255,255,0.45); background: rgba(255,255,255,0.08);
+  font: 700 20px/1 var(--sbm-font-serif);
+}
+.sbm-song__title { font: 700 var(--sbm-t-song)/1.15 var(--sbm-font-serif); min-width: 0; overflow-wrap: anywhere; }
+.sbm-song__artist { font: 400 15px/1.3 var(--sbm-font-body); color: var(--sbm-on-dark-2); margin-top: 3px; }
+.sbm-song__nav { display: flex; gap: 6px; flex: 0 0 auto; }
+.sbm-song__nav button {
+  width: 38px; height: 38px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.1); color: #fff; font-size: 14px; cursor: pointer;
+}
+.sbm-song__nav button:disabled { opacity: 0.35; }
+.sbm-song__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sbm-badge--tap { cursor: pointer; }
+.sbm-badge--key { background: rgba(201,162,39,0.22); }
+
+/* ---- Toolbar: Share | Undo | Refresh || A- 100% A+ ---------------------- */
+.sbm-toolbar {
+  display: grid; grid-template-columns: 1.25fr 1.15fr 1.3fr 1px 0.8fr 0.95fr 0.8fr; gap: 5px;
+  align-items: stretch; margin: 10px var(--sbm-gutter) 0;
+}
+.sbm-toolbar .sbm-btn { min-height: var(--sbm-touch); padding: 0 4px; font-size: 13px; gap: 5px; min-width: 0; }
+.sbm-toolbar .sbm-btn i { font-size: 13px; }
+.sbm-toolbar__rule { background: rgba(255,255,255,0.28); margin: 6px 0; }
+.sbm-toolbar__pct { display: flex; align-items: center; justify-content: center; font: 700 14px/1 var(--sbm-font-ui); min-width: 0; color: #fff; background: rgba(255,255,255,0.1); border-radius: var(--sbm-radius-md); border: 1px solid rgba(255,255,255,0.2); }
+
+/* ---- Cards --------------------------------------------------------------- */
+.sbm-stack { padding: 12px var(--sbm-gutter) 0; display: flex; flex-direction: column; gap: var(--sbm-space-md); }
+.sbm-two { display: grid; grid-template-columns: 2fr 3fr; gap: 10px; }
+.sbm-two > div { min-width: 0; }
+.sbm-two .sbm-seg__btn { font-size: 13.5px; letter-spacing: -0.01em; padding: 0 2px; }
+.sbm-seg--xp .sbm-seg__btn:nth-child(2) { flex: 1.9 1 0; }
+.sbm-seg--xp .sbm-seg__btn { font-size: 14px; }
+@media (max-width: 380px) { .sbm-two { grid-template-columns: 1fr; } }
+.sbm-sep { border-left: 1px solid var(--sbm-line); padding-left: 12px; }
+@media (max-width: 380px) { .sbm-sep { border-left: 0; padding-left: 0; } }
+.sbm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.sbm-tiles { margin: 12px -5px 0; }
+
+/* ---- Choir parts --------------------------------------------------------- */
+.sbm-parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.sbm-part {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-height: 86px; padding: 10px 6px; border-radius: var(--sbm-radius-md);
+  border: 1.5px solid var(--sbm-line); background: var(--sbm-card-2);
+  cursor: pointer; -webkit-tap-highlight-color: transparent; color: var(--sbm-text);
+}
+.sbm-part i { font-size: 22px; color: var(--p, var(--sbm-navy)); }
+.sbm-part__name { font: 700 15px/1.1 var(--sbm-font-ui); color: var(--p, var(--sbm-navy)); }
+.sbm-part__n { font: 500 12px/1 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-part.is-on { border-color: var(--p, var(--sbm-navy)); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 12%, #fff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--p, var(--sbm-navy)) 25%, transparent); }
+
+/* ---- Practice player ----------------------------------------------------- */
+.sbm-practice__sel {
+  margin-left: auto; padding: 5px 10px; border-radius: 999px; min-width: 0; max-width: 58%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: 0;
+  font: 600 12px/1 var(--sbm-font-ui); background: var(--p-soft, var(--sbm-teal-soft)); color: var(--p, var(--sbm-teal));
+}
+.sbm-player {
+  display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center;
+  padding: 12px; border-radius: var(--sbm-radius-md); background: var(--sbm-card-2);
+}
+.sbm-player__btn {
+  width: 56px; height: 56px; border-radius: 50%; border: 0;
+  background: var(--sbm-teal); color: #fff; font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.sbm-player__btn:disabled { background: var(--sbm-muted); }
+.sbm-player__name { font: 700 17px/1.2 var(--sbm-font-serif); color: var(--sbm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-player--idle .sbm-player__name { font: 500 15px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-player__part { font: 500 13px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); margin-top: 2px; }
+.sbm-player__bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.sbm-player__track { flex: 1 1 auto; height: 8px; border-radius: 4px; background: rgba(15,31,61,0.12); position: relative; cursor: pointer; }
+.sbm-player__fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 4px; background: var(--sbm-teal); }
+.sbm-player__time { font: 600 13px/1 var(--sbm-font-ui); color: var(--sbm-text-2); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.sbm-recs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.sbm-rec {
+  display: grid; grid-template-columns: 40px 1fr auto 36px; gap: 10px; align-items: center;
+  min-height: 56px; padding: 6px 8px; border-radius: var(--sbm-radius-md);
+  border: 1px solid var(--sbm-line); background: var(--sbm-card);
+}
+.sbm-rec.is-current { background: var(--sbm-card-2); border-color: var(--sbm-teal); }
+.sbm-rec__play { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid var(--sbm-line); background: #fff; color: var(--sbm-navy); font-size: 13px; cursor: pointer; }
+.sbm-rec.is-current .sbm-rec__play { background: var(--sbm-teal); border-color: var(--sbm-teal); color: #fff; }
+.sbm-rec__name { font: 700 15px/1.2 var(--sbm-font-serif); color: var(--sbm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-rec__sub { font: 500 12px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); margin-top: 2px; }
+.sbm-rec__dur { font: 600 14px/1 var(--sbm-font-ui); color: var(--sbm-text-2); font-variant-numeric: tabular-nums; }
+.sbm-rec__more { width: 36px; height: 36px; border: 0; background: transparent; color: var(--sbm-muted); font-size: 16px; cursor: pointer; }
+.sbm-empty { padding: 14px 4px; font: 400 14px/1.4 var(--sbm-font-body); color: var(--sbm-muted); font-style: italic; }
+.sbm-practice__add { margin-left: auto; font: 600 13px/1 var(--sbm-font-ui); color: var(--sbm-teal); background: none; border: 0; cursor: pointer; }
+
+/* ---- Lyrics ------------------------------------------------------------- */
+.sbm-lyrics {
+  font-family: var(--sbm-font-body);
+  font-size: calc(var(--sbm-t-lyrics) * var(--sbm-lyrics-scale));
+  line-height: 1.45; color: var(--sbm-text);
+  overflow-wrap: anywhere;
+}
+.sbm-lyrics .wo-lyrics-section-label {
+  display: inline-block; margin: 14px 0 8px; padding: 4px 12px; border-radius: 8px;
+  font: 700 12px/1.3 var(--sbm-font-ui); letter-spacing: 0.14em; text-transform: uppercase;
+  background: var(--sbm-gold-soft); color: #8a5a12;
+}
+.sbm-lyrics .wo-lyrics-section-label:first-child { margin-top: 0; }
+.sbm-lyrics .wo-lyrics-lyric-line { font-weight: 500; margin: 0 0 0.35em; color: var(--sbm-text); }
+.sbm-lyrics .wo-lyrics-chord-line,
+.sbm-lyrics .wo-inline-chord {
+  font-family: var(--sbm-font-mono); font-weight: 700; color: var(--sbm-chord);
+  font-size: calc(var(--sbm-t-chord) * var(--sbm-lyrics-scale));
+}
+.sbm-lyrics .wo-lyrics-chord-pair { margin: 0.2em 0 0.55em; line-height: 1.35; }
+.sbm-lyrics--nochords .wo-lyrics-chord-line,
+.sbm-lyrics--nochords .wo-inline-chord { display: none !important; }
+.sbm-lyrics--nochords .wo-lyrics-chord-pair { margin: 0 0 0.35em; }
+.sbm-lyrics--cols { column-count: 2; column-gap: 18px; font-size: calc(var(--sbm-t-lyrics) * var(--sbm-lyrics-scale) * 0.82); }
+.sbm-lyrics--cols .wo-lyrics-chord-pair { break-inside: avoid; }
+
+/* ---- Choir score on the phone ------------------------------------------- */
+.sbm-score { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.sbm-score .vl-score { font-size: calc(17px * var(--sbm-lyrics-scale)); }
+.sbm-score .vl-who { flex-basis: 64px; width: 64px; font-size: 11px; }
+
+/* ---- Resources & contents sheets --------------------------------------- */
+.sbm-res { display: grid; grid-template-columns: 56px 1fr 36px; gap: 12px; align-items: center; min-height: 72px; padding: 8px; border-radius: var(--sbm-radius-md); background: var(--sbm-card); border: 1px solid var(--sbm-line); margin-bottom: 8px; cursor: pointer; }
+.sbm-res__thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--sbm-card-2); display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--sbm-navy); overflow: hidden; }
+.sbm-res__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.sbm-res__kind { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px; font: 700 11px/1.3 var(--sbm-font-ui); color: #fff; background: var(--sbm-navy); margin-bottom: 3px; }
+.sbm-res__kind--pdf { background: #dc2626; } .sbm-res__kind--yt { background: #ff0000; } .sbm-res__kind--link { background: var(--sbm-teal); } .sbm-res__kind--file { background: #7c3aed; }
+.sbm-res__title { font: 700 15px/1.2 var(--sbm-font-serif); color: var(--sbm-text); overflow-wrap: anywhere; }
+.sbm-res__sub { font: 400 12px/1.3 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-res__more { width: 36px; height: 36px; border: 0; background: transparent; color: var(--sbm-muted); font-size: 16px; }
+.sbm-contents { display: flex; flex-direction: column; gap: 6px; }
+.sbm-contents button { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; text-align: left; min-height: 52px; padding: 6px 10px; border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line); background: var(--sbm-card); font: 600 15px/1.2 var(--sbm-font-ui); color: var(--sbm-text); cursor: pointer; }
+.sbm-contents button.is-on { border-color: var(--sbm-teal); background: var(--sbm-teal-soft); }
+.sbm-contents .n { width: 32px; height: 32px; border-radius: 50%; background: var(--sbm-navy); color: #fff; display: flex; align-items: center; justify-content: center; font: 700 14px/1 var(--sbm-font-serif); }
+.sbm-contents small { display: block; font: 400 12px/1.2 var(--sbm-font-body); color: var(--sbm-muted); }
+.sbm-menu { display: flex; flex-direction: column; gap: 6px; }
+.sbm-menu .sbm-btn { justify-content: flex-start; }
+.sbm-embed { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: var(--sbm-radius-md); overflow: hidden; background: #000; }
+.sbm-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* ---- Edit Parts: the arrangement, as sections of moments of lines ------ */
+#sbmEdit {
+  position: fixed; inset: 0; z-index: 3600; display: flex; flex-direction: column;
+  background: var(--sbm-surface); font-family: var(--sbm-font-ui); color: var(--sbm-text);
+}
+.sbm-ed__hero {
+  flex: 0 0 auto; display: grid; grid-template-columns: 44px 1fr 44px; gap: 10px; align-items: center;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--sbm-gutter) 12px;
+  background: linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2)); color: var(--sbm-on-dark);
+}
+.sbm-ed__hero .sbm-hero__close { position: static; }
+.sbm-ed__back { width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: #fff; font-size: 16px; cursor: pointer; }
+.sbm-ed__title { font: 700 22px/1.1 var(--sbm-font-serif); }
+.sbm-ed__song { font: 500 13px/1.25 var(--sbm-font-body); color: var(--sbm-on-dark-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-ed__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px var(--sbm-gutter) 0; display: flex; flex-direction: column; gap: 12px; }
+/* a flex column squashes its children to fit before it scrolls; nothing in here may shrink */
+.sbm-ed__body > *, .sbm-ed__secbody > *, .sbm-ed__moment > * { flex: 0 0 auto; }
+.sbm-ed__actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.sbm-ed__actions .sbm-tile { min-height: 74px; }
+.sbm-ed__actions .sbm-tile i { font-size: 20px; }
+.sbm-ed__actions .sbm-tile--blue i { color: var(--sbm-part-tenor); }
+.sbm-ed__actions .sbm-tile--teal i { color: var(--sbm-teal); }
+.sbm-ed__actions .sbm-tile.is-on { background: var(--sbm-navy); color: #fff; border-color: var(--sbm-navy); }
+.sbm-ed__actions .sbm-tile.is-on i { color: #fff; }
+.sbm-ed__toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.sbm-ed__tg {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px 0 12px;
+  border-radius: 10px; border: 1px solid var(--sbm-line); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 10%, #fff);
+  font: 600 14px/1 var(--sbm-font-ui); color: var(--p, var(--sbm-navy)); cursor: pointer;
+}
+.sbm-ed__tg .sw { width: 34px; height: 20px; border-radius: 10px; background: #cbd5e1; position: relative; transition: background .15s; }
+.sbm-ed__tg .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+.sbm-ed__tg.is-on .sw { background: var(--p, var(--sbm-navy)); }
+.sbm-ed__tg.is-on .sw::after { left: 16px; }
+.sbm-ed__sec { border-radius: var(--sbm-radius-lg); background: var(--sbm-card); box-shadow: var(--sbm-shadow-sm); overflow: hidden; }
+.sbm-ed__sechead { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; align-items: center; min-height: 52px; padding: 6px 8px 6px 4px; background: var(--sbm-gold-soft); }
+.sbm-ed__sechead.is-closed { background: var(--sbm-card-2); }
+.sbm-ed__sechead .chev { width: 36px; height: 40px; border: 0; background: transparent; color: var(--sbm-text-2); font-size: 14px; cursor: pointer; }
+.sbm-ed__secname { font: 700 15px/1.2 var(--sbm-font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: #8a5a12; background: none; border: 0; min-width: 0; width: 100%; text-align: left; padding: 6px 0; }
+.sbm-ed__sechead.is-closed .sbm-ed__secname { color: var(--sbm-navy); }
+.sbm-ed__secmeta { font: 500 12px/1 var(--sbm-font-ui); color: var(--sbm-muted); text-transform: none; letter-spacing: 0; margin-left: 8px; }
+.sbm-ed__secbtns { display: flex; gap: 4px; }
+.sbm-ed__ib { width: 38px; height: 38px; border-radius: 9px; border: 1px solid var(--sbm-line); background: #fff; color: var(--sbm-navy); font-size: 13px; cursor: pointer; }
+.sbm-ed__ib--danger { color: var(--sbm-danger); border-color: rgba(220,38,38,0.25); }
+.sbm-ed__ib--teal { color: var(--sbm-teal); }
+.sbm-ed__secbody { padding: 8px 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.sbm-ed__moment { border-left: 3px solid var(--sbm-line); padding-left: 6px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.sbm-ed__moment.is-drag { opacity: 0.5; }
+/* Two lines per part: who sings, with the row's tools, over the words at full width.
+   The words are what the editor is for; they do not share a line with three buttons. */
+.sbm-ed__row {
+  display: grid; grid-template-columns: 22px auto minmax(0, 1fr) 36px 36px 36px;
+  grid-template-areas: "h p sp hold dup del" "t t t t t t";
+  gap: 6px 5px; align-items: center; padding: 6px 0;
+}
+.sbm-ed__row + .sbm-ed__row { border-top: 1px dashed var(--sbm-line); }
+.sbm-ed__ib--hold { grid-area: hold; } .sbm-ed__ib--dup { grid-area: dup; } .sbm-ed__ib--del { grid-area: del; }
+.sbm-ed__handle { grid-area: h; color: #cbd5e1; font-size: 14px; text-align: center; cursor: grab; touch-action: none; }
+.sbm-ed__part {
+  grid-area: p; min-height: 36px; border-radius: 7px; border: 0; padding: 0 10px; min-width: 76px; max-width: 170px;
+  background: var(--p, var(--sbm-navy)); color: #fff; font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.sbm-ed__text {
+  grid-area: t; min-height: 44px; min-width: 0; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--sbm-line); background: var(--sbm-card);
+  font: 500 15px/1.3 var(--sbm-font-body); color: var(--sbm-text); width: 100%;
+}
+.sbm-ed__text::placeholder { color: var(--sbm-muted); font-style: italic; }
+.sbm-ed__row .sbm-ed__ib { width: 36px; height: 36px; }
+.sbm-ed__row .sbm-ed__ib.is-on { background: var(--sbm-navy); color: #fff; }
+.sbm-ed__mbtns { display: none; gap: 4px; justify-content: flex-end; }
+#sbmEdit.is-reorder .sbm-ed__mbtns { display: flex; }
+#sbmEdit.is-reorder .sbm-ed__row { grid-template-columns: 22px auto minmax(0, 1fr); grid-template-areas: "h p sp" "t t t"; }
+#sbmEdit.is-reorder .sbm-ed__row .sbm-ed__ib { display: none; }
+.sbm-ed__add { margin-top: 2px; min-height: 48px; border: 1.5px dashed var(--sbm-teal); border-radius: 10px; background: var(--sbm-teal-soft); color: var(--sbm-navy); font: 600 14px/1 var(--sbm-font-ui); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.sbm-ed__add i { color: var(--sbm-teal); font-size: 16px; }
+.sbm-ed__sticky { flex: 0 0 auto; }
+.sbm-ed__preview .vl-score { font-size: 15px; }
+.sbm-choice { display: flex; flex-direction: column; gap: 6px; }
+.sbm-choice .sbm-btn { justify-content: flex-start; }
+
+/* ---- The score, full screen ------------------------------------------- */
+#sbmPdf {
+  position: fixed; inset: 0; z-index: 3600; display: flex; flex-direction: column;
+  background: #1b2436; color: #fff; font-family: var(--sbm-font-ui);
+}
+.sbm-pdf__hero {
+  flex: 0 0 auto; display: grid; grid-template-columns: 44px 1fr 44px; gap: 10px; align-items: center;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--sbm-gutter) 10px;
+  background: linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2));
+}
+.sbm-pdf__title { font: 700 17px/1.2 var(--sbm-font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-pdf__sub { font: 500 12px/1.2 var(--sbm-font-ui); color: var(--sbm-on-dark-2); margin-top: 2px; }
+.sbm-pdf__stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; padding: 10px; touch-action: pan-x pan-y; }
+.sbm-pdf__pages { display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; min-width: 100%; transform-origin: 0 0; }
+.sbm-pdf__pages.is-wide { align-items: flex-start; }
+.sbm-pdf__page { position: relative; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,0.45); flex: 0 0 auto; overflow: hidden; }
+.sbm-pdf__page canvas { display: block; }
+.sbm-pdf__page .pn { position: absolute; right: 6px; bottom: 6px; background: rgba(15,31,61,0.72); color: #fff; font: 600 11px/1 var(--sbm-font-ui); padding: 4px 7px; border-radius: 999px; }
+.sbm-pdf__loading { color: var(--sbm-on-dark-2); font: 500 15px/1.4 var(--sbm-font-ui); text-align: center; padding: 48px 0; }
+.sbm-pdf__bar {
+  flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 8px var(--sbm-gutter) calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--sbm-navy-ink); border-top: 1px solid rgba(255,255,255,0.08);
+}
+.sbm-pdf__zoom { display: inline-flex; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.22); }
+.sbm-pdf__zoom button { min-width: 44px; min-height: 44px; border: 0; border-left: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; font: 600 14px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-pdf__zoom button:first-child { border-left: 0; }
+.sbm-pdf__zoom .pct { min-width: 56px; }
+.sbm-pdf__thumbs { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px; scrollbar-width: none; justify-content: flex-start; }
+.sbm-pdf__thumbs::-webkit-scrollbar { display: none; }
+.sbm-pdf__thumb { flex: 0 0 auto; width: 44px; height: 58px; border-radius: 5px; border: 2px solid rgba(255,255,255,0.18); background: #fff; overflow: hidden; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.sbm-pdf__thumb.is-on { border-color: var(--sbm-gold); box-shadow: 0 0 0 1px var(--sbm-gold); }
+.sbm-pdf__thumb canvas { display: block; max-width: 100%; max-height: 100%; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
