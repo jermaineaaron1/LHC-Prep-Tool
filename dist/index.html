@@ -47807,6 +47807,7 @@ var WO = (function() {
     if (typeof _sbmStopPlayer === 'function') { _sbmStopPlayer(); _sbmCloseSheet(); }
     if (typeof _sbmEdClose === 'function') _sbmEdClose();
     if (typeof _sbmPdfClose === 'function') _sbmPdfClose();
+    if (typeof _sbmPracClose === 'function') { _sbmPracClose(); _sbmIndexDecided = false; _sbmIndexOpen = false; _sbmReorder = false; }
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
     if (_sbStandaloneId) {
       var _closeSbId = _sbStandaloneId;
@@ -48125,8 +48126,54 @@ var WO = (function() {
     _sbmSid = hit ? hit.id : null;
     return hit;
   }
+  // ---- the index: the phone's contents page, and reordering ----
+  var _sbmIndexOpen = false, _sbmIndexDecided = false, _sbmReorder = false, _sbmDragId = null;
+  function sbmIndex() {
+    _sbmIndexOpen = true;
+    _sbmCloseSheet();
+    _sbmRender();
+    var root = document.getElementById('sbmRoot');
+    if (root) root.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function sbmIndexReorder() { _sbmReorder = !_sbmReorder; _sbmRender(); }
+  function sbmMoveSong(id, delta) {
+    var list = _sbmSongs(), i = list.findIndex(function(x) { return x.id === id; });
+    var to = list[i + delta]; if (i === -1 || !to) return;
+    _sbReorderSongs(id, to.id);
+  }
+  function sbmDragSong(ev, id) { _sbmDragId = id; ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', id); } catch (e) {} }
+  function sbmDragOverSong(ev, el) { if (!_sbmDragId) return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; el.classList.add('is-over'); }
+  function sbmDropSong(ev, toId) {
+    ev.preventDefault();
+    var from = _sbmDragId; _sbmDragId = null;
+    document.querySelectorAll('.sbm-side__item.is-over').forEach(function(el) { el.classList.remove('is-over'); });
+    if (from && from !== toId) _sbReorderSongs(from, toId);
+  }
+  function sbmDragEndSong() { _sbmDragId = null; document.querySelectorAll('.sbm-side__item.is-over').forEach(function(el) { el.classList.remove('is-over'); }); }
+  function _sbmIndexHtml(list) {
+    var html = '<div class="sbm-stack"><div class="sbm-card sbm-index">' +
+      '<div class="sbm-index__head"><div class="sbm-label" style="margin:0;"><i class="fa-solid fa-list-ol"></i>Contents \u00b7 ' + list.length + ' song' + (list.length === 1 ? '' : 's') + '</div>' +
+      '<button class="sbm-chip' + (_sbmReorder ? ' is-on' : '') + '" onclick="WO.sbmIndexReorder()" aria-pressed="' + (_sbmReorder ? 'true' : 'false') + '"><i class="fa-solid fa-arrow-down-up-across-line"></i>' + (_sbmReorder ? 'Done' : 'Reorder') + '</button></div>';
+    html += list.map(function(x, i) {
+      var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(q) { return q && q.id === (x.songId || x.id); }) : null;
+      var theme = String(x.theme || (lib && lib.theme) || '').split(',').map(function(t) { return t.trim(); }).filter(Boolean).slice(0, 2);
+      var sub = [x.artist || ''].concat(theme).filter(Boolean).join(' \u00b7 ') + (_sbSongHasChoir(x) ? ' \u00b7 choir parts' : '');
+      var id = escapeHtml(x.id);
+      return '<div class="sbm-index__row' + (x.id === _sbmSid ? ' is-on' : '') + '">' +
+        '<button class="sbm-index__open" onclick="WO.sbmSelectSong(\'' + id + '\')"' + (_sbmReorder ? ' disabled' : '') + '>' +
+          '<span class="n">' + (i + 1) + '</span><span class="t">' + escapeHtml(x.title || 'Song ' + (i + 1)) + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+          (_sbmReorder ? '' : '<i class="fa-solid fa-chevron-right"></i>') + '</button>' +
+        (_sbmReorder ? '<span class="sbm-index__mv">' +
+          '<button onclick="WO.sbmMoveSong(\'' + id + '\',-1)" ' + (i === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+          '<button onclick="WO.sbmMoveSong(\'' + id + '\',1)" ' + (i === list.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button></span>' : '') +
+        '</div>';
+    }).join('');
+    return html + '</div></div>';
+  }
+
   function sbmSelectSong(sid) {
     _sbmSid = sid;
+    _sbmIndexOpen = false;
     try { localStorage.setItem('lhc_sbm_song_' + (_sbStandaloneId || (currentOrderData && currentOrderData.id) || ''), sid); } catch (e) {}
     _sbmCloseSheet();
     _sbmRender();
@@ -48222,6 +48269,10 @@ var WO = (function() {
     }
     return 'one line';
   }
+  function _sbmPracCount(song) {
+    var recs = _sbmRecs[_sbBaseSongId(song)];
+    return (recs && recs.length) ? String(recs.length) : '';
+  }
   function _sbmRecPart(rec, song) {
     // A take recorded against one line belongs to that line's part.
     if (rec.line_id != null) {
@@ -48243,6 +48294,7 @@ var WO = (function() {
       .then(function(res) {
         if (res.error) return;
         _sbmRecs[base] = res.data || [];
+        var nEl = document.getElementById('sbmPracN'); if (nEl) nEl.textContent = _sbmPracCount(song);
         if (!_sbmPlayer && _sbmRecs[base].length) _sbmLoad(_sbmRecs[base][0], song);
         if (_sbmActive() && _sbmSid === song.id) _sbmPaintPractice(song);
       });
@@ -48402,6 +48454,7 @@ var WO = (function() {
   function sbmCloseSheet() { _sbmCloseSheet(); }
 
   function sbmContents() {
+    if (_sbFoldPhone()) { sbmIndex(); return; }
     var list = _sbmSongs();
     _sbmSheet('Contents', '<div class="sbm-contents">' + list.map(function(x, i) {
       return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeHtml(x.id) + '\')">' +
@@ -48523,8 +48576,9 @@ var WO = (function() {
         '<button class="sbm-hero__close sbm-top__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div></div>';
   }
   function _sbmSideHtml(list, song) {
-    return '<div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Contents</div>' + list.map(function(x, i) {
-      return '<button class="sbm-side__item' + (song && x.id === song.id ? ' is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeHtml(x.id) + '\')">' +
+    return '<div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Contents<span class="sbm-side__hint">drag to reorder</span></div>' + list.map(function(x, i) {
+      var id = escapeHtml(x.id);
+      return '<button class="sbm-side__item' + (song && x.id === song.id ? ' is-on' : '') + '" draggable="true" onclick="WO.sbmSelectSong(\'' + id + '\')" ondragstart="WO.sbmDragSong(event,\'' + id + '\')" ondragover="WO.sbmDragOverSong(event,this)" ondragleave="this.classList.remove(\'is-over\')" ondrop="WO.sbmDropSong(event,\'' + id + '\')" ondragend="WO.sbmDragEndSong(event)">' +
         '<span class="n">' + (i + 1) + '</span><span class="t">' + escapeHtml(x.title || 'Song ' + (i + 1)) +
         (x.artist ? '<small>' + escapeHtml(x.artist) + '</small>' : '') + '</span></button>';
     }).join('');
@@ -48548,7 +48602,7 @@ var WO = (function() {
     root.classList.toggle('sbm--wide', wide);
     var html = '';
     // -- hero --
-    var hero = '<div class="sbm-hero"><div class="sbm-hero__row"><i class="fa-solid fa-book-open sbm-hero__book"></i><div>' +
+    var hero = '<div class="sbm-hero"><div class="sbm-hero__row" onclick="WO.sbmIndex()" role="button" title="Contents"><i class="fa-solid fa-book-open sbm-hero__book"></i><div>' +
       '<div class="sbm-hero__kicker">LHC WORSHIP PREP</div>' +
       '<div class="sbm-hero__title">Worship Songbook</div>' +
       '<div class="sbm-hero__sub">' + (orderTitle ? escapeHtml(orderTitle).toUpperCase() : 'SONGS \u2022 PREPARE \u2022 WORSHIP TOGETHER') + '</div>' +
@@ -48557,6 +48611,16 @@ var WO = (function() {
     if (!song) {
       html += '<div class="sbm-stack"><div class="sbm-card"><p class="sbm-empty">This songbook is empty. Add songs from Song Finder with the bookmark button.</p></div></div>';
       root.innerHTML = (wide ? _sbmTopBar(orderTitle, null, list) : hero) + html; return;
+    }
+    if (!wide) {
+      if (!_sbmIndexDecided) {
+        // A book opens at the index unless this device had a place in it.
+        _sbmIndexDecided = true;
+        var remKey = 'lhc_sbm_song_' + (_sbStandaloneId || (currentOrderData && currentOrderData.id) || '');
+        var rem = null; try { rem = localStorage.getItem(remKey); } catch (e) {}
+        _sbmIndexOpen = !list.some(function(x) { return x.id === rem; });
+      }
+      if (_sbmIndexOpen) { root.innerHTML = hero + _sbmIndexHtml(list); return; }
     }
 
     // -- the song --
@@ -48619,7 +48683,7 @@ var WO = (function() {
       '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
     html += '<div class="sbm-tile-row sbm-tiles">' +
       '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
-      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmRecord()"><i class="fa-solid fa-headphones"></i>Recordings</button>' +
+      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-paperclip"></i>Files</button>' +
@@ -48642,18 +48706,11 @@ var WO = (function() {
           '<i class="fa-solid ' + _SBM_PART_ICON[fam] + '"></i><span class="sbm-part__name">' + escapeHtml(label) + '</span>' +
           '<span class="sbm-part__n">' + n + ' track' + (n === 1 ? '' : 's') + '</span></button>';
       };
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Choir parts available</div><div class="sbm-parts">' +
-        chip(-1, '', 'All') + lanes.map(function(p, i) { return chip(i, p, V.partLabel(p)); }).join('') + '</div></div>';
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Choir parts available</div><div class="sbm-parts-row"><div class="sbm-parts">' +
+        chip(-1, '', 'All') + lanes.map(function(p, i) { return chip(i, p, V.partLabel(p)); }).join('') + '</div>' +
+        '<button class="sbm-btn sbm-practice-open" onclick="WO.sbmPractice()"><i class="fa-solid fa-music"></i>Practice Tracks<span class="sbm-practice-open__n" id="sbmPracN">' + _sbmPracCount(song) + '</span></button></div></div>';
     }
 
-    // -- practice --
-    html += '<div class="sbm-card" id="sbmPractice"><div class="sbm-label"><i class="fa-solid fa-music"></i>Practice tracks<span class="sbm-practice__sel"></span></div>' +
-      '<div class="sbm-player" id="sbmPlayer"><button class="sbm-player__btn" onclick="WO.sbmPlayToggle()"><i class="fa-solid fa-play"></i></button>' +
-        '<div style="min-width:0;"><div class="sbm-player__name"></div><div class="sbm-player__part"></div>' +
-        '<div class="sbm-player__bar"><div class="sbm-player__track" onclick="WO.sbmSeek(event)"><div class="sbm-player__fill"></div></div><div class="sbm-player__time"></div></div></div></div>' +
-      '<div class="sbm-recs" id="sbmRecList"></div>' +
-      '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record a take</button>' +
-      '<button class="sbm-btn" onclick="WO.sbmImport()"><i class="fa-solid fa-file-import"></i>Import audio</button></div></div>';
 
     // -- lyrics --
     var showLyrics = !hasChoir || view !== 'choir';
@@ -48696,6 +48753,54 @@ var WO = (function() {
     if (showScore && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();
     _sbmLoadRecs(song);
     _sbmPaintPractice(song);
+  }
+
+  // ==================== PRACTICE TRACKS, ON THEIR OWN PAGE ====================
+  //
+  // The takes used to sit on the song between the parts and the words. They
+  // are a rehearsal tool, not part of the song, so they open on their own
+  // page -- full screen on a phone, a dialog on a desk -- from the Practice
+  // Tracks button beside the parts, or the Practice tile.
+  function _sbmPracticeHtml() {
+    return '<div class="sbm-card" id="sbmPractice"><div class="sbm-label"><i class="fa-solid fa-music"></i>Practice tracks<span class="sbm-practice__sel"></span></div>' +
+      '<div class="sbm-player" id="sbmPlayer"><button class="sbm-player__btn" onclick="WO.sbmPlayToggle()"><i class="fa-solid fa-play"></i></button>' +
+        '<div style="min-width:0;"><div class="sbm-player__name"></div><div class="sbm-player__part"></div>' +
+        '<div class="sbm-player__bar"><div class="sbm-player__track" onclick="WO.sbmSeek(event)"><div class="sbm-player__fill"></div></div><div class="sbm-player__time"></div></div></div></div>' +
+      '<div class="sbm-recs" id="sbmRecList"></div>' +
+      '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record a take</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmImport()"><i class="fa-solid fa-file-import"></i>Import audio</button></div></div>';
+  }
+  function sbmPractice() {
+    var song = _sbmSong(); if (!song) return;
+    _sbmPracClose();
+    _sbmCloseSheet();
+    var wide = !_sbFoldPhone();
+    var host = document.createElement('div');
+    host.id = 'sbmPrac'; host.className = 'sbm' + (wide ? ' sbm-prac--desktop' : '');
+    var hero = '<div class="sbm-ed__hero">' +
+      (wide ? '' : '<button class="sbm-ed__back" onclick="WO.sbmPracClose()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>') +
+      '<div style="min-width:0;"><div class="sbm-ed__title">Practice Tracks</div><div class="sbm-ed__song">' + escapeHtml(song.title || '') + (song.artist ? ' \u00b7 ' + escapeHtml(song.artist) : '') + '</div></div>' +
+      '<button class="sbm-hero__close" onclick="WO.sbmPracClose()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>';
+    var body = '<div class="sbm-prac__body"><div class="sbm-stack">' + _sbmPracticeHtml() + '</div></div>';
+    host.innerHTML = wide ? '<div class="sbm-prac__dlg" role="dialog" aria-label="Practice tracks">' + hero + body + '</div>' : hero + body;
+    if (wide) host.addEventListener('click', function(e) { if (e.target === host) _sbmPracClose(); });
+    document.body.appendChild(host);
+    document.addEventListener('keydown', _sbmPracKey, true);
+    // Fresh each time it opens: a take recorded on a line since is a take.
+    delete _sbmRecsAt[_sbBaseSongId(song)];
+    _sbmLoadRecs(song);
+    _sbmPaintPractice(song);
+  }
+  function _sbmPracClose() {
+    document.removeEventListener('keydown', _sbmPracKey, true);
+    var host = document.getElementById('sbmPrac');
+    if (!host) return;
+    host.remove();
+    _sbmStopPlayer();
+  }
+  function sbmPracClose() { _sbmPracClose(); }
+  function _sbmPracKey(ev) {
+    if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); _sbmPracClose(); }
   }
 
   // ==================== EDIT PARTS, ON A PHONE ====================
@@ -65842,6 +65947,27 @@ var WO = (function() {
   var _sbDragSongId = null;
   var _sbDragOverSid = null;
 
+  // Move one song to where another is. The printed pages' drag, the
+  // reading view's contents and the phone's index all come here.
+  function _sbReorderSongs(fromId, toId) {
+    var fromIdx = songOrderSections.findIndex(function(s) { return s.id === fromId; });
+    var toIdx = songOrderSections.findIndex(function(s) { return s.id === toId; });
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return false;
+    var moved = songOrderSections.splice(fromIdx, 1)[0];
+    songOrderSections.splice(toIdx, 0, moved);
+    renderSongbookLive();
+    autoSaveOrder();
+    if (_sbStandaloneId) {
+      // updateFields, not save: save writes the whole row, so this
+      // renamed the songbook to 'Untitled Songbook' and wiped items --
+      // every saved choirView -- every time a song was dragged.
+      SBQ_SONGBOOKS.updateFields(_sbStandaloneId, {
+        songIds: songOrderSections.map(function(s) { return s.songId || s.id; })
+      }).catch(function() {});
+    }
+    return true;
+  }
+
   function sbInitDrag() {
     var body = document.getElementById('sbBody');
     if (!body || body._sbDragBound) return;
@@ -65870,23 +65996,9 @@ var WO = (function() {
       if (targetSid === _sbDragSongId) return;
       var dragBase   = _sbDragSongId.split('__sb__')[0];
       var targetBase = targetSid.split('__sb__')[0];
-      var fromIdx = songOrderSections.findIndex(function(s) { return s.id === dragBase; });
-      var toIdx   = songOrderSections.findIndex(function(s) { return s.id === targetBase; });
-      if (fromIdx === -1 || toIdx === -1) { _sbDragSongId = null; return; }
-      var moved = songOrderSections.splice(fromIdx, 1)[0];
-      songOrderSections.splice(toIdx, 0, moved);
       _sbDragSongId = null;
       _sbDragOverSid = null;
-      renderSongbookLive();
-      autoSaveOrder();
-      if (_sbStandaloneId) {
-        // updateFields, not save: save writes the whole row, so this
-        // renamed the songbook to 'Untitled Songbook' and wiped items --
-        // every saved choirView -- every time a song was dragged.
-        SBQ_SONGBOOKS.updateFields(_sbStandaloneId, {
-          songIds: songOrderSections.map(function(s) { return s.songId || s.id; })
-        }).catch(function() {});
-      }
+      _sbReorderSongs(dragBase, targetBase);
     });
 
     body.addEventListener('dragleave', function(e) {
@@ -77084,6 +77196,8 @@ var WO = (function() {
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmLineMics: sbmLineMics,
+    sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
+    sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
     sbmOpenPdf: sbmOpenPdf, sbmPdfClose: sbmPdfClose, sbmPdfZoom: sbmPdfZoom, sbmPdfGo: sbmPdfGo, sbmPdfOpenLast: sbmPdfOpenLast,
     sbmEditParts: sbmEditParts, sbmEdInput: sbmEdInput, sbmEdHold: sbmEdHold, sbmEdToggleSec: sbmEdToggleSec,
     sbmEdRenameSec: sbmEdRenameSec, sbmEdMoveSec: sbmEdMoveSec, sbmEdDupSec: sbmEdDupSec, sbmEdDelSec: sbmEdDelSec,
@@ -94507,6 +94621,99 @@ function filterLiturgyItems() {
 .sbm--wide .sbm-score .vl-take { height: 30px; padding: 0 12px; font-size: 12px; }
 .sbm--wide .sbm-score .vl-take-del { width: 30px; height: 30px; }
 .sbm--wide .sbm-score .vl-who { flex-basis: 84px; width: 84px; font-size: 11px; }
+
+/* ---- Practice Tracks, on their own page ------------------------------- */
+#sbmPrac { position: fixed; inset: 0; z-index: 3600; display: flex; flex-direction: column; background: var(--sbm-surface); font-family: var(--sbm-font-ui); color: var(--sbm-text); }
+#sbmPrac .sbm-ed__hero .sbm-hero__close { position: static; }
+.sbm-prac__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 24px; }
+.sbm-prac__body .sbm-stack { padding-top: 12px; }
+#sbmPrac.sbm-prac--desktop { background: rgba(4,12,28,0.58); align-items: center; justify-content: center; padding: 24px; }
+.sbm-prac__dlg { width: min(760px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; overflow: hidden; background: var(--sbm-surface); border-radius: 18px; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+.sbm-prac--desktop .sbm-ed__hero { grid-template-columns: 1fr 44px; padding: 14px 20px; }
+.sbm-prac--desktop .sbm-stack { padding: 12px 16px 0; }
+.sbm-parts-row { display: flex; flex-direction: column; gap: 10px; }
+.sbm-practice-open { justify-content: center; gap: 10px; }
+.sbm-practice-open__n:not(:empty) { min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--sbm-teal); color: #fff; font: 700 12px/24px var(--sbm-font-ui); text-align: center; }
+.sbm--wide .sbm-parts-row { flex-direction: row; align-items: center; }
+.sbm--wide .sbm-parts-row .sbm-parts { flex: 1 1 auto; min-width: 0; }
+.sbm--wide .sbm-practice-open { flex: 0 0 auto; min-height: 44px; }
+
+/* ---- The index page ---------------------------------------------------- */
+.sbm-index__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.sbm-index__row { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--sbm-line); }
+.sbm-index__row:first-of-type { border-top: 0; }
+.sbm-index__open { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 4px; border: 0; background: transparent; text-align: left; color: var(--sbm-text); font: 700 16px/1.2 var(--sbm-font-ui); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sbm-index__open:disabled { cursor: default; }
+.sbm-index__open .n { flex: 0 0 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--sbm-navy); color: #fff; font: 700 14px/1 var(--sbm-font-serif); }
+.sbm-index__row.is-on .sbm-index__open .n { background: var(--sbm-gold); color: var(--sbm-navy); }
+.sbm-index__open .t { flex: 1 1 auto; min-width: 0; }
+.sbm-index__open small { display: block; font: 500 13px/1.25 var(--sbm-font-body); color: var(--sbm-muted); margin-top: 3px; }
+.sbm-index__open > i { color: var(--sbm-muted); font-size: 13px; }
+.sbm-index__mv { display: flex; gap: 4px; flex: 0 0 auto; }
+.sbm-index__mv button { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-navy); font-size: 14px; cursor: pointer; }
+.sbm-index__mv button:disabled { opacity: 0.3; }
+.sbm-hero__row[role="button"] { cursor: pointer; }
+.sbm-side__hint { margin-left: auto; font: 500 10px/1 var(--sbm-font-ui); letter-spacing: 0.02em; text-transform: none; color: var(--sbm-muted); }
+.sbm-side__item { cursor: grab; }
+.sbm-side__item.is-over { box-shadow: inset 0 3px 0 var(--sbm-teal); }
+
+/* ---- A desk is denser than a thumb ------------------------------------- */
+#sbmRoot.sbm--wide {
+  --sbm-btn: 40px; --sbm-touch: 36px; --sbm-primary: 44px; --sbm-card-pad: 12px;
+  --sbm-space-md: 8px; --sbm-space-sm: 6px; --sbm-t-control: 14px; --sbm-t-label: 11px; --sbm-t-song: 22px;
+}
+.sbm--wide .sbm-top { min-height: 56px; }
+.sbm--wide .sbm-side { top: 56px; max-height: calc(100vh - 56px); padding: 12px 10px 20px 14px; }
+.sbm--wide .sbm-side__item { min-height: 42px; padding: 6px 10px; font-size: 13px; }
+.sbm--wide .sbm-side__item .n { flex-basis: 24px; height: 24px; font-size: 11px; }
+.sbm--wide .sbm-main { padding: 14px 22px 40px; }
+.sbm--wide .sbm-song { padding: 10px 14px 10px; margin-bottom: 10px; }
+.sbm--wide .sbm-song__num { width: 38px; height: 38px; font-size: 17px; }
+.sbm--wide .sbm-song__artist { font-size: 14px; margin-top: 2px; }
+.sbm--wide .sbm-song__nav button { width: 34px; height: 34px; }
+.sbm--wide .sbm-song__badges { margin-top: 8px; gap: 5px; }
+.sbm--wide .sbm-badge { min-height: 26px; font-size: 12px; }
+.sbm--wide .sbm-toolbar { margin-bottom: 10px; gap: 6px; }
+.sbm--wide .sbm-toolbar .sbm-btn--ghost { min-height: 36px; padding: 0 12px; }
+.sbm--wide .sbm-stack { gap: 10px; }
+.sbm--wide .sbm-card { padding: 12px 16px; }
+.sbm--wide .sbm-label { margin-bottom: 6px; }
+.sbm--wide .sbm-two { gap: 10px; }
+.sbm--wide .sbm-seg__btn { min-height: 36px; }
+.sbm--wide .sbm-pair { gap: 8px; margin-top: 8px; }
+.sbm--wide .sbm-pair .sbm-btn { min-height: 38px; }
+.sbm--wide .sbm-tiles { margin: 8px -3px 0; }
+.sbm--wide .sbm-tile-row { gap: 6px; }
+.sbm--wide .sbm-tile { min-height: 58px; padding: 6px 4px; gap: 4px; font-size: 12px; }
+.sbm--wide .sbm-tile i { font-size: 17px; }
+.sbm--wide .sbm-parts { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+.sbm--wide .sbm-part { min-height: 68px; padding: 7px 6px; gap: 2px; }
+.sbm--wide .sbm-part i { font-size: 18px; }
+.sbm--wide .sbm-chip { min-height: 34px; }
+.sbm--wide .sbm-score__mics { min-height: 32px; }
+.sbm--wide .sbm-rec { min-height: 52px; }
+.sbm--wide .sbm-lyrics { line-height: 1.5; }
+/* and so is its editor */
+.sbm-ed--desktop .sbm-ed__body { padding: 12px 14px 0; gap: 8px; }
+.sbm-ed--desktop .sbm-ed__actions { gap: 5px; }
+.sbm-ed--desktop .sbm-ed__actions .sbm-tile { min-height: 52px; }
+.sbm-ed--desktop .sbm-ed__toggles { gap: 6px; }
+.sbm-ed--desktop .sbm-ed__tg { min-height: 32px; padding: 0 8px 0 10px; font-size: 13px; }
+.sbm-ed--desktop .sbm-ed__sechead { min-height: 42px; padding: 4px 6px 4px 2px; }
+.sbm-ed--desktop .sbm-ed__secname { font-size: 13px; padding: 4px 0; }
+.sbm-ed--desktop .sbm-ed__ib { width: 32px; height: 32px; }
+.sbm-ed--desktop .sbm-ed__secbody { padding: 6px 8px 8px; gap: 6px; }
+.sbm-ed--desktop .sbm-ed__moment { gap: 3px; }
+.sbm-ed--desktop .sbm-ed__row { padding: 1px 0; gap: 4px 5px; }
+.sbm-ed--desktop .sbm-ed__row .sbm-ed__ib { width: 32px; height: 32px; }
+.sbm-ed--desktop .sbm-ed__part { min-height: 32px; font-size: 10.5px; }
+.sbm-ed--desktop .sbm-ed__text { min-height: 36px; padding: 6px 10px; font-size: 14px; }
+.sbm-ed--desktop .sbm-ed__add { min-height: 40px; font-size: 13px; }
+.sbm-ed--desktop .sbm-ed__pv { padding: 14px 18px 24px; }
+.sbm-ed__pvscore .vl-score { font-size: 14px; }
+.sbm-ed--desktop .sbm-ed__foot { padding: 8px 16px; }
+.sbm-ed--desktop .sbm-ed__foot .sbm-btn { min-height: 40px; }
+.sbm-ed--desktop .sbm-card { padding: 10px 12px; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
