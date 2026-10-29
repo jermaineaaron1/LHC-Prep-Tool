@@ -141,7 +141,7 @@ try {
     '  fromRows: _sbmEdFromRows, toText: _sbmEdToText, find: _sbmEdFind, nextName: _sbmEdNextName,' +
     '  addSection: sbmEdAddSectionNamed, addPart: sbmEdAddPartNamed, toggle: sbmEdTogglePart,' +
     '  cycle: sbmEdCyclePart, dup: sbmEdDupLine, del: sbmEdDelLine, dupSec: sbmEdDupSec,' +
-    '  move: sbmEdMoveMoment, save: sbmEdSave };');
+    '  move: sbmEdMoveMoment, save: sbmEdSave, handText: sbmEdToText };');
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -395,6 +395,39 @@ console.log('\nsaving');
     console.error = origErr;
     check('a failed write keeps the editor open with its edits, and says it failed',
       [api.ed !== null, calls.render, calls.toasts.map(t => t[1])], [true, 0, ['error']]);
+  }
+
+  // Another screen's save: the library's Choir parts tab hands the dialog
+  // its rows and takes the text back. Nothing may be written from here.
+  {
+    const { api, calls } = fresh();
+    calls.onSave = [];
+    api.ed = Object.assign({ base: 'song_a', sid: 'song_a__copy', reorder: false, dirty: true,
+      onSave: (t, parsed) => calls.onSave.push([t, parsed.length]) }, api.fromRows(ROWS));
+    api.save();
+    for (let i = 0; i < 8; i++) await tick();
+    check('another screen\'s save gets the text and the rows, and nothing is written from here',
+      [calls.onSave.length, calls.onSave[0] && calls.onSave[0][1], calls.replaceAll.length, calls.render], [1, 7, 0, 0]);
+    check('and the text it gets is the arrangement', shape(V.parseVoiceText(calls.onSave[0][0])), shape(ROWS));
+    check('the editor closes without asking, the save being theirs', [api.ed, calls.confirms], [null, 0]);
+  }
+  {
+    const { api, calls } = fresh();
+    calls.onSave = [];
+    api.ed = { base: 'song_a', sid: 'song_a__copy', dirty: true, onSave: (t) => calls.onSave.push(t), parts: [],
+      sections: [{ id: 's', name: 'Verse 1', open: true, moments: [{ id: 'm', lines: [{ id: 'l', part: 'both', text: '  ', sustained: false }] }] }] };
+    api.save();
+    for (let i = 0; i < 8; i++) await tick();
+    check('an empty arrangement is refused before another screen is handed it', [calls.onSave.length, api.ed !== null], [0, true]);
+  }
+  {
+    const { api, calls } = fresh();
+    calls.onText = [];
+    api.ed = Object.assign({ base: 'song_a', sid: 'song_a__copy', reorder: false, dirty: true, onText: (t) => calls.onText.push(t) }, api.fromRows(ROWS));
+    api.handText();
+    check('"Edit as text" hands over the arrangement as the textarea grammar and closes without asking',
+      [calls.onText.length, api.ed, calls.confirms], [1, null, 0]);
+    check('and what it hands over parses back to the same rows', shape(V.parseVoiceText(calls.onText[0])), shape(ROWS));
   }
 
   const failed = results.filter(r => !r).length;
