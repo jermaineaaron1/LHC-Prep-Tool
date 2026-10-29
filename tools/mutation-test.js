@@ -337,8 +337,8 @@ const CASES = [
                    "if (out.length) out += ' ';")],
   // The musicians read the choir page, so it has to move with the key.
   ['voice-lines-harness.js', 'the choir page ignores the transpose buttons again',
-    s => s.replace("var chord = (steps && raw && typeof o.transposeFn === 'function')",
-                   "var chord = (false && raw && typeof o.transposeFn === 'function')")],
+    s => s.replace("return (steps && raw && typeof o.transposeFn === 'function')",
+                   "return (false && raw && typeof o.transposeFn === 'function')")],
   // Transposing the display must never move what is stored, and editing
   // while transposed would write a chord back through a transposer that
   // respells every flat as a sharp.
@@ -393,7 +393,7 @@ const CASES = [
   // banners were struck off the design, so there is no annotate() left to
   // break. What replaced them guards the label and the blank.
   ['voice-lines-harness.js', 'a unison line is labelled BOTH again',
-    s => s.replace("V._line('both', 'All', g.both, o)", "V._line('both', 'Both', g.both, o)")],
+    s => s.replace("V._line('both', 'All', g.both, o, inl)", "V._line('both', 'Both', g.both, o, inl)")],
   // Bars left the editor with the gutter, and the blank line took over the
   // job their absence used to do. It is now the whole of the grouping
   // syntax, so both ends of it are worth breaking.
@@ -1118,6 +1118,12 @@ const CASES = [
     s => s.replace("    var scope = '[data-choir-song=\"' + String(base).replace(/[\"\\\\]/g, '') + '\"] ';", "    var scope = '';")],
   ['songbook-overview-harness.js', 'an unchanged colour map is written on every save',
     s => s.replace("    if (JSON.stringify(_sbPartColours(base)) === JSON.stringify(colours)) return Promise.resolve();", "")],
+  // Chords riding on their words, on a phone.
+  ['voice-lines-harness.js', "the phone's chords leave their words",
+    s => s.replace("          inl = hit ? V._chordShown(hit, o) : '';", "          inl = '';")],
+  ['voice-lines-harness.js', 'a chord in the gap before a word lands on the word that has ended',
+    s => s.replace("      for (var i = 0; i < words.length; i++) { if (words[i].e > col) { hit = words[i]; break; } }",
+                   "      for (var i = 0; i < words.length; i++) { if (words[i].e >= col) { hit = words[i]; break; } }")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
