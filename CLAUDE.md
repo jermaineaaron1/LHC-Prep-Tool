@@ -660,6 +660,27 @@ the anon key -- verify as `postgres`, not as the app.
     at y=1150 for a pill at y=609. Anchor to the bar, which the phone
     sheet keeps `position: relative`.
 
+28. **`dblclick` is not a gesture a phone has.** The page declares
+    `user-scalable=yes, maximum-scale=4`, so on iOS a double tap is a
+    zoom and Safari keeps it — `ondblclick` never fires. Every roster
+    cell opened its editor from `ondblclick` alone while the touch shim
+    that existed (`_bindDoubleTap`, once `_bindScriptureTap`) was wired
+    to the four scripture cells only, so a PIC on an iPhone could sign
+    in, see the roster, and find that no duty cell answered. It failed
+    silently and totally: no error, no toast, and the PIC concludes they
+    have been locked out. Anything reachable only by `dblclick`,
+    `:hover`, right-click or a <10px control is unreachable on the
+    phones this app is mostly used on. `tools/roster-touch-edit-harness.js`
+    guards the binding — and the check that matters is "is there a cell
+    a double tap cannot reach", not "does this cell work".
+
+29. **`window.STATE` is NOT the roster module's `STATE`.** The module
+    closed over its own. Setting `window.STATE.picMode` from the console
+    changes nothing the roster reads, so a console probe of anything
+    behind that gate silently proves nothing. `RosterEngine.updatePicUI()`
+    is the accessor that settles it: it reads the module's `STATE` and
+    stamps `body.pic-mode`.
+
 ## Quick Commands for Claude Code
 
 ```bash

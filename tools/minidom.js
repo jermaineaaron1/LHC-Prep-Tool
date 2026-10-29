@@ -14,7 +14,7 @@ function parseSel(sel) {
     // how a list counts its own rows while ignoring ones another view
     // put there. A bare tag is here because code reaches for the icon
     // inside a button by element name, not by class.
-    var m = /^([A-Za-z][A-Za-z0-9-]*)?((?:\.[A-Za-z0-9_-]+)*)(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
+    var m = /^([A-Za-z][A-Za-z0-9-]*)?((?:\.[A-Za-z0-9_-]+)*)(?:\[([A-Za-z-]+)(?:="([^"]*)")?\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
     if (!m || (!m[1] && !m[2])) throw new Error('minidom: unsupported selector: ' + part);
     // Several classes at once -- ".a.b" is "has both", which is how one
     // column of a two-column list is told from the other.
@@ -68,6 +68,9 @@ El.prototype.getAttribute = function (n) {
   return Object.prototype.hasOwnProperty.call(this._attrs, n) ? this._attrs[n] : null;
 };
 El.prototype.setAttribute = function (n, v) { this._attrs[n] = String(v); };
+El.prototype.hasAttribute = function (n) {
+  return Object.prototype.hasOwnProperty.call(this._attrs, n);
+};
 
 El.prototype.appendChild = function (c) {
   c.parentNode = this;
@@ -141,7 +144,12 @@ El.prototype._matches = function (spec) {
   for (var ci = 0; ci < spec.cls.length; ci++) {
     if (!this.classList.contains(spec.cls[ci])) return false;
   }
-  if (spec.attr && this.getAttribute(spec.attr) !== spec.val) return false;
+  // [attr] with no value asks only whether the attribute is there --
+  // which is how a table picks out the cells that carry a key.
+  if (spec.attr) {
+    if (spec.val === undefined) { if (this.getAttribute(spec.attr) === null) return false; }
+    else if (this.getAttribute(spec.attr) !== spec.val) return false;
+  }
   if (spec.without && this.getAttribute(spec.without) != null) return false;
   return true;
 };

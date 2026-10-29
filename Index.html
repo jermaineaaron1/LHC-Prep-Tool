@@ -4092,9 +4092,15 @@
       .roster-section-header td { padding: 6px !important; font-size: 10px !important; }
       /* "..." cell-options icon: was only meant to appear on desktop :hover,
          but touch has no real hover so it was rendering at full size on
-         every filled cell. Force it small and unobtrusive instead of
-         hover-gated on mobile. */
-      .roster-cell-dropdown-icon { opacity: 0.35 !important; font-size: 7px !important; }
+         every filled cell. Hover-gating cannot work here, so it is sized
+         down instead -- but 7px at 35% opacity was a smudge, not a
+         control, and this is the ROUTE a PIC finds when the double-tap
+         does not occur to them. The glyph stays small; the padding gives
+         it a thumb-sized target over it. */
+      .roster-cell-dropdown-icon {
+        opacity: 0.55 !important; font-size: 10px !important;
+        padding: 5px 6px !important;
+      }
       /* Traditional/Contemporary toggle: 3px smaller than the base 0.72rem (11.52px) */
       .roster-servicetype-btn { font-size: 8.52px !important; }
       /* Clone zoom is synced from the real table via JS — no font-size overrides needed */
@@ -4207,6 +4213,13 @@
       /* PIC-only controls -- scoped to the mobile premium block (the
          existing .roster-status-pill.pic-only rule doesn't match these
          new element classes). */
+      #rosterMobilePremium .rmp-edit-hint { display: none !important; }
+      body.pic-mode #rosterMobilePremium .rmp-edit-hint {
+        display: flex !important; align-items: center; justify-content: center; gap: 6px;
+        margin: 6px 0 0; padding: 7px 10px; border-radius: 9px;
+        background: rgba(20,184,166,0.12); border: 1px solid rgba(20,184,166,0.3);
+        color: #0f766e; font-size: 11px; font-weight: 600; line-height: 1.3; text-align: center;
+      }
       #rosterMobilePremium .rmp-chip.pic-only,
       #rosterMobilePremium .rmp-save-btn.pic-only { display: none !important; }
       body.pic-mode #rosterMobilePremium .rmp-chip.pic-only { display: inline-flex !important; }
@@ -6864,6 +6877,15 @@
           <div class="rmp-tabs" role="tablist">
             <button type="button" class="rmp-tab" id="rmpTabWeeks" aria-pressed="true" onclick="RosterEngine.setMobileScheduleView('weeks')">Whole Month</button>
             <button type="button" class="rmp-tab" id="rmpTabMonth" aria-pressed="false" onclick="RosterEngine.setMobileScheduleView('month')">Service Cards</button>
+          </div>
+
+          <!-- Only while signed in as PIC, because it is only then true.
+               The desktop says this in a title attribute, which a phone
+               never shows, so a PIC on a phone had no way of learning the
+               gesture except by being told. -->
+          <div class="rmp-edit-hint pic-only" id="rmpEditHint">
+            <i class="fa-solid fa-hand-pointer"></i>
+            Double-tap a name to change it &middot; or tap <i class="fa-solid fa-ellipsis-vertical"></i> on the cell
           </div>
 
           <!-- Command bar. These chips WRAP rather than scroll sideways: as a
@@ -98613,17 +98635,24 @@ function filterLiturgyItems() {
         // this table (updatePicUI only re-renders the mobile month view), so a
         // handler that captured the mode when it was bound would keep acting on
         // whichever mode happened to be in force at the last render.
-        if (td.hasAttribute('data-ref')) {
-          td.ondblclick = function(e) {
-            if (STATE.picMode) { self.editCell(td); return; }
-            if (e) e.preventDefault();
-            self.openScripture(td);
-          };
-          self._bindScriptureTap(td);
-        } else {
-          // Double-click still edits (PIC only in practice via UI)
-          td.ondblclick = function() { if (STATE.picMode) self.editCell(td); };
-        }
+        // What a double "click" does on this cell, decided once and then
+        // bound to BOTH ways of making one.
+        //
+        // A touch shim used to be wired to scripture cells alone, which
+        // left every ordinary duty cell reachable only by dblclick -- an
+        // event iOS does not dependably send, because this page declares
+        // user-scalable=yes and Safari would rather read two taps as a
+        // zoom. A PIC on an iPhone could sign in, see the roster, and
+        // find that no cell in it answered.
+        var onDouble = td.hasAttribute('data-ref')
+          ? function(e) {
+              if (STATE.picMode) { self.editCell(td); return; }
+              if (e) e.preventDefault();
+              self.openScripture(td);
+            }
+          : function() { if (STATE.picMode) self.editCell(td); };
+        td.ondblclick = onDouble;
+        self._bindDoubleTap(td, onDouble);
         // Right-click opens same dropdown
         td.oncontextmenu = function(e) { e.preventDefault(); };
         // Add dropdown icon button if not already present
@@ -98691,25 +98720,35 @@ function filterLiturgyItems() {
       });
     },
 
-    // Double-tap, for the phones this roster is mostly read on. dblclick is not
-    // dependable on touch -- the browser would rather treat two taps as a zoom --
-    // so the second tap is caught here and the zoom cancelled with it. Taps on
-    // the cell's options button are left alone: that button is its own control.
-    _bindScriptureTap: function(td) {
+    // Double-tap, for the phones this roster is mostly read on. dblclick is
+    // not dependable on touch -- the browser would rather treat two taps as a
+    // zoom -- so the second tap is caught here and the zoom cancelled with it.
+    // Taps on the cell's options button are left alone: that button is its
+    // own control.
+    //
+    // Every duty cell, not only the scripture ones. This shim existed for a
+    // year serving four cells per service while the forty around them had no
+    // touch path at all.
+    //
+    // The action is kept ON the cell rather than captured in the closure, so
+    // a re-bind that changes what the cell does -- a reference added to a
+    // scripture slot, say -- changes the tap too. The listener itself is
+    // bound once.
+    _bindDoubleTap: function(td, act) {
       var self = this;
-      if (td._scriptureTapBound) return;
-      td._scriptureTapBound = true;
+      td._dblTapAct = act;
+      if (td._doubleTapBound) return;
+      td._doubleTapBound = true;
       td.addEventListener('touchend', function(e) {
         if (e.target && e.target.closest && e.target.closest('.roster-cell-dropdown-icon')) return;
         var now = Date.now();
-        if (self._scriptureTapCell === td && (now - self._scriptureTapTime) < 400) {
+        if (self._tapCell === td && (now - self._tapTime) < 400) {
           e.preventDefault();
-          self._scriptureTapCell = null;
-          // Same split as the double-click, and for the same reason.
-          if (STATE.picMode) self.editCell(td); else self.openScripture(td);
+          self._tapCell = null;
+          if (typeof td._dblTapAct === 'function') td._dblTapAct(e);
         } else {
-          self._scriptureTapCell = td;
-          self._scriptureTapTime = now;
+          self._tapCell = td;
+          self._tapTime = now;
         }
       }, { passive: false });
     },
