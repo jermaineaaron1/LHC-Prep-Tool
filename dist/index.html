@@ -11617,6 +11617,8 @@ I once was lost but now am found"
               <option value="alto">Alto</option>
               <option value="tenor">Tenor</option>
               <option value="bass">Bass</option>
+              <option value="women">Women</option>
+              <option value="men">Men</option>
             </select>
             <div id="sbRecStatus" class="sb-panel-info" style="display:none;"></div>
             <div id="sbRecActivity" class="sb-rec-activity" style="display:none;">
@@ -15140,16 +15142,26 @@ window.lhcVoiceRec = {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (!sb || !songId) return Promise.resolve({});
+    // One read per song however many pages ask at once. Two reads in
+    // flight both emptied the store and both filled it, and a line with
+    // one take drew two chips -- four, on a book that bound its pages
+    // four times.
+    R._loading = R._loading || {};
+    if (R._loading[songId]) return R._loading[songId];
     R._takes[songId] = {};
     R._drafts[songId] = [];
-    return sb.from('song_recordings').select('*')
+    var seen = {};
+    R._loading[songId] = sb.from('song_recordings').select('*')
       .eq('song_id', songId)
       .order('created_at', { ascending: true })
       .then(function(r) {
+        delete R._loading[songId];
         // An unmigrated line_id column must leave the page as it is rather
         // than blanking a song's recordings.
         if (r.error) return R._takes[songId];
         (r.data || []).forEach(function(row) {
+          if (seen[row.id]) return;
+          seen[row.id] = true;
           if (row.line_id == null) { R._drafts[songId].push(row); return; }
           var k = String(row.line_id);
           (R._takes[songId][k] = R._takes[songId][k] || []).push(row);
@@ -15157,7 +15169,8 @@ window.lhcVoiceRec = {
         R._loaded[songId] = true;
         return R._takes[songId];
       })
-      .catch(function() { return R._takes[songId]; });
+      .catch(function() { delete R._loading[songId]; return R._takes[songId]; });
+    return R._loading[songId];
   },
 
   // "28 Oct 09:41" -- the point of a draft list is telling Tuesday's
@@ -48325,8 +48338,8 @@ var WO = (function() {
     delete _sbmRecsAt[base];
     if (window.lhcVoiceRec) {
       delete window.lhcVoiceRec._loaded[base];
-      document.querySelectorAll('.sb-song-page--choir[data-choir-song="' + base + '"]').forEach(function(el) {
-        window.lhcVoiceRec.load(base).then(function() { window.lhcVoiceRec.paintAll(el); });
+      window.lhcVoiceRec.load(base).then(function() {
+        document.querySelectorAll('.sb-song-page--choir[data-choir-song="' + base + '"]').forEach(function(el) { window.lhcVoiceRec.paintAll(el); });
       });
       if (window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(base);
     }
@@ -48386,8 +48399,9 @@ var WO = (function() {
     _sbmCloseSheet();
     if (typeof showLoader === 'function') showLoader(true);
     var uploaded = false;
-    fetch(url).then(function(r) { if (!r.ok) throw new Error('could not read the file'); return r.blob(); })
-      .then(function(blob) { return sup.storage.from(LHC_SUPABASE_BUCKET).upload(next, blob, { contentType: blob.type || 'audio/webm', upsert: false }); })
+    var ctype = '';
+    fetch(url).then(function(r) { if (!r.ok) throw new Error('could not read the file'); ctype = r.headers.get('content-type') || ''; return r.blob(); })
+      .then(function(blob) { return sup.storage.from(LHC_SUPABASE_BUCKET).upload(next, blob, { contentType: ctype || blob.type || 'audio/webm', upsert: false }); })
       .then(function(up) {
         if (up.error) throw new Error(up.error.message);
         uploaded = true;
@@ -48552,8 +48566,8 @@ var WO = (function() {
     if (sel) {
       var lanes = window.lhcVoiceLines ? window.lhcVoiceLines.lanes(_sbVoiceRowsFor(song)) : [];
       var cur = _sbChoirPartFor(song, lanes);
-      var fam = _sbmPartFamily(cur);
-      if (fam !== 'all' && fam !== 'other' && sel.querySelector('option[value="' + fam + '"]')) sel.value = fam;
+      var slug = cur ? _sbmRecSlug(window.lhcVoiceLines ? window.lhcVoiceLines.partKey(cur) : cur) : '';
+      if (slug && sel.querySelector('option[value="' + slug + '"]')) sel.value = slug;
     }
   }
   function sbmEdit() {
@@ -48677,7 +48691,7 @@ var WO = (function() {
     var mine = [], rest = [];
     recs.forEach(function(r) {
       var p = _sbmRecPart(r, song), pk = V ? V.partKey(p) : String(p).toLowerCase();
-      if (curKey && (pk === curKey || _sbmPartFamily(p) === fam)) mine.push(r); else rest.push(r);
+      if (curKey && (pk === curKey || (fam !== 'other' && _sbmPartFamily(p) === fam))) mine.push(r); else rest.push(r);
     });
     var ordered = mine.concat(rest);
     var label = cur ? (V.partLabel(cur) + ' parts selected') : 'All parts';
@@ -48841,7 +48855,7 @@ var WO = (function() {
       var countFor = function(p) {
         if (!p) return recs.length;
         var k = V.partKey(p), f = _sbmPartFamily(p);
-        return recs.filter(function(r) { var rp = _sbmRecPart(r, song); return V.partKey(rp) === k || (rp && _sbmPartFamily(rp) === f); }).length;
+        return recs.filter(function(r) { var rp = _sbmRecPart(r, song); return V.partKey(rp) === k || (rp && f !== 'other' && _sbmPartFamily(rp) === f); }).length;
       };
       var chip = function(idx, p, label) {
         var fam = _sbmPartFamily(p), n = countFor(p);
@@ -52924,6 +52938,7 @@ var WO = (function() {
     var orderId = currentOrderData ? currentOrderData.id : null;
     var catSel = document.getElementById('sbRecCategory');
     var recCat = (catSel && catSel.value) || 'general';
+    var recCatLabel = _SB_REC_CATS[recCat] || ((catSel && catSel.options[catSel.selectedIndex]) ? catSel.options[catSel.selectedIndex].textContent.trim() : 'General');
     // The 'songbook-recordings' bucket was never given anon policies (every
     // upload died on RLS) — practice takes live in the app's working bucket
     // under their own prefix instead.
@@ -52937,7 +52952,7 @@ var WO = (function() {
         if (res.error) { sbShowRecStatus('Upload failed: ' + res.error.message, 'error'); return; }
         var recName = label
           ? String(label).replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 80)
-          : _sbRecCatLabel(recCat) + ' take ' + (existing + 1);
+          : recCatLabel + ' take ' + (existing + 1);
         return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: recName, storage_path: storagePath, duration_sec: durationSec });
       }).then(function(res2) {
         if (!res2) return;
@@ -52980,6 +52995,21 @@ var WO = (function() {
   // The recordings section travels: it lives in the desktop rail, and the
   // 🎙 button on any song's control bar summons it into a bottom sheet —
   // the ONE element is reparented, never duplicated, so its logic stays put.
+  // The select offers this song's own parts too -- Melody, 1st Part --
+  // after the categories every song has. A take filed under one is listed
+  // under that part wherever takes are listed.
+  function _sbRecFillCategories(baseSongId) {
+    var sel = document.getElementById('sbRecCategory'); if (!sel) return;
+    Array.prototype.slice.call(sel.querySelectorAll('option[data-dyn]')).forEach(function(o) { o.remove(); });
+    var V = window.lhcVoiceLines; if (!V || !baseSongId) return;
+    (V.lanes(_sbVoiceLines[baseSongId] || []) || []).forEach(function(p) {
+      var slug = String(V.partKey(p)).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      if (!slug || sel.querySelector('option[value="' + slug + '"]')) return;
+      var o = document.createElement('option');
+      o.value = slug; o.textContent = V.partLabel(p); o.setAttribute('data-dyn', '1');
+      sel.appendChild(o);
+    });
+  }
   function sbOpenRecordings(sid) {
     // Through the item, not by chopping its id. A standalone songbook's
     // item is 'sbsong_<songId>_<idx>', which no amount of chopping at
@@ -52987,6 +53017,7 @@ var WO = (function() {
     // against a song that does not exist, where nothing could find them.
     var song = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(item) { return item && String(item.id) === String(sid); });
     _sbRecCurrentSongId = song ? _sbBaseSongId(song) : String(sid).split('--')[0];
+    _sbRecFillCategories(_sbRecCurrentSongId);
     var host = document.getElementById('sbRecSheetHost');
     var section = document.getElementById('sbRecSection');
     if (host && section && section.parentNode !== host) host.appendChild(section);
