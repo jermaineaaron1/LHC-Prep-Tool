@@ -1068,7 +1068,40 @@ const CASES = [
   // nothing else. Unanchored, it rewrites any title with the word in it.
   ['reading-slot-title-harness.js', 'the suggestion loses its anchor',
     s => s.replace(SUGGEST_BODY,
-                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")]
+                   "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")],
+  // The phone's choir-parts editor. It saves by writing the desktop
+  // editor's grammar out and handing it to the same parser, so every one
+  // of these produces rows that save cleanly and a page that still looks
+  // like a song: a line filed to the wrong part, two moments sung as one,
+  // a held vowel printed as a lyric, a second line for a part quietly
+  // overwritten by the first.
+  ['songbook-editparts-harness.js', "a women's line is saved as everyone's",
+    s => s.replace("(k === 'women') ? 'W: '", "(k === 'women') ? ''")],
+  ['songbook-editparts-harness.js', 'the blank line between moments is dropped, so they merge',
+    s => s.replace("out.push(body.join('\\n\\n'));", "out.push(body.join('\\n'));")],
+  ['songbook-editparts-harness.js', 'a held note loses its ~',
+    s => s.replace("return pre + (l.sustained ? '~' : '') +", "return pre +")],
+  ['songbook-editparts-harness.js', 'a second line for the same part is let into the moment',
+    s => s.replace("return lk === k || lk === 'both' || k === 'both'; });", "return false; });")],
+  ['songbook-editparts-harness.js', 'an empty arrangement is written anyway',
+    s => s.replace("if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); return; }",
+                   "if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); }")],
+  ['songbook-editparts-harness.js', 'the rows are not re-read after the write, so the cache keeps invented ids',
+    s => s.replace("return window.SBQ_VOICE_LINES.forSong(ed.base);", "return parsed;")],
+  ['songbook-editparts-harness.js', 'a failed write closes the editor and loses the edits',
+    s => s.replace(/(_sbVoiceLines\[ed\.base\] = fresh \|\| \[\];[\s\S]*?)showToast\('Could not save the choir parts', 'error'\);/,
+                   "$1_sbmEdClose(); showToast('Could not save the choir parts', 'error');")],
+  // The library's Choir parts tab hands the dialog its rows and takes the
+  // text back; the dialog must write nothing of its own in that case.
+  ['songbook-editparts-harness.js', "another screen's save is written from here anyway",
+    s => s.replace("    if (ed.onSave) {", "    if (false && ed.onSave) {")],
+  ['songbook-editparts-harness.js', '"Edit as text" hands over an empty page',
+    s => s.replace("    var text = _sbmEdToText(ed), take = ed.onText;", "    var text = '', take = ed.onText;")],
+  // What a take is called: after the chip on its line, never "Take take".
+  ['recordings-harness.js', "a named part's take is called Take again",
+    s => s.replace("var who = String(partName || '').trim() || (part === 'men'", "var who = (part === 'men'")],
+  ['recordings-harness.js', 'an imported file loses its name',
+    s => s.replace("    if (label) return String(label).replace(/", "    if (false) return String(label).replace(/")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
