@@ -14,9 +14,12 @@ function parseSel(sel) {
     // how a list counts its own rows while ignoring ones another view
     // put there. A bare tag is here because code reaches for the icon
     // inside a button by element name, not by class.
-    var m = /^([A-Za-z][A-Za-z0-9-]*)?(?:\.([A-Za-z0-9_-]+))?(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
+    var m = /^([A-Za-z][A-Za-z0-9-]*)?((?:\.[A-Za-z0-9_-]+)*)(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
     if (!m || (!m[1] && !m[2])) throw new Error('minidom: unsupported selector: ' + part);
-    return { tag: m[1] ? m[1].toUpperCase() : null, cls: m[2] || null,
+    // Several classes at once -- ".a.b" is "has both", which is how one
+    // column of a two-column list is told from the other.
+    return { tag: m[1] ? m[1].toUpperCase() : null,
+             cls: m[2] ? m[2].slice(1).split('.') : [],
              attr: m[3] || null, val: m[4], without: m[5] || null };
   });
 }
@@ -135,7 +138,9 @@ El.prototype._descendants = function () {
 
 El.prototype._matches = function (spec) {
   if (spec.tag && this.tagName !== spec.tag) return false;
-  if (spec.cls && !this.classList.contains(spec.cls)) return false;
+  for (var ci = 0; ci < spec.cls.length; ci++) {
+    if (!this.classList.contains(spec.cls[ci])) return false;
+  }
   if (spec.attr && this.getAttribute(spec.attr) !== spec.val) return false;
   if (spec.without && this.getAttribute(spec.without) != null) return false;
   return true;
