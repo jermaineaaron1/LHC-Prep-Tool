@@ -344,8 +344,13 @@ check('  at the A4 width the fit-zoom is calculated from',
   /width:\s*794px/.test(IDX_RULE ? IDX_RULE[1] : ''), true);
 check('  not capped back to the fluid 820',
   /max-width:\s*794px/.test(IDX_RULE ? IDX_RULE[1] : ''), true);
-check('  and the A4 height to go with it',
-  /min-height:\s*1123px/.test(IDX_RULE ? IDX_RULE[1] : ''), true);
+// Width only. Padded out to a full A4 height, a contents of five songs
+// is most of a screenful of blank paper to swipe past before the book
+// starts.
+check('  but not the sheet height with it',
+  /min-height:\s*0\b/.test(IDX_RULE ? IDX_RULE[1] : ''), true);
+check('  so the card is as tall as its list',
+  /min-height:\s*\d\d+px/.test(IDX_RULE ? IDX_RULE[1] : ''), false);
 // The desktop songbook is untouched: its contents card is still the
 // fluid box it always was.
 check('the desktop contents card is left alone',

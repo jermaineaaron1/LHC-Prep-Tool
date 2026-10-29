@@ -490,8 +490,13 @@ const CASES = [
     s => s.replace('      max-height:0 !important; overflow:hidden !important;',
                    '      display:none !important;')],
   ['songbook-fold-harness.js', 'the contents card goes back to a fluid width',
-    s => s.replace('      width:794px; max-width:794px; min-height:1123px;   /* A4 at 96dpi */',
-                   '      width:100%; max-width:820px;')],
+    s => s.replace('      width:794px; max-width:794px; min-height:0;',
+                   '      width:100%; max-width:820px; min-height:0;')],
+  // A contents of five songs padded out to A4 is most of a screenful of
+  // blank paper to swipe past before the book starts.
+  ['songbook-fold-harness.js', 'the contents card is padded out to a full sheet',
+    s => s.replace('      width:794px; max-width:794px; min-height:0;',
+                   '      width:794px; max-width:794px; min-height:1123px;')],
   // max-height cannot shrink a border-box below its own padding, and the
   // sheet carries 48px under the words.
   ['songbook-fold-harness.js', 'a sliver of blank paper is left under each folded song',
