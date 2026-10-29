@@ -556,6 +556,32 @@ const CASES = [
     s => s.replace('    #songbookLiveModal .sb-badge-wrap { position:static !important; }',
                    '    #songbookLiveModal .sb-badge-wrap { position:relative !important; }')],
 
+  // Getting to the songbooks, which live under seventy-two songs. The
+  // branch that matters: on a phone the Songbooks TAB hides the
+  // catalogue, so scrolling to a section it has hidden does nothing at
+  // all, and does it silently.
+  ['songbooks-ribbon-harness.js', 'the phone scrolls to a section its tab has hidden',
+    s => s.replace("    if (tab && tab.offsetParent !== null) { switchMobileSongsTab('songbooks'); return; }\r\n", '')],
+  ['songbooks-ribbon-harness.js', 'the breakpoint is guessed instead of asked',
+    s => s.replace('if (tab && tab.offsetParent !== null) {', 'if (window.innerWidth <= 768) {')],
+  ['songbooks-ribbon-harness.js', 'arriving at the foot of the page says nothing',
+    s => s.replace("    card.classList.add('sf-sb-landed');\r\n", '')],
+  ['songbooks-ribbon-harness.js', 'the two jumps both land on the songbooks',
+    s => s.replace("(which === 'orders' ? 'orders-col' : 'songs-col')", "'songs-col'")],
+  ['songbooks-ribbon-harness.js', 'the pill counts only the songbooks',
+    s => s.replace("    set('sfSongbooksJumpCount', (books || 0) + (orders || 0));",
+                   "    set('sfSongbooksJumpCount', (books || 0));")],
+  ['songbooks-ribbon-harness.js', 'an empty list is written as a grey zero',
+    s => s.replace("if (el) el.textContent = n > 0 ? String(n) : '';", 'if (el) el.textContent = String(n);')],
+  ['songbooks-ribbon-harness.js', 'the pill lands after Add Song',
+    s => s.replace('<button class="lhc-pill-button" id="sfSongbooksJump"',
+                   '<button class="lhc-pill-button" id="sfSongbooksJumpMoved"')],
+  // .lhc-card declares no padding on a desktop, so a guessed inset
+  // overhung it by 17px each side. Measured before the fix.
+  ['songbooks-ribbon-harness.js', 'the band guesses the card its padding again',
+    s => s.replace('      margin: 0 0 14px; padding: 11px 16px;',
+                   '      margin: -18px -18px 14px; padding: 11px 18px;')],
+
   // Showing one part at a time. Each of these leaves a page that still
   // looks like a score, which is the whole reason the checks exist.
   ['voice-lines-harness.js', 'a unison line is filtered away with the other parts',

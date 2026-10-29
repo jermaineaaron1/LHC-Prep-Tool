@@ -1915,6 +1915,66 @@
     }
     .sb-picker-new-btn:hover { background: #dcfce7; }
 
+    /* ==================== SONGBOOKS RIBBON ==================== */
+    /* A band across the top of the section rather than a heading with a
+       button opposite it: it names the two lists, counts them, and takes
+       you to either one. */
+    /* No negative margins to bleed it to the card's edge: .lhc-card
+       declares no padding at all on a desktop and 10px on a phone, so a
+       guessed inset overhung the card by 17px each side. The band is
+       rounded on all four corners instead, which sits flush when the
+       card has no padding and reads as a band when it has. */
+    .sf-sb-ribbon {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+      margin: 0 0 14px; padding: 11px 16px;
+      background: linear-gradient(90deg, #eef2ff, #f0faf6);
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+    }
+    .sf-sb-ribbon-title {
+      margin: 0; display: flex; align-items: center; gap: 8px;
+      font-family: 'Cinzel', Georgia, serif; font-size: 0.86rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; color: #334155;
+    }
+    .sf-sb-ribbon-title i { color: #6366f1; }
+    .sf-sb-ribbon-jumps { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .sf-sb-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid #cbd5e1; background: #fff; color: #475569;
+      border-radius: 999px; padding: 5px 13px; font-size: 0.76rem; font-weight: 600;
+      font-family: inherit; cursor: pointer; transition: .13s; white-space: nowrap;
+    }
+    .sf-sb-chip:hover { border-color: #0e9f6e; color: #0b7a53; background: #f0faf6; }
+    .sf-sb-chip i { font-size: 0.72rem; opacity: 0.8; }
+    .sf-sb-chip-n, .sf-jump-count {
+      display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 2px;
+      border-radius: 999px; background: #e2e8f0; color: #475569;
+      font-size: 0.66rem; font-weight: 800; line-height: 16px; text-align: center;
+    }
+    .sf-jump-count:empty, .sf-sb-chip-n:empty { display: none; }
+    .sf-sb-new { font-size: 0.75rem; margin-left: auto; }
+    /* Arriving. A page that scrolls somewhere without saying so reads as
+       a button that did nothing. */
+    #sfSongbooksCard { scroll-margin-top: 14px; }
+    #sfSongbooksCard.sf-sb-landed { animation: sfSbLanded 1.1s ease; }
+    @keyframes sfSbLanded {
+      0%   { box-shadow: 0 0 0 0 rgba(14,159,110,0); }
+      22%  { box-shadow: 0 0 0 4px rgba(14,159,110,0.28); }
+      100% { box-shadow: 0 0 0 0 rgba(14,159,110,0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #sfSongbooksCard.sf-sb-landed { animation: none; }
+    }
+    /* Two rows on a phone, not four: the heading and New Songbook share
+       the first, the two jumps take the second. Left to wrap on its own
+       every item claimed a line and the band came to 157px. */
+    @media (max-width: 640px) {
+      .sf-sb-ribbon { padding: 10px 12px; gap: 8px; }
+      .sf-sb-ribbon-title { flex: 1 1 auto; }
+      .sf-sb-ribbon-jumps { flex: 1 1 100%; order: 3; }
+      .sf-sb-chip { flex: 1 1 0; justify-content: center; }
+    }
+
     /* ==================== SONGBOOKS LIST ==================== */
     .sb-list-item {
       display: flex; align-items: center; gap: 12px;
@@ -6326,6 +6386,12 @@
               <p class="sf-command-subtitle">Search lyrics, themes, scripture and resources in one curated library.</p>
             </div>
             <div id="sfCommandActions" class="flex gap-2 flex-wrap items-center">
+              <!-- The songbooks and service orders live at the FOOT of this
+                   page, under seventy-two songs. Navigation first, then the
+                   view controls, then the one button that creates something. -->
+              <button class="lhc-pill-button" id="sfSongbooksJump" onclick="sfGoToSongbooks()" title="Jump to your songbooks and service orders">
+                <i class="fa-solid fa-book-open mr-1"></i> Songbooks<span id="sfSongbooksJumpCount" class="sf-jump-count"></span>
+              </button>
               <button class="lhc-pill-button" id="allSongsBtn" onclick="showAllSongs()" title="Show all songs A–Z">
                 <i class="fa-solid fa-list mr-1"></i> All Songs
               </button>
@@ -6744,9 +6810,17 @@
 
         <!-- ── Songbooks subsection ── -->
         <div id="sfSongbooksCard" class="lhc-card" style="margin-top:18px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-            <h4 class="lhc-section-title" style="margin:0;"><i class="fa-solid fa-book-open mr-2 text-indigo-400"></i>Songbooks</h4>
-            <button class="lhc-pill-button" onclick="openCreateSongbookModal()" style="font-size:0.75rem;"><i class="fa-solid fa-plus mr-1"></i>New Songbook</button>
+          <div class="sf-sb-ribbon">
+            <h4 class="sf-sb-ribbon-title"><i class="fa-solid fa-book-open"></i>Songbooks</h4>
+            <div class="sf-sb-ribbon-jumps">
+              <button type="button" class="sf-sb-chip" onclick="sfJumpSongbookCol('songs')">
+                <i class="fa-solid fa-music"></i> My Songbooks<span id="sfSbCountBooks" class="sf-sb-chip-n"></span>
+              </button>
+              <button type="button" class="sf-sb-chip" onclick="sfJumpSongbookCol('orders')">
+                <i class="fa-solid fa-calendar-days"></i> Service Orders<span id="sfSbCountOrders" class="sf-sb-chip-n"></span>
+              </button>
+            </div>
+            <button class="lhc-pill-button sf-sb-new" onclick="openCreateSongbookModal()"><i class="fa-solid fa-plus mr-1"></i>New Songbook</button>
           </div>
           <div id="songbooksListContainer">
             <div class="text-center py-6 text-slate-400" style="font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading songbooks…</div>
@@ -22326,6 +22400,49 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     }
   };
 
+  // Take the reader to the songbooks.
+  //
+  // On a narrow screen the page already has a Songbooks tab, and
+  // switching to it is a better answer than scrolling -- the tab hides
+  // the catalogue, so there is nothing to scroll past. The tab button is
+  // the thing to ask: it is display:none on a desktop, so this follows
+  // the layout rather than guessing a breakpoint of its own.
+  function sfGoToSongbooks() {
+    var tab = document.getElementById('mobileTabBooks');
+    if (tab && tab.offsetParent !== null) { switchMobileSongsTab('songbooks'); return; }
+    var card = document.getElementById('sfSongbooksCard');
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Say you have arrived. Landing at the foot of a long page with no
+    // acknowledgement reads as the button having done nothing.
+    card.classList.remove('sf-sb-landed');
+    void card.offsetWidth;                       // restart the animation
+    card.classList.add('sf-sb-landed');
+  }
+
+  // Within the section: the two lists are side by side on a desktop and
+  // stacked on anything narrower, which is where this earns its place.
+  function sfJumpSongbookCol(which) {
+    var card = document.getElementById('sfSongbooksCard');
+    if (!card) return;
+    var hdr = card.querySelector('.sb-col-header.' + (which === 'orders' ? 'orders-col' : 'songs-col'));
+    (hdr || card).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  window.sfGoToSongbooks = sfGoToSongbooks;
+  window.sfJumpSongbookCol = sfJumpSongbookCol;
+
+  // The counts on the pill and the two chips. Written from the lists that
+  // were actually rendered, so they cannot drift from what is on screen.
+  function _sfSetSongbookCounts(books, orders) {
+    var set = function(id, n) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = n > 0 ? String(n) : '';
+    };
+    set('sfSongbooksJumpCount', (books || 0) + (orders || 0));
+    set('sfSbCountBooks', books);
+    set('sfSbCountOrders', orders);
+  }
+
   function renderSongbooksList() {
     var container = $('songbooksListContainer');
     if (!container) return;
@@ -22374,6 +22491,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       });
 
       if (!songItems.length && !orderItems.length) {
+        _sfSetSongbookCounts(0, 0);
         container.innerHTML = '<div class="text-center py-8 text-slate-400" style="font-size:0.85rem;">' +
           '<i class="fa-solid fa-book-open" style="font-size:1.6rem;display:block;margin-bottom:8px;opacity:0.35;"></i>' +
           '<p style="font-weight:600;">No songbooks yet</p>' +
@@ -22411,6 +22529,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         '</div>';
       }
 
+      _sfSetSongbookCounts(songItems.length, orderItems.length);
       var html = '<div class="sb-two-col">';
       html += '<div>';
       html += '<div class="sb-col-header songs-col"><i class="fa-solid fa-music"></i>My Songbooks</div>';
@@ -60799,13 +60918,19 @@ var WO = (function() {
   function _sbRestoreChoirParts() {
     var V = window.lhcVoiceLines;
     if (!V || !V.lanes) return;
+    var any = false;
     songOrderSections.forEach(function(song) {
       if (!song || !_sbSongHasChoir(song)) return;
       var lanes = V.lanes(_sbVoiceRowsFor(song));
       if (lanes.length < 2) return;
       var p = _sbChoirPartFor(song, lanes);
-      if (p) _sbApplyChoirPart(song.id, p, true);
+      if (p) { _sbApplyChoirPart(song.id, p, true); any = true; }
     });
+    // Once, not once per song. The render has already measured the book
+    // and the filter has just taken rows out of it; without this the
+    // transform's bottom margin is the height of the pages it is no
+    // longer showing, which reads as blank scroll room at the end.
+    if (any) sbApplyZoom();
   }
 
   // Back to the contents. The index is the first thing in the book, so
