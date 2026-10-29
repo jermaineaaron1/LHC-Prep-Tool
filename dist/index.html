@@ -8783,7 +8783,13 @@
      was wider than a MEN chip and started its words further right, so the
      lyrics never formed a column. A name too long for the box is cut with
      an ellipsis and kept in full in the title. */
-  .vl-who { flex: 0 0 74px; width: 74px; box-sizing: border-box; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; font-weight: 800; color: #64748b; background: #eef1f6; border-radius: 4px; padding: 2px 7px; margin-top: 2px; }
+  /* 11px, not 9.5. The whole page is a 794px sheet scaled to fit the
+     phone -- at the fit zoom of 45% a 9.5px label is four pixels of text,
+     which is what "hard to see whose part it is" was. The box grew with
+     it so a name like 1ST PART still fits without an ellipsis; the width
+     is shared with the chord row's spacer, so the chords stay over their
+     syllables. */
+  .vl-who { flex: 0 0 84px; width: 84px; box-sizing: border-box; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 800; color: #64748b; background: #eef1f6; border-radius: 4px; padding: 3px 8px; margin-top: 1px; }
   .vl-ln--both .vl-who { color: #fff; background: var(--vl-all); }
   .vl-ln--women .vl-who { color: #fff; background: var(--vl-w); }
   .vl-ln--men .vl-who { color: #fff; background: var(--vl-m); }
@@ -8834,6 +8840,27 @@
   .vl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .vl-gap { padding: 10px 0 10px 13px; font-size: 12px; color: #94a3b8; font-style: italic; }
+
+  /* Which part am I singing.
+     Colours are literal here and not the --vl-* tokens: those are declared
+     on .vl-score and this bar sits above it, so a token would resolve to
+     nothing and the chosen chip would come out unpainted. */
+  .vl-parts { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 0 0 14px;
+    padding: 9px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 11px; }
+  .vl-parts-lbl { font-size: 11px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+    color: #64748b; margin-right: 3px; }
+  .vl-part-chip { border: 1px solid #cbd5e1; background: #fff; color: #475569; border-radius: 999px;
+    padding: 7px 15px; font-size: 13px; font-weight: 700; line-height: 1.1; cursor: pointer;
+    font-family: inherit; transition: .12s; }
+  .vl-part-chip:hover { border-color: #7c3aed; color: #7c3aed; }
+  .vl-part-chip.is-on { color: #fff; border-color: transparent; background: #475569; }
+  .vl-part-chip--women.is-on { background: #a8475f; }
+  .vl-part-chip--men.is-on { background: #1d6b68; }
+  .vl-part-chip--other.is-on { background: #8a5a2b; }
+  /* A line the reader has filtered away. Not visibility:hidden -- that
+     would keep its height and the page would be as long as before, which
+     is the thing the filter exists to fix. */
+  .vl-ln--off { display: none !important; }
 
   /* Which pages a song shows. Shared, not per-browser: this is stored on
      the songbook so every caroler opening it sees the same book. */
@@ -16057,6 +16084,44 @@ window.lhcVoiceLines = {
   // data-line-id is what a practice recording attaches to -- it is on the
   // line element, not on the words, so the recorder can find it from a click
   // anywhere in the row.
+  // Show one part and nothing else.
+  //
+  // What stays: the chosen part's lines, every UNISON line -- those are
+  // everybody's -- and the chosen part's rests, because "(\u2014)" is how a
+  // singer sees at a glance that the moment is not theirs and dropping
+  // them would make the song appear to skip whole phrases. What goes:
+  // every other part's lines and rests.
+  //
+  // Section headers, chord rows and the system rules are untouched, so
+  // the page keeps its shape and the chords keep sitting over the words
+  // they are played against.
+  //
+  // A class on the rows rather than a re-render: the score carries open
+  // editors, recording chips and the reader's place in it, and this is a
+  // way of LOOKING at the page, not a different page.
+  filterPart: function(score, part) {
+    var V = window.lhcVoiceLines;
+    if (!score || !score.querySelectorAll) return 0;
+    var want = V.partKey(part);
+    var all = !want || want === 'all';
+    score.setAttribute('data-vl-only', all ? '' : want);
+    var shown = 0;
+    Array.prototype.forEach.call(score.querySelectorAll('.vl-ln'), function(ln) {
+      var mine = true;
+      if (!all) {
+        // A singing line carries data-part; a rest carries the lane it is
+        // holding open, under its own name.
+        var p = ln.getAttribute('data-part');
+        if (p == null) p = ln.getAttribute('data-rest-part');
+        var k = V.partKey(p);
+        mine = (k === 'both' || k === 'all' || k === want);
+      }
+      if (mine) shown++;
+      ln.classList.toggle('vl-ln--off', !mine);
+    });
+    return shown;
+  },
+
   _line: function(cls, tag, ln, opts) {
     var V = window.lhcVoiceLines;
     var o = opts || {};
@@ -48408,8 +48473,13 @@ var WO = (function() {
       html += '<div class="sb-ctrl-actions" style="display:flex;align-items:center;gap:4px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;">';
       // The microphone carries its word. It was the one control here with
       // no label, on the page people are told to record from.
+      // One tap back to the list of songs, from wherever in the book you
+      // have got to. It repeats on every song on purpose: the way out is
+      // next to where you are, not at the top of a book you have to
+      // scroll back up through to reach.
+      html += '<button class="sb-attach-btn sb-to-index" onclick="WO.sbScrollToIndex()" title="Back to the contents"><i class="fa-solid fa-list-ol"></i> Contents</button>';
       html += '<button class="sb-attach-btn sb-rec-cta" onclick="WO.sbOpenRecordings(\'' + sid + '\')" title="Practice recordings — record and play back reference takes"><i class="fa-solid fa-microphone"></i> Record</button>';
-      html += '<button class="sb-attach-btn" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
+      html += '<button class="sb-attach-btn sb-ctrl-2nd" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
       // Edits whatever the song is actually showing. On a song whose pages
       // are its choir parts, the lyrics editor is not the thing in front
       // of you.
@@ -48417,8 +48487,12 @@ var WO = (function() {
       html += '<button class="sb-attach-btn sb-edit-lyrics-btn" onclick="WO.sbOpenLyricsEditor(\'' + sid + '\')" title="' +
         (_editsChoir ? 'Edit the choir parts' : 'Edit Lyrics') + '"><i class="fa-solid fa-pen-to-square"></i> ' +
         (_editsChoir ? 'Edit parts' : 'Edit') + '</button>';
-      html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
-      html += '<button class="sb-attach-btn sb-remove-btn" onclick="WO.sbRemoveSong(\'' + sid + '\')" title="Remove this song from songbook"><i class="fa-solid fa-trash-can"></i></button>';
+      html += '<button class="sb-attach-btn sb-ctrl-2nd" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
+      html += '<button class="sb-attach-btn sb-ctrl-2nd sb-remove-btn" onclick="WO.sbRemoveSong(\'' + sid + '\')" title="Remove this song from songbook"><i class="fa-solid fa-trash-can"></i></button>';
+      // Eleven buttons at a size you can hit came to 305px of controls
+      // above the song. The four you use while singing stay out; the rest
+      // are one tap away, and a desktop still shows every one of them.
+      html += '<button class="sb-attach-btn sb-ctrl-more" aria-expanded="false" onclick="WO.sbToggleCtrlMore(\'' + sid + '\')" title="More tools for this song"><i class="fa-solid fa-ellipsis"></i> More</button>';
       html += '</div>';
       html += '</div>'; // .sb-page-controls-bar
 
@@ -48590,6 +48664,7 @@ var WO = (function() {
               'those are the song’s own, and show in the Chords tab too. ' +
               'The microphone on a line records just that line. ' +
               'Use <b>Edit parts</b> to add or regroup moments.</div>' +
+            _sbChoirPartsBarHtml(song, sid) +
             _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
           '</div></div>';
@@ -48628,6 +48703,7 @@ var WO = (function() {
     document.querySelectorAll('[data-colbreak="1"]').forEach(function(m) { m.remove(); });
     // 661 — Restore last-viewed panel per song (after re-render, silently re-open saved views)
     sbRestoreLastViews();
+    _sbRestoreChoirParts();
     // Re-draw any saved annotations
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
     // Re-draw saved image annotations
@@ -60630,6 +60706,129 @@ var WO = (function() {
   // was for reading from while singing. It has since become the view that
   // carries the timeline, the inline editing and Edit parts, so that
   // reasoning stopped being true.
+  // ── 22 \u2014 Which part am I singing? ────────────────────────────────────
+  //
+  // PER VIEWER, and deliberately so. `choirView` is written onto the
+  // songbook row because everyone opening the book should get the same
+  // pages (gotcha 16); which of those lines you sing is not a property of
+  // the book, it is a property of you. It lives in localStorage and
+  // reaches nobody else.
+  var _sbMyPart = null;
+
+  function _sbMyPartStore() {
+    if (_sbMyPart === null) {
+      try { _sbMyPart = JSON.parse(localStorage.getItem('lhc_sb_mypart') || '{}'); }
+      catch (e) { _sbMyPart = {}; }
+      if (!_sbMyPart || typeof _sbMyPart !== 'object') _sbMyPart = {};
+      if (!_sbMyPart.bySong || typeof _sbMyPart.bySong !== 'object') _sbMyPart.bySong = {};
+    }
+    return _sbMyPart;
+  }
+
+  // Their choice for this song wins. Failing that, the part they last
+  // chose anywhere -- but only when THIS song has a lane by that exact
+  // name. Falling back by family instead would hand a Women 2 singer the
+  // Women 1 line, which is a worse answer than showing them everything.
+  function _sbChoirPartFor(song, lanes) {
+    var V = window.lhcVoiceLines;
+    var store = _sbMyPartStore();
+    var mine = store.bySong[_sbBaseSongId(song)];
+    if (mine != null) return mine;
+    var last = store.last;
+    if (last && (lanes || []).some(function(p) { return V.partKey(p) === V.partKey(last); })) return last;
+    return '';
+  }
+
+  // Nothing to choose between on a song that has one lane, so no bar.
+  function _sbChoirPartsBarHtml(song, sid) {
+    var V = window.lhcVoiceLines;
+    if (!V || !V.lanes) return '';
+    var lanes = V.lanes(_sbVoiceRowsFor(song));
+    if (lanes.length < 2) return '';
+    var cur = _sbChoirPartFor(song, lanes);
+    // Chips carry the lane's INDEX, not its name. A part is free text --
+    // it can hold a quote, and a quote inside an onclick attribute is a
+    // broken button for whoever named their part that way.
+    var chip = function(idx, val, label, fam) {
+      return '<button class="vl-part-chip' + (fam ? ' vl-part-chip--' + fam : '') +
+        (V.partKey(val) === V.partKey(cur) ? ' is-on' : '') +
+        '" onclick="WO.sbSetChoirPart(\'' + sid + '\',' + idx + ')">' +
+        escapeHtml(label) + '</button>';
+    };
+    var out = '<div class="vl-parts" id="sbParts-' + sid + '">' +
+      '<span class="vl-parts-lbl">My part</span>' + chip(-1, '', 'All parts', '');
+    lanes.forEach(function(p, i) { out += chip(i, p, V.partLabel(p), V.partFamily(p)); });
+    return out + '</div>';
+  }
+
+  function sbSetChoirPart(sid, idx) {
+    var V = window.lhcVoiceLines;
+    var song = songOrderSections.find(function(s) { return s && s.id === sid; });
+    if (!song || !V) return;
+    var lanes = V.lanes(_sbVoiceRowsFor(song));
+    var part = (idx >= 0 && idx < lanes.length) ? lanes[idx] : '';
+    var store = _sbMyPartStore();
+    store.bySong[_sbBaseSongId(song)] = part;
+    store.last = part;
+    try { localStorage.setItem('lhc_sb_mypart', JSON.stringify(store)); } catch (e) {}
+    _sbApplyChoirPart(sid, part);
+  }
+
+  function _sbApplyChoirPart(sid, part, quiet) {
+    var V = window.lhcVoiceLines;
+    var page = document.getElementById('sbChoirPage-' + sid);
+    if (!page || !V || !V.filterPart) return;
+    Array.prototype.forEach.call(page.querySelectorAll('.vl-score'), function(sc) {
+      V.filterPart(sc, part);
+    });
+    var bar = document.getElementById('sbParts-' + sid);
+    if (bar) {
+      var song = songOrderSections.find(function(s) { return s && s.id === sid; });
+      var lanes = song ? V.lanes(_sbVoiceRowsFor(song)) : [];
+      Array.prototype.forEach.call(bar.querySelectorAll('.vl-part-chip'), function(c, i) {
+        var val = i === 0 ? '' : (lanes[i - 1] || '');
+        c.classList.toggle('is-on', V.partKey(val) === V.partKey(part));
+      });
+    }
+    // Hiding rows changes the page's height, and the zoom transform's
+    // bottom margin is computed from it.
+    if (!quiet) sbApplyZoom();
+  }
+
+  // Put every reader back on their own part after a render.
+  function _sbRestoreChoirParts() {
+    var V = window.lhcVoiceLines;
+    if (!V || !V.lanes) return;
+    songOrderSections.forEach(function(song) {
+      if (!song || !_sbSongHasChoir(song)) return;
+      var lanes = V.lanes(_sbVoiceRowsFor(song));
+      if (lanes.length < 2) return;
+      var p = _sbChoirPartFor(song, lanes);
+      if (p) _sbApplyChoirPart(song.id, p, true);
+    });
+  }
+
+  // Back to the contents. The index is the first thing in the book, so
+  // this is the top -- but it goes through a named function because
+  // "scroll to 0" is not what the button means and would be the first
+  // thing to break if the book ever gained a cover.
+  function sbToggleCtrlMore(sid) {
+    var bar = document.querySelector('.sb-page-controls-bar[data-song-id="' + sid + '"]');
+    if (!bar) return;
+    var open = bar.classList.toggle('sb-ctrl-open');
+    var btn = bar.querySelector('.sb-ctrl-more');
+    if (btn) {
+      btn.classList.toggle('is-on', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    sbApplyZoom();   // the bar just changed height
+  }
+
+  function sbScrollToIndex() {
+    var body = $('sbBody');
+    if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   function _sbChoirBodyHtml(song, live) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
@@ -73360,37 +73559,27 @@ var WO = (function() {
     // Use === 'flex' (not !== 'none') because inline style starts as '' (empty),
     // which would incorrectly satisfy !== 'none' and treat a closed drop as open.
     var isOpen = drop.style.display === 'flex';
-    // Close all badge drops on this page first
-    var page = $('sbPage-' + songId);
-    if (page) {
-      page.querySelectorAll('.sb-badge-drop').forEach(function(d) { d.style.display = 'none'; d.style.position = ''; d.style.top = ''; d.style.left = ''; d.style.zIndex = ''; });
-      page.querySelectorAll('.sb-badge-caret').forEach(function(c) { c.style.transform = ''; });
+    // Close any other drop first -- in the CONTROL BAR, which is where
+    // they live. This looked inside sbPage-<id>, which holds none of
+    // them, and on a song showing its choir parts is display:none as
+    // well, so it had never closed a thing.
+    var host = document.querySelector('.sb-page-controls-bar[data-song-id="' + songId + '"]')
+            || $('sbPage-' + songId);
+    if (host) {
+      host.querySelectorAll('.sb-badge-drop').forEach(function(d) { d.style.display = 'none'; });
+      host.querySelectorAll('.sb-badge-caret').forEach(function(c) { c.style.transform = ''; });
     }
     if (!isOpen) {
       drop.style.display = 'flex';
       if (caret) caret.style.transform = 'rotate(180deg)';
-      // On mobile (≤768px) the header-btns row has overflow-x:auto which clips
-      // position:absolute children. Use position:fixed so the dropdown escapes it.
-      // On desktop keep position:absolute (CSS default) — works fine as-is.
-      if (window.innerWidth <= 768) {
-        var pillId = type === 'vid' ? 'sbVidBadgePill-' : (type === 'doc' ? 'sbDocBadgePill-' : 'sbLinkBadgePill-');
-        var pill = $(pillId + songId);
-        if (pill) {
-          var rect = pill.getBoundingClientRect();
-          drop.style.position = 'fixed';
-          drop.style.top = (rect.bottom + 4) + 'px';
-          drop.style.left = rect.left + 'px';
-          drop.style.zIndex = '9999';
-          // Prevent right-edge overflow
-          requestAnimationFrame(function() {
-            var dw = drop.offsetWidth;
-            var vw = window.innerWidth;
-            if (rect.left + dw > vw - 8) {
-              drop.style.left = Math.max(8, vw - dw - 8) + 'px';
-            }
-          });
-        }
-      }
+      // Position is CSS now, at every width. It used to be computed here
+      // as position:fixed from the pill's viewport rect, to escape the
+      // overflow-x:auto on the tool row -- but a fixed element inside a
+      // transformed ancestor is positioned against that transform, not
+      // the viewport, and the songbook has two of them (the page scaled
+      // to fit the phone, the bar counter-scaled back). The pill sat at
+      // y=609 and its menu at y=1150. Nothing clips the row any more, so
+      // the workaround is gone with it.
     }
   }
 
@@ -75390,6 +75579,9 @@ var WO = (function() {
     sbPaginateAll: sbPaginateAll,
     sbScrollToSong: sbScrollToSong,
     sbToggleSongFold: sbToggleSongFold,
+    sbSetChoirPart: sbSetChoirPart,
+    sbScrollToIndex: sbScrollToIndex,
+    sbToggleCtrlMore: sbToggleCtrlMore,
     sbSyncFromRemote: sbSyncFromRemote,
     sbBroadcastChange: sbBroadcastChange,
     sbBreakDragStart: sbBreakDragStart,
@@ -89424,6 +89616,19 @@ function filterLiturgyItems() {
   .sb-page-controls-bar .sb-attach-btn.sb-remove-btn { color:#fca5a5; border-color:rgba(252,165,165,0.35); }
   .sb-page-controls-bar .sb-attach-btn.sb-remove-btn:hover { background:rgba(239,68,68,0.2); color:#ef4444; }
   .sb-page-controls-bar .sb-badge-btn { /* keep badge colours — they look fine on dark */ }
+  /* The view toggle leads the row, the media badges follow it.
+     A red YouTube pill was the first thing in the bar and the Choir /
+     Lyrics / Both tabs -- the control that decides what the page even
+     shows -- came after it. Done with flex order rather than by moving
+     the markup: the badges are built by six branches depending on how
+     many videos, documents and links a song has, and the order they are
+     DRAWN in is not the order they should be read in. */
+  .sb-page-header-btns > .sb-badge-wrap,
+  .sb-page-header-btns > .sb-badge-rm-wrap { order: 2; }
+  /* A desktop bar fits on one line, so there is nothing to disclose and
+     every tool stays where it has always been. */
+  .sb-ctrl-more { display: none !important; }
+
   /* Song page card — no margin-top (now on .sb-song-unit); compact rounded-bottom */
   /* 794px = A4 width at 96dpi (210mm × 96/25.4 = 793.7 → 794px).
      Using exact pixels ensures the live page renders text at identical positions
@@ -91923,7 +92128,7 @@ function filterLiturgyItems() {
     }
     #songbookLiveModal .sb-unit-fold i { font-size:.72rem !important; }
     #songbookLiveModal .sb-unit-fold:active { background:rgba(255,255,255,0.22); }
-    #songbookLiveModal .sb-page-controls-bar { min-height:0; padding:8px; gap:5px; border-radius:10px 10px 0 0; overflow:hidden; }
+    #songbookLiveModal .sb-page-controls-bar { min-height:0; padding:8px; gap:5px; border-radius:10px 10px 0 0; }
     #songbookLiveModal .sb-ctrl-drag { min-width:0; max-width:none; flex:1 1 150px; }
     #songbookLiveModal .sb-ctrl-title { font-size:.74rem; white-space:normal; line-height:1.2; }
     #songbookLiveModal .sb-ctrl-artist { font-size:.58rem; }
@@ -91934,12 +92139,55 @@ function filterLiturgyItems() {
     /* The song control bar is counter-scaled to stay finger-sized, so its
        DESKTOP type reads huge on a phone. Compact everything so the whole
        row of tools fits without wrapping into a wall. */
-    #songbookLiveModal .sb-page-controls-bar { padding:6px 8px !important; gap:4px !important; min-height:0 !important; }
-    #songbookLiveModal .sb-page-controls-bar button { font-size:.6rem !important; padding:3px 7px !important; min-height:28px !important; min-width:28px !important; border-radius:7px !important; }
-    #songbookLiveModal .sb-page-controls-bar button i { font-size:.62rem !important; }
-    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-title { font-size:.7rem !important; line-height:1.2 !important; }
-    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-artist { font-size:.54rem !important; }
-    #songbookLiveModal .sb-page-header-btns { gap:3px !important; }
+    /* The bar, laid out for a thumb.
+       It was clipped and its tool row was set to nowrap, so the last two
+       buttons were cut off mid-word -- and the media badge's dropdown,
+       which is absolutely positioned inside that row, opened into the
+       clip and showed nothing at all when tapped. Both groups wrap now
+       and nothing is hidden.
+       The bar is counter-scaled to stay finger-sized, so its layout box
+       is about 357px wide: a phone's width, and it has to wrap like one. */
+    #songbookLiveModal .sb-page-controls-bar {
+      padding:9px 10px !important; gap:7px !important; min-height:0 !important;
+      overflow:visible !important; flex-wrap:wrap !important; }
+    #songbookLiveModal .sb-page-header-btns,
+    #songbookLiveModal .sb-ctrl-actions {
+      flex:1 1 100% !important; flex-wrap:wrap !important; overflow:visible !important;
+      gap:6px !important; margin-left:0 !important; justify-content:flex-start !important;
+      padding-bottom:0 !important; }
+    /* 36px and the words left on. 28px with a .6rem label was a row of
+       grey slivers you aimed at rather than read. */
+    #songbookLiveModal .sb-page-controls-bar button {
+      font-size:.78rem !important; padding:0 12px !important; min-height:36px !important;
+      min-width:36px !important; border-radius:10px !important; }
+    #songbookLiveModal .sb-page-controls-bar button i { font-size:.8rem !important; }
+    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-title { font-size:.95rem !important; line-height:1.25 !important; }
+    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-artist { font-size:.74rem !important; }
+    #songbookLiveModal .sb-unit-fold { width:36px !important; min-width:36px !important;
+      height:36px !important; }
+
+    /* Out: which pages, back to the contents, record, edit, and the media
+       badge. Behind More: 2 Col, Liturgist Notes, Reset Layout, add link,
+       attach, remove. */
+    #songbookLiveModal .sb-ctrl-more { display:inline-flex !important; order:9; }
+    #songbookLiveModal .sb-page-controls-bar:not(.sb-ctrl-open) .sb-ctrl-2nd,
+    #songbookLiveModal .sb-page-controls-bar:not(.sb-ctrl-open) .sb-col-toggle-btn,
+    #songbookLiveModal .sb-page-controls-bar:not(.sb-ctrl-open) .sb-litlog-btn {
+      display:none !important; }
+    #songbookLiveModal .sb-ctrl-more.is-on {
+      background:rgba(255,255,255,0.22) !important; color:#fff !important; }
+
+    /* The media menu, anchored to the BAR rather than to the pill. A
+       260px card hanging off a badge near the right edge runs off a
+       375px screen; across the bar it fits by construction, and being
+       anchored to a positioned ancestor it is right under any transform.
+       position:relative is declared here rather than left to the inline
+       one sbApplyZoom writes while counter-scaling, which is absent at
+       zoom 1. */
+    #songbookLiveModal .sb-page-controls-bar { position:relative; }
+    #songbookLiveModal .sb-badge-wrap { position:static !important; }
+    #songbookLiveModal .sb-badge-drop {
+      left:8px !important; right:8px !important; max-width:none !important; z-index:60; }
   }
 </style>
 

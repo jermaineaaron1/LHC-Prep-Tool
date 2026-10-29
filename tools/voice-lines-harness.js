@@ -972,6 +972,73 @@ check('the patch writes only the keys it is handed',
   /if \(patch && patch\.songIds\) row\.song_ids = patch\.songIds;/.test(raw) &&
   /if \(patch && patch\.items\) row\.items = patch\.items;/.test(raw), true);
 
+console.log('\none part at a time');
+// A chorus in three parts is three lines on every moment, and a singer
+// reading from a phone has to find theirs on each one. The chips pick a
+// part; the filter is what that does to the page.
+//
+// The rules it must hold to:
+//   a unison line is EVERYBODY'S and always shows
+//   the chosen part's rests show, because "(-)" is how a singer sees the
+//     moment is not theirs, and dropping them makes the song appear to
+//     skip whole phrases
+//   every other part's lines AND rests go
+{
+  const { El } = require('./minidom.js');
+  const mix = [
+    row('both',    'A family hiding from the storm', 1, { section: 'Verse 1' }),
+    row('Women 1', 'Is there room in your heart',    2, { section: 'Chorus' }),
+    row('Women 2', 'Is there room in your heart',    2, { section: 'Chorus' }),
+    row('Men',     'Is there room in your heart',    2, { section: 'Chorus' }),
+    row('Women 1', 'For a little one',               3, { section: 'Chorus' })
+  ];
+  // minidom parses flat -- every tag becomes a child of the container --
+  // so the lines are found from the container rather than from the
+  // .vl-score inside it. What is being tested is which rows the filter
+  // switches off, and that does not depend on the nesting.
+  const box = new El('div', 'vl-host');
+  box.innerHTML = V.html(mix, {});
+  const lns = () => box.querySelectorAll('.vl-ln');
+  const on = () => lns().filter(e => !e.classList.contains('vl-ln--off'))
+    .map(e => e.getAttribute('data-part') || ('rest:' + e.getAttribute('data-rest-part')));
+
+  check('the arrangement draws every lane on every moment', lns().length, 7);
+  check('  unfiltered, all of them show', on().length, 7);
+
+  check('filtering to the men returns how many lines are left',
+    V.filterPart(box, 'Men'), 3);
+  check('  and they are the unison line, their line, and their rest',
+    on(), ['both', 'men', 'rest:Men']);
+  check('  the score says which part it is showing',
+    box.getAttribute('data-vl-only'), 'men');
+
+  V.filterPart(box, 'Women 2');
+  check('a part that only sings the chorus still gets the verse',
+    on(), ['both', 'women 2', 'rest:Women 2']);
+
+  V.filterPart(box, 'Women 1');
+  check('a part singing both chorus moments has no rest to show',
+    on(), ['both', 'women 1', 'women 1']);
+
+  V.filterPart(box, '  MEN ');
+  check('the part is matched the way every other part name is',
+    on(), ['both', 'men', 'rest:Men']);
+
+  check('All parts puts the whole score back', V.filterPart(box, ''), 7);
+  check('  and clears the marker', box.getAttribute('data-vl-only'), '');
+  check('  leaving nothing switched off',
+    lns().filter(e => e.classList.contains('vl-ln--off')).length, 0);
+
+  // Section headers and chord rows are not lines and must survive the
+  // filter: the page keeps its shape, and the chords keep sitting over
+  // the words they are played against.
+  V.filterPart(box, 'Men');
+  check('the section headings are left alone', box.querySelectorAll('.vl-section').length, 2);
+  check('  and none of them is switched off',
+    box.querySelectorAll('.vl-section').filter(e => e.classList.contains('vl-ln--off')).length, 0);
+  V.filterPart(box, '');
+}
+
 console.log('\nthe chords are the same width as the words under them');
 // Not a style preference. A chord is placed by CHARACTER OFFSET into the
 // lyric, so the chord row and the words have to be the same monospaced
@@ -1013,6 +1080,24 @@ check('the row rhythm is tokenised too',
   [/--vl-row:\s*\d+px/.test(css), /--vl-gap:\s*\d+px/.test(css)], [true, true]);
 check('  and the system padding uses it',
   /\.vl-sys \{ padding: var\(--vl-row\) 0/.test(css), true);
+
+// The filter is half JavaScript and half this rule. visibility:hidden
+// would switch the lines off and leave the page exactly as long, which
+// is the thing the filter exists to fix.
+check('a filtered-out line takes its height with it',
+  /\.vl-ln--off \{ display: none !important; \}/.test(css), true);
+
+// The page is a 794px sheet scaled to fit the phone -- at the fit zoom
+// of 45% a 9.5px part label was four pixels of text, which is what "hard
+// to see whose part it is" was.
+const whoRule = rule('.vl-who');
+const whoPx = parseFloat((/font-size:\s*([\d.]+)px/.exec(whoRule) || [])[1]);
+check('the part label survives being scaled to a phone', whoPx >= 11, true);
+// The chip's width is shared with the chord row's spacer, so the words
+// and the chords above them start at the same x. One number, two rules.
+const whoW = (/flex: 0 0 (\d+)px; width: (\d+)px/.exec(whoRule) || []);
+check('  and its box is one width, not two', whoW[1] === whoW[2] && !!whoW[1], true);
+check('  wide enough for a named part at that size', parseInt(whoW[1], 10) >= 84, true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

@@ -356,6 +356,101 @@ check('  so the card is as tall as its list',
 check('the desktop contents card is left alone',
   /\.sb-index-page \{ background:white;[^}]*width:100%; max-width:820px;/.test(raw), true);
 
+console.log('\nthe control bar, and the two buttons that were cut in half');
+// The bar was clipped and its tool row was set to nowrap, so Liturgist
+// Notes and Reset Layout were sliced off at the bar's right edge -- and
+// the media badge's dropdown, which is absolutely positioned INSIDE that
+// row, opened into the clip and showed nothing at all when tapped.
+const BAR_RULE = /#songbookLiveModal \.sb-page-controls-bar \{([^}]*)\}/g;
+const BARS = [];
+for (let m; (m = BAR_RULE.exec(PHONE_CSS));) BARS.push(m[1]);
+check('the phone sheet styles the bar', BARS.length > 0, true);
+check('  and nothing in it is clipped',
+  BARS.some(b => /overflow:\s*hidden/.test(b)), false);
+check('  and one of them turns clipping off outright',
+  BARS.some(b => /overflow:\s*visible\s*!important/.test(b)), true);
+const GROUPS = /#songbookLiveModal \.sb-page-header-btns,\s*\r?\n\s*#songbookLiveModal \.sb-ctrl-actions \{([^}]*)\}/
+  .exec(PHONE_CSS);
+check('both rows of tools wrap instead of scrolling away', !!GROUPS, true);
+check('  they wrap', /flex-wrap:\s*wrap/.test(GROUPS ? GROUPS[1] : ''), true);
+check('  and do not clip', /overflow:\s*visible/.test(GROUPS ? GROUPS[1] : ''), true);
+// 28px with a .6rem label was a row of grey slivers you aimed at rather
+// than read.
+const BTN = /#songbookLiveModal \.sb-page-controls-bar button \{([^}]*)\}/.exec(PHONE_CSS);
+const btnPx = parseFloat(((/min-height:\s*([\d.]+)px/.exec(BTN ? BTN[1] : '')) || [])[1]);
+const btnRem = parseFloat(((/font-size:\s*([\d.]+)rem/.exec(BTN ? BTN[1] : '')) || [])[1]);
+check('a button is big enough to hit', btnPx >= 36, true);
+check('  and its label big enough to read', btnRem >= 0.75, true);
+
+// The red YouTube pill was the first thing in the bar; the Choir /
+// Lyrics / Both tabs -- the control deciding what the page even shows --
+// came after it. Ordered in CSS because the badges are built by six
+// branches and the order they are DRAWN in is not the reading order.
+check('the media badges follow the view toggle, not lead it',
+  /\.sb-page-header-btns > \.sb-badge-wrap,\s*\r?\n\s*\.sb-page-header-btns > \.sb-badge-rm-wrap \{ order: 2; \}/
+    .test(raw), true);
+
+// One tap back to the list, from wherever in the book you have got to.
+check('every song carries a way back to the contents',
+  /class="sb-attach-btn sb-to-index" onclick="WO\.sbScrollToIndex\(\)"/.test(raw), true);
+check('  and it is the first thing in the row of actions',
+  raw.indexOf('sb-to-index') < raw.indexOf('sb-rec-cta" onclick="WO.sbOpenRecordings'), true);
+
+console.log('\nwhat the phone shows at rest, and what is one tap away');
+// Eleven buttons at a size you can hit came to 305px of controls above
+// a song you were trying to read. Out: which pages, back to the
+// contents, record, edit, and the media badge. Behind More: the rest.
+check('a desktop discloses nothing, because it all fits',
+  /\.sb-ctrl-more \{ display: none !important; \}/.test(raw), true);
+check('  and the phone sheet is what turns More on',
+  /#songbookLiveModal \.sb-ctrl-more \{ display:inline-flex !important;/.test(PHONE_CSS), true);
+const HIDE = /#songbookLiveModal \.sb-page-controls-bar:not\(\.sb-ctrl-open\) \.sb-ctrl-2nd,\s*\r?\n\s*#songbookLiveModal \.sb-page-controls-bar:not\(\.sb-ctrl-open\) \.sb-col-toggle-btn,\s*\r?\n\s*#songbookLiveModal \.sb-page-controls-bar:not\(\.sb-ctrl-open\) \.sb-litlog-btn \{\s*\r?\n?\s*display:none !important; \}/
+  .test(PHONE_CSS);
+check('the occasional tools are folded away until asked for', HIDE, true);
+// The three that stay out are the ones you use while singing. If any of
+// them ever picks up sb-ctrl-2nd it disappears from the phone.
+['sb-to-index', 'sb-rec-cta', 'sb-edit-lyrics-btn'].forEach(function (cls) {
+  const line = (raw.split(/\r?\n/).find(l => l.indexOf('"sb-attach-btn ' + cls) > -1) || '');
+  check('  ' + cls + ' is not one of them', /sb-ctrl-2nd/.test(line), false);
+});
+// Matched on the exact markup, because the blank-page branch emits an
+// attach button of its own that has nothing to do with this bar.
+[['sbAddSongLink', '"sb-attach-btn sb-ctrl-2nd" onclick="WO.sbAddSongLink('],
+ ['sbAttachFile', '"sb-attach-btn sb-ctrl-2nd" onclick="WO.sbAttachFile('],
+ ['sbRemoveSong', '"sb-attach-btn sb-ctrl-2nd sb-remove-btn" onclick="WO.sbRemoveSong(']
+].forEach(function (pair) {
+  check('  ' + pair[0] + ' is', raw.indexOf(pair[1]) > -1, true);
+});
+
+console.log('\nthe media menu, which has never opened on a phone');
+// It was positioned with position:fixed from the pill's viewport rect.
+// A fixed element inside a TRANSFORMED ancestor is positioned against
+// that transform, and the songbook has two -- the page scaled to fit the
+// phone and the bar counter-scaled back. Measured: pill at y=609, menu
+// at y=1150, 260px wide from x=220 on a 375px screen. The bar's
+// overflow:hidden had been hiding the whole thing, so the button simply
+// did nothing and the fault underneath was invisible.
+// Sliced, not grepped: the Song Order's media ribbon has a dropdown of
+// its own that legitimately uses fixed positioning, outside any
+// transform, and a search of the whole file would hit that instead.
+const TOGGLE = extract(/^  function sbToggleBadgeDrop\(/, 'sbToggleBadgeDrop');
+check('nothing computes a fixed position for it any more',
+  /position = 'fixed'/.test(TOGGLE), false);
+check('  and the pill rect is no longer measured for it',
+  /getBoundingClientRect/.test(TOGGLE), false);
+// The close-all swept sbPage-<id>, which holds no dropdowns at all --
+// they are in the control bar, outside the page -- and on a song showing
+// its choir parts that page is display:none as well.
+check('closing the others looks where the others are',
+  /var host = document\.querySelector\('\.sb-page-controls-bar\[data-song-id="' \+ songId \+ '"\]'\)/
+    .test(raw), true);
+check('the menu spans the bar instead of hanging off the pill',
+  /#songbookLiveModal \.sb-badge-wrap \{ position:static !important; \}/.test(PHONE_CSS), true);
+check('  anchored to a bar that is reliably positioned',
+  /#songbookLiveModal \.sb-page-controls-bar \{ position:relative; \}/.test(PHONE_CSS), true);
+check('  and stretched across it',
+  /#songbookLiveModal \.sb-badge-drop \{\s*\r?\n?\s*left:8px !important; right:8px !important;/.test(PHONE_CSS), true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

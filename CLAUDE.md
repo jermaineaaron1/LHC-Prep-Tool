@@ -636,6 +636,30 @@ the anon key -- verify as `postgres`, not as the app.
     re-render and is cleared on each open: closed by default, and an edit
     does not slam every other song shut.
 
+26. **Which part a reader is shown is PER VIEWER; which pages are
+    SHARED.** `choirView` (gotcha 16) goes on the songbooks row because
+    everyone opening the book should get the same pages. The part filter
+    -- the chips above the score, `lhcVoiceLines.filterPart` and
+    `localStorage.lhc_sb_mypart` -- is the opposite: which of those lines
+    you sing is a property of you, not of the book, and it reaches
+    nobody else. Filtering keeps unison lines (they are everybody's) and
+    the chosen part's RESTS, because `(—)` is how a singer sees the
+    moment is not theirs; dropping them makes the song appear to skip.
+    It filters by CLASS on the rows, never by re-rendering: the score
+    carries open editors, recording chips and the reader's place in it.
+
+27. **The songbook control bar lays out at ~357px on a phone, not
+    794px.** `sbApplyZoom` counter-scales it by 1/zoom so its buttons
+    stay finger-sized, which means its layout box is a phone's width
+    while everything in it is at desktop size. Consequences, all of them
+    found the hard way: it must wrap like a phone (clipping it cut
+    Liturgist Notes and Reset Layout in half); only the four controls you
+    use while singing stay out, the rest behind `.sb-ctrl-more`; and
+    **`position: fixed` inside it does not mean the viewport** -- the
+    transform is its containing block, which put the media badge's menu
+    at y=1150 for a pill at y=609. Anchor to the bar, which the phone
+    sheet keeps `position: relative`.
+
 ## Quick Commands for Claude Code
 
 ```bash
