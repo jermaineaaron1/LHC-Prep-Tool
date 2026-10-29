@@ -47757,6 +47757,8 @@ var WO = (function() {
     if (window.lhcVoiceRec) window.lhcVoiceRec.stopPlayback(null);
     if (_sbPlayingAudio) { try { _sbPlayingAudio.pause(); } catch (e) {} _sbPlayingAudio = null; _sbPlayingId = null; }
     if (typeof _sbmStopPlayer === 'function') { _sbmStopPlayer(); _sbmCloseSheet(); }
+    if (typeof _sbmEdClose === 'function') _sbmEdClose();
+    if (typeof _sbmPdfClose === 'function') _sbmPdfClose();
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
     if (_sbStandaloneId) {
       var _closeSbId = _sbStandaloneId;
@@ -48255,13 +48257,7 @@ var WO = (function() {
   }
   function sbmEdit() {
     var song = _sbmSong(); if (!song) return;
-    if (_sbSongHasChoir(song) && _sbChoirView(song) === 'choir') {
-      // The structured editor is Phase 8; until it lands, the parts are
-      // edited where they always were: on the A4 choir page.
-      sbmPageView(true);
-      setTimeout(function() { sbEditChoirParts(_sbBaseSongId(song)); }, 60);
-      return;
-    }
+    if (_sbSongHasChoir(song) && _sbChoirView(song) === 'choir') { sbmEditParts(); return; }
     sbOpenLyricsEditor(song.id);
   }
   function sbmPageView(on) {
@@ -48315,7 +48311,8 @@ var WO = (function() {
       ['fa-file-pdf', 'Save as PDF', 'WO.sbmCloseSheet();WO.sbSavePDF()'],
       ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()'],
       ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()'],
-      ['fa-arrows-rotate', 'Reset this song\u2019s layout', 'WO.sbmCloseSheet();WO.sbmReset()']
+      ['fa-arrows-rotate', 'Reset this song\u2019s layout', 'WO.sbmCloseSheet();WO.sbmReset()'],
+      ['fa-people-group', 'Edit choir parts', 'WO.sbmCloseSheet();WO.sbmEditParts()']
     ];
     var html = '<div class="sbm-menu">' + rows.map(function(r) {
       return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '"></i>' + r[1] + '</button>';
@@ -48545,6 +48542,691 @@ var WO = (function() {
     }
     _sbmLoadRecs(song);
     _sbmPaintPractice(song);
+  }
+
+  // ==================== EDIT PARTS, ON A PHONE ====================
+  //
+  // The arrangement is sections of moments of lines. A moment is the
+  // set of lines sung at the same time -- one per part, or one for
+  // everyone -- which is exactly the grouping lhcVoiceLines.group makes
+  // of the rows in song_voice_lines. This editor shows that structure
+  // instead of a textarea with a prefix grammar, and saves the way the
+  // textarea did: by writing the grammar out and handing it to the same
+  // parser, so what is stored is byte-for-byte what the old editor would
+  // have stored for the same arrangement.
+  var _sbmEd = null;
+  var _SBM_ED_PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass', 'Women', 'Men'];
+  var _SBM_ED_SECTIONS = ['Verse', 'Chorus', 'Pre-Chorus', 'Bridge', 'Ending', 'Intro', 'Interlude', 'Last Line'];
+  var _sbmEdSeq = 0;
+  function _sbmEdId() { return 'e' + (++_sbmEdSeq); }
+
+  function _sbmEdPartKey(p) { return window.lhcVoiceLines ? window.lhcVoiceLines.partKey(p) : String(p || '').toLowerCase(); }
+  function _sbmEdPartLabel(p) {
+    var k = _sbmEdPartKey(p);
+    if (k === 'both' || k === 'all' || !k) return 'All';
+    return window.lhcVoiceLines ? window.lhcVoiceLines.partLabel(p) : p;
+  }
+  function _sbmEdCanonical(name) {
+    // "women" and "men" are the two shorthand lanes; everything else keeps
+    // the name the choir gave it.
+    var k = String(name || '').trim().toLowerCase();
+    if (k === 'all' || k === 'both' || k === '') return 'both';
+    if (k === 'women') return 'women';
+    if (k === 'men') return 'men';
+    return String(name).trim();
+  }
+
+  function _sbmEdFromRows(rows) {
+    var V = window.lhcVoiceLines;
+    var secs = [], byName = {}, parts = [];
+    var seen = {};
+    V.group(rows).forEach(function(g) {
+      var name = g.section || '';
+      var sec = byName[name];
+      if (!sec) { sec = { id: _sbmEdId(), name: name, open: secs.length === 0, moments: [] }; byName[name] = sec; secs.push(sec); }
+      var lines = [];
+      if (g.both) lines.push({ id: _sbmEdId(), part: 'both', text: g.both.text || '', sustained: !!g.both.sustained });
+      Object.keys(g.byPart).forEach(function(p) {
+        var ln = g.byPart[p];
+        lines.push({ id: _sbmEdId(), part: ln.part, text: ln.text || '', sustained: !!ln.sustained });
+        var k = _sbmEdPartKey(ln.part);
+        if (!seen[k]) { seen[k] = true; parts.push(String(ln.part).trim()); }
+      });
+      sec.moments.push({ id: _sbmEdId(), lines: lines });
+    });
+    return { sections: secs, parts: parts };
+  }
+
+  function _sbmEdToText(ed) {
+    var out = [];
+    ed.sections.forEach(function(sec) {
+      var body = [];
+      sec.moments.forEach(function(m) {
+        var ls = m.lines.filter(function(l) { return String(l.text || '').trim() || l.sustained; });
+        if (!ls.length) return;
+        body.push(ls.map(function(l) {
+          var k = _sbmEdPartKey(l.part);
+          var pre = (k === 'both') ? '' : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] ';
+          return pre + (l.sustained ? '~' : '') + String(l.text || '').replace(/\r?\n/g, ' ');
+        }).join('\n'));
+      });
+      if (!body.length) return;
+      if (sec.name) out.push('[' + sec.name + ']');
+      out.push(body.join('\n\n'));
+      out.push('');
+    });
+    return out.join('\n');
+  }
+
+  function _sbmEdFind(id) {
+    var ed = _sbmEd; if (!ed) return null;
+    for (var i = 0; i < ed.sections.length; i++) {
+      var sec = ed.sections[i];
+      if (sec.id === id) return { sec: sec, si: i };
+      for (var j = 0; j < sec.moments.length; j++) {
+        var m = sec.moments[j];
+        if (m.id === id) return { sec: sec, si: i, m: m, mi: j };
+        for (var k = 0; k < m.lines.length; k++) if (m.lines[k].id === id) return { sec: sec, si: i, m: m, mi: j, line: m.lines[k], li: k };
+      }
+    }
+    return null;
+  }
+
+  function sbmEditParts() {
+    var song = _sbmSong(); if (!song || !window.lhcVoiceLines) return;
+    var base = _sbBaseSongId(song);
+    var rows = _sbVoiceLines[base] || [];
+    var built;
+    if (rows.length) built = _sbmEdFromRows(rows);
+    else {
+      // An ordinary song becoming one with parts: start from its words,
+      // everyone singing, so the first thing to do is split a line, not
+      // type a verse back in.
+      var seed = (typeof window.lhcVoiceLines.fromLyrics === 'function') ? window.lhcVoiceLines.fromLyrics(song.lyrics || '') : [];
+      built = _sbmEdFromRows(Array.isArray(seed) ? seed : []);
+      if (!built.sections.length) built.sections.push({ id: _sbmEdId(), name: 'Verse 1', open: true, moments: [] });
+    }
+    _sbmEd = { base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
+               sections: built.sections, parts: built.parts, reorder: false, dirty: false };
+    _sbmStopPlayer();
+    _sbmEdPaint();
+  }
+
+  function _sbmEdPartsOn() {
+    var on = {};
+    (_sbmEd.parts || []).forEach(function(p) { on[_sbmEdPartKey(p)] = p; });
+    return on;
+  }
+
+  function _sbmEdPaint() {
+    var ed = _sbmEd; if (!ed) return;
+    var host = document.getElementById('sbmEdit');
+    if (!host) { host = document.createElement('div'); host.id = 'sbmEdit'; host.className = 'sbm'; document.body.appendChild(host); }
+    host.classList.toggle('is-reorder', !!ed.reorder);
+    var on = _sbmEdPartsOn();
+    var fam = function(p) { return _sbmPartFamily(p); };
+
+    var html = '<div class="sbm-ed__hero">' +
+      '<button class="sbm-ed__back" onclick="WO.sbmEdCancel()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div style="min-width:0;"><div class="sbm-ed__title">Edit Parts</div><div class="sbm-ed__song">' + escapeHtml(ed.title) + (ed.artist ? ' \u00b7 ' + escapeHtml(ed.artist) : '') + '</div></div>' +
+      '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>';
+
+    html += '<div class="sbm-ed__body">';
+    html += '<div class="sbm-card"><div class="sbm-ed__actions">' +
+      '<button class="sbm-tile sbm-tile--blue" onclick="WO.sbmEdAddSection()"><i class="fa-solid fa-circle-plus"></i>Add Section</button>' +
+      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmEdAddPart(null)"><i class="fa-solid fa-circle-plus"></i>Add Part</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdAddHarmony()"><i class="fa-solid fa-people-group"></i>Add Harmony</button>' +
+      '<button class="sbm-tile' + (ed.reorder ? ' is-on' : '') + '" onclick="WO.sbmEdReorder()"><i class="fa-solid fa-arrow-down-up-across-line"></i>Reorder</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmEdPreview()"><i class="fa-solid fa-eye"></i>Preview</button></div></div>';
+
+    // which parts this song uses
+    var names = _SBM_ED_PARTS.slice();
+    (ed.parts || []).forEach(function(p) { if (names.map(_sbmEdPartKey).indexOf(_sbmEdPartKey(p)) === -1) names.push(p); });
+    html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i>Available choir parts</div><div class="sbm-ed__toggles">' +
+      '<span class="sbm-ed__tg is-on" style="--p:var(--sbm-part-all)" title="Everyone sings these lines"><span>All</span><span class="sw"></span></span>' +
+      names.map(function(p) {
+        var k = _sbmEdPartKey(p), isOn = !!on[k];
+        return '<button class="sbm-ed__tg' + (isOn ? ' is-on' : '') + '" style="--p:var(--sbm-part-' + fam(p) + ')" onclick="WO.sbmEdTogglePart(\'' + escapeHtml(p).replace(/'/g, '&#39;') + '\')" aria-pressed="' + (isOn ? 'true' : 'false') + '"><span>' + escapeHtml(_sbmEdPartLabel(p)) + '</span><span class="sw"></span></button>';
+      }).join('') + '</div></div>';
+
+    // the sections
+    ed.sections.forEach(function(sec, si) {
+      var n = sec.moments.reduce(function(a, m) { return a + m.lines.length; }, 0);
+      html += '<div class="sbm-ed__sec" data-sec="' + sec.id + '">' +
+        '<div class="sbm-ed__sechead' + (sec.open ? '' : ' is-closed') + '">' +
+          '<button class="chev" onclick="WO.sbmEdToggleSec(\'' + sec.id + '\')" aria-expanded="' + (sec.open ? 'true' : 'false') + '"><i class="fa-solid fa-chevron-' + (sec.open ? 'down' : 'right') + '"></i></button>' +
+          '<button class="sbm-ed__secname" onclick="WO.sbmEdRenameSec(\'' + sec.id + '\')" title="Rename this section">' + escapeHtml(sec.name || 'Untitled section') +
+            (sec.open ? '' : '<span class="sbm-ed__secmeta">' + n + ' part' + (n === 1 ? '' : 's') + '</span>') + '</button>' +
+          '<div class="sbm-ed__secbtns">' +
+            (ed.reorder ? '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveSec(\'' + sec.id + '\',-1)" ' + (si === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+                          '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveSec(\'' + sec.id + '\',1)" ' + (si === ed.sections.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' : '') +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdDupSec(\'' + sec.id + '\')" aria-label="Duplicate section"><i class="fa-regular fa-copy"></i></button>' +
+            '<button class="sbm-ed__ib sbm-ed__ib--danger" onclick="WO.sbmEdDelSec(\'' + sec.id + '\')" aria-label="Delete section"><i class="fa-regular fa-trash-can"></i></button>' +
+          '</div></div>';
+      if (sec.open) {
+        html += '<div class="sbm-ed__secbody">';
+        sec.moments.forEach(function(m, mi) {
+          html += '<div class="sbm-ed__moment" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)">';
+          m.lines.forEach(function(l) {
+            var ph = (_sbmEdPartKey(l.part) === 'both') ? 'Words everyone sings' : 'Add lyrics for ' + _sbmEdPartLabel(l.part) + ' (optional)';
+            html += '<div class="sbm-ed__row" data-line="' + l.id + '">' +
+              '<span class="sbm-ed__handle" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>' +
+              '<button class="sbm-ed__part" style="--p:var(--sbm-part-' + fam(l.part) + ')" onclick="WO.sbmEdCyclePart(\'' + l.id + '\')" title="Change which part sings this">' + escapeHtml(_sbmEdPartLabel(l.part)) + '</button>' +
+              '<input class="sbm-ed__text" value="' + escapeHtml(l.text) + '" placeholder="' + escapeHtml(ph) + '" oninput="WO.sbmEdInput(\'' + l.id + '\',this.value)">' +
+              '<button class="sbm-ed__ib sbm-ed__ib--hold' + (l.sustained ? ' is-on' : '') + '" onclick="WO.sbmEdHold(\'' + l.id + '\')" title="Held note" aria-pressed="' + (l.sustained ? 'true' : 'false') + '"><i class="fa-solid fa-wave-square"></i></button>' +
+              '<button class="sbm-ed__ib sbm-ed__ib--dup" onclick="WO.sbmEdDupLine(\'' + l.id + '\')" aria-label="Duplicate line"><i class="fa-regular fa-copy"></i></button>' +
+              '<button class="sbm-ed__ib sbm-ed__ib--danger sbm-ed__ib--del" onclick="WO.sbmEdDelLine(\'' + l.id + '\')" aria-label="Delete line"><i class="fa-regular fa-trash-can"></i></button>' +
+              '</div>';
+          });
+          html += '<div class="sbm-ed__mbtns">' +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',-1)" ' + (mi === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+            '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',1)" ' + (mi === sec.moments.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
+            '<button class="sbm-ed__ib sbm-ed__ib--teal" onclick="WO.sbmEdAddPart(\'' + sec.id + '\',\'' + m.id + '\')" aria-label="Add a part to this moment"><i class="fa-solid fa-plus"></i></button></div>';
+          html += '</div>';
+        });
+        html += '<button class="sbm-ed__add" onclick="WO.sbmEdAddPart(\'' + sec.id + '\')"><i class="fa-solid fa-circle-plus"></i>Add Part to ' + escapeHtml(sec.name || 'this section') + '</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    if (!ed.sections.length) html += '<div class="sbm-card"><p class="sbm-empty">No sections yet. Add one to begin.</p></div>';
+    html += '<div style="height:12px;"></div></div>';
+
+    html += '<div class="sbm-sticky sbm-ed__sticky">' +
+      '<button class="sbm-btn" style="min-height:var(--sbm-primary);" onclick="WO.sbmEdCancel()">Cancel</button>' +
+      '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div>';
+    host.innerHTML = html;
+  }
+
+  // ---- edits ----
+  function _sbmEdTouch() { if (_sbmEd) _sbmEd.dirty = true; }
+  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); } }
+  function sbmEdHold(id) { var f = _sbmEdFind(id); if (f && f.line) { f.line.sustained = !f.line.sustained; _sbmEdTouch(); _sbmEdPaint(); } }
+  function sbmEdToggleSec(id) { var f = _sbmEdFind(id); if (f && f.sec) { f.sec.open = !f.sec.open; _sbmEdPaint(); } }
+  function sbmEdRenameSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var name = prompt('Section name', f.sec.name || '');
+    if (name == null) return;
+    f.sec.name = String(name).trim(); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdMoveSec(id, d) {
+    var f = _sbmEdFind(id); if (!f) return;
+    var a = _sbmEd.sections, i = f.si, j = i + d;
+    if (j < 0 || j >= a.length) return;
+    a.splice(j, 0, a.splice(i, 1)[0]); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDupSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var copy = JSON.parse(JSON.stringify(f.sec));
+    copy.id = _sbmEdId();
+    copy.moments.forEach(function(m) { m.id = _sbmEdId(); m.lines.forEach(function(l) { l.id = _sbmEdId(); }); });
+    copy.name = _sbmEdNextName(copy.name);
+    _sbmEd.sections.splice(f.si + 1, 0, copy); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDelSec(id) {
+    var f = _sbmEdFind(id); if (!f || !f.sec) return;
+    var n = f.sec.moments.reduce(function(a, m) { return a + m.lines.length; }, 0);
+    if (n && !confirm('Delete "' + (f.sec.name || 'this section') + '" and its ' + n + ' line' + (n === 1 ? '' : 's') + '?')) return;
+    _sbmEd.sections.splice(f.si, 1); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function _sbmEdNextName(base) {
+    // "Verse 1" -> "Verse 2"; "Chorus" -> "Chorus 2"; never a name already in use.
+    base = String(base || '').trim();
+    if (!base) return '';
+    var used = {}; _sbmEd.sections.forEach(function(s) { used[String(s.name || '').trim().toLowerCase()] = true; });
+    var m = /^(.*?)(?:\s+(\d+))?$/.exec(base);
+    var stem = m[1] || base, n = m[2] ? parseInt(m[2], 10) + 1 : 2;
+    if (!m[2] && !used[stem.toLowerCase()]) return stem;
+    while (used[(stem + ' ' + n).toLowerCase()]) n++;
+    return stem + ' ' + n;
+  }
+  function sbmEdAddSection() {
+    var html = '<div class="sbm-choice">' + _SBM_ED_SECTIONS.map(function(nm) {
+      return '<button class="sbm-btn" onclick="WO.sbmEdAddSectionNamed(\'' + nm + '\')"><i class="fa-solid fa-plus"></i>' + nm + '</button>';
+    }).join('') + '<button class="sbm-btn" onclick="WO.sbmEdAddSectionNamed(null)"><i class="fa-solid fa-pen"></i>Custom section\u2026</button></div>';
+    _sbmSheet('Add a section', html);
+  }
+  function sbmEdAddSectionNamed(nm) {
+    _sbmCloseSheet();
+    if (nm == null) { nm = prompt('Section name'); if (!nm) return; nm = String(nm).trim(); }
+    else if (/^verse$/i.test(nm)) nm = 'Verse 1';   // verses are numbered by custom
+    if (_sbmEd.sections.some(function(s) { return String(s.name || '').trim().toLowerCase() === nm.toLowerCase(); })) nm = _sbmEdNextName(nm);
+    _sbmEd.sections.forEach(function(s) { s.open = false; });
+    _sbmEd.sections.push({ id: _sbmEdId(), name: nm, open: true, moments: [{ id: _sbmEdId(), lines: [{ id: _sbmEdId(), part: 'both', text: '', sustained: false }] }] });
+    _sbmEdTouch(); _sbmEdPaint();
+    var host = document.getElementById('sbmEdit');
+    var body = host && host.querySelector('.sbm-ed__body');
+    if (body) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+  }
+  function sbmEdAddPart(secId, momentId) {
+    var ed = _sbmEd; if (!ed) return;
+    var sec = secId ? _sbmEdFind(secId).sec : (ed.sections.find(function(s) { return s.open; }) || ed.sections[0]);
+    if (!sec) { sbmEdAddSection(); return; }
+    var on = _sbmEdPartsOn();
+    var options = [['both', 'All']];
+    Object.keys(on).forEach(function(k) { options.push([on[k], _sbmEdPartLabel(on[k])]); });
+    var html = '<div class="sbm-choice">' + options.map(function(o) {
+      return '<button class="sbm-btn" style="--p:var(--sbm-part-' + _sbmPartFamily(o[0]) + ');color:var(--p)" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',\'' + escapeHtml(o[0]).replace(/'/g, '&#39;') + '\')"><i class="fa-solid ' + _SBM_PART_ICON[_sbmPartFamily(o[0])] + '"></i>' + escapeHtml(o[1]) + '</button>';
+    }).join('') + '<button class="sbm-btn" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',null)"><i class="fa-solid fa-pen"></i>Custom part\u2026</button></div>';
+    _sbmSheet('Add a part to ' + (sec.name || 'this section'), html);
+  }
+  function sbmEdAddPartNamed(secId, momentId, part) {
+    _sbmCloseSheet();
+    var f = _sbmEdFind(secId); if (!f || !f.sec) return;
+    if (part == null) { part = prompt('Part name (e.g. Soprano, Descant)'); if (!part) return; part = _sbmEdCanonical(part); }
+    var k = _sbmEdPartKey(part);
+    if (k !== 'both') _sbmEdEnable(part);   // using a part switches it on
+    var m = momentId ? (_sbmEdFind(momentId) || {}).m : f.sec.moments[f.sec.moments.length - 1];
+    // A moment holds each part once, and "everyone" cannot share a moment
+    // with a named part -- that is what the parser would split anyway, so
+    // the editor says it up front with a fresh moment.
+    var clash = !m || m.lines.some(function(l) { var lk = _sbmEdPartKey(l.part); return lk === k || lk === 'both' || k === 'both'; });
+    if (clash) { m = { id: _sbmEdId(), lines: [] }; f.sec.moments.push(m); }
+    m.lines.push({ id: _sbmEdId(), part: part, text: '', sustained: false });
+    f.sec.open = true; _sbmEdTouch(); _sbmEdPaint();
+    var inp = document.querySelector('#sbmEdit [data-line="' + m.lines[m.lines.length - 1].id + '"] .sbm-ed__text');
+    if (inp) inp.focus();
+  }
+  function _sbmEdEnable(part) {
+    var k = _sbmEdPartKey(part); if (!k || k === 'both') return;
+    if (!_sbmEd.parts.some(function(p) { return _sbmEdPartKey(p) === k; })) _sbmEd.parts.push(part);
+  }
+  function sbmEdTogglePart(part) {
+    var ed = _sbmEd, k = _sbmEdPartKey(part);
+    var on = ed.parts.some(function(p) { return _sbmEdPartKey(p) === k; });
+    if (!on) { _sbmEdEnable(_sbmEdCanonical(part)); _sbmEdTouch(); _sbmEdPaint(); return; }
+    var n = 0; ed.sections.forEach(function(s) { s.moments.forEach(function(m) { m.lines.forEach(function(l) { if (_sbmEdPartKey(l.part) === k) n++; }); }); });
+    if (n && !confirm('Turn off ' + _sbmEdPartLabel(part) + ' and remove its ' + n + ' line' + (n === 1 ? '' : 's') + '?')) return;
+    ed.parts = ed.parts.filter(function(p) { return _sbmEdPartKey(p) !== k; });
+    ed.sections.forEach(function(s) { s.moments.forEach(function(m) { m.lines = m.lines.filter(function(l) { return _sbmEdPartKey(l.part) !== k; }); }); s.moments = s.moments.filter(function(m) { return m.lines.length; }); });
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdAddHarmony() {
+    var name = prompt('Name the harmony part (e.g. Soprano, Alto, Descant)');
+    if (!name) return;
+    _sbmEdEnable(_sbmEdCanonical(name)); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdCyclePart(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    var on = _sbmEdPartsOn();
+    var ring = ['both'].concat(Object.keys(on).map(function(k) { return on[k]; }));
+    var taken = {}; f.m.lines.forEach(function(l) { if (l !== f.line) taken[_sbmEdPartKey(l.part)] = true; });
+    var others = Object.keys(taken).length > 0;
+    var cur = ring.map(_sbmEdPartKey).indexOf(_sbmEdPartKey(f.line.part));
+    for (var step = 1; step <= ring.length; step++) {
+      var cand = ring[(cur + step) % ring.length], ck = _sbmEdPartKey(cand);
+      if (taken[ck] || ck === _sbmEdPartKey(f.line.part)) continue;
+      if (ck === 'both' && others) continue;          // everyone cannot share a moment
+      if (ck !== 'both' && taken.both) continue;
+      f.line.part = cand; _sbmEdTouch(); _sbmEdPaint(); return;
+    }
+    showToast('Every available part already sings in this moment', 'info');
+  }
+  function sbmEdDupLine(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    var copy = { id: _sbmEdId(), part: f.line.part, text: f.line.text, sustained: f.line.sustained };
+    f.sec.moments.splice(f.mi + 1, 0, { id: _sbmEdId(), lines: [copy] });
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdDelLine(id) {
+    var f = _sbmEdFind(id); if (!f || !f.line) return;
+    if (String(f.line.text || '').trim() && !confirm('Delete this line?')) return;
+    f.m.lines.splice(f.li, 1);
+    if (!f.m.lines.length) f.sec.moments.splice(f.mi, 1);
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdMoveMoment(id, d) {
+    var f = _sbmEdFind(id); if (!f || !f.m) return;
+    var a = f.sec.moments, i = f.mi, j = i + d;
+    if (j < 0 || j >= a.length) return;
+    a.splice(j, 0, a.splice(i, 1)[0]); _sbmEdTouch(); _sbmEdPaint();
+  }
+  function sbmEdReorder() { _sbmEd.reorder = !_sbmEd.reorder; _sbmEdPaint(); }
+
+  // Drag of a moment within its section. Pointer-based reorder is what
+  // the arrows above are for; this is the desktop nicety.
+  var _sbmEdDragId = null;
+  function sbmEdDragStart(ev, id) { _sbmEdDragId = id; ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', id); } catch (e) {} ev.currentTarget.classList.add('is-drag'); }
+  function sbmEdDragOver(ev) { if (_sbmEdDragId) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; } }
+  function sbmEdDragEnd(ev) { ev.currentTarget.classList.remove('is-drag'); _sbmEdDragId = null; }
+  function sbmEdDrop(ev, targetId) {
+    ev.preventDefault();
+    var from = _sbmEdFind(_sbmEdDragId), to = _sbmEdFind(targetId);
+    _sbmEdDragId = null;
+    if (!from || !to || !from.m || !to.m || from.sec !== to.sec || from.m === to.m) return;
+    var a = from.sec.moments; a.splice(from.mi, 1); a.splice(to.mi, 0, from.m);
+    _sbmEdTouch(); _sbmEdPaint();
+  }
+
+  function sbmEdPreview() {
+    var V = window.lhcVoiceLines;
+    var parsed = V.parseVoiceText(_sbmEdToText(_sbmEd));
+    _sbmSheet('Preview', '<div class="sbm-ed__preview sb-choir">' + (parsed.length ? V.html(parsed, { compact: true }) : '<p class="sbm-empty">Nothing to show yet.</p>') + '</div>');
+  }
+  function sbmEdCancel() {
+    if (_sbmEd && _sbmEd.dirty && !confirm('Discard your changes to the parts?')) return;
+    _sbmEdClose();
+  }
+  function _sbmEdClose() {
+    _sbmCloseSheet();
+    var host = document.getElementById('sbmEdit'); if (host) host.remove();
+    _sbmEd = null;
+  }
+  function sbmEdSave() {
+    var ed = _sbmEd; if (!ed) return;
+    var V = window.lhcVoiceLines;
+    var parsed = V.parseVoiceText(_sbmEdToText(ed));
+    if (!parsed.length) { showToast('Nothing to save \u2014 there are no lines', 'error'); return; }
+    if (typeof showLoader === 'function') showLoader(true);
+    window.SBQ_VOICE_LINES.replaceAll(ed.base, parsed).then(function() {
+      return window.SBQ_VOICE_LINES.forSong(ed.base);
+    }).then(function(fresh) {
+      _sbVoiceLines[ed.base] = fresh || [];
+      // The library copy has to know it is a song with parts now, or the
+      // next render will not look for them.
+      var lib = (window.STATE && window.STATE.songs) ? window.STATE.songs.find(function(x) { return x && x.id === ed.base; }) : null;
+      if (lib) lib.voiceLayout = 'two-part';
+      var item = songOrderSections.find(function(x) { return x && x.id === ed.sid; });
+      if (item) item.voiceLayout = 'two-part';
+      _sbmEdClose();
+      renderSongbookLive();
+      showToast('Choir parts saved', 'success');
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Could not save the choir parts', 'error');
+    }).finally(function() {
+      if (typeof showLoader === 'function') showLoader(false);
+    });
+  }
+
+  // ==================== THE SCORE, FULL SCREEN ====================
+  //
+  // A PDF on a phone is a page you scroll and pinch, not a frame inside a
+  // sheet. pdf.js (already on the page for the song-sheet importer) draws
+  // each page to a canvas at the width of the screen times the zoom; an
+  // iframe would hand the file to the browser's own viewer, which on iOS
+  // shows the first page and nothing else. When the file cannot be fetched
+  // -- a Drive link, a host without CORS -- the sheet with the iframe
+  // stands in, as it did before this existed.
+  var _sbmPdf = null;
+  var _sbmPdfLastR = null;
+  var _SBM_PDF_ZOOMS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+  var _SBM_PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var _SBM_PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  function _sbmPdfLib() {
+    if (window.pdfjsLib) {
+      if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = _SBM_PDFJS_WORKER;
+      return Promise.resolve(window.pdfjsLib);
+    }
+    if (_sbmPdfLib._p) return _sbmPdfLib._p;
+    _sbmPdfLib._p = new Promise(function(res, rej) {
+      var sc = document.createElement('script');
+      sc.src = _SBM_PDFJS;
+      sc.onload = function() {
+        if (!window.pdfjsLib) { rej(new Error('pdf.js did not load')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = _SBM_PDFJS_WORKER;
+        res(window.pdfjsLib);
+      };
+      sc.onerror = function() { _sbmPdfLib._p = null; rej(new Error('pdf.js did not load')); };
+      document.head.appendChild(sc);
+    });
+    return _sbmPdfLib._p;
+  }
+
+  function sbmOpenPdf(r) {
+    if (!r || !r.url) return;
+    _sbmCloseSheet();
+    _sbmPdfClose();
+    _sbmPdfLastR = r;
+    var host = document.createElement('div');
+    host.id = 'sbmPdf'; host.className = 'sbm';
+    host.innerHTML = '<div class="sbm-pdf__hero">' +
+      '<button class="sbm-ed__back" onclick="WO.sbmPdfClose()" aria-label="Back to the song"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div style="min-width:0;"><div class="sbm-pdf__title">' + escapeHtml(r.title || 'Score') + '</div><div class="sbm-pdf__sub" id="sbmPdfSub">Opening\u2026</div></div>' +
+      '<button class="sbm-ed__back" onclick="WO.sbmPdfOpenLast()" aria-label="Open in a new tab or download"><i class="fa-solid fa-download"></i></button></div>' +
+      '<div class="sbm-pdf__stage" id="sbmPdfStage"><div class="sbm-pdf__loading"><i class="fa-solid fa-spinner fa-spin"></i>&nbsp; Opening the score\u2026</div></div>' +
+      '<div class="sbm-pdf__bar">' +
+        '<div class="sbm-pdf__zoom" role="group" aria-label="Zoom">' +
+          '<button onclick="WO.sbmPdfZoom(-1)" aria-label="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
+          '<button class="pct" id="sbmPdfPct" onclick="WO.sbmPdfZoom(0)" title="Fit to the screen">Fit</button>' +
+          '<button onclick="WO.sbmPdfZoom(1)" aria-label="Zoom in"><i class="fa-solid fa-plus"></i></button></div>' +
+        '<div class="sbm-pdf__thumbs" id="sbmPdfThumbs" aria-label="Pages"></div></div>';
+    document.body.appendChild(host);
+    document.addEventListener('keydown', _sbmPdfKey);
+    var P = _sbmPdf = { r: r, host: host, doc: null, n: 0, zoom: 1, cur: 1, pages: [], baseW: 612, baseH: 792, stageW: 0, io: null };
+    _sbmPdfLib().then(function(lib) {
+      return lib.getDocument({ url: r.url, withCredentials: false }).promise;
+    }).then(function(doc) {
+      if (_sbmPdf !== P) { try { doc.destroy(); } catch (e) {} return; }   // closed while loading
+      P.doc = doc; P.n = doc.numPages;
+      return doc.getPage(1).then(function(page) {
+        if (_sbmPdf !== P) return;
+        var vp = page.getViewport({ scale: 1 });
+        P.baseW = vp.width; P.baseH = vp.height;
+        _sbmPdfBuild();
+      });
+    }).catch(function(err) {
+      console.warn('[songbook] pdf.js could not open the score; showing it in a frame instead', err);
+      if (_sbmPdf !== P) return;
+      _sbmPdfClose();
+      _sbmPdfFallback(r);
+    });
+  }
+
+  function _sbmPdfBuild() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    stage.innerHTML = '<div class="sbm-pdf__pages" id="sbmPdfPages"></div>';
+    var wrap = stage.firstChild;
+    P.pages = [];
+    for (var i = 1; i <= P.n; i++) {
+      var pg = document.createElement('div');
+      pg.className = 'sbm-pdf__page'; pg.setAttribute('data-page', i);
+      pg.innerHTML = '<canvas></canvas><span class="pn">' + i + '</span>';
+      wrap.appendChild(pg);
+      P.pages.push({ el: pg, canvas: pg.firstChild, task: null, at: 0 });
+    }
+    P.stageW = Math.max(200, stage.clientWidth - 20);
+    P.io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) { if (e.isIntersecting) _sbmPdfRenderPage(parseInt(e.target.getAttribute('data-page'), 10)); });
+    }, { root: stage, rootMargin: '500px 0px' });
+    P.pages.forEach(function(p) { P.io.observe(p.el); });
+    stage.addEventListener('scroll', _sbmPdfOnScroll, { passive: true });
+    stage.addEventListener('dblclick', function() { _sbmPdfSetZoom(P.zoom > 1 ? 1 : 2); });
+    _sbmPdfPinch(stage);
+    _sbmPdfLayout();
+    _sbmPdfThumbs();
+  }
+
+  function _sbmPdfScale() { var P = _sbmPdf; return (P.stageW / P.baseW) * P.zoom; }
+
+  // Size every page box first, so the document has its full height before
+  // a single page is drawn and a jump to page 5 lands on page 5.
+  function _sbmPdfLayout() {
+    var P = _sbmPdf; if (!P) return;
+    var sc = _sbmPdfScale();
+    P.pages.forEach(function(p) {
+      p.el.style.width = Math.floor(P.baseW * sc) + 'px';
+      p.el.style.height = Math.floor(P.baseH * sc) + 'px';
+      p.at = 0;
+    });
+    var wrap = document.getElementById('sbmPdfPages'); if (wrap) wrap.classList.toggle('is-wide', P.zoom > 1);
+    var pct = document.getElementById('sbmPdfPct'); if (pct) pct.textContent = P.zoom === 1 ? 'Fit' : Math.round(P.zoom * 100) + '%';
+    _sbmPdfRenderVisible();
+    _sbmPdfPaintCur();
+  }
+
+  function _sbmPdfRenderVisible() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var top = stage.scrollTop - 500, bot = stage.scrollTop + stage.clientHeight + 500;
+    P.pages.forEach(function(p, idx) {
+      var y = p.el.offsetTop, h = p.el.offsetHeight;
+      if (y + h >= top && y <= bot) _sbmPdfRenderPage(idx + 1);
+    });
+  }
+
+  // Draw into a fresh canvas and swap it in when it is done; the old one
+  // stays up, stretched to the new size, so a zoom never shows a blank page.
+  function _sbmPdfRenderPage(i) {
+    var P = _sbmPdf; if (!P || !P.doc) return;
+    var p = P.pages[i - 1]; if (!p) return;
+    var sc = _sbmPdfScale();
+    if (p.at === sc) return;
+    if (p.task) { try { p.task.cancel(); } catch (e) {} p.task = null; }
+    p.at = sc;
+    P.doc.getPage(i).then(function(page) {
+      if (_sbmPdf !== P || p.at !== sc) return;
+      var vp = page.getViewport({ scale: sc });
+      var dpr = Math.min(window.devicePixelRatio || 1, 3);
+      var w = Math.floor(vp.width), h = Math.floor(vp.height);
+      p.el.style.width = w + 'px'; p.el.style.height = h + 'px';
+      p.canvas.style.width = w + 'px'; p.canvas.style.height = h + 'px';
+      var nc = document.createElement('canvas');
+      nc.width = Math.floor(vp.width * dpr); nc.height = Math.floor(vp.height * dpr);
+      nc.style.width = w + 'px'; nc.style.height = h + 'px';
+      var task = page.render({ canvasContext: nc.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      p.task = task;
+      task.promise.then(function() {
+        if (p.task === task) p.task = null;
+        if (_sbmPdf !== P || p.at !== sc) return;
+        p.el.replaceChild(nc, p.canvas); p.canvas = nc;
+      }).catch(function(err) {
+        if (p.task === task) p.task = null;
+        if (p.at === sc) p.at = 0;
+        if (!err || err.name !== 'RenderingCancelledException') console.warn('[songbook] page ' + i + ' did not render', err);
+      });
+    }).catch(function(err) { p.at = 0; console.warn(err); });
+  }
+
+  function _sbmPdfOnScroll() {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var mid = stage.scrollTop + stage.clientHeight * 0.4, cur = 1;
+    P.pages.forEach(function(p, idx) { if (p.el.offsetTop <= mid) cur = idx + 1; });
+    if (cur !== P.cur) { P.cur = cur; _sbmPdfPaintCur(); }
+    // the observer draws pages as they come into view; this catches a
+    // browser that reports the intersection late
+    if (P._rv) clearTimeout(P._rv);
+    P._rv = setTimeout(_sbmPdfRenderVisible, 120);
+  }
+
+  function _sbmPdfPaintCur() {
+    var P = _sbmPdf; if (!P) return;
+    var sub = document.getElementById('sbmPdfSub');
+    if (sub) sub.textContent = P.n ? 'Page ' + P.cur + ' of ' + P.n : 'Opening\u2026';
+    var th = document.querySelectorAll('#sbmPdfThumbs .sbm-pdf__thumb');
+    Array.prototype.forEach.call(th, function(t, i) { t.classList.toggle('is-on', i + 1 === P.cur); });
+    var on = document.querySelector('#sbmPdfThumbs .sbm-pdf__thumb.is-on');
+    if (on && on.scrollIntoView) { try { on.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {} }
+  }
+
+  function _sbmPdfThumbs() {
+    var P = _sbmPdf, strip = document.getElementById('sbmPdfThumbs'); if (!P || !strip) return;
+    if (P.n < 2 || P.n > 40) { strip.style.display = 'none'; return; }
+    strip.innerHTML = '';
+    var TW = 88, TH = 116;   // twice the box, for a sharp thumbnail
+    for (var i = 1; i <= P.n; i++) {
+      var b = document.createElement('button');
+      b.className = 'sbm-pdf__thumb'; b.type = 'button';
+      b.setAttribute('aria-label', 'Page ' + i);
+      b.innerHTML = '<canvas width="' + TW + '" height="' + TH + '"></canvas>';
+      b.onclick = (function(n) { return function() { sbmPdfGo(n); }; })(i);
+      strip.appendChild(b);
+      (function(n, canvas) {
+        P.doc.getPage(n).then(function(page) {
+          if (_sbmPdf !== P) return;
+          var vp0 = page.getViewport({ scale: 1 });
+          var vp = page.getViewport({ scale: Math.min(TW / vp0.width, TH / vp0.height) });
+          canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+          return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        }).catch(function() {});
+      })(i, b.firstChild);
+    }
+    _sbmPdfPaintCur();
+  }
+
+  // A jump lands at once and draws its page at once; the scroll handler
+  // would get there too, but a tap on a thumbnail should not wait for it.
+  function sbmPdfGo(n) {
+    var P = _sbmPdf, stage = document.getElementById('sbmPdfStage'); if (!P || !stage) return;
+    var p = P.pages[n - 1]; if (!p) return;
+    stage.scrollTop = Math.max(0, p.el.offsetTop - 10);
+    P.cur = n;
+    _sbmPdfPaintCur();
+    _sbmPdfRenderVisible();
+  }
+
+  function _sbmPdfSetZoom(z) {
+    var P = _sbmPdf; if (!P || !P.doc) return;
+    z = Math.max(_SBM_PDF_ZOOMS[0], Math.min(_SBM_PDF_ZOOMS[_SBM_PDF_ZOOMS.length - 1], z));
+    if (z === P.zoom) return;
+    var stage = document.getElementById('sbmPdfStage');
+    var frac = (stage && stage.scrollHeight) ? stage.scrollTop / stage.scrollHeight : 0;
+    P.zoom = z;
+    _sbmPdfLayout();
+    if (stage) stage.scrollTop = frac * stage.scrollHeight;
+  }
+  function sbmPdfZoom(d) {
+    var P = _sbmPdf; if (!P) return;
+    if (d === 0) { _sbmPdfSetZoom(1); return; }
+    var i = _SBM_PDF_ZOOMS.indexOf(P.zoom);
+    if (i === -1) { i = 0; while (i < _SBM_PDF_ZOOMS.length - 1 && _SBM_PDF_ZOOMS[i] < P.zoom) i++; }
+    _sbmPdfSetZoom(_SBM_PDF_ZOOMS[Math.max(0, Math.min(_SBM_PDF_ZOOMS.length - 1, i + d))]);
+  }
+
+  // Two fingers: the pages scale as a preview while they move, and the real
+  // zoom is set, and the pages redrawn sharp, when they lift.
+  function _sbmPdfPinch(stage) {
+    var P = _sbmPdf, pts = {}, start = 0, k = 1;
+    function count() { return Object.keys(pts).length; }
+    function dist() {
+      var a = Object.keys(pts).map(function(id) { return pts[id]; });
+      return a.length < 2 ? 0 : Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+    }
+    stage.addEventListener('pointerdown', function(ev) {
+      if (ev.pointerType !== 'touch') return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (count() === 2) { start = dist(); k = 1; }
+    });
+    stage.addEventListener('pointermove', function(ev) {
+      if (!pts[ev.pointerId]) return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      if (start && count() === 2) {
+        k = dist() / start;
+        var wrap = document.getElementById('sbmPdfPages');
+        if (wrap) wrap.style.transform = 'scale(' + k.toFixed(3) + ')';
+      }
+    });
+    function up(ev) {
+      if (!pts[ev.pointerId]) return;
+      delete pts[ev.pointerId];
+      if (start && count() < 2) {
+        start = 0;
+        var wrap = document.getElementById('sbmPdfPages');
+        if (wrap) wrap.style.transform = '';
+        if (_sbmPdf === P && Math.abs(k - 1) > 0.05) _sbmPdfSetZoom(Math.round(P.zoom * k * 4) / 4);
+      }
+    }
+    stage.addEventListener('pointerup', up);
+    stage.addEventListener('pointercancel', up);
+  }
+
+  function _sbmPdfKey(ev) { if (ev.key === 'Escape') sbmPdfClose(); }
+  function sbmPdfClose() { _sbmPdfClose(); }
+  function _sbmPdfClose() {
+    var P = _sbmPdf; _sbmPdf = null;
+    document.removeEventListener('keydown', _sbmPdfKey);
+    if (!P) return;
+    if (P.io) { try { P.io.disconnect(); } catch (e) {} }
+    P.pages.forEach(function(p) { if (p.task) { try { p.task.cancel(); } catch (e) {} } });
+    if (P.doc) { try { P.doc.destroy(); } catch (e) {} }
+    if (P.host && P.host.parentNode) P.host.parentNode.removeChild(P.host);
+  }
+  function sbmPdfOpenLast() { if (_sbmPdfLastR && _sbmPdfLastR.url) window.open(_sbmPdfLastR.url, '_blank', 'noopener'); }
+  function _sbmPdfFallback(r) {
+    _sbmPdfLastR = r;
+    var emb = (typeof sbBuildEmbedUrl === 'function') ? sbBuildEmbedUrl(r.url) : r.url;
+    _sbmSheet(r.title, '<div class="sbm-embed" style="aspect-ratio:3/4;"><iframe src="' + escapeHtml(emb) + '"></iframe></div>' +
+      '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmPdfOpenLast()"><i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>');
   }
 
   function sbmRedraw() { if (_sbmActive()) _sbmRender(); }
@@ -76118,6 +76800,14 @@ var WO = (function() {
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw,
+    sbmOpenPdf: sbmOpenPdf, sbmPdfClose: sbmPdfClose, sbmPdfZoom: sbmPdfZoom, sbmPdfGo: sbmPdfGo, sbmPdfOpenLast: sbmPdfOpenLast,
+    sbmEditParts: sbmEditParts, sbmEdInput: sbmEdInput, sbmEdHold: sbmEdHold, sbmEdToggleSec: sbmEdToggleSec,
+    sbmEdRenameSec: sbmEdRenameSec, sbmEdMoveSec: sbmEdMoveSec, sbmEdDupSec: sbmEdDupSec, sbmEdDelSec: sbmEdDelSec,
+    sbmEdAddSection: sbmEdAddSection, sbmEdAddSectionNamed: sbmEdAddSectionNamed, sbmEdAddPart: sbmEdAddPart,
+    sbmEdAddPartNamed: sbmEdAddPartNamed, sbmEdTogglePart: sbmEdTogglePart, sbmEdAddHarmony: sbmEdAddHarmony,
+    sbmEdCyclePart: sbmEdCyclePart, sbmEdDupLine: sbmEdDupLine, sbmEdDelLine: sbmEdDelLine, sbmEdMoveMoment: sbmEdMoveMoment,
+    sbmEdReorder: sbmEdReorder, sbmEdDragStart: sbmEdDragStart, sbmEdDragOver: sbmEdDragOver, sbmEdDrop: sbmEdDrop,
+    sbmEdDragEnd: sbmEdDragEnd, sbmEdPreview: sbmEdPreview, sbmEdCancel: sbmEdCancel, sbmEdSave: sbmEdSave,
     sbTranspose: sbTranspose,
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
@@ -92931,7 +93621,7 @@ function filterLiturgyItems() {
    never under 20px, titles 22-28px. Where a number is not from the
    mockups it is from the brief, and where it is from neither it is here
    so it can be changed in one place. */
-#songbookLiveModal {
+#songbookLiveModal, .sbm {
   /* colour */
   --sbm-navy:        #0f1f3d;
   --sbm-navy-2:      #16305c;
@@ -93323,6 +94013,121 @@ function filterLiturgyItems() {
 .sbm-menu .sbm-btn { justify-content: flex-start; }
 .sbm-embed { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: var(--sbm-radius-md); overflow: hidden; background: #000; }
 .sbm-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* ---- Edit Parts: the arrangement, as sections of moments of lines ------ */
+#sbmEdit {
+  position: fixed; inset: 0; z-index: 3600; display: flex; flex-direction: column;
+  background: var(--sbm-surface); font-family: var(--sbm-font-ui); color: var(--sbm-text);
+}
+.sbm-ed__hero {
+  flex: 0 0 auto; display: grid; grid-template-columns: 44px 1fr 44px; gap: 10px; align-items: center;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--sbm-gutter) 12px;
+  background: linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2)); color: var(--sbm-on-dark);
+}
+.sbm-ed__hero .sbm-hero__close { position: static; }
+.sbm-ed__back { width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: #fff; font-size: 16px; cursor: pointer; }
+.sbm-ed__title { font: 700 22px/1.1 var(--sbm-font-serif); }
+.sbm-ed__song { font: 500 13px/1.25 var(--sbm-font-body); color: var(--sbm-on-dark-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-ed__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px var(--sbm-gutter) 0; display: flex; flex-direction: column; gap: 12px; }
+/* a flex column squashes its children to fit before it scrolls; nothing in here may shrink */
+.sbm-ed__body > *, .sbm-ed__secbody > *, .sbm-ed__moment > * { flex: 0 0 auto; }
+.sbm-ed__actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.sbm-ed__actions .sbm-tile { min-height: 74px; }
+.sbm-ed__actions .sbm-tile i { font-size: 20px; }
+.sbm-ed__actions .sbm-tile--blue i { color: var(--sbm-part-tenor); }
+.sbm-ed__actions .sbm-tile--teal i { color: var(--sbm-teal); }
+.sbm-ed__actions .sbm-tile.is-on { background: var(--sbm-navy); color: #fff; border-color: var(--sbm-navy); }
+.sbm-ed__actions .sbm-tile.is-on i { color: #fff; }
+.sbm-ed__toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.sbm-ed__tg {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px 0 12px;
+  border-radius: 10px; border: 1px solid var(--sbm-line); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 10%, #fff);
+  font: 600 14px/1 var(--sbm-font-ui); color: var(--p, var(--sbm-navy)); cursor: pointer;
+}
+.sbm-ed__tg .sw { width: 34px; height: 20px; border-radius: 10px; background: #cbd5e1; position: relative; transition: background .15s; }
+.sbm-ed__tg .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+.sbm-ed__tg.is-on .sw { background: var(--p, var(--sbm-navy)); }
+.sbm-ed__tg.is-on .sw::after { left: 16px; }
+.sbm-ed__sec { border-radius: var(--sbm-radius-lg); background: var(--sbm-card); box-shadow: var(--sbm-shadow-sm); overflow: hidden; }
+.sbm-ed__sechead { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; align-items: center; min-height: 52px; padding: 6px 8px 6px 4px; background: var(--sbm-gold-soft); }
+.sbm-ed__sechead.is-closed { background: var(--sbm-card-2); }
+.sbm-ed__sechead .chev { width: 36px; height: 40px; border: 0; background: transparent; color: var(--sbm-text-2); font-size: 14px; cursor: pointer; }
+.sbm-ed__secname { font: 700 15px/1.2 var(--sbm-font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: #8a5a12; background: none; border: 0; min-width: 0; width: 100%; text-align: left; padding: 6px 0; }
+.sbm-ed__sechead.is-closed .sbm-ed__secname { color: var(--sbm-navy); }
+.sbm-ed__secmeta { font: 500 12px/1 var(--sbm-font-ui); color: var(--sbm-muted); text-transform: none; letter-spacing: 0; margin-left: 8px; }
+.sbm-ed__secbtns { display: flex; gap: 4px; }
+.sbm-ed__ib { width: 38px; height: 38px; border-radius: 9px; border: 1px solid var(--sbm-line); background: #fff; color: var(--sbm-navy); font-size: 13px; cursor: pointer; }
+.sbm-ed__ib--danger { color: var(--sbm-danger); border-color: rgba(220,38,38,0.25); }
+.sbm-ed__ib--teal { color: var(--sbm-teal); }
+.sbm-ed__secbody { padding: 8px 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.sbm-ed__moment { border-left: 3px solid var(--sbm-line); padding-left: 6px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+.sbm-ed__moment.is-drag { opacity: 0.5; }
+/* Two lines per part: who sings, with the row's tools, over the words at full width.
+   The words are what the editor is for; they do not share a line with three buttons. */
+.sbm-ed__row {
+  display: grid; grid-template-columns: 22px auto minmax(0, 1fr) 36px 36px 36px;
+  grid-template-areas: "h p sp hold dup del" "t t t t t t";
+  gap: 6px 5px; align-items: center; padding: 6px 0;
+}
+.sbm-ed__row + .sbm-ed__row { border-top: 1px dashed var(--sbm-line); }
+.sbm-ed__ib--hold { grid-area: hold; } .sbm-ed__ib--dup { grid-area: dup; } .sbm-ed__ib--del { grid-area: del; }
+.sbm-ed__handle { grid-area: h; color: #cbd5e1; font-size: 14px; text-align: center; cursor: grab; touch-action: none; }
+.sbm-ed__part {
+  grid-area: p; min-height: 36px; border-radius: 7px; border: 0; padding: 0 10px; min-width: 76px; max-width: 170px;
+  background: var(--p, var(--sbm-navy)); color: #fff; font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.sbm-ed__text {
+  grid-area: t; min-height: 44px; min-width: 0; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--sbm-line); background: var(--sbm-card);
+  font: 500 15px/1.3 var(--sbm-font-body); color: var(--sbm-text); width: 100%;
+}
+.sbm-ed__text::placeholder { color: var(--sbm-muted); font-style: italic; }
+.sbm-ed__row .sbm-ed__ib { width: 36px; height: 36px; }
+.sbm-ed__row .sbm-ed__ib.is-on { background: var(--sbm-navy); color: #fff; }
+.sbm-ed__mbtns { display: none; gap: 4px; justify-content: flex-end; }
+#sbmEdit.is-reorder .sbm-ed__mbtns { display: flex; }
+#sbmEdit.is-reorder .sbm-ed__row { grid-template-columns: 22px auto minmax(0, 1fr); grid-template-areas: "h p sp" "t t t"; }
+#sbmEdit.is-reorder .sbm-ed__row .sbm-ed__ib { display: none; }
+.sbm-ed__add { margin-top: 2px; min-height: 48px; border: 1.5px dashed var(--sbm-teal); border-radius: 10px; background: var(--sbm-teal-soft); color: var(--sbm-navy); font: 600 14px/1 var(--sbm-font-ui); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.sbm-ed__add i { color: var(--sbm-teal); font-size: 16px; }
+.sbm-ed__sticky { flex: 0 0 auto; }
+.sbm-ed__preview .vl-score { font-size: 15px; }
+.sbm-choice { display: flex; flex-direction: column; gap: 6px; }
+.sbm-choice .sbm-btn { justify-content: flex-start; }
+
+/* ---- The score, full screen ------------------------------------------- */
+#sbmPdf {
+  position: fixed; inset: 0; z-index: 3600; display: flex; flex-direction: column;
+  background: #1b2436; color: #fff; font-family: var(--sbm-font-ui);
+}
+.sbm-pdf__hero {
+  flex: 0 0 auto; display: grid; grid-template-columns: 44px 1fr 44px; gap: 10px; align-items: center;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--sbm-gutter) 10px;
+  background: linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2));
+}
+.sbm-pdf__title { font: 700 17px/1.2 var(--sbm-font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-pdf__sub { font: 500 12px/1.2 var(--sbm-font-ui); color: var(--sbm-on-dark-2); margin-top: 2px; }
+.sbm-pdf__stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; padding: 10px; touch-action: pan-x pan-y; }
+.sbm-pdf__pages { display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; min-width: 100%; transform-origin: 0 0; }
+.sbm-pdf__pages.is-wide { align-items: flex-start; }
+.sbm-pdf__page { position: relative; background: #fff; box-shadow: 0 4px 18px rgba(0,0,0,0.45); flex: 0 0 auto; overflow: hidden; }
+.sbm-pdf__page canvas { display: block; }
+.sbm-pdf__page .pn { position: absolute; right: 6px; bottom: 6px; background: rgba(15,31,61,0.72); color: #fff; font: 600 11px/1 var(--sbm-font-ui); padding: 4px 7px; border-radius: 999px; }
+.sbm-pdf__loading { color: var(--sbm-on-dark-2); font: 500 15px/1.4 var(--sbm-font-ui); text-align: center; padding: 48px 0; }
+.sbm-pdf__bar {
+  flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 8px var(--sbm-gutter) calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--sbm-navy-ink); border-top: 1px solid rgba(255,255,255,0.08);
+}
+.sbm-pdf__zoom { display: inline-flex; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.22); }
+.sbm-pdf__zoom button { min-width: 44px; min-height: 44px; border: 0; border-left: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; font: 600 14px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-pdf__zoom button:first-child { border-left: 0; }
+.sbm-pdf__zoom .pct { min-width: 56px; }
+.sbm-pdf__thumbs { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px; scrollbar-width: none; justify-content: flex-start; }
+.sbm-pdf__thumbs::-webkit-scrollbar { display: none; }
+.sbm-pdf__thumb { flex: 0 0 auto; width: 44px; height: 58px; border-radius: 5px; border: 2px solid rgba(255,255,255,0.18); background: #fff; overflow: hidden; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.sbm-pdf__thumb.is-on { border-color: var(--sbm-gold); box-shadow: 0 0 0 1px var(--sbm-gold); }
+.sbm-pdf__thumb canvas { display: block; max-width: 100%; max-height: 100%; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
