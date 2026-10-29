@@ -9,12 +9,15 @@
 function parseSel(sel) {
   return sel.split(',').map(function (part) {
     part = part.trim();
-    // .cls, optionally narrowed by [attr="val"], or by :not([attr])
-    // -- "has this class but NOT this attribute", which is how a list
-    // counts its own rows while ignoring ones another view put there.
-    var m = /^\.([A-Za-z0-9_-]+)(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
-    if (!m) throw new Error('minidom: unsupported selector: ' + part);
-    return { cls: m[1], attr: m[2] || null, val: m[3], without: m[4] || null };
+    // tag and/or .cls, optionally narrowed by [attr="val"], or by
+    // :not([attr]) -- "has this class but NOT this attribute", which is
+    // how a list counts its own rows while ignoring ones another view
+    // put there. A bare tag is here because code reaches for the icon
+    // inside a button by element name, not by class.
+    var m = /^([A-Za-z][A-Za-z0-9-]*)?(?:\.([A-Za-z0-9_-]+))?(?:\[([A-Za-z-]+)="([^"]*)"\])?(?::not\(\[([A-Za-z-]+)\]\))?$/.exec(part);
+    if (!m || (!m[1] && !m[2])) throw new Error('minidom: unsupported selector: ' + part);
+    return { tag: m[1] ? m[1].toUpperCase() : null, cls: m[2] || null,
+             attr: m[3] || null, val: m[4], without: m[5] || null };
   });
 }
 
@@ -28,10 +31,33 @@ function El(tag, cls, attrs) {
     _set: new Set((cls || '').split(/\s+/).filter(Boolean)),
     contains: function (c) { return this._set.has(c); },
     add: function (c) { this._set.add(c); },
-    remove: function (c) { this._set.delete(c); }
+    remove: function (c) { this._set.delete(c); },
+    // Two-argument form included: code that folds a panel open and shut
+    // uses toggle(cls, bool), and a one-argument shim would flip it.
+    toggle: function (c, on) {
+      var want = (arguments.length > 1) ? !!on : !this._set.has(c);
+      if (want) this._set.add(c); else this._set.delete(c);
+      return want;
+    }
   };
+  // Inline style as the browser presents it: style="display:none" on the
+  // tag becomes el.style.display here. Declarations only -- no cascade and
+  // no computed values, so a harness that needs to know whether something
+  // is on screen has to say so itself.
+  this.style = {};
+  String(this._attrs.style || '').split(';').forEach(function (decl) {
+    var i = decl.indexOf(':');
+    if (i < 0) return;
+    var k = decl.slice(0, i).trim().replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
+    if (k) self.style[k] = decl.slice(i + 1).trim();
+  });
   Object.defineProperty(this, 'className', {
-    get: function () { return Array.from(self.classList._set).join(' '); }
+    get: function () { return Array.from(self.classList._set).join(' '); },
+    // Settable, as it is on a real element: swapping an icon's whole class
+    // string is how a chevron turns round.
+    set: function (v) {
+      self.classList._set = new Set(String(v == null ? '' : v).split(/\s+/).filter(Boolean));
+    }
   });
 }
 
@@ -108,7 +134,8 @@ El.prototype._descendants = function () {
 };
 
 El.prototype._matches = function (spec) {
-  if (!this.classList.contains(spec.cls)) return false;
+  if (spec.tag && this.tagName !== spec.tag) return false;
+  if (spec.cls && !this.classList.contains(spec.cls)) return false;
   if (spec.attr && this.getAttribute(spec.attr) !== spec.val) return false;
   if (spec.without && this.getAttribute(spec.without) != null) return false;
   return true;

@@ -616,6 +616,26 @@ the anon key -- verify as `postgres`, not as the app.
     Closing a view calls `lhcVoiceRec.stopPlayback()`, because the audio
     element outlives the markup and the button that would have stopped it.
 
+24. **A song in choir view still has a lyrics page, and it measures as
+    zero.** `sbPage-<sid>` is rendered with `display:none` rather than
+    skipped, because pagination, the annotation canvas and the lyrics
+    editor all look it up by id. `getBoundingClientRect()` on it is all
+    zeros, so anything positioning from it quietly resolves to the top of
+    the book -- which is why tapping the first two songs in the contents
+    appeared to do nothing while the other three worked. Go through
+    `_sbVisiblePage(songId)`, which falls through to `sbChoirPage-<sid>`.
+
+25. **The phone folds a song by CLIPPING it, never `display:none`.**
+    `sbPaginateAll` places the A4 page-break markers from the live
+    children's `offsetTop`, and inside a hidden page every one of those
+    reads 0, so the markers pile up at the top of the song and nobody
+    notices until the next time they print. `max-height:0; overflow:hidden`
+    leaves the children laid out exactly where they were. Note
+    `max-height` cannot shrink a border-box below its own padding, so the
+    rule zeroes the sheet's 48px too. Fold state (`_sbFolded`) survives a
+    re-render and is cleared on each open: closed by default, and an edit
+    does not slam every other song shut.
+
 ## Quick Commands for Claude Code
 
 ```bash

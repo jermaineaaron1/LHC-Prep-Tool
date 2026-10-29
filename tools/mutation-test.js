@@ -451,6 +451,61 @@ const CASES = [
     s => s.replace('R._drafts[sid] = R._drafts[sid].filter(function(t) { return String(t.id) !== String(id); });',
                    'R._drafts[sid] = R._drafts[sid];')],
 
+  // The phone songbook. Tapping either of the two choir songs in the
+  // contents did nothing: a song showing its choir parts keeps its lyrics
+  // page in the document with display:none, and a hidden element measures
+  // as all zeros, so the scroll resolved to the top of the book. Three
+  // songs out of five worked perfectly, which is why it read as "the
+  // first two songs are broken".
+  ['songbook-fold-harness.js', 'the contents goes back to the hidden lyrics page',
+    s => s.replace('  function _sbVisiblePage(songId) {',
+                   "  function _sbVisiblePage(songId) { return document.getElementById('sbPage-' + songId);")],
+  // The two skips are not alternatives: one is for a page hidden by a
+  // stylesheet rule, the other for a modal that has not been laid out at
+  // all. The harness has a fixture for each.
+  ['songbook-fold-harness.js', 'a page hidden by a rule is taken as visible',
+    s => s.replace('        if (laidOut && el.getClientRects && !el.getClientRects().length) continue;\r\n', '')],
+  ['songbook-fold-harness.js', 'display:none stops counting before layout',
+    s => s.replace("        if (el.style && el.style.display === 'none') continue;\r\n", '')],
+  // Landing under the title bar instead of on it reads as the wrong song.
+  ['songbook-fold-harness.js', 'the contents lands on the sheet, not the song',
+    s => s.replace("    var unit = (page.closest && page.closest('.sb-song-unit')) || page;",
+                   '    var unit = page;')],
+  ['songbook-fold-harness.js', 'tapping a folded song leaves it folded',
+    s => s.replace('    sbExpandSong(songId);           // a folded song has nothing to scroll to\r\n', '')],
+  ['songbook-fold-harness.js', 'the phone book opens with every song unfolded',
+    s => s.replace('    if (!(sid in _sbFolded)) _sbFolded[sid] = true;',
+                   '    if (!(sid in _sbFolded)) _sbFolded[sid] = false;')],
+  ['songbook-fold-harness.js', 'a desktop folds its songs away too',
+    s => s.replace("    return !!(window.matchMedia && window.matchMedia('(max-width: 820px)').matches);",
+                   '    return true;')],
+  // The zoom transform's bottom margin is computed from the wrap's height.
+  // Left stale, the book keeps the scroll room of pages it is not showing.
+  ['songbook-fold-harness.js', 'the book is not re-measured after folding',
+    s => s.replace('    sbApplyZoom();\r\n    if (!folded) sbRedrawSong(sid);',
+                   '    if (!folded) sbRedrawSong(sid);')],
+  // Folding by display:none would empty every page-break marker's
+  // offsetTop to 0 and pile them at the top of the song.
+  ['songbook-fold-harness.js', 'folding takes the pages out of the layout',
+    s => s.replace('      max-height:0 !important; overflow:hidden !important;',
+                   '      display:none !important;')],
+  ['songbook-fold-harness.js', 'the contents card goes back to a fluid width',
+    s => s.replace('      width:794px; max-width:794px; min-height:1123px;   /* A4 at 96dpi */',
+                   '      width:100%; max-width:820px;')],
+  // max-height cannot shrink a border-box below its own padding, and the
+  // sheet carries 48px under the words.
+  ['songbook-fold-harness.js', 'a sliver of blank paper is left under each folded song',
+    s => s.replace('      padding:0 !important;\r\n', '')],
+  // The chevron on a desktop is a control for folding away a sheet that
+  // is already entirely on screen.
+  ['songbook-fold-harness.js', 'the fold chevron turns up on the desktop too',
+    s => s.replace('  .sb-unit-fold { display:none; }', '  .sb-unit-fold { display:inline-flex; }')],
+  // The desktop contents card was never the problem; widening it there
+  // would narrow it, since the desktop body is wider than a sheet.
+  ['songbook-fold-harness.js', 'the desktop contents card is resized as well',
+    s => s.replace('box-shadow:0 2px 16px rgba(0,0,0,0.1); width:100%; max-width:820px; overflow:hidden; }',
+                   'box-shadow:0 2px 16px rgba(0,0,0,0.1); width:794px; max-width:794px; overflow:hidden; }')],
+
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
                    '#songbookLiveModal .wo-lyrics-lyric-line{color:#334155!important')],
