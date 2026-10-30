@@ -59,13 +59,17 @@ const WANTED = [
   [/^  function _sbmMarkNearest\(/, '_sbmMarkNearest'],
   [/^  function _sbmMarkHit\(/, '_sbmMarkHit'],
   [/^  function _sbmMarkThin\(/, '_sbmMarkThin'],
-  [/^  function _sbMarkSvg\(/, '_sbMarkSvg']
+  [/^  function _sbMarkSvg\(/, '_sbMarkSvg'],
+  [/^  function _sbmMarkOrigin\(/, '_sbmMarkOrigin'],
+  [/^  function _sbmMarkToLocal\(/, '_sbmMarkToLocal'],
+  [/^  function _sbmMarkFromLocal\(/, '_sbmMarkFromLocal'],
+  [/^  function _sbmMarkUnits\(/, '_sbmMarkUnits']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -114,6 +118,24 @@ check('points on top of each other are dropped, the ends kept',
   S.thin([[0, 0], [0.5, 0.5], [1, 1], [10, 10], [10.5, 10.5], [20, 20]]), [[0, 0], [10, 10], [20, 20]]);
 check('  one point stays one point', S.thin([[3, 3]]), [[3, 3]]);
 
+console.log('\na stroke is kept in ems from its anchor, so its shape survives');
+const word = { x: 100, y: 200, w: 60, h: 20, em: 16, kind: 'token' };       // a word on a desk
+const wordPhone = { x: 10, y: 500, w: 45, h: 15, em: 12, kind: 'token' };   // the same word on a phone
+const ring = [[130, 194], [146, 210], [130, 226], [114, 210]];              // a ring round it: 32 wide, 32 tall
+const local = ring.map(q => S.toLocal(word, q).map(r4));
+check('offsets from the word\'s centre: across in widths of the word, down in ems', local, [[0, -1], [0.2667, 0], [0, 1], [-0.2667, 0]]);
+const r1 = v => Math.round(v * 10) / 10;
+check('  back on the desk, the same points', local.map(f => S.fromLocal(word, f, false).map(r1)), ring);
+const onPhone = local.map(f => S.fromLocal(wordPhone, f, false));
+check('  on the phone, round the same word\'s centre', onPhone[0].map(r4), [32.5, 495.5]);
+check('  across it follows the word (45 wide now, 60 before), down it follows the font', [r1(onPhone[1][0] - onPhone[3][0]), r1(onPhone[2][1] - onPhone[0][1])], [24, 24]);
+// The desk sets the words in a monospace face: an underline the length of
+// three words there is longer than the same three words on a phone.
+const wide = { x: 0, y: 0, w: 90, h: 20, em: 18, kind: 'token' }, narrow = { x: 0, y: 0, w: 60, h: 20, em: 18, kind: 'token' };
+check('  an underline drawn the length of a wide word is the length of the narrow one', r4(S.fromLocal(narrow, S.toLocal(wide, [90, 25]), false)[0]), 60);
+check('a row anchor counts from its top left', S.origin({ x: 5, y: 7, w: 100, h: 40, em: 16, kind: 'box' }), [5, 7]);
+check('a stroke from before is still read as fractions of the box', S.fromLocal(word, [0.5, 0.5], true), [130, 210]);
+
 console.log('\non a printed page, the same strokes as SVG stretched over the block');
 const mark = { colour: '#dc2626', width: 7, points: [[0.1, 0.5], [0.9, 0.5]] };
 const svg1 = S.svg([mark]);
@@ -128,6 +150,11 @@ check('a mark on the second line of a two-line block sits in its lower half',
 check('  and on the first line, the upper half', /points="0.1,0.25 0.9,0.25"/.test(S.svg([mark], () => [0, 2])), true);
 check('a colour that is not a colour is not written into the page', /stroke="#111827"/.test(S.svg([{ colour: '"><script>', width: 4, points: [[0, 0], [1, 1]] }])), true);
 check('no strokes, no svg', S.svg([]), '');
+const emMark = { tool: 'em', colour: '#2563eb', width: 4, points: [[-1, 0], [1, 0]] };
+const emSvg = S.svg([emMark], null, 'token');
+check('an em stroke on a word is a 1em square on the word\'s centre, one unit one em', /sb-mark-svg--em sb-mark-svg--centre/.test(emSvg) && /points="-0.5,0.5 1.5,0.5"/.test(emSvg), true);
+check('  on a row, from its top left', /points="-1,0 1,0"/.test(S.svg([emMark], null, 'box')), true);
+check('  and the pen still keeps its width', /vector-effect="non-scaling-stroke"/.test(emSvg), true);
 
 const failed = results.filter(r => !r).length;
 console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));

@@ -692,13 +692,22 @@ the anon key -- verify as `postgres`, not as the app.
     badge. Until the column exists the carry is a write that fails quietly.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
-    keeps each stroke as fractions of one anchor's box. The anchor is the
-    SMALLEST thing under the stroke's centre: a chord (`s:Verse 1|3/c:2`,
-    the third chord token of that moment), a word of one part's row
-    (`/w:men:4`), that row's words as a block (`/t:men`), the row (`/r:men`),
-    or the moment itself (`s:<section>|<n>`, the margin's count); on a
-    lyrics card a word of a line (`l:12/w:4`) or the line (`l:<index>`,
-    a block child of `#sbmLyrics`). Chords and words are counted as tokens
+    keeps each stroke (tool `em`) as offsets from its anchor's origin:
+    across in widths of the word or chord, down in ems of its font (the
+    desk sets the choir's words in a monospace face and the phone in a
+    proportional one, so widths differ while the type's height does not),
+    so a ring stays round the word and an underline the length of three
+    words shrinks with them. A section sung twice under one name gets
+    `#2` on its second run's key (`s:2nd CHORUS#2|3`).
+    The anchor is the NEAREST chord or word to the stroke's centre, among
+    the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
+    third chord token of that moment), a word of one part's row
+    (`/w:men:4`); failing any word, the row (`/r:men`) or the moment itself
+    (`s:<section>|<n>`, the margin's count); on a lyrics card a word of a
+    line (`l:12/w:4`) or the line (`l:<index>`, a block child of
+    `#sbmLyrics`). A token's origin is its centre, a row's or block's its
+    top left. Strokes from before (tool `pen`) are read as fractions of
+    their box and look stretched on a phone; redraw them. Chords and words are counted as tokens
     of the TEXT, so a desk's chord row and a phone's chords riding on the
     words count the same, and a word found by Range on either. A moment's
     box was tried first and is wrong: on a desk it runs past the words to

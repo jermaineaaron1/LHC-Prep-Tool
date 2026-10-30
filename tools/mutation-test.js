@@ -443,20 +443,32 @@ const CASES = [
     s => s.replace(' vector-effect="non-scaling-stroke"', '')],
   ['songbook-marks-harness.js', 'a mark on the second line of a block is printed on the first',
     s => s.replace("return r4(f[0]) + ',' + r4((f[1] + line) / span);", "return r4(f[0]) + ',' + r4(f[1] / span);")],
+  // A stroke kept in ems must scale both axes by the same font size, from
+  // the word's centre; stretching one axis by the box is what scribbled
+  // the handwriting on the phone.
+  ['songbook-marks-harness.js', 'a stroke is kept from the word\'s corner, not its centre',
+    s => s.replace("  function _sbmMarkOrigin(box) { return box.kind === 'token' ? [box.x + box.w / 2, box.y + box.h / 2] : [box.x, box.y]; }",
+                   "  function _sbmMarkOrigin(box) { return [box.x, box.y]; }")],
+  ['songbook-marks-harness.js', 'a stroke no longer follows the width of its word',
+    s => s.replace("  function _sbmMarkUnits(box) { var em = box.em || 16; return [box.kind === 'token' && box.w > 0 ? box.w : em, em]; }",
+                   "  function _sbmMarkUnits(box) { var em = box.em || 16; return [em, em]; }")],
+  ['voice-lines-harness.js', 'a chorus sung twice is one anchor',
+    s => s.replace("        sectionKey = runs[section] > 1 ? section + '#' + runs[section] : section;",
+                   "        sectionKey = section;")],
   ['songbook-marks-harness.js', 'a box with no height takes a stroke',
     s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
   ['songbook-overview-harness.js', 'every extra part gets the same brown again',
     s => s.replace("      out[k] = _SB_PART_PALETTE[i % _SB_PART_PALETTE.length]; i++;",
                    "      out[k] = _SB_PART_PALETTE[0]; i++;")],
   ['voice-lines-harness.js', 'the margin counts on its own, not from lineNumbers',
-    s => s.replace("      var at = numbered[gi] || { n: gi + 1, overall: gi + 1 };",
-                   "      var at = { n: gi + 1, overall: gi + 1 };")],
+    s => s.replace("      var at = numbered[gi] || { n: gi + 1, overall: gi + 1, sectionKey: section || '' };",
+                   "      var at = { n: gi + 1, overall: gi + 1, sectionKey: section || '' };")],
   // A line's number is its place in its section; forgetting to restart
   // the count at a header numbers the second verse from where the first
   // left off.
   ['voice-lines-harness.js', 'line numbers run on across sections',
-    s => s.replace("      if (g.section && g.section !== section) { section = g.section; n = 0; }",
-                   "      if (g.section && g.section !== section) { section = g.section; }")],
+    s => s.replace("        section = g.section; n = 0;",
+                   "        section = g.section;")],
   ['recordings-harness.js', 'the stamp loses its year',
     s => s.replace("return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear();",
                    "return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()];")],

@@ -15754,11 +15754,17 @@ window.lhcVoiceLines = {
   // the first header count from 1 until a header is met, as the score
   // shows them. Returns { byId: { rowId: { n, overall, section } }, total }.
   lineNumbers: function(lines) {
-    var V = window.lhcVoiceLines, byId = {}, perGroup = [], section = null, n = 0, overall = 0;
+    var V = window.lhcVoiceLines, byId = {}, perGroup = [], section = null, n = 0, overall = 0, runs = {}, sectionKey = '';
     V.group(lines).forEach(function(g) {
-      if (g.section && g.section !== section) { section = g.section; n = 0; }
+      if (g.section && g.section !== section) {
+        section = g.section; n = 0;
+        // A song sings its chorus twice under the same name; the second
+        // run is "2nd CHORUS#2", so a remark on it does not land on the first.
+        runs[section] = (runs[section] || 0) + 1;
+        sectionKey = runs[section] > 1 ? section + '#' + runs[section] : section;
+      }
       n++; overall++;
-      var at = { n: n, overall: overall, section: section || '' };
+      var at = { n: n, overall: overall, section: section || '', sectionKey: sectionKey };
       perGroup.push(at);
       var rows = []; if (g.both) rows.push(g.both);
       Object.keys(g.byPart).forEach(function(p) { rows.push(g.byPart[p]); });
@@ -15951,8 +15957,8 @@ window.lhcVoiceLines = {
       // section, and under it its place in the whole song. A moment is
       // one line however many parts sing it (see lineNumbers). The same
       // place names the moment as an anchor for remarks drawn on it.
-      var at = numbered[gi] || { n: gi + 1, overall: gi + 1 };
-      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '" data-anchor="' + V._esc('s:' + (section || '') + '|' + at.n) + '">');
+      var at = numbered[gi] || { n: gi + 1, overall: gi + 1, sectionKey: section || '' };
+      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '" data-anchor="' + V._esc('s:' + (at.sectionKey != null ? at.sectionKey : (section || '')) + '|' + at.n) + '">');
       out.push('<span class="vl-no" title="' + V._esc((section ? section + ', ' : '') + 'line ' + at.n + ' (line ' + at.overall + ' of the song)') + '"><span class="vl-no__n">' + at.n + '</span><span class="vl-no__all">' + at.overall + '</span></span>');
       out.push('<div class="vl-sys-lines">');
 
@@ -48478,7 +48484,7 @@ var WO = (function() {
       var t = node.nodeValue, re = /\S+/g, m;
       while ((m = re.exec(t))) {
         var range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
-        out.push({ text: m[0], rect: range.getBoundingClientRect() });
+        out.push({ text: m[0], rect: range.getBoundingClientRect(), el: par });
       }
     }
     return out;
@@ -48504,53 +48510,83 @@ var WO = (function() {
   // it is not on the screen (a part filtered out, a card folded away).
   function _sbmMarkBox(card, key) {
     var cr = card.getBoundingClientRect();
-    var rel = function(r) { return (r && r.height > 0) ? { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height } : null; };
+    // kind 'token' is a chord or a word -- its origin is its centre; kind
+    // 'box' is a row, a block or a moment -- its origin is its top left.
+    // em is the element's font size: the unit a stroke is kept in.
+    var rel = function(r, el, kind) {
+      if (!r || !(r.height > 0)) return null;
+      var em = el ? parseFloat(getComputedStyle(el).fontSize) : 0;
+      return { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height, em: em > 0 ? em : 16, kind: kind };
+    };
     var parts = String(key || '').split('/'), base = _sbmMarkBaseEl(card, parts[0]), sub = parts[1] || '';
     if (!base) return null;
     var m = /^(c|w|t|r):(.*)$/.exec(sub);
-    if (!m) return rel(base.getBoundingClientRect());
+    if (!m) return rel(base.getBoundingClientRect(), base, 'box');
     if (m[1] === 'c') {
       var cs = _sbmChordTokens(base), ck = parseInt(m[2], 10);
-      if (cs[ck]) return rel(cs[ck].rect);
-      var lead = base.querySelector('.vl-ln .vl-words'); return rel((lead || base).getBoundingClientRect());
+      if (cs[ck]) return rel(cs[ck].rect, cs[ck].el, 'token');
+      var lead = base.querySelector('.vl-ln .vl-words') || base; return rel(lead.getBoundingClientRect(), lead, 'box');
     }
     if (m[1] === 'w') {
-      var wm = /^(?:(.*):)?(\d+)$/.exec(m[2]); if (!wm) return rel(base.getBoundingClientRect());
+      var wm = /^(?:(.*):)?(\d+)$/.exec(m[2]); if (!wm) return rel(base.getBoundingClientRect(), base, 'box');
       var container = base;
       if (wm[1] != null) { var row = _sbmMarkRow(base, wm[1]); if (!row) return null; container = row.querySelector('.vl-words') || row; }
       var ws = _sbmTokenRects(container, '.vl-w__c'), wk = parseInt(wm[2], 10);
-      return rel((ws[wk] ? ws[wk].rect : container.getBoundingClientRect()));
+      return ws[wk] ? rel(ws[wk].rect, ws[wk].el, 'token') : rel(container.getBoundingClientRect(), container, 'box');
     }
     var row2 = _sbmMarkRow(base, m[2]); if (!row2) return null;
-    return rel(((m[1] === 't' && row2.querySelector('.vl-words')) || row2).getBoundingClientRect());
+    var el2 = (m[1] === 't' && row2.querySelector('.vl-words')) || row2;
+    return rel(el2.getBoundingClientRect(), el2, 'box');
   }
-  // What a stroke centred at (cx, cy) of the card is about.
+  // A stroke is kept in its anchor's own units, from its origin: across in
+  // widths of the word or chord, down in ems of its font. The desk sets
+  // the choir's words in a monospace face and the phone in a proportional
+  // one, so the same words are a different width there, and a stroke that
+  // ran the length of three words must shrink with them; the height of
+  // the type is the same on both, so the down axis follows the font. A
+  // row or a moment, which has no width to speak of, is ems both ways.
+  // Fractions of the box, tried first, stretched a ring into an egg and
+  // scribbled the handwriting; strokes from before (tool 'pen') are still
+  // read that way, and want redrawing.
+  function _sbmMarkOrigin(box) { return box.kind === 'token' ? [box.x + box.w / 2, box.y + box.h / 2] : [box.x, box.y]; }
+  function _sbmMarkUnits(box) { var em = box.em || 16; return [box.kind === 'token' && box.w > 0 ? box.w : em, em]; }
+  function _sbmMarkToLocal(box, q) { var o = _sbmMarkOrigin(box), u = _sbmMarkUnits(box); return [(q[0] - o[0]) / u[0], (q[1] - o[1]) / u[1]]; }
+  function _sbmMarkFromLocal(box, f, legacy) {
+    if (legacy) return _sbmMarkPoint(box, f);
+    var o = _sbmMarkOrigin(box), u = _sbmMarkUnits(box); return [o[0] + f[0] * u[0], o[1] + f[1] * u[1]];
+  }
+  // What a stroke centred at (cx, cy) of the card is about: the nearest
+  // chord or word -- among the words of the row the centre is in, when it
+  // is in one -- and only a moment with no words at all is left to itself.
+  // Handwriting beside the words is kept beside the word it is nearest to,
+  // which is where it was meant.
   function _sbmMarkChoose(card, cx, cy) {
     var cr = card.getBoundingClientRect(), X = cx + cr.left, Y = cy + cr.top;
-    var within = function(r, pad) { return r && r.width > 0 && X >= r.left - pad && X <= r.right + pad && Y >= r.top - pad && Y <= r.bottom + pad; };
+    var within = function(r) { return r && r.width > 0 && X >= r.left && X <= r.right && Y >= r.top && Y <= r.bottom; };
+    var gap = function(r) { var dx = Math.max(r.left - X, 0, X - r.right), dy = Math.max(r.top - Y, 0, Y - r.bottom); return Math.hypot(dx, dy); };
     var boxes = _sbmMarkBoxes(card);
     var near = _sbmMarkNearest(Object.keys(boxes).map(function(k) { return boxes[k]; }), cx, cy);
     if (!near) return null;
     var base = _sbmMarkBaseEl(card, near.key); if (!base) return null;
+    var tokens = [], rowHit = null;
     if (/^s:/.test(near.key)) {
-      var cs = _sbmChordTokens(base);
-      for (var c = 0; c < cs.length; c++) if (within(cs[c].rect, 3)) return near.key + '/c:' + c;
+      _sbmChordTokens(base).forEach(function(t, k) { tokens.push({ key: near.key + '/c:' + k, rect: t.rect, row: t.el && t.el.closest ? t.el.closest('.vl-ln') : null }); });
       var rows = base.querySelectorAll('.vl-ln[data-part]');
       for (var i = 0; i < rows.length; i++) {
-        if (!within(rows[i].getBoundingClientRect(), 0)) continue;
-        var part = rows[i].getAttribute('data-part'), wrap = rows[i].querySelector('.vl-words');
-        if (wrap) {
-          var ws = _sbmTokenRects(wrap, '.vl-w__c');
-          for (var k = 0; k < ws.length; k++) if (within(ws[k].rect, 3)) return near.key + '/w:' + part + ':' + k;
-          if (within(wrap.getBoundingClientRect(), 0)) return near.key + '/t:' + part;
-        }
-        return near.key + '/r:' + part;
+        if (!rows[i].offsetParent) continue;
+        if (within(rows[i].getBoundingClientRect())) rowHit = rows[i];
+        var part = rows[i].getAttribute('data-part'), wrap = rows[i].querySelector('.vl-words'); if (!wrap) continue;
+        _sbmTokenRects(wrap, '.vl-w__c').forEach(function(t, k) { tokens.push({ key: near.key + '/w:' + part + ':' + k, rect: t.rect, row: rows[i] }); });
       }
-      return near.key;
+    } else {
+      _sbmTokenRects(base, null).forEach(function(t, k) { tokens.push({ key: near.key + '/w:' + k, rect: t.rect, row: null }); });
     }
-    var ws2 = _sbmTokenRects(base, null);
-    for (var j = 0; j < ws2.length; j++) if (within(ws2[j].rect, 3)) return near.key + '/w:' + j;
-    return near.key;
+    var pool = rowHit ? tokens.filter(function(t) { return t.row === rowHit; }) : tokens;
+    if (!pool.length) pool = tokens;
+    if (!pool.length) return rowHit ? near.key + '/r:' + rowHit.getAttribute('data-part') : near.key;
+    var best = null, bestD = Infinity;
+    pool.forEach(function(t) { if (!(t.rect.width > 0)) return; var d = gap(t.rect); if (d < bestD) { bestD = d; best = t; } });
+    return best ? best.key : near.key;
   }
   function _sbmMarksMount() {
     var song = _sbmSong(); if (!song) return;
@@ -48648,7 +48684,8 @@ var WO = (function() {
     marks.forEach(function(m) {
       if (memo[m.anchor] === undefined) memo[m.anchor] = _sbmMarkBox(card, m.anchor);
       var box = memo[m.anchor]; if (!box) return;
-      var pts = (m.points || []).map(function(f) { return _sbmMarkPoint(box, f); });
+      var legacy = m.tool !== 'em';
+      var pts = (m.points || []).map(function(f) { return _sbmMarkFromLocal(box, f, legacy); });
       cv.__laid.push({ id: m.id, pts: pts, width: Number(m.width) || 4 });
       _sbmMarkStroke(g, pts, m.colour, Number(m.width) || 4);
     });
@@ -48725,11 +48762,32 @@ var WO = (function() {
     });
   }
   function _sbmDrawPos(ev, cv) { var r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; }
+  // Two fingers scroll, one draws. The canvas takes every touch (touch-
+  // action none), so the page is scrolled here by the fingers' midpoint;
+  // a stroke a first finger had begun is dropped the moment a second one
+  // lands, and the remaining finger draws nothing until it lifts.
+  function _sbmDrawScroller(card) {
+    var el = card; while (el && el !== document.body) { var cs = getComputedStyle(el); if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight) return el; el = el.parentNode; }
+    return document.scrollingElement || document.documentElement;
+  }
+  function _sbmDrawTouches(D) { var n = 0, k; for (k in D.touches) if (D.touches.hasOwnProperty(k)) n++; return n; }
+  function _sbmDrawMid(D) { var sx = 0, sy = 0, n = 0, k; for (k in D.touches) if (D.touches.hasOwnProperty(k)) { sx += D.touches[k][0]; sy += D.touches[k][1]; n++; } return n ? [sx / n, sy / n] : null; }
   function _sbmDrawDown(ev) {
     var D = _sbmDraw; if (!D || D.scroll) return;
     var cv = ev.currentTarget, card = cv.parentNode;
     ev.preventDefault();
     try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+    if (ev.pointerType === 'touch') {
+      D.touches = D.touches || {};
+      D.touches[ev.pointerId] = [ev.clientX, ev.clientY];
+      if (_sbmDrawTouches(D) >= 2) {
+        if (D.live && !D.live.erase) _sbmMarksPaint(D.live.card);
+        D.live = null; D.ignore = true;
+        D.pan = { mid: _sbmDrawMid(D), el: _sbmDrawScroller(card) };
+        return;
+      }
+      if (D.ignore) return;
+    }
     var q = _sbmDrawPos(ev, cv);
     if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card }; _sbmDrawErase(cv, q); return; }
     var g = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -48738,7 +48796,16 @@ var WO = (function() {
     _sbmMarkStroke(g, [q], D.colour, D.width);
   }
   function _sbmDrawMove(ev) {
-    var D = _sbmDraw; if (!D || !D.live || D.live.cv !== ev.currentTarget) return;
+    var D = _sbmDraw; if (!D) return;
+    if (D.pan && D.touches && D.touches[ev.pointerId]) {
+      ev.preventDefault();
+      D.touches[ev.pointerId] = [ev.clientX, ev.clientY];
+      var mid = _sbmDrawMid(D);
+      if (mid && D.pan.mid) { D.pan.el.scrollTop -= (mid[1] - D.pan.mid[1]); D.pan.el.scrollLeft -= (mid[0] - D.pan.mid[0]); }
+      D.pan.mid = mid;
+      return;
+    }
+    if (!D.live || D.live.cv !== ev.currentTarget) return;
     ev.preventDefault();
     var q = _sbmDrawPos(ev, ev.currentTarget);
     if (D.live.erase) { _sbmDrawErase(ev.currentTarget, q); return; }
@@ -48747,9 +48814,15 @@ var WO = (function() {
     _sbmMarkStroke(D.live.g, [k, q], D.colour, D.width);
   }
   function _sbmDrawUp(ev) {
-    var D = _sbmDraw; if (!D || !D.live) return;
-    var live = D.live; D.live = null;
+    var D = _sbmDraw; if (!D) return;
     try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
+    if (D.touches && D.touches[ev.pointerId] !== undefined) {
+      delete D.touches[ev.pointerId];
+      if (_sbmDrawTouches(D) < 2) D.pan = null;
+      if (_sbmDrawTouches(D) === 0) D.ignore = false;
+    }
+    if (!D.live) return;
+    var live = D.live; D.live = null;
     if (live.erase) return;
     var pts = _sbmMarkThin(live.pts);
     // The stroke's centre says what it is about -- a ring starts outside
@@ -48759,8 +48832,8 @@ var WO = (function() {
     var key = _sbmMarkChoose(live.card, cx, cy), box = key ? _sbmMarkBox(live.card, key) : null;
     if (!box) { _sbmMarksPaint(live.card); showToast('Nothing here to attach a mark to', 'error'); return; }
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
-    var mark = { song_id: base, anchor: key, tool: 'pen', colour: D.colour, width: D.width,
-                 points: pts.map(function(q) { return _sbmMarkFrac(box, q[0], q[1]).map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
+    var mark = { song_id: base, anchor: key, tool: 'em', colour: D.colour, width: D.width,
+                 points: pts.map(function(q) { return _sbmMarkToLocal(box, q).map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
     (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
@@ -48801,17 +48874,29 @@ var WO = (function() {
     });
   }
   // shift(m) -> [line, span]: the mark's line within the block, and the
-  // block's line count. [0, 1] is a block of one line.
-  function _sbMarkSvg(marks, shift) {
+  // block's line count, for strokes kept as fractions (tool 'pen').
+  // kind: 'token' (the svg sits on the element's centre) or 'box' (its
+  // top left), for strokes kept in ems (tool 'em'): a 1em square with
+  // overflow visible, in which one unit is one em of the element.
+  function _sbMarkSvg(marks, shift, kind) {
     var r4 = function(v) { return Math.round(v * 10000) / 10000; };
-    var body = (marks || []).map(function(m) {
-      var t = shift ? shift(m) : [0, 1], line = t[0] || 0, span = t[1] || 1;
-      var pts = (m.points || []).map(function(f) { return r4(f[0]) + ',' + r4((f[1] + line) / span); });
-      if (!pts.length) return '';
+    var poly = function(m, pts) {
       var w = Number(m.width) || 4, c = /^#[0-9a-fA-F]{6}$/.test(String(m.colour || '')) ? String(m.colour) : '#111827';
       return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '" stroke-width="' + w + '" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="' + (c.toLowerCase() === '#eab308' ? '0.75' : '0.92') + '"/>';
-    }).join('');
-    return body ? '<svg xmlns="http://www.w3.org/2000/svg" class="sb-mark-svg" viewBox="0 0 1 1" preserveAspectRatio="none">' + body + '</svg>' : '';
+    };
+    var legacy = '', ems = '';
+    (marks || []).forEach(function(m) {
+      if (!m.points || !m.points.length) return;
+      if (m.tool === 'em') {
+        var at = kind === 'token' ? 0.5 : 0;
+        ems += poly(m, m.points.map(function(f) { return r4(f[0] + at) + ',' + r4(f[1] + at); }));
+      } else {
+        var t = shift ? shift(m) : [0, 1], line = t[0] || 0, span = t[1] || 1;
+        legacy += poly(m, m.points.map(function(f) { return r4(f[0]) + ',' + r4((f[1] + line) / span); }));
+      }
+    });
+    return (legacy ? '<svg xmlns="http://www.w3.org/2000/svg" class="sb-mark-svg" viewBox="0 0 1 1" preserveAspectRatio="none">' + legacy + '</svg>' : '') +
+           (ems ? '<svg xmlns="http://www.w3.org/2000/svg" class="sb-mark-svg sb-mark-svg--em' + (kind === 'token' ? ' sb-mark-svg--centre' : '') + '" viewBox="0 0 1 1" preserveAspectRatio="none">' + ems + '</svg>' : '');
   }
   // The k-th token of a container's text, wrapped in a span the SVG can
   // fill. Nothing is laid out yet, so this is text, not boxes.
@@ -48865,7 +48950,7 @@ var WO = (function() {
       var parts = String(m.anchor).split('/'), sys = _sbmMarkBaseEl(box, parts[0]); if (!sys) return;
       var el = _sbMarkPrintScoreEl(sys, parts[1] || ''); if (!el) return;
       el.classList.add('sb-mark-host');
-      el.insertAdjacentHTML('beforeend', _sbMarkSvg([m]));
+      el.insertAdjacentHTML('beforeend', _sbMarkSvg([m], null, el.classList.contains('sb-mark-tok') ? 'token' : 'box'));
     });
     return box.innerHTML;
   }
@@ -48907,7 +48992,7 @@ var WO = (function() {
         hit = { el: blk.el, shift: [i - blk.start, span] };
       }
       hit.el.classList.add('sb-mark-host');
-      hit.el.insertAdjacentHTML('beforeend', _sbMarkSvg([m], function() { return hit.shift; }));
+      hit.el.insertAdjacentHTML('beforeend', _sbMarkSvg([m], function() { return hit.shift; }, hit.el.classList.contains('sb-mark-tok') ? 'token' : 'box'));
     });
   }
 
@@ -63838,7 +63923,9 @@ var WO = (function() {
       // that holds their words; the element has to be a box they can fill.
       '.sp-lyrics-wrap [data-src-start],.sp-lyrics-wrap [data-src],.sb-choir .vl-sys,.sb-choir .vl-ln,.sb-mark-host{position:relative;}' +
       '.sb-mark-tok{position:relative;display:inline-block;}' +
-      '.sb-mark-svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;}';
+      '.sb-mark-svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;}' +
+      '.sb-mark-svg--em{width:1em;height:1em;}' +
+      '.sb-mark-svg--centre{left:0;width:100%;top:calc(50% - .5em);height:1em;}';
     var el = document.getElementById('_sbPrintMeasureStyle');
     if (el && el.parentNode) el.parentNode.removeChild(el);
     el = document.createElement('style');
