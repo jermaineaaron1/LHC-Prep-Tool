@@ -420,6 +420,20 @@ const CASES = [
     s => s.replace("if (oldLoose[k].length !== 1) return;", "return;")],
   ['voice-lines-harness.js', 'repeated words are guessed at instead of left alone',
     s => s.replace("if (!cand || cand.length !== 1) return;", "if (!cand) return;")],
+  // Two sections renamed in one save cannot be told apart; guessing moves
+  // a verse's takes onto the chorus.
+  ['voice-lines-harness.js', 'two sections renamed at once are guessed at',
+    s => s.replace("    return (gone.length === 1 && fresh.length === 1) ? { from: gone[0], to: fresh[0] } : null;",
+                   "    return (gone.length >= 1 && fresh.length >= 1) ? { from: gone[0], to: fresh[0] } : null;")],
+  // A line's number is its place in its section; forgetting to restart
+  // the count at a header numbers the second verse from where the first
+  // left off.
+  ['voice-lines-harness.js', 'line numbers run on across sections',
+    s => s.replace("      if (g.section && g.section !== section) { section = g.section; n = 0; }",
+                   "      if (g.section && g.section !== section) { section = g.section; }")],
+  ['recordings-harness.js', 'the stamp loses its year',
+    s => s.replace("return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear();",
+                   "return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()];")],
   ['voice-lines-harness.js', 'a part change no longer detaches the take',
     s => s.replace("var loose = function(r) { return r.part + '|' + norm(r.text); };",
                    "var loose = function(r) { return norm(r.text); };")],
@@ -1142,7 +1156,31 @@ const CASES = [
   ['songbook-cut-harness.js', 'a column of the waveform shows its last sample, not its loudest',
     s => s.replace("      for (var i = a; i < b; i++) { var v = Math.abs(samples[i]); if (v > m) m = v; }", "      for (var i = a; i < b; i++) { m = Math.abs(samples[i]); }")],
   ['songbook-cut-harness.js', 'the clamp flings a span of exactly a breath to the end',
-    s => s.replace("    var EPS = 1e-9;", "    var EPS = 0;")],
+    s => s.replace("function _sbmCutShort(start, end) { return end - start < 0.3 - 1e-9; }",
+                   "function _sbmCutShort(start, end) { return end - start < 0.3; }")],
+  ['songbook-cut-harness.js', 'the readout reads 0:60.0 at a minute',
+    s => s.replace("    var tenths = Math.round(Math.max(0, Number(t) || 0) * 10);",
+                   "    var tenths = Math.max(0, Number(t) || 0) * 10;")],
+  // The line offered after a save: the next <option> is the other part of
+  // the same words, and a melody cut lands the next seconds on it.
+  ['songbook-cut-harness.js', 'the next target is the other part of the same moment',
+    s => s.replace("    var j = i + 1; while (j < rows.length && same(rows[j], cur)) j++;",
+                   "    var j = i + 1;")],
+  ['songbook-cut-harness.js', 'the next target forgets which part was being cut',
+    s => s.replace("    var mine = moment.find(function(r) { return String(r.part || '') === String(cur.part || ''); });",
+                   "    var mine = null;")],
+  ['songbook-cut-harness.js', 'a move renames a take a person named',
+    s => s.replace("    return !s || /^(?:.+ take \\d+|Run-through \\d+|Recording)$/i.test(s);",
+                   "    return true;")],
+  // A moved take is numbered after the takes it will sit among. Counting a
+  // run-through among a section's takes, or a line take among a slot's,
+  // gives it a number that reads as the same take twice.
+  ['songbook-cut-harness.js', 'a moved section take is numbered across every section in the slot',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return x.line_id == null && _sbmRecTok(x.storage_path) === cat;")],
+  ['songbook-cut-harness.js', 'a moved take counts line takes among the slot takes',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

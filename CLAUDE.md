@@ -50,7 +50,7 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column. Written by TWO recorders -- see gotcha 21 |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -680,6 +680,15 @@ the anon key -- verify as `postgres`, not as the app.
     behind that gate silently proves nothing. `RosterEngine.updatePicUI()`
     is the accessor that settles it: it reads the module's `STATE` and
     stamps `body.pic-mode`.
+
+30. **A section take is keyed by its section's NAME.** `song_recordings.section`
+    holds the text of the badge it was recorded under, and nothing re-points
+    it when the lines are rewritten -- `rematch` follows LINE takes by their
+    words, and a section has no words of its own. `replaceAll` carries the
+    takes of ONE renamed section along (`lhcVoiceLines.sectionRename`: one
+    name gone, one name new); two renamed in the same save cannot be told
+    apart and stay under the old name, listed in Practice Tracks but on no
+    badge. Until the column exists the carry is a write that fails quietly.
 
 ## Quick Commands for Claude Code
 
