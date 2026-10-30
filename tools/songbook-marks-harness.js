@@ -58,13 +58,14 @@ const WANTED = [
   [/^  function _sbmMarkPoint\(/, '_sbmMarkPoint'],
   [/^  function _sbmMarkNearest\(/, '_sbmMarkNearest'],
   [/^  function _sbmMarkHit\(/, '_sbmMarkHit'],
-  [/^  function _sbmMarkThin\(/, '_sbmMarkThin']
+  [/^  function _sbmMarkThin\(/, '_sbmMarkThin'],
+  [/^  function _sbMarkSvg\(/, '_sbMarkSvg']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -112,6 +113,21 @@ console.log('\nthinning');
 check('points on top of each other are dropped, the ends kept',
   S.thin([[0, 0], [0.5, 0.5], [1, 1], [10, 10], [10.5, 10.5], [20, 20]]), [[0, 0], [10, 10], [20, 20]]);
 check('  one point stays one point', S.thin([[3, 3]]), [[3, 3]]);
+
+console.log('\non a printed page, the same strokes as SVG stretched over the block');
+const mark = { colour: '#dc2626', width: 7, points: [[0.1, 0.5], [0.9, 0.5]] };
+const svg1 = S.svg([mark]);
+check('a 1x1 viewBox stretched to the element', /viewBox="0 0 1 1" preserveAspectRatio="none"/.test(svg1), true);
+check('  the points are the fractions', /points="0.1,0.5 0.9,0.5"/.test(svg1), true);
+check('  the pen keeps its width in pixels however the box is stretched', /stroke-width="7"[^>]*vector-effect="non-scaling-stroke"/.test(svg1), true);
+check('  in its colour', /stroke="#dc2626"/.test(svg1), true);
+// A printed block holding two lines (a chord line and its words): a mark
+// on the second line sits in the lower half.
+check('a mark on the second line of a two-line block sits in its lower half',
+  /points="0.1,0.75 0.9,0.75"/.test(S.svg([mark], () => [1, 2])), true);
+check('  and on the first line, the upper half', /points="0.1,0.25 0.9,0.25"/.test(S.svg([mark], () => [0, 2])), true);
+check('a colour that is not a colour is not written into the page', /stroke="#111827"/.test(S.svg([{ colour: '"><script>', width: 4, points: [[0, 0], [1, 1]] }])), true);
+check('no strokes, no svg', S.svg([]), '');
 
 const failed = results.filter(r => !r).length;
 console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
