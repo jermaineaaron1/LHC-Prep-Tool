@@ -692,16 +692,28 @@ the anon key -- verify as `postgres`, not as the app.
     badge. Until the column exists the carry is a write that fails quietly.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
-    keeps each stroke as fractions of one anchor's box: a moment of the
-    choir score (`s:<section>|<n>`, the same count as the margin numbers)
-    or a block child of `#sbmLyrics` (`l:<index>`). The canvas over each
-    card is repainted from the live boxes (`_sbmMarksPaint`), so the ring
-    drawn round a word on a desk sits round the same word on a phone,
-    squashed to that box's shape. Consequences: a stroke that starts in a
-    gap belongs to the nearest line above or below; the A4 Page view and
-    print have their own, older, page-coordinate annotations and do not
-    show these; and the table is probed once per page -- without it there
-    is no Draw chip at all.
+    keeps each stroke as fractions of one anchor's box. The anchor is the
+    SMALLEST thing under the stroke's centre: a chord (`s:Verse 1|3/c:2`,
+    the third chord token of that moment), a word of one part's row
+    (`/w:men:4`), that row's words as a block (`/t:men`), the row (`/r:men`),
+    or the moment itself (`s:<section>|<n>`, the margin's count); on a
+    lyrics card a word of a line (`l:12/w:4`) or the line (`l:<index>`,
+    a block child of `#sbmLyrics`). Chords and words are counted as tokens
+    of the TEXT, so a desk's chord row and a phone's chords riding on the
+    words count the same, and a word found by Range on either. A moment's
+    box was tried first and is wrong: on a desk it runs past the words to
+    the buttons, on a phone the words wrap, so fractions of it put a ring
+    round one chord over somebody else's words. The canvas over each card
+    is repainted from the live boxes (`_sbmMarkBox`); a stroke centred in
+    a gap belongs to the nearest line above or below; the table is probed
+    once per page -- without it there is no Draw chip at all; and the A4
+    Page view keeps its own, older, page-coordinate annotations. PRINT
+    carries the drawn remarks when the print dialog's box is ticked: as
+    SVG stretched over the block or moment that holds their words
+    (`_sbMarkSvg`, a 1x1 viewBox with `non-scaling-stroke`). A printed
+    lyrics block may hold several source lines, so a mark is squeezed into
+    its line's share of the block; a song shown as rich lyrics has no
+    source lines to match and its lyric marks stay on the screen.
 
 ## Quick Commands for Claude Code
 

@@ -11256,6 +11256,7 @@ I once was lost but now am found"
         <button onclick="WO.sbClosePrintModal()" style="width:30px;height:30px;border:none;background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:1rem;color:#64748b;">×</button>
       </div>
       <p style="margin:12px 20px 0;font-size:0.82rem;color:#64748b;">Select what to include for each song, then click Print.</p>
+      <label style="display:flex;align-items:center;gap:8px;margin:10px 20px 0;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.82rem;color:#1e293b;cursor:pointer;"><input type="checkbox" id="sbp-marks" checked style="width:14px;height:14px;cursor:pointer;"> <span><b>Include drawn remarks</b> <span style="color:#64748b;">— the rings and arrows drawn on the song in the reading view, on the words they were drawn round</span></span></label>
       <div id="sbPrintList" style="overflow-y:auto;flex:1;padding:4px 20px 12px;"></div>
       <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;">
         <button onclick="WO.sbClosePrintModal()" style="padding:8px 18px;border:1.5px solid #e2e8f0;border-radius:7px;background:white;cursor:pointer;font-size:0.85rem;color:#64748b;">Cancel</button>
@@ -48454,9 +48455,106 @@ var WO = (function() {
     });
     return out;
   }
+  // ---- the anchor under the pen, and where it is on this screen ----
+  //
+  // A moment is a wide thing: on a desk its box runs past the words to the
+  // buttons, on a phone the words wrap. Fractions of it put a ring drawn
+  // round one chord over somebody else's words on the other screen. So a
+  // stroke is kept against the smallest thing under its centre:
+  //   s:Verse 1|3            the moment          l:12        a lyric line
+  //   s:Verse 1|3/c:2        its third chord     l:12/w:4    the line's fifth word
+  //   s:Verse 1|3/w:men:4    the men's fifth word
+  //   s:Verse 1|3/t:men      the men's words, as a block
+  //   s:Verse 1|3/r:men      the men's whole row
+  // Chords and words are counted as tokens of the TEXT, so a desk's chord
+  // row and a phone's chords riding on the words count the same.
+  function _sbmTokenRects(root, skipSel) {
+    var out = [];
+    if (!root) return out;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), node;
+    while ((node = walker.nextNode())) {
+      var par = node.parentNode;
+      if (skipSel && par && par.closest) { var sk = par.closest(skipSel); if (sk && sk !== root && root.contains(sk)) continue; }
+      var t = node.nodeValue, re = /\S+/g, m;
+      while ((m = re.exec(t))) {
+        var range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+        out.push({ text: m[0], rect: range.getBoundingClientRect() });
+      }
+    }
+    return out;
+  }
+  function _sbmChordTokens(sys) {
+    var row = sys.querySelector('.vl-chord-text');
+    if (row) return _sbmTokenRects(row, null);
+    var out = [];
+    Array.prototype.forEach.call(sys.querySelectorAll('.vl-w__c'), function(el) { out = out.concat(_sbmTokenRects(el, null)); });
+    return out;
+  }
+  function _sbmMarkRow(sys, part) {
+    var rows = sys.querySelectorAll('.vl-ln[data-part]');
+    for (var i = 0; i < rows.length; i++) if (rows[i].getAttribute('data-part') === part) return rows[i];
+    return null;
+  }
+  function _sbmMarkBaseEl(card, baseKey) {
+    var els = card.querySelectorAll('[data-anchor]');
+    for (var i = 0; i < els.length; i++) if (els[i].getAttribute('data-anchor') === baseKey) return els[i];
+    return null;
+  }
+  // The box an anchor has on this screen, relative to the card; null when
+  // it is not on the screen (a part filtered out, a card folded away).
+  function _sbmMarkBox(card, key) {
+    var cr = card.getBoundingClientRect();
+    var rel = function(r) { return (r && r.height > 0) ? { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height } : null; };
+    var parts = String(key || '').split('/'), base = _sbmMarkBaseEl(card, parts[0]), sub = parts[1] || '';
+    if (!base) return null;
+    var m = /^(c|w|t|r):(.*)$/.exec(sub);
+    if (!m) return rel(base.getBoundingClientRect());
+    if (m[1] === 'c') {
+      var cs = _sbmChordTokens(base), ck = parseInt(m[2], 10);
+      if (cs[ck]) return rel(cs[ck].rect);
+      var lead = base.querySelector('.vl-ln .vl-words'); return rel((lead || base).getBoundingClientRect());
+    }
+    if (m[1] === 'w') {
+      var wm = /^(?:(.*):)?(\d+)$/.exec(m[2]); if (!wm) return rel(base.getBoundingClientRect());
+      var container = base;
+      if (wm[1] != null) { var row = _sbmMarkRow(base, wm[1]); if (!row) return null; container = row.querySelector('.vl-words') || row; }
+      var ws = _sbmTokenRects(container, '.vl-w__c'), wk = parseInt(wm[2], 10);
+      return rel((ws[wk] ? ws[wk].rect : container.getBoundingClientRect()));
+    }
+    var row2 = _sbmMarkRow(base, m[2]); if (!row2) return null;
+    return rel(((m[1] === 't' && row2.querySelector('.vl-words')) || row2).getBoundingClientRect());
+  }
+  // What a stroke centred at (cx, cy) of the card is about.
+  function _sbmMarkChoose(card, cx, cy) {
+    var cr = card.getBoundingClientRect(), X = cx + cr.left, Y = cy + cr.top;
+    var within = function(r, pad) { return r && r.width > 0 && X >= r.left - pad && X <= r.right + pad && Y >= r.top - pad && Y <= r.bottom + pad; };
+    var boxes = _sbmMarkBoxes(card);
+    var near = _sbmMarkNearest(Object.keys(boxes).map(function(k) { return boxes[k]; }), cx, cy);
+    if (!near) return null;
+    var base = _sbmMarkBaseEl(card, near.key); if (!base) return null;
+    if (/^s:/.test(near.key)) {
+      var cs = _sbmChordTokens(base);
+      for (var c = 0; c < cs.length; c++) if (within(cs[c].rect, 3)) return near.key + '/c:' + c;
+      var rows = base.querySelectorAll('.vl-ln[data-part]');
+      for (var i = 0; i < rows.length; i++) {
+        if (!within(rows[i].getBoundingClientRect(), 0)) continue;
+        var part = rows[i].getAttribute('data-part'), wrap = rows[i].querySelector('.vl-words');
+        if (wrap) {
+          var ws = _sbmTokenRects(wrap, '.vl-w__c');
+          for (var k = 0; k < ws.length; k++) if (within(ws[k].rect, 3)) return near.key + '/w:' + part + ':' + k;
+          if (within(wrap.getBoundingClientRect(), 0)) return near.key + '/t:' + part;
+        }
+        return near.key + '/r:' + part;
+      }
+      return near.key;
+    }
+    var ws2 = _sbmTokenRects(base, null);
+    for (var j = 0; j < ws2.length; j++) if (within(ws2[j].rect, 3)) return near.key + '/w:' + j;
+    return near.key;
+  }
   function _sbmMarksMount() {
     var song = _sbmSong(); if (!song) return;
-    if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmMarksPaintAll(); });
+    if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmEvenRows(); _sbmMarksPaintAll(); });
     _sbmMarkCards().forEach(function(card) {
       card.classList.add('sbm-card--marks');
       if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
@@ -48468,11 +48566,60 @@ var WO = (function() {
       }
       _sbmStampAnchors(card);
       if (_sbmMarksRO) _sbmMarksRO.observe(card);
+      // The card keeps changing after it is drawn -- the recording chips
+      // arrive, a part is filtered, a chord is edited -- and every change
+      // moves the words the strokes sit on. A size change is watched above;
+      // this watches the content itself, and repaints on the next frame.
+      if (!card.__marksMO && window.MutationObserver) {
+        var mo = new MutationObserver(function(muts) {
+          for (var i = 0; i < muts.length; i++) { var t = muts[i].target; if (t && t.nodeType === 1 && t.closest && t.closest('canvas.sbm-marks')) continue; _sbmMarksQueue(); return; }
+        });
+        mo.observe(card, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+        card.__marksMO = mo;
+      }
       var sc = card.querySelector('.sbm-score');
       if (sc && !sc.__marksScroll) { sc.__marksScroll = true; sc.addEventListener('scroll', function() { _sbmMarksPaint(card); }); }
     });
+    if (!_sbmMarksHooked) {
+      _sbmMarksHooked = true;
+      window.addEventListener('resize', _sbmMarksQueue);
+      window.addEventListener('orientationchange', _sbmMarksQueue);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(_sbmMarksQueue);
+    }
     _sbmLoadMarks(song);
     _sbmMarksPaintAll();
+  }
+  // A timer, not requestAnimationFrame: frames stop in a tab that is not
+  // being shown, and the chips that arrive while a singer is on another
+  // tab must still move the strokes with their words before they look.
+  var _sbmMarksHooked = false, _sbmMarksTimer = 0;
+  function _sbmMarksQueue() {
+    if (_sbmMarksTimer) return;
+    _sbmMarksTimer = setTimeout(function() { _sbmMarksTimer = 0; _sbmEvenRows(); _sbmMarksPaintAll(); }, 24);
+  }
+  // ---- the rows of one moment lay out alike ----
+  //
+  // On a phone a row's words sit beside the part chip when they fit and
+  // under it when they do not, so one moment showed the melody's words
+  // under its chip and the 2nd Part's beside it, and the eye lost the
+  // columns. If any row of a moment has to stack, every row of it stacks.
+  // Decided from the live layout, so it is redone whenever the layout
+  // can change: render, resize, the font control, rows filtered in or
+  // out, chips arriving. Idempotent: a second pass changes nothing.
+  function _sbmEvenRows() {
+    var root = document.getElementById('sbmRoot'); if (!root || !_sbFoldPhone()) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.sbm-score .vl-sys'), function(sys) {
+      var had = sys.classList.contains('vl-sys--stack');
+      if (had) sys.classList.remove('vl-sys--stack');
+      var rows = sys.querySelectorAll('.vl-ln'), stack = false;
+      for (var i = 0; i < rows.length && !stack; i++) {
+        var who = rows[i].querySelector('.vl-who'), body = rows[i].querySelector('.vl-body');
+        if (!who || !body || !rows[i].offsetParent) continue;   // a hidden row does not vote
+        var wr = who.getBoundingClientRect(), br = body.getBoundingClientRect();
+        if (br.height > 0 && br.top >= wr.bottom - 1) stack = true;
+      }
+      if (stack) sys.classList.add('vl-sys--stack');
+    });
   }
   function _sbmLoadMarks(song, force) {
     var base = _sbBaseSongId(song), sup = window._supabase; if (!sup || !base) return Promise.resolve();
@@ -48496,10 +48643,11 @@ var WO = (function() {
     if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-    var boxes = _sbmMarkBoxes(card), marks = _sbmMarks[base] || [];
+    var marks = _sbmMarks[base] || [], memo = {};
     cv.__laid = [];
     marks.forEach(function(m) {
-      var box = boxes[m.anchor]; if (!box) return;
+      if (memo[m.anchor] === undefined) memo[m.anchor] = _sbmMarkBox(card, m.anchor);
+      var box = memo[m.anchor]; if (!box) return;
       var pts = (m.points || []).map(function(f) { return _sbmMarkPoint(box, f); });
       cv.__laid.push({ id: m.id, pts: pts, width: Number(m.width) || 4 });
       _sbmMarkStroke(g, pts, m.colour, Number(m.width) || 4);
@@ -48604,11 +48752,14 @@ var WO = (function() {
     try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
     if (live.erase) return;
     var pts = _sbmMarkThin(live.pts);
-    var boxes = _sbmMarkBoxes(live.card);
-    var box = _sbmMarkNearest(Object.keys(boxes).map(function(k) { return boxes[k]; }), pts[0][0], pts[0][1]);
+    // The stroke's centre says what it is about -- a ring starts outside
+    // the word it rings -- and the smallest thing under it is its anchor.
+    var xs = pts.map(function(q) { return q[0]; }), ys = pts.map(function(q) { return q[1]; });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2, cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var key = _sbmMarkChoose(live.card, cx, cy), box = key ? _sbmMarkBox(live.card, key) : null;
     if (!box) { _sbmMarksPaint(live.card); showToast('Nothing here to attach a mark to', 'error'); return; }
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
-    var mark = { song_id: base, anchor: box.key, tool: 'pen', colour: D.colour, width: D.width,
+    var mark = { song_id: base, anchor: key, tool: 'pen', colour: D.colour, width: D.width,
                  points: pts.map(function(q) { return _sbmMarkFrac(box, q[0], q[1]).map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
@@ -48627,6 +48778,137 @@ var WO = (function() {
   function _sbmDrawErase(cv, q) {
     (cv.__laid || []).filter(function(l) { return _sbmMarkHit(l.pts, q[0], q[1], Math.max(10, l.width / 2 + 6)); })
       .forEach(function(l) { if (String(l.id).indexOf('tmp_') !== 0) _sbmMarkDelete(l.id); });
+  }
+
+  // ---- the marks on a printed page ----
+  //
+  // No script runs on a printed page, so the strokes go in as SVG: a 1x1
+  // viewBox stretched over the element that holds their words, the pen
+  // width kept in pixels. The reading view keeps one block per lyric line;
+  // a printed block may hold several (a chord line and its words are one),
+  // so a mark on line i of a block spanning n lines is squeezed into the
+  // i-th n-th of it. The score's moments carry their anchors as they are.
+  function _sbMarksPrefetch(bases) {
+    var sup = window._supabase; bases = (bases || []).filter(Boolean);
+    if (!sup || !bases.length) return Promise.resolve();
+    return _sbmMarksSupport().then(function(ok) {
+      if (!ok) return;
+      return sup.from('song_marks').select('*').in('song_id', bases).order('created_at').then(function(r) {
+        if (r.error) return;
+        bases.forEach(function(b) { _sbmMarks[b] = []; _sbmMarksAt[b] = Date.now(); });
+        (r.data || []).forEach(function(m) { (_sbmMarks[m.song_id] = _sbmMarks[m.song_id] || []).push(m); });
+      });
+    });
+  }
+  // shift(m) -> [line, span]: the mark's line within the block, and the
+  // block's line count. [0, 1] is a block of one line.
+  function _sbMarkSvg(marks, shift) {
+    var r4 = function(v) { return Math.round(v * 10000) / 10000; };
+    var body = (marks || []).map(function(m) {
+      var t = shift ? shift(m) : [0, 1], line = t[0] || 0, span = t[1] || 1;
+      var pts = (m.points || []).map(function(f) { return r4(f[0]) + ',' + r4((f[1] + line) / span); });
+      if (!pts.length) return '';
+      var w = Number(m.width) || 4, c = /^#[0-9a-fA-F]{6}$/.test(String(m.colour || '')) ? String(m.colour) : '#111827';
+      return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '" stroke-width="' + w + '" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="' + (c.toLowerCase() === '#eab308' ? '0.75' : '0.92') + '"/>';
+    }).join('');
+    return body ? '<svg xmlns="http://www.w3.org/2000/svg" class="sb-mark-svg" viewBox="0 0 1 1" preserveAspectRatio="none">' + body + '</svg>' : '';
+  }
+  // The k-th token of a container's text, wrapped in a span the SVG can
+  // fill. Nothing is laid out yet, so this is text, not boxes.
+  function _sbMarkWrapToken(container, k, skipSel) {
+    if (!container) return null;
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null), node, n = 0;
+    while ((node = walker.nextNode())) {
+      var par = node.parentNode;
+      if (skipSel && par && par.closest) { var sk = par.closest(skipSel); if (sk && sk !== container && container.contains(sk)) continue; }
+      var t = node.nodeValue, re = /\S+/g, m;
+      while ((m = re.exec(t))) {
+        if (n === k) {
+          var range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+          var span = document.createElement('span'); span.className = 'sb-mark-tok';
+          range.surroundContents(span); return span;
+        }
+        n++;
+      }
+    }
+    return null;
+  }
+  function _sbMarkWrapTokenIn(elements, k) {
+    var n = 0;
+    for (var i = 0; i < elements.length; i++) {
+      var count = _sbmTokenCount(elements[i]);
+      if (k < n + count) return _sbMarkWrapToken(elements[i], k - n, null);
+      n += count;
+    }
+    return null;
+  }
+  function _sbmTokenCount(el) { return (String(el.textContent || '').match(/\S+/g) || []).length; }
+  // Where a stroke goes on the printed choir page: the element its anchor
+  // names, with a chord or a word wrapped so it has a box of its own.
+  function _sbMarkPrintScoreEl(sys, sub) {
+    var m = /^(c|w|t|r):(.*)$/.exec(sub || '');
+    if (!m) return sys;
+    if (m[1] === 'c') { var ct = sys.querySelector('.vl-chord-text'); return _sbMarkWrapToken(ct, parseInt(m[2], 10), null) || ct || sys.querySelector('.vl-ln .vl-words') || sys; }
+    if (m[1] === 'w') {
+      var wm = /^(.*):(\d+)$/.exec(m[2]); var row = wm ? _sbmMarkRow(sys, wm[1]) : null; if (!row) return null;
+      var wrap = row.querySelector('.vl-words') || row;
+      return _sbMarkWrapToken(wrap, parseInt(wm[2], 10), '.vl-w__c') || wrap;
+    }
+    var row2 = _sbmMarkRow(sys, m[2]); if (!row2) return null;
+    return (m[1] === 't' && row2.querySelector('.vl-words')) || row2;
+  }
+  function _sbMarksInjectScore(html, base) {
+    var marks = (_sbmMarks[base] || []).filter(function(m) { return /^s:/.test(m.anchor || ''); });
+    if (!marks.length) return html;
+    var box = document.createElement('div'); box.innerHTML = html;
+    marks.forEach(function(m) {
+      var parts = String(m.anchor).split('/'), sys = _sbmMarkBaseEl(box, parts[0]); if (!sys) return;
+      var el = _sbMarkPrintScoreEl(sys, parts[1] || ''); if (!el) return;
+      el.classList.add('sb-mark-host');
+      el.insertAdjacentHTML('beforeend', _sbMarkSvg([m]));
+    });
+    return box.innerHTML;
+  }
+  // The printed lyrics keep a chord line and its words in one pair, so
+  // formatLyricsForPrintChords stamps every piece with the source line it
+  // begins at (data-src) and how many it holds (data-src-n). A mark on
+  // line i goes into the piece holding line i -- its words, or its chords
+  // when i is the pair's chord line -- squeezed to that line's share of a
+  // pair when it is the whole line that is marked.
+  function _sbMarkPrintLineEl(songDiv, i, sub) {
+    var wrap = songDiv.querySelector('.sp-lyrics-wrap'); if (!wrap) return null;
+    var own = wrap.querySelector('[data-src="' + i + '"]'), pair = own ? null : wrap.querySelector('[data-src="' + (i - 1) + '"][data-src-n="2"]');
+    var el = own || pair; if (!el) return null;
+    var onChords = !!own && el.getAttribute('data-src-n') === '2';   // line i is the pair's chord line
+    var line = pair ? 1 : 0, span = el.getAttribute('data-src-n') === '2' ? 2 : 1;
+    var wm = /^w:(\d+)$/.exec(sub || '');
+    if (wm) {
+      var k = parseInt(wm[1], 10), tok;
+      if (onChords) tok = _sbMarkWrapTokenIn(Array.prototype.slice.call(el.querySelectorAll('.wo-inline-chord')), k);
+      else tok = _sbMarkWrapToken(el, k, '.wo-inline-chord');
+      if (tok) return { el: tok, shift: [0, 1] };
+    }
+    return { el: el, shift: [line, span] };
+  }
+  function _sbMarksInjectLyrics(songDiv, base) {
+    var marks = (_sbmMarks[base] || []).filter(function(m) { return /^l:\d+/.test(m.anchor || ''); });
+    if (!marks.length) return;
+    marks.forEach(function(m) {
+      var parts = String(m.anchor).split('/'), i = parseInt(parts[0].slice(2), 10);
+      var hit = _sbMarkPrintLineEl(songDiv, i, parts[1] || '');
+      if (!hit) {
+        // Older print markup, without the stamps: the block holding line i.
+        var blocks = Array.prototype.slice.call(songDiv.querySelectorAll('.sp-lyrics-wrap [data-src-start]'))
+          .map(function(el) { return { el: el, start: parseInt(el.getAttribute('data-src-start'), 10) }; })
+          .filter(function(b) { return !isNaN(b.start); }).sort(function(a, b) { return a.start - b.start; });
+        var blk = null, span = 1;
+        for (var k = 0; k < blocks.length; k++) { if (blocks[k].start > i) break; blk = blocks[k]; span = (k + 1 < blocks.length) ? Math.max(1, blocks[k + 1].start - blocks[k].start) : 1; }
+        if (!blk) return;
+        hit = { el: blk.el, shift: [i - blk.start, span] };
+      }
+      hit.el.classList.add('sb-mark-host');
+      hit.el.insertAdjacentHTML('beforeend', _sbMarkSvg([m], function() { return hit.shift; }));
+    });
   }
 
   // ---- the index: the phone's contents page, and reordering ----
@@ -49606,6 +49888,7 @@ var WO = (function() {
     });
     if (_sbRecSecOk === null && !_sbRecSecProbe) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     _sbmPaintSectionTakes(song);
+    _sbmEvenRows();
     _sbmMarksMount();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     if (showScore && V && cur) {
@@ -63326,6 +63609,7 @@ var WO = (function() {
       html += '</div>';
     });
     list.innerHTML = html;
+    var mk = $('sbp-marks'); if (mk) { try { mk.checked = localStorage.getItem('lhc_sb_print_marks') !== '0'; } catch (e) {} }
     modal.style.display = 'flex';
 
   }
@@ -63483,6 +63767,8 @@ var WO = (function() {
   }
 
   function sbGeneratePrint() {
+    var withMarks = !!(($('sbp-marks') || { checked: true }).checked);
+    try { localStorage.setItem('lhc_sb_print_marks', withMarks ? '1' : '0'); } catch (e) {}
     sbClosePrintModal();
     // Pre-fetch text for all checked Google Docs so they print as real text (not blank iframes)
     var fetchQueue = [];
@@ -63509,8 +63795,10 @@ var WO = (function() {
       .then(function(results) {
         var tc = {};
         fetchQueue.forEach(function(f, i) { tc[f.key] = (results[i] && results[i].success) ? results[i].text : null; });
-        _sbPrintBuildAndOpen(tc);
-      }).catch(function() { _sbPrintBuildAndOpen({}); });
+        // The drawn remarks for every song, so the pages can carry them.
+        var bases = songOrderSections.filter(function(x) { return x && x.itemType !== 'blank'; }).map(function(x) { return _sbBaseSongId(x); });
+        return (withMarks ? _sbMarksPrefetch(bases) : Promise.resolve()).then(function() { _sbPrintBuildAndOpen(tc, { marks: withMarks }); });
+      }).catch(function() { _sbPrintBuildAndOpen({}, { marks: withMarks }); });
   }
 
   // Full inline lyrics/header CSS for the print window AND the in-app measuring
@@ -63545,7 +63833,12 @@ var WO = (function() {
       '.sp-lyrics-wrap .print-section-header{display:inline-block;font-weight:700;color:#14532d;text-transform:uppercase;letter-spacing:.03em;margin:1.1em 0 .35em;font-size:.92em;break-after:avoid;page-break-after:avoid;}' +
       '.sp-lyrics-wrap .print-lyric-line{line-height:1.5;margin:0 0 .18em;break-inside:avoid;page-break-inside:avoid;}' +
       '.sp-lyrics-wrap .print-spacer{height:.5em;}' +
-      '.sp-lyrics-wrap .print-block{break-inside:avoid;page-break-inside:avoid;margin:0 0 .35em;}';
+      '.sp-lyrics-wrap .print-block{break-inside:avoid;page-break-inside:avoid;margin:0 0 .35em;}' +
+      // The drawn remarks sit in an SVG stretched over the block or moment
+      // that holds their words; the element has to be a box they can fill.
+      '.sp-lyrics-wrap [data-src-start],.sp-lyrics-wrap [data-src],.sb-choir .vl-sys,.sb-choir .vl-ln,.sb-mark-host{position:relative;}' +
+      '.sb-mark-tok{position:relative;display:inline-block;}' +
+      '.sb-mark-svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;}';
     var el = document.getElementById('_sbPrintMeasureStyle');
     if (el && el.parentNode) el.parentNode.removeChild(el);
     el = document.createElement('style');
@@ -63636,6 +63929,10 @@ var WO = (function() {
 
   function _sbPrintBuildAndOpen(textCache, opts) {
     opts = opts || {};
+    // Drawn remarks: as asked in the print dialog, or as last asked when
+    // this is reached another way (the cache then holds what the reading
+    // view has loaded).
+    var _prMarks = opts.marks != null ? !!opts.marks : (function() { try { return localStorage.getItem('lhc_sb_print_marks') !== '0'; } catch (e) { return true; } })();
     // Lyrics/header CSS shared between the print window AND the hidden measuring
     // div, so page-break positions are computed against the SAME layout the
     // print actually renders. (Previously the measuring div used default styling
@@ -63836,6 +64133,10 @@ var WO = (function() {
         var _bEl = _songDiv.querySelector('.sp-lyrics-wrap [data-src-start="' + _S + '"]');
         if (_bEl) { _bEl.style.breakBefore = 'page'; _bEl.style.pageBreakBefore = 'always'; _bEl.style.paddingTop = '40px'; }
       });
+      // The remarks drawn on the song, into the blocks that hold their lines.
+      // A song whose reading view shows rich lyrics has no source lines to
+      // match against, so its lyric marks stay on the screen.
+      if (_prMarks && includeLyrics && !song.richLyrics) _sbMarksInjectLyrics(_songDiv, _sbBaseSongId(song));
       songPages += _songDiv.outerHTML;
 
       // ── Choir parts: their own printed pages, straight after the song ──
@@ -63845,6 +64146,7 @@ var WO = (function() {
       // pagination it is better at than we are.
       var _prChoir = _sbChoirBodyHtml(song);
       if (_prChoir) {
+        if (_prMarks) _prChoir = _sbMarksInjectScore(_prChoir, _sbBaseSongId(song));
         songPages += '<div class="sp-song">' + _sbChoirCss(typeof song !== 'undefined' ? song : null) +
           '<div class="sb-choir">' + _sbChoirHeadHtml(song, false) + _prChoir + '</div></div>';
       }
@@ -66944,17 +67246,19 @@ var WO = (function() {
       if (isHdr(line)) {
         // a section header starts a fresh atomic block (kept with its lines)
         closeBlk(); openBlk(i);
-        html += '<div class="print-section-header">' + escapeHtml(t.replace(/^\[/, '').replace(/\]$/, '')) + '</div>';
+        html += '<div class="print-section-header" data-src="' + i + '" data-src-n="1">' + escapeHtml(t.replace(/^\[/, '').replace(/\]$/, '')) + '</div>';
         i++;
       } else if (isChordLineGlobal(line) && i + 1 < lines.length && lines[i + 1].trim() !== '' && !isChordLineGlobal(lines[i + 1]) && !isHdr(lines[i + 1])) {
-        openBlk(i); html += clean(sbBuildChordPairHtml(line, lines[i + 1])); i += 2;
+        // data-src / data-src-n: the source line each piece begins at and
+        // how many it holds, for the drawn remarks to find their line.
+        openBlk(i); html += '<div class="print-pair" data-src="' + i + '" data-src-n="2">' + clean(sbBuildChordPairHtml(line, lines[i + 1])) + '</div>'; i += 2;
       } else if (isChordLineGlobal(line)) {
-        openBlk(i); html += clean(sbBuildChordPairHtml(line, '')); i++;
+        openBlk(i); html += '<div class="print-pair" data-src="' + i + '" data-src-n="1">' + clean(sbBuildChordPairHtml(line, '')) + '</div>'; i++;
       } else if (t === '') {
         // blank line ends the current block (paragraph break between sections)
         closeBlk(); html += '<div class="print-spacer" data-src-start="' + i + '"></div>'; i++;
       } else {
-        openBlk(i); html += '<div class="print-lyric-line">' + escapeHtml(line) + '</div>'; i++;
+        openBlk(i); html += '<div class="print-lyric-line" data-src="' + i + '" data-src-n="1">' + escapeHtml(line) + '</div>'; i++;
       }
     }
     closeBlk();
@@ -96780,12 +97084,18 @@ function filterLiturgyItems() {
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-who--chord { display: none; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-chords { padding: 0 6px; gap: 0; min-height: 0; margin: 0; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-words { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; font-family: var(--sbm-font-body); }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl { padding-top: 1em; row-gap: 0.6em; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl { padding-top: 0.25em; row-gap: 0.45em; }
+/* The room for the chords is INSIDE the words' box, not above the row:
+   when the words wrap under the chip, chords riding on the first line
+   used to float up into the chip's line and touch it. */
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl .vl-body { padding-top: 1.05em; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl .vl-words { line-height: 1.95; }
 .vl-w { display: inline-block; position: relative; white-space: nowrap; line-height: 1.25; }
 .vl-w__c { position: absolute; left: 0; top: -0.92em; font: 800 0.8em/1 ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace; color: #14532d; white-space: nowrap; letter-spacing: 0; }
 .vl-w--tail { min-width: 1.4em; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln { padding: 0 6px; row-gap: 2px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-sys--stack .vl-ln { flex-wrap: wrap; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-sys--stack .vl-ln > .vl-body { flex: 1 1 100%; min-width: 100%; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-who { height: 18px; line-height: 18px; font-size: 9.5px; flex-basis: 70px; width: 70px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-sys { padding: 9px 0 5px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-rec { padding-left: 0; }

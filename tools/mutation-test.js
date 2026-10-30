@@ -436,6 +436,13 @@ const CASES = [
   ['songbook-marks-harness.js', 'the eraser reaches past the end of a stroke',
     s => s.replace("      var t = L ? Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / L)) : 0;",
                    "      var t = L ? ((x - ax) * vx + (y - ay) * vy) / L : 0;")],
+  // On paper the box is stretched to the block; a pen that stretched with it
+  // would be twice as thick across and hairline down, and a mark on the words
+  // under a chord line would be drawn over the chords.
+  ['songbook-marks-harness.js', 'the printed pen stretches with the box',
+    s => s.replace(' vector-effect="non-scaling-stroke"', '')],
+  ['songbook-marks-harness.js', 'a mark on the second line of a block is printed on the first',
+    s => s.replace("return r4(f[0]) + ',' + r4((f[1] + line) / span);", "return r4(f[0]) + ',' + r4(f[1] / span);")],
   ['songbook-marks-harness.js', 'a box with no height takes a stroke',
     s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
   ['songbook-overview-harness.js', 'every extra part gets the same brown again',
