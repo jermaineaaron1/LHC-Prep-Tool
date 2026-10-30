@@ -48556,6 +48556,27 @@ var WO = (function() {
   // scribbled the handwriting; strokes from before (tool 'pen') are still
   // read that way, and want redrawing.
   function _sbmMarkOrigin(box) { return box.kind === 'token' ? [box.x + box.w / 2, box.y + box.h / 2] : [box.x, box.y]; }
+  // A desk's row has empty room to the right of the words that a phone's
+  // has not, and handwriting put there is cut off at the card's edge. The
+  // scale, about the anchor's origin, that brings every point of a set of
+  // strokes back inside [left, right]: 1 when they already fit, never
+  // below minK (past that they are clipped rather than shrunk to a dot).
+  // One scale for every stroke of an anchor, so an arrow and the word it
+  // points at shrink together and stay as they were drawn.
+  function _sbmMarkFit(strokes, origin, left, right, minK) {
+    var k = 1, ox = origin[0];
+    (strokes || []).forEach(function(pts) {
+      (pts || []).forEach(function(q) {
+        if (q[0] > right && q[0] > ox && ox < right) k = Math.min(k, (right - ox) / (q[0] - ox));
+        if (q[0] < left && q[0] < ox && ox > left) k = Math.min(k, (ox - left) / (ox - q[0]));
+      });
+    });
+    return Math.max(minK == null ? 0.3 : minK, Math.min(1, k));
+  }
+  function _sbmMarkScale(pts, origin, k) {
+    if (!(k < 1)) return pts;
+    return pts.map(function(q) { return [origin[0] + (q[0] - origin[0]) * k, origin[1] + (q[1] - origin[1]) * k]; });
+  }
   function _sbmMarkUnits(box) { var em = box.em || 16; return [box.kind === 'token' && box.w > 0 ? box.w : em, em]; }
   function _sbmMarkToLocal(box, q) { var o = _sbmMarkOrigin(box), u = _sbmMarkUnits(box); return [(q[0] - o[0]) / u[0], (q[1] - o[1]) / u[1]]; }
   function _sbmMarkFromLocal(box, f, legacy) {
@@ -48686,15 +48707,27 @@ var WO = (function() {
     if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-    var marks = _sbmMarks[base] || [], memo = {};
+    var marks = _sbmMarks[base] || [], memo = {}, laid = [], byAnchor = {};
     cv.__laid = [];
     marks.forEach(function(m) {
       if (memo[m.anchor] === undefined) memo[m.anchor] = _sbmMarkBox(card, m.anchor);
       var box = memo[m.anchor]; if (!box) return;
       var legacy = m.tool !== 'em';
-      var pts = (m.points || []).map(function(f) { return _sbmMarkFromLocal(box, f, legacy); });
-      cv.__laid.push({ id: m.id, pts: pts, width: Number(m.width) || 4 });
-      _sbmMarkStroke(g, pts, m.colour, Number(m.width) || 4);
+      var item = { m: m, box: box, legacy: legacy, pts: (m.points || []).map(function(f) { return _sbmMarkFromLocal(box, f, legacy); }) };
+      laid.push(item);
+      if (!legacy) (byAnchor[m.anchor] = byAnchor[m.anchor] || []).push(item);
+    });
+    // Strokes that would run off the card are shrunk about their anchor,
+    // all of an anchor's together, until they fit.
+    var fitK = {};
+    Object.keys(byAnchor).forEach(function(key) {
+      var items = byAnchor[key], o = _sbmMarkOrigin(items[0].box);
+      fitK[key] = _sbmMarkFit(items.map(function(it) { return it.pts; }), o, 6, W - 6, 0.3);
+    });
+    laid.forEach(function(it) {
+      var pts = it.legacy ? it.pts : _sbmMarkScale(it.pts, _sbmMarkOrigin(it.box), fitK[it.m.anchor] || 1);
+      cv.__laid.push({ id: it.m.id, pts: pts, width: Number(it.m.width) || 4 });
+      _sbmMarkStroke(g, pts, it.m.colour, Number(it.m.width) || 4);
     });
   }
   function _sbmMarkStroke(g, pts, colour, width) {

@@ -63,13 +63,15 @@ const WANTED = [
   [/^  function _sbmMarkOrigin\(/, '_sbmMarkOrigin'],
   [/^  function _sbmMarkToLocal\(/, '_sbmMarkToLocal'],
   [/^  function _sbmMarkFromLocal\(/, '_sbmMarkFromLocal'],
-  [/^  function _sbmMarkUnits\(/, '_sbmMarkUnits']
+  [/^  function _sbmMarkUnits\(/, '_sbmMarkUnits'],
+  [/^  function _sbmMarkFit\(/, '_sbmMarkFit'],
+  [/^  function _sbmMarkScale\(/, '_sbmMarkScale']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -135,6 +137,17 @@ const wide = { x: 0, y: 0, w: 90, h: 20, em: 18, kind: 'token' }, narrow = { x: 
 check('  an underline drawn the length of a wide word is the length of the narrow one', r4(S.fromLocal(narrow, S.toLocal(wide, [90, 25]), false)[0]), 60);
 check('a row anchor counts from its top left', S.origin({ x: 5, y: 7, w: 100, h: 40, em: 16, kind: 'box' }), [5, 7]);
 check('a stroke from before is still read as fractions of the box', S.fromLocal(word, [0.5, 0.5], true), [130, 210]);
+
+console.log('\nstrokes that would run off the card are shrunk about their word until they fit');
+// A word at x=100; an arrow out to 300 and a word written out to 400, on a card 250 wide.
+const arrow = [[110, 50], [300, 50]], soft = [[320, 40], [400, 60]];
+check('what fits is left alone', S.fit([arrow], [100, 50], 6, 1000, 0.3), 1);
+check('  what runs off the right is scaled to the edge, about the word', r4(S.fit([arrow], [100, 50], 6, 244, 0.3)), r4(144 / 200));
+check('  an arrow and the word it points at shrink together, by the furthest of them', r4(S.fit([arrow, soft], [100, 50], 6, 244, 0.3)), r4(144 / 300));
+check('  the points are moved towards the word, shape kept', S.scale(arrow, [100, 50], 0.5), [[105, 50], [200, 50]]);
+check('  and no further than minK: past that it is clipped, not dotted', S.fit([[[100, 0], [5000, 0]]], [100, 0], 6, 244, 0.3), 0.3);
+check('  a stroke off the LEFT is brought in the same way', r4(S.fit([[[-50, 0], [90, 0]]], [100, 0], 6, 244, 0.3)), r4(94 / 150));
+check('  a scale of one changes nothing', S.scale(arrow, [100, 50], 1), arrow);
 
 console.log('\non a printed page, the same strokes as SVG stretched over the block');
 const mark = { colour: '#dc2626', width: 7, points: [[0.1, 0.5], [0.9, 0.5]] };
