@@ -1136,6 +1136,23 @@ check('  nor two renamed at once -- nobody can say which is which', V.sectionRen
 check('  blank sections are nobody', V.sectionRename(['', 'Verse 1'], ['Verse 2', '']), { from: 'Verse 1', to: 'Verse 2' });
 check('  and a section counts once however many lines it has', V.sectionRename(['V1', 'V1', 'V1'], ['V2', 'V2']), { from: 'V1', to: 'V2' });
 
+console.log('\nline numbers: one per moment, counted within the section');
+const numbered = [
+  row('both', 'Said the night wind', 0, { id: 1, section: 'Verse 1' }),
+  row('women', 'Do you see', 1, { id: 2, section: 'Verse 1' }), row('men', 'Do you see', 1, { id: 3, section: 'Verse 1' }),
+  row('both', 'A star', 2, { id: 4, section: 'Verse 1' }),
+  row('both', 'Said the little lamb', 3, { id: 5, section: 'Verse 2' }),
+  row('women', 'Do you hear', 4, { id: 6, section: 'Verse 2' })
+];
+const nums = V.lineNumbers(numbered).byId;
+check('the first line is 1', [nums['1'].n, nums['1'].overall], [1, 1]);
+check('  two parts in one moment share a number', [nums['2'].n, nums['3'].n], [2, 2]);
+check('  the count restarts at a new section', [nums['5'].n, nums['5'].section], [1, 'Verse 2']);
+check('  and the song-wide count does not', [nums['5'].overall, nums['6'].overall], [4, 5]);
+check('lines before the first header count from 1',
+  V.lineNumbers([row('both', 'x', 0, { id: 9 }), row('both', 'y', 1, { id: 10 }), row('both', 'z', 2, { id: 11, section: 'Chorus' })]).byId['11'],
+  { n: 1, overall: 3, section: 'Chorus' });
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

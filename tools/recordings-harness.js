@@ -147,6 +147,28 @@ let takeNameSrc = null;
   }
 }
 
+// window.lhcVoiceRec._when, the stamp on every take, the same way.
+let whenSrc = null;
+{
+  const wStart = lines.findIndex((l, i) => i > recStart && /^  _when: function\(/.test(l));
+  if (wStart < 0) {
+    if (EXPECT_BROKEN) {
+      console.log('--expect-broken: lhcVoiceRec._when is absent, as expected.');
+      process.exit(0);
+    }
+    throw new Error('not found: lhcVoiceRec._when');
+  }
+  let depth = 0, started = false, out = [];
+  for (let i = wStart; i < lines.length; i++) {
+    out.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) { whenSrc = out.join('\n').replace(/,\s*$/, ''); break; }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // A document, and the few globals the sliced code reaches for.
 // ---------------------------------------------------------------------------
@@ -172,7 +194,7 @@ const body =
   catsLine.replace(/\r$/, '').trim() + '\n' +
   'function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || "General"; }\n' +
   catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
-  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ', ' + takeNameSrc + ' };\n' +
+  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ', ' + takeNameSrc + ', ' + whenSrc + ' };\n' +
   'window.lhcVoiceRec = lhcVoiceRec;\n' +
   'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec, baseId: _sbBaseSongId };';
 
@@ -223,6 +245,8 @@ check('  and does not count against the panel limit', S._sbOwnRecCount(), 2);
 check('  nor in the counter', cntEl.textContent, '(2/10)');
 check('  and its name says which section',
   (/<span class="sb-rec-item-sec">([^<]*)<\/span>/.exec(listEl.innerHTML) || [])[1], 'Verse 1');
+check('a take is stamped with the time, then the date with its year',
+  S.rec._when(new Date(2026, 9, 28, 22, 19).toISOString()), '22:19, 28 Oct 2026');
 
 S.sbRenderRecordings('s1', Array.from({ length: 10 }, (_, i) => own(i)));
 check('ten of the panel own DO reach the limit', S._sbOwnRecCount(), 10);

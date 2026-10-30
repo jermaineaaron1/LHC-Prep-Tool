@@ -425,6 +425,15 @@ const CASES = [
   ['voice-lines-harness.js', 'two sections renamed at once are guessed at',
     s => s.replace("    return (gone.length === 1 && fresh.length === 1) ? { from: gone[0], to: fresh[0] } : null;",
                    "    return (gone.length >= 1 && fresh.length >= 1) ? { from: gone[0], to: fresh[0] } : null;")],
+  // A line's number is its place in its section; forgetting to restart
+  // the count at a header numbers the second verse from where the first
+  // left off.
+  ['voice-lines-harness.js', 'line numbers run on across sections',
+    s => s.replace("      if (g.section && g.section !== section) { section = g.section; n = 0; }",
+                   "      if (g.section && g.section !== section) { section = g.section; }")],
+  ['recordings-harness.js', 'the stamp loses its year',
+    s => s.replace("return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear();",
+                   "return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()];")],
   ['voice-lines-harness.js', 'a part change no longer detaches the take',
     s => s.replace("var loose = function(r) { return r.part + '|' + norm(r.text); };",
                    "var loose = function(r) { return norm(r.text); };")],
