@@ -50028,13 +50028,31 @@ var WO = (function() {
       g.fillStyle = '#2dd4bf';
       for (var i = 0; i < n; i++) { var px = (i / n) * W, h = Math.max(1, C.peaks[i] * (H - 12)); g.fillRect(px, mid - h / 2, Math.max(1, W / n), h); }
     }
-    // the span
-    var xs = x(C.start), xe = x(C.end);
-    g.fillStyle = 'rgba(201,162,39,0.22)'; g.fillRect(xs, 0, Math.max(0, xe - xs), H);
-    g.fillStyle = '#c9a227';
-    [xs, xe].forEach(function(hx) { g.fillRect(hx - 1.5, 0, 3, H); g.fillRect(hx - 8, 0, 16, 14); });
-    g.fillStyle = '#0b1220'; g.font = '700 9px Poppins, system-ui, sans-serif'; g.textAlign = 'center';
-    g.fillText('\u2190', xs, 10); g.fillText('\u2192', xe, 10);
+    // The span: the rest of the recording is dimmed and the span tinted
+    // and bracketed, and each end is a handle a thumb can find -- a bar
+    // the full height with a grip pill in the middle and its name above,
+    // kept inside the picture at the edges, where the old thin line and
+    // little tab sat half clipped away and all but invisible.
+    var xs = x(C.start), xe = x(C.end), gold = '#f5c542', ink = '#0b1220';
+    g.fillStyle = 'rgba(5,9,18,0.55)'; g.fillRect(0, 0, Math.max(0, xs), H); g.fillRect(xe, 0, Math.max(0, W - xe), H);
+    g.fillStyle = 'rgba(245,197,66,0.16)'; g.fillRect(xs, 0, Math.max(0, xe - xs), H);
+    g.fillStyle = gold; g.fillRect(xs, 0, Math.max(0, xe - xs), 3); g.fillRect(xs, H - 3, Math.max(0, xe - xs), 3);
+    var pill = function(px, py, pw, ph, r) {
+      g.beginPath(); g.moveTo(px + r, py); g.arcTo(px + pw, py, px + pw, py + ph, r); g.arcTo(px + pw, py + ph, px, py + ph, r);
+      g.arcTo(px, py + ph, px, py, r); g.arcTo(px, py, px + pw, py, r); g.closePath();
+    };
+    var handle = function(hx, side) {
+      var tw = 20, th = 52, ty = (H - th) / 2;
+      var tx = side === 'start' ? Math.max(0, hx - tw / 2) : Math.min(W - tw, hx - tw / 2);
+      g.fillStyle = gold; g.fillRect(hx - 2, 0, 4, H);
+      pill(tx, ty, tw, th, 9); g.fillStyle = gold; g.fill(); g.lineWidth = 2; g.strokeStyle = ink; g.stroke();
+      g.fillStyle = ink;
+      for (var k = -1; k <= 1; k++) g.fillRect(tx + tw / 2 - 1.5, ty + th / 2 + k * 8 - 1.5, 3, 3);
+      g.font = '800 9px Poppins, system-ui, sans-serif'; g.textAlign = 'center';
+      g.lineWidth = 3; g.strokeStyle = ink; g.strokeText(side === 'start' ? 'START' : 'END', tx + tw / 2, ty - 6);
+      g.fillStyle = gold; g.fillText(side === 'start' ? 'START' : 'END', tx + tw / 2, ty - 6);
+    };
+    handle(xs, 'start'); handle(xe, 'end');
     // the playhead
     var px2 = x(C.audio.currentTime);
     g.fillStyle = '#ffffff'; g.fillRect(px2 - 1, 0, 2, H);
@@ -50058,12 +50076,19 @@ var WO = (function() {
     ev.preventDefault();
     var at = _sbmCutAt(ev), dur = _sbmCutDur();
     var xs = (C.start / dur) * at.w, xe = (C.end / dur) * at.w;
-    C.drag = (Math.abs(at.x - xs) <= 14) ? 'start' : (Math.abs(at.x - xe) <= 14) ? 'end' : 'seek';
+    C.drag = (Math.abs(at.x - xs) <= 18) ? 'start' : (Math.abs(at.x - xe) <= 18) ? 'end' : 'seek';
     try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {}
     _sbmCutMove(ev);
   }
+  function _sbmCutHover(ev) {
+    var C = _sbmCut; if (!C || !_sbmCutDur() || !ev.target || !ev.target.style) return;
+    var at = _sbmCutAt(ev), dur = _sbmCutDur();
+    var near = Math.abs(at.x - (C.start / dur) * at.w) <= 18 || Math.abs(at.x - (C.end / dur) * at.w) <= 18;
+    ev.target.style.cursor = near ? 'ew-resize' : 'crosshair';
+  }
   function _sbmCutMove(ev) {
-    var C = _sbmCut; if (!C || !C.drag) return;
+    var C = _sbmCut; if (!C) return;
+    if (!C.drag) { _sbmCutHover(ev); return; }
     var at = _sbmCutAt(ev);
     if (C.drag === 'seek') { C.audio.currentTime = at.t; }
     else { var c = _sbmCutClamp(C.drag === 'start' ? at.t : C.start, C.drag === 'end' ? at.t : C.end, _sbmCutDur(), C.drag); C.start = c.start; C.end = c.end; }
