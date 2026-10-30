@@ -692,17 +692,32 @@ the anon key -- verify as `postgres`, not as the app.
     badge. Until the column exists the carry is a write that fails quietly.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
-    keeps each stroke (tool `em`) as offsets from its anchor's origin:
-    across in widths of the word or chord, down in ems of its font (the
-    desk sets the choir's words in a monospace face and the phone in a
-    proportional one, so widths differ while the type's height does not),
-    so a ring stays round the word and an underline the length of three
-    words shrinks with them. Strokes that would still run off the card --
-    handwriting in the empty room a desk's row has to the right of its
-    words -- are shrunk about their anchor until they fit, all of one
-    anchor's strokes by one scale (`_sbmMarkFit`), never below 0.3. A
-    section sung twice under one name gets `#2` on its second run's key
-    (`s:2nd CHORUS#2|3`).
+    keeps each stroke (tool `w`) as offsets from its anchor's origin in
+    widths of the word or chord, BOTH ways, so the drawing scales as a
+    whole and its shape is exact (the desk sets the choir's words in a
+    monospace face and the phone in a proportional one, so the word is
+    narrower there and the drawing shrinks with it). Tool `em`, the round
+    before, was widths across and ems down and drew rings as eggs; it is
+    still read that way, as `pen` (fractions of the box) is read as that.
+    Strokes drawn within eight seconds and 40px of each other are ONE
+    DRAWING (`_sbmMarkAnchorFor`): they share the first stroke's anchor,
+    with `@g<id>` on the end of the key naming the drawing, so a word's
+    letters stay a word and are fitted by one scale. A closed stroke is
+    anchored to the token it RINGS, not to whatever lies nearest its
+    centre. An open stroke of three ems or more whose ends each reach a
+    token, the two in different rows, is kept BETWEEN them
+    (`keyA>keyB@g..`): along the line between their centres, in lengths
+    of it, so an arrow from a word to a chord runs from that word to that
+    chord on every screen, at whatever angle and distance they sit there;
+    its head, drawn next and lying along the shaft, joins it, while
+    handwriting beside the shaft goes to the nearer end. On paper a link
+    is an SVG over the whole block that the printed page's own script
+    (`_sbMarkLinkPrintJs`) lays between its two named ends. Strokes that
+    would still run off the card -- handwriting in the empty room a
+    desk's row has to the right of its words -- are shrunk about their
+    anchor until they fit, all of one drawing's strokes by one scale
+    (`_sbmMarkFit`), never below 0.3. A section sung twice under one name
+    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`).
     The anchor is the NEAREST chord or word to the stroke's centre, among
     the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
     third chord token of that moment), a word of one part's row

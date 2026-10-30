@@ -65,13 +65,20 @@ const WANTED = [
   [/^  function _sbmMarkFromLocal\(/, '_sbmMarkFromLocal'],
   [/^  function _sbmMarkUnits\(/, '_sbmMarkUnits'],
   [/^  function _sbmMarkFit\(/, '_sbmMarkFit'],
-  [/^  function _sbmMarkScale\(/, '_sbmMarkScale']
+  [/^  function _sbmMarkScale\(/, '_sbmMarkScale'],
+  [/^  function _sbmLinkFrame\(/, '_sbmLinkFrame'],
+  [/^  function _sbmMarkBBox\(/, '_sbmMarkBBox'],
+  [/^  function _sbmMarkClosed\(/, '_sbmMarkClosed'],
+  [/^  function _sbmMarkAlong\(/, '_sbmMarkAlong'],
+  [/^  function _sbmBoxesNear\(/, '_sbmBoxesNear'],
+  [/^  function _sbmBoxUnion\(/, '_sbmBoxUnion'],
+  [/^  function _sbMarkLinkSvg\(/, '_sbMarkLinkSvg']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -120,23 +127,61 @@ check('points on top of each other are dropped, the ends kept',
   S.thin([[0, 0], [0.5, 0.5], [1, 1], [10, 10], [10.5, 10.5], [20, 20]]), [[0, 0], [10, 10], [20, 20]]);
 check('  one point stays one point', S.thin([[3, 3]]), [[3, 3]]);
 
-console.log('\na stroke is kept in ems from its anchor, so its shape survives');
+console.log('\na stroke is kept in widths of its word, both ways, so its shape is exact');
 const word = { x: 100, y: 200, w: 60, h: 20, em: 16, kind: 'token' };       // a word on a desk
 const wordPhone = { x: 10, y: 500, w: 45, h: 15, em: 12, kind: 'token' };   // the same word on a phone
 const ring = [[130, 194], [146, 210], [130, 226], [114, 210]];              // a ring round it: 32 wide, 32 tall
-const local = ring.map(q => S.toLocal(word, q).map(r4));
-check('offsets from the word\'s centre: across in widths of the word, down in ems', local, [[0, -1], [0.2667, 0], [0, 1], [-0.2667, 0]]);
+const local = ring.map(q => S.toLocal(word, q, 'w').map(r4));
+check('offsets from the word\'s centre, in widths of the word both ways', local, [[0, -0.2667], [0.2667, 0], [0, 0.2667], [-0.2667, 0]]);
 const r1 = v => Math.round(v * 10) / 10;
-check('  back on the desk, the same points', local.map(f => S.fromLocal(word, f, false).map(r1)), ring);
-const onPhone = local.map(f => S.fromLocal(wordPhone, f, false));
-check('  on the phone, round the same word\'s centre', onPhone[0].map(r4), [32.5, 495.5]);
-check('  across it follows the word (45 wide now, 60 before), down it follows the font', [r1(onPhone[1][0] - onPhone[3][0]), r1(onPhone[2][1] - onPhone[0][1])], [24, 24]);
+check('  back on the desk, the same points', local.map(f => S.fromLocal(word, f, 'w').map(r1)), ring);
+const onPhone = local.map(f => S.fromLocal(wordPhone, f, 'w'));
+check('  on the phone, round the same word\'s centre', onPhone[0].map(r1), [32.5, 495.5]);
+check('  scaled as a whole by the word (45 wide now, 60 before): still a ring, 24 by 24', [r1(onPhone[1][0] - onPhone[3][0]), r1(onPhone[2][1] - onPhone[0][1])], [24, 24]);
 // The desk sets the words in a monospace face: an underline the length of
 // three words there is longer than the same three words on a phone.
 const wide = { x: 0, y: 0, w: 90, h: 20, em: 18, kind: 'token' }, narrow = { x: 0, y: 0, w: 60, h: 20, em: 18, kind: 'token' };
-check('  an underline drawn the length of a wide word is the length of the narrow one', r4(S.fromLocal(narrow, S.toLocal(wide, [90, 25]), false)[0]), 60);
+check('  an underline drawn the length of a wide word is the length of the narrow one', r4(S.fromLocal(narrow, S.toLocal(wide, [90, 25], 'w'), 'w')[0]), 60);
 check('a row anchor counts from its top left', S.origin({ x: 5, y: 7, w: 100, h: 40, em: 16, kind: 'box' }), [5, 7]);
-check('a stroke from before is still read as fractions of the box', S.fromLocal(word, [0.5, 0.5], true), [130, 210]);
+check('  and is ems both ways, having no width to speak of', S.fromLocal({ x: 5, y: 7, w: 100, h: 40, em: 16, kind: 'box' }, [1, 2], 'w'), [21, 39]);
+check('a stroke from the round before (tool em) is still read as widths across and ems down', S.fromLocal(wordPhone, [0.5, 1], 'em').map(r1), [55, 519.5]);
+check('a stroke from the first round (tool pen) is still read as fractions of the box', S.fromLocal(word, [0.5, 0.5], 'pen'), [130, 210]);
+
+console.log('\na stroke from one word to another is kept between them');
+// On a desk: the word "story" in the 2nd Part's row, the chord F up and to
+// the left of it in the chord row. An arrow drawn from the word to the chord.
+const story = { x: 300, y: 120, w: 50, h: 20, em: 16, kind: 'token' }, F = { x: 200, y: 20, w: 12, h: 20, em: 16, kind: 'token' };
+const fr = S.link(story, F, 'k');
+check('the frame runs from the one\'s centre to the other\'s', [fr.P, fr.Q, r4(fr.L)], [[325, 130], [206, 30], r4(Math.hypot(119, 100))]);
+const shaft = [[325, 125], [265, 75], [212, 36]];
+const loc = shaft.map(q => S.toLocal(fr, q).map(r4));
+check('  the tail is at the start of the line, the head near its end, the middle on it', [loc[0][0] < 0.1, loc[2][0] > 0.9, Math.abs(loc[1][1]) < 0.1], [true, true, true]);
+check('  and it comes back to the same points on the desk', loc.map(f => S.fromLocal(fr, f, 'w').map(r1)), shaft);
+// On a phone the two sit elsewhere: the word lower and to the left, the
+// chord straight above it and twice as far away.
+const storyP = { x: 100, y: 400, w: 40, h: 16, em: 14, kind: 'token' }, FP = { x: 112, y: 100, w: 9, h: 16, em: 14, kind: 'token' };
+const frP = S.link(storyP, FP, 'k'), onP = loc.map(f => S.fromLocal(frP, f, 'w'));
+check('  the arrow still runs from the word to the chord there', [Math.hypot(onP[0][0] - 120, onP[0][1] - 408) < 12, Math.hypot(onP[2][0] - 116.5, onP[2][1] - 108) < 20, Math.abs(onP[1][0] - 118) < 12], [true, true, true]);
+check('  turned to the line between them, so it points at the chord', onP[2][1] < onP[1][1] && onP[1][1] < onP[0][1], true);
+check('  its shape kept: read back in the phone\'s frame it is the same stroke', onP.map(q => S.toLocal(frP, q).map(r4)), loc);
+check('two ends on top of each other make no frame', S.link(story, story, 'k'), null);
+
+console.log('\nthe shape of a stroke');
+check('a ring ends about where it began', S.closed([[130, 194], [146, 210], [130, 226], [114, 210], [128, 196]]), true);
+check('  an underline does not', S.closed([[100, 220], [120, 221], [140, 220], [160, 221]]), false);
+check('  nor a V', S.closed([[100, 100], [110, 120], [120, 100], [121, 99]]), false);
+check('  three points are never a ring', S.closed([[0, 0], [10, 0], [0, 0]]), false);
+check('an arrowhead lies along its shaft', S.along([[200, 40], [212, 36], [206, 48]], [325, 130], [206, 30], 32), true);
+check('  a word written beside the shaft does not', S.along([[300, 60], [320, 40], [330, 70]], [325, 130], [206, 30], 32), false);
+check('the box round a stroke', S.bbox([[3, 9], [1, 2], [8, 5]]), [1, 2, 8, 9]);
+check('  of nothing is nothing', S.bbox([]), [0, 0, 0, 0]);
+
+console.log('\nstrokes drawn together are one drawing');
+check('a stroke beside the last one joins its drawing', S.near([100, 100, 200, 140], [230, 120, 300, 160], 40), true);
+check('  one further off does not', S.near([100, 100, 200, 140], [260, 120, 300, 160], 40), false);
+check('  nor one above', S.near([100, 100, 200, 140], [120, 20, 180, 50], 40), false);
+check('  touching counts', S.near([100, 100, 200, 140], [200, 140, 250, 170], 0), true);
+check('the drawing\'s box grows round each stroke', S.union([100, 100, 200, 140], [230, 120, 300, 160]), [100, 100, 300, 160]);
 
 console.log('\nstrokes that would run off the card are shrunk about their word until they fit');
 // A word at x=100; an arrow out to 300 and a word written out to 400, on a card 250 wide.
@@ -168,6 +213,14 @@ const emSvg = S.svg([emMark], null, 'token');
 check('an em stroke on a word is a 1em square on the word\'s centre, one unit one em', /sb-mark-svg--em sb-mark-svg--centre/.test(emSvg) && /points="-0.5,0.5 1.5,0.5"/.test(emSvg), true);
 check('  on a row, from its top left', /points="-1,0 1,0"/.test(S.svg([emMark], null, 'box')), true);
 check('  and the pen still keeps its width', /vector-effect="non-scaling-stroke"/.test(emSvg), true);
+const wMark = { tool: 'w', colour: '#2563eb', width: 4, points: [[-1, 0], [1, 0]] };
+const wSvg = S.svg([wMark], null, 'token'), wRow = S.svg([wMark], null, 'box');
+check('a stroke kept in widths is a square the width of the word, on its centre', /sb-mark-svg--sq/.test(wSvg) && /points="-0.5,0.5 1.5,0.5"/.test(wSvg), true);
+check('  on a row, a 1em square from its top left', /sb-mark-svg--em/.test(wRow) && !/--sq/.test(wRow) && /points="-1,0 1,0"/.test(wRow), true);
+const lk = S.linkSvg({ colour: '#dc2626', width: 7, points: [[0.02, 0.03], [0.5, 0.01], [0.95, 0]] }, 'mk1', 'mk2');
+check('a stroke between two words names both ends for the page\'s script', /data-a="mk1" data-b="mk2"/.test(lk), true);
+check('  and carries its points in the frame of the line between them', /data-pts="0.02,0.03 0.5,0.01 0.95,0"/.test(lk), true);
+check('  in its colour and width', /stroke="#dc2626" stroke-width="7"/.test(lk), true);
 
 const failed = results.filter(r => !r).length;
 console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
