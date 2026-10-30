@@ -423,8 +423,17 @@ const CASES = [
   // Two sections renamed in one save cannot be told apart; guessing moves
   // a verse's takes onto the chorus.
   ['voice-lines-harness.js', 'two sections renamed at once are guessed at',
-    s => s.replace("    return (gone.length === 1 && fresh.length === 1) ? { from: gone[0], to: fresh[0] } : null;",
-                   "    return (gone.length >= 1 && fresh.length >= 1) ? { from: gone[0], to: fresh[0] } : null;")],
+    s => s.replace("    if (gone.length !== 1 || fresh.length !== 1) return null;",
+                   "    if (gone.length < 1 || fresh.length < 1) return null;")],
+  ['voice-lines-harness.js', 'a section deleted and another written is taken for a rename',
+    s => s.replace("      if (kept * 2 < was.length) return null;",
+                   "")],
+  ['songbook-overview-harness.js', 'every extra part gets the same brown again',
+    s => s.replace("      out[k] = _SB_PART_PALETTE[i % _SB_PART_PALETTE.length]; i++;",
+                   "      out[k] = _SB_PART_PALETTE[0]; i++;")],
+  ['voice-lines-harness.js', 'the margin counts on its own, not from lineNumbers',
+    s => s.replace("      var at = numbered[gi] || { n: gi + 1, overall: gi + 1 };",
+                   "      var at = { n: gi + 1, overall: gi + 1 };")],
   // A line's number is its place in its section; forgetting to restart
   // the count at a header numbers the second verse from where the first
   // left off.
@@ -1167,8 +1176,11 @@ const CASES = [
     s => s.replace("    var j = i + 1; while (j < rows.length && same(rows[j], cur)) j++;",
                    "    var j = i + 1;")],
   ['songbook-cut-harness.js', 'the next target forgets which part was being cut',
-    s => s.replace("    var mine = moment.find(function(r) { return String(r.part || '') === String(cur.part || ''); });",
-                   "    var mine = null;")],
+    s => s.replace("      var mine = wanted ? moment.find(function(r) { return !unison(r) && _sbmRecSlug(key(r)) === wanted; }) : null;",
+                   "      var mine = null;")],
+  ['songbook-cut-harness.js', 'the next target hands the picker to whoever sings next',
+    s => s.replace("      if (!wanted) return moment[0].id;",
+                   "      return moment[0].id;")],
   ['songbook-cut-harness.js', 'a move renames a take a person named',
     s => s.replace("    return !s || /^(?:.+ take \\d+|Run-through \\d+|Recording)$/i.test(s);",
                    "    return true;")],

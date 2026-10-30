@@ -83,6 +83,9 @@ function check(label, got, want) {
 const WANTED = [
   [/^  function _sbBaseSongId\(/, '_sbBaseSongId'],
   [/^  function _sbPartDefault\(/, '_sbPartDefault'],
+  [/^  function _sbPartDefaultsFor\(/, '_sbPartDefaultsFor'],
+  [/^  function _sbPartDefaultFor\(/, '_sbPartDefaultFor'],
+  [/^  function _sbPartColourFor\(/, '_sbPartColourFor'],
   [/^  function _sbPartColours\(/, '_sbPartColours'],
   [/^  function _sbPartColourCss\(/, '_sbPartColourCss'],
   [/^  function _sbPartColoursSave\(/, '_sbPartColoursSave'],
@@ -101,16 +104,19 @@ try {
   const vStart = lines.findIndex(l => /^window\.lhcVoiceLines = \{/.test(l));
   if (vStart < 0) throw new Error('not found: window.lhcVoiceLines');
   const vEnd = lines.findIndex((l, i) => i > vStart && l.replace(/\r$/, '') === '};');
-  if (vEnd < 0 || vEnd - vStart > 900) throw new Error('window.lhcVoiceLines: no close, or a span that looks wrong');
+  if (vEnd < 0 || vEnd - vStart > 1200) throw new Error('window.lhcVoiceLines: no close, or a span that looks wrong');
   V = new Function('var window = {};\n' + lines.slice(vStart, vEnd + 1).map(l => l.replace(/\r$/, '')).join('\n') + '\nreturn window.lhcVoiceLines;')();
 
   const src = line(/^  var _SB_PART_DEFAULTS = \{/, 'var _SB_PART_DEFAULTS') + '\n' +
+    line(/^  var _SB_PART_PALETTE = \[/, 'var _SB_PART_PALETTE') + '\n' +
+    'var _sbVoiceLines = {};\n' +
     WANTED.map(([re, name]) => extract(re, name)).join('\n');
   make = new Function('window', 'STATE', 'SBQ_SONGS', 'escapeHtml', 'isChordLineGlobal', 'showToast',
     src +
     '\nreturn { padLine: _sbmPadLine, padText: _sbmPadText, words: _sbmPadWords, split: _sbmPadSplit,' +
     ' replaceSection: _sbmPadReplaceSection, highlight: _sbmPadHighlight, saveChords: _sbmPadSaveChords,' +
-    ' colours: _sbPartColours, colourCss: _sbPartColourCss, coloursSave: _sbPartColoursSave, dflt: _sbPartDefault };');
+    ' colours: _sbPartColours, colourCss: _sbPartColourCss, coloursSave: _sbPartColoursSave, dflt: _sbPartDefault,' +
+    ' dfltFor: _sbPartDefaultFor, colourFor: _sbPartColourFor, voiceLines: _sbVoiceLines };');
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -247,6 +253,15 @@ console.log('\nthe colour of each part');
   check('a song with no colours gets no stylesheet', api.colourCss('nope'), '');
   check('a map handed in is drawn instead of the saved one', api.colourCss('s1', { men: '#123456' }).indexOf('[data-part="men"] .vl-who{background:#123456') > -1, true);
   check('the defaults are the score\'s', [api.dflt('women'), api.dflt('men'), api.dflt('both'), api.dflt('melody')], ['#a8475f', '#1d6b68', '#4a6da7', '#8a5a2b']);
+  // Parts outside the families -- Melody, 1st Part, 2nd Part -- each take
+  // their own colour, in the order the song uses them, without anybody
+  // choosing; a chosen colour still wins.
+  api.voiceLines['s2'] = [{ part: 'Melody', text: 'a', sortOrder: 0 }, { part: '1st Part', text: 'b', sortOrder: 0 }, { part: '2nd Part', text: 'c', sortOrder: 0 }];
+  check('each extra part its own default colour, in the order the song uses them',
+    [api.dfltFor('s2', 'melody'), api.dfltFor('s2', '1st part'), api.dfltFor('s2', '2nd part')], ['#8a5a2b', '#0e7490', '#6d28d9']);
+  check('  drawn as rules without anybody choosing', (api.colourCss('s2').match(/\.vl-who\{background:#[0-9a-f]{6}/g) || []).length, 3);
+  check('  and the women keep the score\'s colour', api.dfltFor('s2', 'women'), '#a8475f');
+  check('  a colour chosen for the song wins over the palette', api.colourFor('s2', '2nd part'), '#6d28d9');
 }
 
 console.log('\nsaving');
