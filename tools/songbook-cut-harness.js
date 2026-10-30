@@ -76,6 +76,7 @@ const WANTED = [
   [/^  function _sbmMoveSiblings\(/, '_sbmMoveSiblings'],
   [/^  function _sbmRecTok\(/, '_sbmRecTok'],
   [/^  function _sbmSecNorm\(/, '_sbmSecNorm'],
+  [/^  function _sbmRecSlug\(/, '_sbmRecSlug'],
   [/^  function _sbmCutShort\(/, '_sbmCutShort'],
   [/^  function _sbmCutNextTarget\(/, '_sbmCutNextTarget'],
   [/^  function _sbmAutoTakeName\(/, '_sbmAutoTakeName']
@@ -179,14 +180,17 @@ check('  but a fifth of a second is', S.short(1, 1.2), true);
 check('the readout carries tenths into minutes', [S.fmt(59.96), S.fmt(119.97), S.fmt(60)], ['1:00.0', '2:00.0', '1:00.0']);
 
 console.log('\nthe line offered after a span is saved');
-// Two parts over four moments: the melody alone, both, the 2nd part alone, both.
+// Two parts over five moments: the melody alone, both, the 2nd part alone, both, everyone.
 const vr = (id, part, so) => ({ id: id, part: part, text: 'w' + id, sortOrder: so, section: 'Verse 1' });
-const score = [vr(1, 'Melody', 0), vr(2, 'Melody', 1), vr(3, '2nd Part', 1), vr(4, '2nd Part', 2), vr(5, 'Melody', 3), vr(6, '2nd Part', 3)];
-check('the next moment, this part\'s line of it', S.nextTarget(score, 1), 2);
-check('  not the other part of the same words -- the span has moved on', S.nextTarget(score, 2), 4);
-check('  this part\'s line when both parts sing the next moment', S.nextTarget(score, 4), 6);
-check('  nothing after the last', S.nextTarget(score, 6), null);
-check('  nothing for a line that is not there', S.nextTarget(score, 99), null);
+const score = [vr(1, 'Melody', 0), vr(2, 'Melody', 1), vr(3, '2nd Part', 1), vr(4, '2nd Part', 2), vr(5, 'Melody', 3), vr(6, '2nd Part', 3), vr(7, 'both', 4)];
+check('the next moment, the chosen part\'s line of it', S.nextTarget(score, 1, 'melody'), 2);
+check('  a 2nd Part cut of a split moment moves on, not to the other row of the same words', S.nextTarget(score, 2, '2nd-part'), 4);
+check('  a moment the chosen part rests in is skipped, never flipped to whoever sings there', S.nextTarget(score, 2, 'melody'), 5);
+check('  the chosen part\'s line when both parts sing', S.nextTarget(score, 4, '2nd-part'), 6);
+check('  a line everyone sings is the chosen part\'s too', S.nextTarget(score, 5, 'melody'), 7);
+check('  everyone: a unison line, else whatever comes next', [S.nextTarget(score, 4, ''), S.nextTarget(score, 6, '')], [5, 7]);
+check('  nothing after the last', S.nextTarget(score, 7, 'melody'), null);
+check('  nothing for a line that is not there', S.nextTarget(score, 99, 'melody'), null);
 
 console.log('\nwhich names a move gives again');
 check('the app\'s own names', [S.autoName('Melody take 2'), S.autoName('Run-through 1'), S.autoName(''), S.autoName('Recording')], [true, true, true, true]);

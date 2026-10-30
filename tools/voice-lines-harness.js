@@ -69,9 +69,10 @@ if (start < 0) {
 const end = lines.findIndex((l, i) => i > start && l === '};');
 if (end < 0) { console.error('no close for window.lhcVoiceLines'); process.exit(1); }
 // A ceiling, because an end-anchor matching far away would swallow the file
-// and still parse. 400 rather than 200 since the editor's round trip moved
-// in; it is a tripwire against a runaway match, not a budget for the module.
-if (end - start > 900) {
+// and still parse. Raised as the module grew (the editor's round trip, the
+// line numbers, the section carry); it is a tripwire against a runaway
+// match, not a budget for the module.
+if (end - start > 1200) {
   console.error('window.lhcVoiceLines: span of ' + (end - start) + ' lines looks wrong');
   process.exit(1);
 }
@@ -1135,6 +1136,15 @@ check('  nor one removed', V.sectionRename(['Verse 1', 'Verse 2'], ['Verse 1']),
 check('  nor two renamed at once -- nobody can say which is which', V.sectionRename(['A', 'B'], ['C', 'D']), null);
 check('  blank sections are nobody', V.sectionRename(['', 'Verse 1'], ['Verse 2', '']), { from: 'Verse 1', to: 'Verse 2' });
 check('  and a section counts once however many lines it has', V.sectionRename(['V1', 'V1', 'V1'], ['V2', 'V2']), { from: 'V1', to: 'V2' });
+// With the rows themselves, a rename is told from a replacement by its words.
+const secRow = (sec, text) => ({ section: sec, text: text });
+check('a section renamed keeps its words, so its takes follow',
+  V.sectionRename([secRow('Verse 1', 'a'), secRow('Verse 1', 'b'), secRow('Chorus', 'c')], [secRow('Verse One', 'a'), secRow('Verse One', 'b'), secRow('Chorus', 'c')]),
+  { from: 'Verse 1', to: 'Verse One' });
+check('  one section deleted and another written in the same save is not a rename',
+  V.sectionRename([secRow('Bridge', 'x'), secRow('Bridge', 'y')], [secRow('Verse 3', 'p'), secRow('Verse 3', 'q')]), null);
+check('  half the words kept is still a rename',
+  V.sectionRename([secRow('Bridge', 'x'), secRow('Bridge', 'y')], [secRow('Verse 3', 'x'), secRow('Verse 3', 'z')]), { from: 'Bridge', to: 'Verse 3' });
 
 console.log('\nline numbers: one per moment, counted within the section');
 const numbered = [
@@ -1152,6 +1162,10 @@ check('  and the song-wide count does not', [nums['5'].overall, nums['6'].overal
 check('lines before the first header count from 1',
   V.lineNumbers([row('both', 'x', 0, { id: 9 }), row('both', 'y', 1, { id: 10 }), row('both', 'z', 2, { id: 11, section: 'Chorus' })]).byId['11'],
   { n: 1, overall: 3, section: 'Chorus' });
+// The margin of the score shows the same numbers, from the same count.
+const marginHtml = V.html(numbered);
+check('the margin shows the same numbers', (marginHtml.match(/vl-no__n">(\d+)</g) || []).map(x => x.match(/(\d+)/)[1]), ['1', '2', '3', '1', '2']);
+check('  and the song-wide count beneath', (marginHtml.match(/vl-no__all">(\d+)</g) || []).map(x => x.match(/(\d+)/)[1]), ['1', '2', '3', '4', '5']);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
