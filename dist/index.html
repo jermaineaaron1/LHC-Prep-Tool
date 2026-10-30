@@ -48269,11 +48269,18 @@ var WO = (function() {
       var mine = recs.filter(function(r) { return r.section && _sbmSecNorm(r.section) === _sbmSecNorm(name); });
       if (!mine.length) return;
       row = document.createElement('div'); row.className = 'sbm-sec-takes';
+      var V = window.lhcVoiceLines;
       mine.slice(0, 4).forEach(function(r) {
+        // "Women take 1", in the part's colour: a section's takes come
+        // from more than one part, and two chips both saying "Take 1"
+        // said nothing about who was singing.
+        var p = _sbmRecPart(r, song);
+        var who = p ? (V ? V.partLabel(p) : String(p)) : (_sbRecCatOf(r.storage_path) === 'general' ? 'All' : _sbRecCatLabel(_sbRecCatOf(r.storage_path)));
         var b = document.createElement('button');
-        b.type = 'button'; b.className = 'sbm-sec-take';
+        b.type = 'button'; b.className = 'sbm-sec-take sbm-sec-take--part';
+        b.style.setProperty('--p', 'var(--sbm-part-' + _sbmPartFamily(p || '') + ')');
         b.title = _sbmTakeSub(r, song);
-        b.innerHTML = '<i class="fa-solid fa-play"></i>' + escapeHtml(_sbmTakeTitle(r, song, recs));
+        b.innerHTML = '<i class="fa-solid fa-play"></i>' + escapeHtml(who + ' take ' + _sbmTakeNumber(r, recs));
         b.onclick = function(ev) { ev.stopPropagation(); sbmPlay(String(r.id)); };
         row.appendChild(b);
       });
@@ -96204,6 +96211,7 @@ function filterLiturgyItems() {
 .sbm-sec-take { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(13,148,136,0.35); background: var(--sbm-teal-soft); color: var(--sbm-teal); font: 700 11px/1 var(--sbm-font-ui); cursor: pointer; letter-spacing: 0; text-transform: none; }
 .sbm-sec-take i { font-size: 10px; }
 .sbm-sec-takes { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
+.sbm-sec-take--part { color: var(--p); background: color-mix(in srgb, var(--p) 11%, #fff); border-color: color-mix(in srgb, var(--p) 40%, #fff); }
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
