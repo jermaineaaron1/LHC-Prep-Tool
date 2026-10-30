@@ -1143,6 +1143,15 @@ const CASES = [
     s => s.replace("      for (var i = a; i < b; i++) { var v = Math.abs(samples[i]); if (v > m) m = v; }", "      for (var i = a; i < b; i++) { m = Math.abs(samples[i]); }")],
   ['songbook-cut-harness.js', 'the clamp flings a span of exactly a breath to the end',
     s => s.replace("    var EPS = 1e-9;", "    var EPS = 0;")],
+  // A moved take is numbered after the takes it will sit among. Counting a
+  // run-through among a section's takes, or a line take among a slot's,
+  // gives it a number that reads as the same take twice.
+  ['songbook-cut-harness.js', 'a moved section take is numbered across every section in the slot',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return x.line_id == null && _sbmRecTok(x.storage_path) === cat;")],
+  ['songbook-cut-harness.js', 'a moved take counts line takes among the slot takes',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

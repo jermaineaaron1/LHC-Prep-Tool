@@ -72,13 +72,16 @@ const WANTED = [
   [/^  function _sbmCutFmt\(/, '_sbmCutFmt'],
   [/^  function _sbmCutParse\(/, '_sbmCutParse'],
   [/^  function _sbmCutClamp\(/, '_sbmCutClamp'],
-  [/^  function _sbmCutNextName\(/, '_sbmCutNextName']
+  [/^  function _sbmCutNextName\(/, '_sbmCutNextName'],
+  [/^  function _sbmMoveSiblings\(/, '_sbmMoveSiblings'],
+  [/^  function _sbmRecTok\(/, '_sbmRecTok'],
+  [/^  function _sbmSecNorm\(/, '_sbmSecNorm']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { peaks: _sbmCutPeaks, slice: _sbmCutSlice, wav: _sbmWavBytes, fmt: _sbmCutFmt, parse: _sbmCutParse, clamp: _sbmCutClamp, next: _sbmCutNextName };')();
+  S = new Function(src + '\nreturn { peaks: _sbmCutPeaks, slice: _sbmCutSlice, wav: _sbmWavBytes, fmt: _sbmCutFmt, parse: _sbmCutParse, clamp: _sbmCutClamp, next: _sbmCutNextName, moveSiblings: _sbmMoveSiblings };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -141,6 +144,29 @@ check('one past the highest number the line has', S.next('Melody', ['Melody take
 check('  or past how many it has, when the names say nothing', S.next('Women', ['Take take 1', 'Take take 1']), 'Women take 3');
 check('  whichever is more -- never the same as one it has', S.next('Men', ['Men take 2', 'x', 'y']), 'Men take 4');
 check('the first is take 1', S.next('2nd Part', []), '2nd Part take 1');
+
+console.log('\nthe takes a moved take is numbered after');
+// A run-through, section takes of two sections in two slots, line takes:
+// the number a moved take gets must come from the group it will sit in.
+const rt = (id, slot, extra) => Object.assign({ id: id, name: id, line_id: null, storage_path: 'practice-recordings/s1/' + slot + '__1.webm' }, extra || {});
+const pool = [
+  rt('A', 'general'),                          // a run-through
+  rt('B', 'women', { section: 'Verse 1' }),    // the women's Verse 1
+  rt('C', 'women', { section: 'Verse 2' }),
+  rt('E', 'men', { section: 'Verse 1' }),
+  rt('F', 'men', { section: 'verse 1 ' }),     // the same section, spelt by hand
+  rt('G', 'men'),                              // a men run-through
+  rt('H', 'men', { line_id: 9 }),              // a men LINE take
+  rt('D', 'women', { line_id: 7 }),
+  rt('K', 'women', { line_id: 7 })
+];
+const ids = xs => xs.map(x => x.id);
+check('a section take moved to the men lands among the men takes of ITS section', ids(S.moveSiblings(pool, pool[1], null, 'men')), ['E', 'F']);
+check('  a run-through moved to the women counts only the women run-throughs', ids(S.moveSiblings(pool, pool[0], null, 'women')), []);
+check('  moved onto a line, the line takes', ids(S.moveSiblings(pool, pool[7], 7, 'women')), ['K']);
+check('  and never itself', ids(S.moveSiblings(pool, pool[3], null, 'men')), ['F']);
+check('rows from before the column, with no section at all, still count for a run-through',
+  ids(S.moveSiblings([rt('A', 'general'), { id: 'Z', name: 'Z', line_id: null, storage_path: 'practice-recordings/s1/general__2.webm' }], rt('Q', 'women'), null, 'general')), ['A', 'Z']);
 
 const failed = results.filter(r => !r).length;
 console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
