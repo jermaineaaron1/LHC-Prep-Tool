@@ -692,13 +692,22 @@ the anon key -- verify as `postgres`, not as the app.
     badge. Until the column exists the carry is a write that fails quietly.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
-    keeps each stroke as fractions of one anchor's box. The anchor is the
-    SMALLEST thing under the stroke's centre: a chord (`s:Verse 1|3/c:2`,
-    the third chord token of that moment), a word of one part's row
-    (`/w:men:4`), that row's words as a block (`/t:men`), the row (`/r:men`),
-    or the moment itself (`s:<section>|<n>`, the margin's count); on a
-    lyrics card a word of a line (`l:12/w:4`) or the line (`l:<index>`,
-    a block child of `#sbmLyrics`). Chords and words are counted as tokens
+    keeps each stroke (tool `em`) as offsets from its anchor's origin:
+    across in widths of the word or chord, down in ems of its font (the
+    desk sets the choir's words in a monospace face and the phone in a
+    proportional one, so widths differ while the type's height does not),
+    so a ring stays round the word and an underline the length of three
+    words shrinks with them. A section sung twice under one name gets
+    `#2` on its second run's key (`s:2nd CHORUS#2|3`).
+    The anchor is the NEAREST chord or word to the stroke's centre, among
+    the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
+    third chord token of that moment), a word of one part's row
+    (`/w:men:4`); failing any word, the row (`/r:men`) or the moment itself
+    (`s:<section>|<n>`, the margin's count); on a lyrics card a word of a
+    line (`l:12/w:4`) or the line (`l:<index>`, a block child of
+    `#sbmLyrics`). A token's origin is its centre, a row's or block's its
+    top left. Strokes from before (tool `pen`) are read as fractions of
+    their box and look stretched on a phone; redraw them. Chords and words are counted as tokens
     of the TEXT, so a desk's chord row and a phone's chords riding on the
     words count the same, and a word found by Range on either. A moment's
     box was tried first and is wrong: on a desk it runs past the words to
@@ -714,6 +723,20 @@ the anon key -- verify as `postgres`, not as the app.
     lyrics block may hold several source lines, so a mark is squeezed into
     its line's share of the block; a song shown as rich lyrics has no
     source lines to match and its lyric marks stay on the screen.
+
+32. **The reading view learns of other devices' changes by nudge and by
+    poll.** `sbm-live-<songbook>` is a Supabase BROADCAST channel (no
+    publication to set up, like the songbook's `sb-<orderId>` channel):
+    a device that writes a mark, a take or the lines sends `changed`, and
+    every 30s while shown -- and the moment the tab is shown again -- each
+    device compares a fingerprint (count + newest of `song_marks`,
+    `song_recordings`, `song_voice_lines`; a hash of the songs' rows and
+    of the songbook row) with the one it last drew. Marks and takes are
+    reloaded quietly in place; lines, words, settings and the book raise
+    the pulsing banner, whose Refresh refetches the songs' rows and lines
+    and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
+    adopted, not announced to itself; a change undone before the refresh
+    takes the banner away with it; Not now adopts the state as seen.
 
 ## Quick Commands for Claude Code
 

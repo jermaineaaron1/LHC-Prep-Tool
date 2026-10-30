@@ -1161,7 +1161,12 @@ check('  the count restarts at a new section', [nums['5'].n, nums['5'].section],
 check('  and the song-wide count does not', [nums['5'].overall, nums['6'].overall], [4, 5]);
 check('lines before the first header count from 1',
   V.lineNumbers([row('both', 'x', 0, { id: 9 }), row('both', 'y', 1, { id: 10 }), row('both', 'z', 2, { id: 11, section: 'Chorus' })]).byId['11'],
-  { n: 1, overall: 3, section: 'Chorus' });
+  { n: 1, overall: 3, section: 'Chorus', sectionKey: 'Chorus' });
+// A chorus sung twice under the same name: the second run's key is its own.
+const twice = [row('both', 'a', 0, { id: 21, section: 'Chorus' }), row('both', 'b', 1, { id: 22, section: 'Verse 2' }), row('both', 'c', 2, { id: 23, section: 'Chorus' })];
+const twiceNums = V.lineNumbers(twice);
+check('a section name that repeats gets its own key the second time', [twiceNums.byId['21'].sectionKey, twiceNums.byId['23'].sectionKey, twiceNums.byId['23'].n], ['Chorus', 'Chorus#2', 1]);
+check('  and the score carries that key as the anchor', /data-anchor="s:Chorus#2\|1"/.test(V.html(twice)), true);
 // The margin of the score shows the same numbers, from the same count.
 const marginHtml = V.html(numbered);
 check('the margin shows the same numbers', (marginHtml.match(/vl-no__n">(\d+)</g) || []).map(x => x.match(/(\d+)/)[1]), ['1', '2', '3', '1', '2']);
