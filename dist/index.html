@@ -38,6 +38,120 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <!-- ================================================================
+       PHONE VIEW. The songbook's "Phone view" opens this same page in a
+       panel beside the song (?sbmPreview=...) to show the song exactly as
+       a phone shows it. That copy must only READ. Before any of the app
+       runs, this turns away every write it could make to the database,
+       every message it could send to other devices or tabs, and every
+       setting it could save in this browser -- so whatever the copy does,
+       on load, on close or by accident, it reaches nothing. Honoured only
+       inside a frame whose parent is this same app. See _sbmPhone* in the
+       WO module, gotcha 33 in CLAUDE.md, tools/songbook-phone-harness.js.
+       ================================================================ -->
+  <script>
+  (function() {
+    // A query that never leaves: it chains like the real thing (.eq,
+    // .select, .single...) and settles to an error, having sent nothing.
+    function _lhcDenied() {
+      var res = Promise.resolve({ data: null, error: { message: 'The phone view only reads.' }, count: null, status: 403, statusText: 'read-only' });
+      var chain = new Proxy(function() {}, {
+        get: function(t, k) { if (k === 'then' || k === 'catch' || k === 'finally') return res[k].bind(res); return function() { return chain; }; },
+        apply: function() { return chain; }
+      });
+      return chain;
+    }
+    // A Supabase client that reads and listens but cannot write, call a
+    // function, upload, broadcast, or announce itself as present.
+    function _lhcReadOnlyClient(c) {
+      if (!c || c.__lhcReadOnly) return c;
+      c.__lhcReadOnly = true;
+      var from = c.from && c.from.bind(c);
+      if (from) c.from = function() {
+        var b = from.apply(null, arguments);
+        ['insert', 'upsert', 'update', 'delete'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });
+        return b;
+      };
+      if (c.rpc) c.rpc = _lhcDenied;
+      var fixStorage = function(st) {
+        if (!st || st.__lhcReadOnly || !st.from) return st;
+        st.__lhcReadOnly = true;
+        var sf = st.from.bind(st);
+        st.from = function() {
+          var b = sf.apply(null, arguments);
+          ['upload', 'update', 'remove', 'move', 'copy', 'uploadToSignedUrl', 'createSignedUploadUrl'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });
+          return b;
+        };
+        return st;
+      };
+      // supabase-js hands out a new storage client on every read of
+      // .storage, so the getter is what has to be wrapped.
+      var desc = null;
+      for (var o = c; o && !desc; o = Object.getPrototypeOf(o)) desc = Object.getOwnPropertyDescriptor(o, 'storage');
+      if (desc && desc.get) Object.defineProperty(c, 'storage', { configurable: true, get: function() { return fixStorage(desc.get.call(c)); } });
+      else if (c.storage) fixStorage(c.storage);
+      var channel = c.channel && c.channel.bind(c);
+      if (channel) c.channel = function() {
+        var ch = channel.apply(null, arguments);
+        if (ch) {
+          ch.send = function() { return Promise.resolve('ok'); };
+          ch.track = function() { return Promise.resolve('ok'); };
+          ch.untrack = function() { return Promise.resolve('ok'); };
+        }
+        return ch;
+      };
+      return c;
+    }
+    // Under the client, the network: nothing but GET and HEAD goes out,
+    // bar the two storage reads that are POSTs (a listing, a signed URL).
+    function _lhcFetchGuard(f) {
+      return function(input, init) {
+        var m = String((init && init.method) || (input && typeof input === 'object' && input.method) || 'GET').toUpperCase();
+        var u = String((input && typeof input === 'object' && input.url) || input || '');
+        if (m === 'GET' || m === 'HEAD' || /\/storage\/v1\/object\/(list|sign)\//.test(u)) return f.apply(this, arguments);
+        return Promise.resolve(new Response(JSON.stringify({ message: 'The phone view only reads.' }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+      };
+    }
+    // Settings the copy saves stay in the copy: written to memory, read
+    // back from memory first, the browser's own storage left as it was.
+    function _lhcStorageOverlay(P, isSession) {
+      var get = P.getItem, key = P.key, mem = { l: {}, s: {} };
+      var bag = function(st) { return isSession(st) ? mem.s : mem.l; };
+      var has = function(b, k) { return Object.prototype.hasOwnProperty.call(b, k); };
+      P.setItem = function(k, v) { bag(this)[String(k)] = String(v); };
+      P.removeItem = function(k) { bag(this)[String(k)] = null; };
+      P.clear = function() { var b = bag(this), n = this.length; for (var i = 0; i < n; i++) b[String(key.call(this, i))] = null; Object.keys(b).forEach(function(k) { b[k] = null; }); };
+      P.getItem = function(k) { var b = bag(this); k = String(k); return has(b, k) ? b[k] : get.call(this, k); };
+    }
+
+    var pv = null;
+    try {
+      var q = new URLSearchParams(window.location.search);
+      if (q.get('sbmPreview') && window.self !== window.top) {
+        void window.parent.location.href;   // throws unless the parent is this same app
+        pv = { key: q.get('sbmPreview') || '', sid: q.get('sbmSong') || '', base: q.get('sbmBase') || '', nth: parseInt(q.get('sbmNth'), 10) || 0 };
+      }
+    } catch (e) { pv = null; }
+    if (!pv) return;
+    window.__SBM_PREVIEW = pv;
+    document.documentElement.classList.add('sbm-preview');
+    var S = window.supabase;
+    if (S && S.createClient) {
+      var make = S.createClient;
+      var wrapped = function() { return _lhcReadOnlyClient(make.apply(this, arguments)); };
+      try { S.createClient = wrapped; } catch (e) {}
+      if (S.createClient !== wrapped) window.supabase = Object.assign({}, S, { createClient: wrapped });
+    }
+    if (window.fetch) window.fetch = _lhcFetchGuard(window.fetch);
+    if (navigator.sendBeacon) { try { navigator.sendBeacon = function() { return true; }; } catch (e) {} }
+    if (window.BroadcastChannel) {
+      var BC = window.BroadcastChannel;
+      window.BroadcastChannel = function(name) { var c = new BC(name); c.postMessage = function() {}; return c; };
+    }
+    try { _lhcStorageOverlay(Storage.prototype, function(st) { try { return st === window.sessionStorage; } catch (e) { return false; } }); } catch (e) {}
+  })();
+  </script>
+
+  <!-- ================================================================
        SUPABASE BRIDGE — replaces Google Apps Script backend.
        Intercepts every google.script.run call and routes it to Supabase.
        callGAS() in the main app uses google.script.run internally, so
@@ -28104,14 +28218,20 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     // deep-link launch (those handlers below will set the correct view).
     var _isShareLaunch    = !!(window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim());
     var _isDeepLinkLaunch = !!(window.__DEEPLINK_ORDER || window.__DEEPLINK_DATE ||
-                               window.__DEEPLINK_SONGBOOK || window.__DEEPLINK_MEDIA);
+                               window.__DEEPLINK_SONGBOOK || window.__DEEPLINK_MEDIA || window.__SBM_PREVIEW);
     if (!_isShareLaunch && !_isDeepLinkLaunch) {
       setActiveView('homeView');
     }
 
     loadAllData();
-    if (window.LHC_Notif) LHC_Notif.init();
-    if (window.LHC_Install) LHC_Install.init();
+    // The phone view (a copy of this page in the songbook's side panel)
+    // opens the songbook it was asked for, and asks nothing of anybody.
+    if (window.__SBM_PREVIEW) {
+      var _pvT = setInterval(function() { if (window.WO && window.WO.sbmPhoneBoot) { clearInterval(_pvT); window.WO.sbmPhoneBoot(); } }, 200);
+    } else {
+      if (window.LHC_Notif) LHC_Notif.init();
+      if (window.LHC_Install) LHC_Install.init();
+    }
 
     // Handle deep-link media parameter
     if (window.__DEEPLINK_MEDIA && window.__DEEPLINK_MEDIA.trim()) {
@@ -47976,6 +48096,7 @@ var WO = (function() {
 
   function closeSongbook() {
     if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
+    if (typeof _sbmPhoneClose === 'function') _sbmPhoneClose();
     if (typeof _sbmLiveStop === 'function') _sbmLiveStop();
     // Finish a take that is still running rather than dropping it.
     //
@@ -48253,6 +48374,7 @@ var WO = (function() {
     if (_sbmInited) return;
     _sbmInited = true;
     try { _sbmScale = parseFloat(localStorage.getItem('lhc_sbm_scale')) || 1; } catch (e) {}
+    if (window.__SBM_PREVIEW) _sbmScale = 1;   // a phone at its own size, not the desk's
     if (window.matchMedia) {
       var mq = window.matchMedia('(max-width: 820px)');
       var onChange = function() { if (typeof renderSongbookLive === 'function') renderSongbookLive(); };
@@ -48644,11 +48766,12 @@ var WO = (function() {
   }
   function _sbmMarkGap(r, X, Y) { var dx = Math.max(r.left - X, 0, X - r.right), dy = Math.max(r.top - Y, 0, Y - r.bottom); return Math.hypot(dx, dy); }
   // The token nearest the point, by the gap to its edge: one of the row's
-  // own when the point is in a row, else any of the moment's. With reach
-  // given, null when the nearest is further off than that.
-  function _sbmMarkTokenNear(at, reach) {
+  // own when the point is in a row, else any of the moment's -- or any of
+  // the moment's whatever row it is in, with anyRow. With reach given,
+  // null when the nearest is further off than that.
+  function _sbmMarkTokenNear(at, reach, anyRow) {
     if (!at) return null;
-    var pool = at.rowHit ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;
+    var pool = (at.rowHit && !anyRow) ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;
     if (!pool.length) pool = at.tokens;
     var best = null, bestD = Infinity;
     pool.forEach(function(t) { if (!(t.rect.width > 0)) return; var d = _sbmMarkGap(t.rect, at.X, at.Y); if (d < bestD) { bestD = d; best = t; } });
@@ -48709,7 +48832,10 @@ var WO = (function() {
   // one row (that is an underline, and belongs to one word).
   function _sbmMarkLinkEnds(card, pts, reach) {
     var a = pts[0], z = pts[pts.length - 1];
-    var A = _sbmMarkTokenNear(_sbmMarkTokensAt(card, a[0], a[1]), reach), B = _sbmMarkTokenNear(_sbmMarkTokensAt(card, z[0], z[1]), reach);
+    // An arrow's tip stops short of what it points at, often just inside
+    // the top of the row under a chord: it is about the nearest chord or
+    // word, whichever row that is in.
+    var A = _sbmMarkTokenNear(_sbmMarkTokensAt(card, a[0], a[1]), reach, true), B = _sbmMarkTokenNear(_sbmMarkTokensAt(card, z[0], z[1]), reach, true);
     if (!A || !B || A.key === B.key) return null;
     if (A.kind === B.kind && A.row === B.row && A.base === B.base) return null;
     return { A: A, B: B };
@@ -48830,6 +48956,7 @@ var WO = (function() {
         if (r.error) return;
         _sbmMarks[base] = r.data || [];
         _sbmMarksPaintAll();
+        _sbmPhoneMarks(null);
       });
     });
   }
@@ -48842,6 +48969,7 @@ var WO = (function() {
     if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    _sbmGlowDraw(g, card, W);
     var marks = _sbmMarks[base] || [], memo = {}, laid = [], byAnchor = {};
     cv.__laid = [];
     marks.forEach(function(m) {
@@ -48866,6 +48994,120 @@ var WO = (function() {
       cv.__laid.push({ id: it.m.id, pts: pts, width: Number(it.m.width) || 4 });
       _sbmMarkStroke(g, pts, it.m.colour, Number(it.m.width) || 4);
     });
+    // A repaint while a stroke is being drawn -- the glow fading, a chip
+    // arriving -- must not wipe the part of it already drawn.
+    var D = _sbmDraw;
+    if (D && D.live && !D.live.erase && D.live.card === card && D.live.pts) _sbmMarkStroke(g, D.live.pts, D.colour, D.width);
+  }
+  // ---- what a stroke was attached to, shown as it lands ----
+  //
+  // Where a stroke lands on another screen is decided by what it is
+  // attached to, so that is what the desk is shown the moment the pen
+  // lifts: the chord or word glows, with a caption saying which -- for an
+  // arrow both of its ends, joined by a dotted line. Drawn on the canvas
+  // from the same boxes every screen places the stroke by, so the glow is
+  // the proof, not a guess. The wrong word glowing means: Undo, and draw
+  // a little closer to the one you meant.
+  var _sbmGlow = null, _sbmGlowTimer = 0;   // { card, key, at }
+  // Full for a second, then fading out: kept pure for the harness.
+  function _sbmGlowAlpha(t) {
+    var hold = 1100, fade = 800;
+    if (!(t >= 0)) return 0;
+    if (t <= hold) return 1;
+    var f = 1 - (t - hold) / fade;
+    return f > 0 ? f : 0;
+  }
+  function _sbmGlowShow(card, key) {
+    if (!card || !key) return;
+    var prev = _sbmGlow;
+    _sbmGlow = { card: card, key: key, at: Date.now() };
+    if (prev && prev.card !== card) _sbmMarksPaint(prev.card);
+    _sbmGlowTick();
+  }
+  function _sbmGlowStop() {
+    var G = _sbmGlow; if (!G) return;
+    _sbmGlow = null; clearTimeout(_sbmGlowTimer); _sbmGlowTimer = 0;
+    _sbmMarksPaint(G.card);
+  }
+  function _sbmGlowTick() {
+    clearTimeout(_sbmGlowTimer); _sbmGlowTimer = 0;
+    var G = _sbmGlow; if (!G) return;
+    var on = _sbmGlowAlpha(Date.now() - G.at) > 0;
+    if (!on) _sbmGlow = null;
+    _sbmMarksPaint(G.card);
+    if (on) _sbmGlowTimer = setTimeout(_sbmGlowTick, 40);
+  }
+  // What an anchor is, in words: { kind: chord|word|row|moment|line, text,
+  // part, section, n }, read off the screen.
+  function _sbmMarkDescribe(card, key) {
+    var parts = String(key || '').split('@')[0].split('/'), baseKey = parts[0], sub = parts[1] || '';
+    var d = { kind: 'moment', text: '', part: '', section: '', n: 0 };
+    var sm = /^s:(.*)\|(\d+)$/.exec(baseKey), lm = /^l:(\d+)$/.exec(baseKey);
+    if (sm) { d.section = sm[1].replace(/#\d+$/, ''); d.n = parseInt(sm[2], 10); }
+    if (lm) { d.kind = 'line'; d.n = parseInt(lm[1], 10) + 1; }
+    var base = _sbmMarkBaseEl(card, baseKey), m = /^(c|w|t|r):(.*)$/.exec(sub);
+    if (!base || !m) return d;
+    var label = function(part) {
+      var row = _sbmMarkRow(base, part), who = row && row.querySelector('.vl-who');
+      var t = (who ? who.textContent : part).trim().toLowerCase();
+      return t.replace(/(^|\s)\S/g, function(c) { return c.toUpperCase(); });
+    };
+    if (m[1] === 'c') { var ck = _sbmChordTokens(base)[parseInt(m[2], 10)]; d.kind = 'chord'; d.text = ck ? ck.text : ''; return d; }
+    if (m[1] === 'w') {
+      var wm = /^(?:(.*):)?(\d+)$/.exec(m[2]); if (!wm) return d;
+      var container = base;
+      if (wm[1] != null) { var row = _sbmMarkRow(base, wm[1]); if (row) container = row.querySelector('.vl-words') || row; d.part = label(wm[1]); }
+      var tk = _sbmTokenRects(container, '.vl-w__c')[parseInt(wm[2], 10)];
+      d.kind = 'word'; d.text = tk ? tk.text : ''; return d;
+    }
+    d.kind = 'row'; d.part = label(m[2]); return d;
+  }
+  // ...and the caption for one or two of them. Pure, for the harness.
+  function _sbmMarkCaption(ends) {
+    var one = function(d) {
+      if (d.kind === 'chord') return 'the chord ' + d.text;
+      if (d.kind === 'word') return '\u201c' + d.text + '\u201d' + (d.part ? ' \u00b7 ' + d.part : '');
+      if (d.kind === 'row') return 'the ' + d.part + ' row' + (d.section ? ', ' + d.section + ' line ' + d.n : '');
+      if (d.kind === 'line') return 'lyric line ' + d.n;
+      return (d.section ? d.section + ', ' : '') + 'line ' + d.n;
+    };
+    ends = (ends || []).filter(Boolean);
+    if (ends.length > 1) return 'From ' + one(ends[0]) + ' to ' + one(ends[1]);
+    return ends.length ? 'On ' + one(ends[0]) : '';
+  }
+  function _sbmRRect(g, x, y, w, h, r) {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    g.beginPath(); g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  function _sbmGlowDraw(g, card, W) {
+    var G = _sbmGlow; if (!G || G.card !== card) return;
+    var a = _sbmGlowAlpha(Date.now() - G.at); if (!(a > 0)) return;
+    var f = _sbmMarkFrame(card, G.key); if (!f) return;
+    var boxes = f.kind === 'link' ? [f.A, f.B] : [f];
+    g.save(); g.globalAlpha = a;
+    if (f.kind === 'link') {
+      g.setLineDash([4, 4]); g.strokeStyle = '#d97706'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(f.P[0], f.P[1]); g.lineTo(f.Q[0], f.Q[1]); g.stroke(); g.setLineDash([]);
+    }
+    boxes.forEach(function(b) {
+      _sbmRRect(g, b.x - 4, b.y - 3, b.w + 8, b.h + 6, 6);
+      g.fillStyle = 'rgba(250, 204, 21, 0.35)'; g.fill();
+      g.lineWidth = 2; g.strokeStyle = '#d97706'; g.stroke();
+    });
+    var text = _sbmMarkCaption(String(G.key).split('@')[0].split('>').map(function(k) { return _sbmMarkDescribe(card, k); }));
+    if (text) {
+      g.font = '600 12px Poppins, system-ui, sans-serif';
+      var tw = Math.ceil(g.measureText(text).width) + 16, th = 22;
+      var topBox = boxes.slice().sort(function(p, q) { return p.y - q.y; })[0];
+      var bottom = Math.max.apply(null, boxes.map(function(b) { return b.y + b.h; }));
+      var y = topBox.y - th - 8; if (y < 2) y = bottom + 8;
+      var x = Math.max(4, Math.min(W - tw - 4, topBox.x + topBox.w / 2 - tw / 2));
+      _sbmRRect(g, x, y, tw, th, 11); g.fillStyle = '#0f1f3d'; g.fill();
+      g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.fillText(text, x + 8, y + th / 2 + 0.5);
+    }
+    g.restore();
   }
   function _sbmMarkStroke(g, pts, colour, width) {
     if (!pts.length) return;
@@ -48900,6 +49142,7 @@ var WO = (function() {
   }
   function _sbmDrawEnd() {
     _sbmDraw = null;
+    _sbmPhoneClose();
     document.body.classList.remove('sbm-drawing');
     var bar = document.getElementById('sbmDrawBar'); if (bar) bar.remove();
     _sbmMarkCards().forEach(function(c) { c.classList.remove('is-drawing'); c.classList.remove('is-scrolling'); });
@@ -48916,6 +49159,7 @@ var WO = (function() {
       '<button type="button" class="sbm-drawbar__tool' + (D.tool === 'eraser' ? ' is-on' : '') + '" onclick="WO.sbmDrawTool(\'eraser\')" title="Eraser: touch a stroke to remove it" aria-label="Eraser"><i class="fa-solid fa-eraser"></i></button>' +
       '<button type="button" class="sbm-drawbar__tool" onclick="WO.sbmDrawUndo()" title="Undo the last stroke" aria-label="Undo"><i class="fa-solid fa-rotate-left"></i></button>' +
       '<button type="button" class="sbm-drawbar__tool' + (D.scroll ? ' is-on' : '') + '" onclick="WO.sbmDrawScroll()" title="Scroll the page; drawing waits" aria-label="Scroll"><i class="fa-solid fa-hand"></i></button>' +
+      (_sbmPhoneFits() ? '<button type="button" class="sbm-drawbar__phone' + (_sbmPhone ? ' is-on' : '') + '" onclick="WO.sbmPhone()" aria-pressed="' + (_sbmPhone ? 'true' : 'false') + '" title="Phone view: the song as a phone shows it, beside this one"><i class="fa-solid fa-mobile-screen"></i>Phone view</button>' : '') +
       '<button type="button" class="sbm-btn sbm-btn--primary sbm-drawbar__done" onclick="WO.sbmDraw(false)">Done</button></div>';
   }
   function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width })); } catch (e) {} }
@@ -48934,6 +49178,7 @@ var WO = (function() {
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
     _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return String(m.id) !== String(id); });
     _sbmMarksPaintAll();
+    _sbmPhoneMarks(null);
     _sbmLiveSend();
     sup.from('song_marks').delete().eq('id', id).then(function(r) {
       if (r.error) { showToast('Could not remove the mark: ' + r.error.message, 'error'); _sbmLoadMarks(song, true); }
@@ -48968,6 +49213,7 @@ var WO = (function() {
     }
     var q = _sbmDrawPos(ev, cv);
     if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card }; _sbmDrawErase(cv, q); return; }
+    _sbmGlowStop();   // the last stroke's glow gives way to the next stroke
     var g = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     D.live = { cv: cv, card: card, pts: [q], g: g };
@@ -49013,6 +49259,8 @@ var WO = (function() {
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
     (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
     _sbmMarksPaint(live.card);
+    _sbmGlowShow(live.card, hit.key);
+    _sbmPhoneMarks(hit.key);
     sup.from('song_marks').insert(mark).select().then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the mark did not come back from the database');
       local.id = r.data[0].id;
@@ -49021,6 +49269,7 @@ var WO = (function() {
     }).catch(function(err) {
       _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== local; });
       _sbmMarksPaintAll();
+      _sbmPhoneMarks(null);
       showToast('Could not save the mark: ' + err.message, 'error');
     });
   }
@@ -49339,6 +49588,263 @@ var WO = (function() {
       else if (currentOrderData && currentOrderData.id) openSongbookByOrderId(currentOrderData.id);
       if (_sbmLive) _sbmLiveCheck(true);
     });
+  }
+
+  // ==================== PHONE VIEW: THE SONG AS A PHONE SHOWS IT ====================
+  //
+  // A desk user drawing a remark cannot see where a phone will put it: a
+  // phone stacks each part's row under its chip and rides the chords on
+  // the words, so the same words sit elsewhere and wrap differently. The
+  // phone view is the app itself, opened a second time in a panel beside
+  // the song at a phone's width -- not an imitation of the phone's layout
+  // but the phone's layout, drawn by the same code from the same rows.
+  //
+  // That copy only reads. The head of the page (look for __SBM_PREVIEW)
+  // turns away every write it would make to the database, every message
+  // it would send to other devices or tabs, and every setting it would
+  // save, before any of the app has run. The desk tells it what to show:
+  // the song, its parts and words and marks as they stand on the desk,
+  // the part chosen, and the moment to look at -- each new stroke's
+  // anchor, which glows there as it glows here. Scrolling the desk brings
+  // the phone to the same moment.
+  var _SBM_DEVICES = [
+    ['small', 'Small phone', 360],
+    ['phone', 'Phone', 390],
+    ['large', 'Large phone', 430],
+    ['tablet', 'Tablet', 768],
+    ['sideways', 'Tablet sideways', 1024]
+  ];
+  var _SBM_PHONE_FIELDS = ['choirView', 'sbmLyricsMode', 'sbLyricsColumns', 'transposeSteps', 'customLyrics', 'hasCustomLyrics', 'richLyrics', 'lyrics', 'masterLyrics', 'key', 'title', 'artist', 'theme'];
+  var _sbmPhone = null;   // { el, frame, dev, ready, poll, last, reloadAt }
+  var _sbmPhoneFollowT = 0, _sbmPhoneScrollT = 0, _sbmPhoneStrokeAt = 0;
+  function _sbmPhoneFits() { return _sbmWideNow() && window.innerWidth >= 1000 && !window.__SBM_PREVIEW; }
+  function _sbmPhoneWidth() { return Math.round(Math.max(380, Math.min(560, window.innerWidth * 0.32))); }
+  function sbmPhone(on) {
+    if (on === false || (on == null && _sbmPhone)) { _sbmPhoneClose(); return; }
+    if (_sbmPhone) return;
+    if (!_sbmPhoneFits()) { showToast('The phone view needs a wider window', 'error'); return; }
+    if (!_sbmSong() || !_sbmLiveKey()) { showToast('Open a song first', 'error'); return; }
+    var dev = 'phone'; try { dev = localStorage.getItem('lhc_sbm_phone_dev') || 'phone'; } catch (e) {}
+    if (!_SBM_DEVICES.some(function(d) { return d[0] === dev; })) dev = 'phone';
+    var el = document.createElement('div');
+    el.id = 'sbmPhone'; el.className = 'sbm sbm-phone is-waiting';
+    el.setAttribute('role', 'complementary'); el.setAttribute('aria-label', 'Phone view');
+    el.innerHTML =
+      '<div class="sbm-phone__hdr"><div class="sbm-phone__title"><i class="fa-solid fa-mobile-screen"></i>Phone view</div>' +
+        '<button type="button" class="sbm-phone__btn" onclick="WO.sbmPhoneReload()" title="Open it again" aria-label="Open the phone view again"><i class="fa-solid fa-rotate"></i></button>' +
+        '<button type="button" class="sbm-phone__btn" onclick="WO.sbmPhone(false)" title="Close" aria-label="Close the phone view"><i class="fa-solid fa-xmark"></i></button></div>' +
+      '<div class="sbm-phone__devs" role="group" aria-label="Screen">' + _SBM_DEVICES.map(function(d) {
+        return '<button type="button" class="sbm-phone__dev" data-dev="' + d[0] + '" onclick="WO.sbmPhoneDevice(\'' + d[0] + '\')">' + d[1] + '<small>' + d[2] + '</small></button>';
+      }).join('') + '</div>' +
+      '<div class="sbm-phone__stage"><div class="sbm-phone__device"><iframe title="The songbook as a phone shows it" tabindex="-1"></iframe></div>' +
+        '<div class="sbm-phone__wait"><i class="fa-solid fa-spinner fa-spin"></i><span>Opening the songbook as a phone sees it\u2026</span></div>' +
+        '<div class="sbm-phone__fail"><span>The phone view did not open.</span><button type="button" class="sbm-btn sbm-btn--primary" onclick="WO.sbmPhoneReload()">Try again</button></div></div>' +
+      '<div class="sbm-phone__note"></div>';
+    document.body.appendChild(el);
+    document.body.classList.add('sbm-phone-open');
+    _sbmPhone = { el: el, frame: el.querySelector('iframe'), dev: dev, ready: false, poll: 0, last: null, reloadAt: 0 };
+    window.addEventListener('resize', _sbmPhoneLayout);
+    var root = document.getElementById('sbmRoot'); if (root) root.addEventListener('scroll', _sbmPhoneOnScroll, { passive: true });
+    _sbmPhoneLayout();
+    _sbmPhoneLoad();
+    if (_sbmDraw) _sbmDrawBar();
+  }
+  function _sbmPhoneClose() {
+    var P = _sbmPhone; if (!P) return;
+    _sbmPhone = null;
+    clearInterval(P.poll); clearTimeout(_sbmPhoneFollowT); clearTimeout(_sbmPhoneScrollT);
+    try { P.frame.src = 'about:blank'; } catch (e) {}
+    if (P.el.parentNode) P.el.parentNode.removeChild(P.el);
+    document.body.classList.remove('sbm-phone-open', 'sbm-phone-narrow');
+    document.body.style.removeProperty('--sbm-phone-w');
+    window.removeEventListener('resize', _sbmPhoneLayout);
+    var root = document.getElementById('sbmRoot'); if (root) root.removeEventListener('scroll', _sbmPhoneOnScroll);
+    if (_sbmDraw) _sbmDrawBar();
+    _sbmMarksQueue();
+  }
+  // The panel takes its share of the window and the songbook the rest;
+  // the screen inside is drawn at its true width and scaled to fit.
+  function _sbmPhoneLayout() {
+    var P = _sbmPhone; if (!P) return;
+    if (!_sbmPhoneFits()) { _sbmPhoneClose(); return; }
+    var w = _sbmPhoneWidth();
+    document.body.style.setProperty('--sbm-phone-w', w + 'px');
+    document.body.classList.toggle('sbm-phone-narrow', window.innerWidth - w < 1040);
+    var dev = _SBM_DEVICES.filter(function(d) { return d[0] === P.dev; })[0] || _SBM_DEVICES[1];
+    var stage = P.el.querySelector('.sbm-phone__stage'), box = P.el.querySelector('.sbm-phone__device');
+    var sw = stage.clientWidth, sh = stage.clientHeight;
+    if (sw && sh) {
+      // The screen is sized, not the case round it: a border rounds to the
+      // display's pixels (5.6px at 125%), and the screen must be exactly
+      // the device's width or its lines wrap where that device's do not.
+      var bw = dev[2] + 12, k = Math.min(1, (sw - 24) / bw), H = Math.max(200, (sh - 8) / k);
+      P.frame.style.width = dev[2] + 'px'; P.frame.style.height = Math.round(H - 12) + 'px';
+      box.style.transform = 'scale(' + k + ')'; box.style.left = Math.round((sw - bw * k) / 2) + 'px';
+      var note = P.el.querySelector('.sbm-phone__note');
+      if (note) note.innerHTML = '<b>' + dev[1] + '</b> \u00b7 ' + dev[2] + 'px wide' + (k < 0.999 ? ', shown at ' + Math.round(k * 100) + '%' : '') +
+        '. Each stroke you draw appears here where this screen puts it, and what it is attached to glows on both.';
+    }
+    Array.prototype.forEach.call(P.el.querySelectorAll('.sbm-phone__dev'), function(b) { b.classList.toggle('is-on', b.getAttribute('data-dev') === dev[0]); });
+  }
+  function _sbmPhoneLoad() {
+    var P = _sbmPhone; if (!P) return;
+    var song = _sbmSong(), key = _sbmLiveKey(); if (!song || !key) return;
+    var base = _sbBaseSongId(song);
+    var nth = Math.max(0, _sbmSongs().filter(function(x) { return _sbBaseSongId(x) === base; }).indexOf(song));
+    P.ready = false; P.reloadAt = Date.now(); clearInterval(P.poll);
+    P.el.classList.add('is-waiting'); P.el.classList.remove('is-failed');
+    P.frame.src = location.origin + location.pathname + '?sbmPreview=' + encodeURIComponent(key) + '&sbmSong=' + encodeURIComponent(song.id) +
+      '&sbmBase=' + encodeURIComponent(base) + '&sbmNth=' + nth;
+    var t0 = Date.now();
+    P.poll = setInterval(function() {
+      if (_sbmPhone !== P) { clearInterval(P.poll); return; }
+      var fw = null; try { fw = P.frame.contentWindow; } catch (e) {}
+      if (fw && fw.__sbmPreviewReady) {
+        clearInterval(P.poll);
+        P.ready = true; P.el.classList.remove('is-waiting');
+        var pl = _sbmPhonePayload(true);
+        if (pl && P.last) { pl.focus = P.last; }
+        _sbmPhoneSend(pl);
+        return;
+      }
+      if (Date.now() - t0 > 45000) { clearInterval(P.poll); P.el.classList.remove('is-waiting'); P.el.classList.add('is-failed'); }
+    }, 300);
+  }
+  function sbmPhoneReload() { _sbmPhoneLoad(); }
+  function sbmPhoneDevice(id) {
+    var P = _sbmPhone; if (!P || !_SBM_DEVICES.some(function(d) { return d[0] === id; })) return;
+    P.dev = id; try { localStorage.setItem('lhc_sbm_phone_dev', id); } catch (e) {}
+    _sbmPhoneLayout();
+    // The screen inside has laid itself out afresh: back to the last stroke.
+    setTimeout(function() {
+      if (_sbmPhone !== P || !P.ready || !P.last) return;
+      var pl = _sbmPhonePayload(false); if (!pl) return;
+      pl.focus = P.last; delete pl.marks; _sbmPhoneSend(pl);
+    }, 600);
+  }
+  // What the phone view is told: which song (by id, and failing that by
+  // which copy of which song -- an order's item ids are its own), its
+  // marks, and with full also its words, parts, settings and part chosen.
+  function _sbmPhonePayload(full) {
+    var song = _sbmSong(); if (!song) return null;
+    var base = _sbBaseSongId(song), list = _sbmSongs();
+    var p = { sid: song.id, base: base, nth: Math.max(0, list.filter(function(x) { return _sbBaseSongId(x) === base; }).indexOf(song)), marks: _sbmMarks[base] || [] };
+    if (full) {
+      p.item = {};
+      _SBM_PHONE_FIELDS.forEach(function(k) { if (song[k] !== undefined) p.item[k] = song[k]; });
+      if (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) p.transpose = sbTransposeSteps[song.id];
+      if (_sbVoiceLines[base]) p.lines = _sbVoiceLines[base];
+      p.mypart = _sbMyPartStore();
+      p.render = true;
+    }
+    return p;
+  }
+  function _sbmPhoneSend(p) {
+    var P = _sbmPhone; if (!P || !P.ready || !p) return;
+    var fw = null; try { fw = P.frame.contentWindow; } catch (e) {}
+    var ok = false;
+    try { ok = !!(fw && fw.WO && fw.WO.sbmPhoneApply && fw.WO.sbmPhoneApply(JSON.stringify(p))); } catch (e) { ok = false; }
+    // The book changed under it -- a song added or taken out: open it again.
+    if (!ok && Date.now() - (P.reloadAt || 0) > 15000) _sbmPhoneLoad();
+  }
+  function _sbmPhoneFollowSoon() {
+    if (!_sbmPhone) return;
+    clearTimeout(_sbmPhoneFollowT);
+    _sbmPhoneFollowT = setTimeout(function() { var P = _sbmPhone; if (P && P.ready) _sbmPhoneSend(_sbmPhonePayload(true)); }, 200);
+  }
+  function _sbmPhoneMarks(focus) {
+    var P = _sbmPhone; if (!P) return;
+    if (focus) { P.last = focus; _sbmPhoneStrokeAt = Date.now(); }
+    if (!P.ready) return;
+    var pl = _sbmPhonePayload(false); if (!pl) return;
+    if (focus) { pl.focus = focus; pl.glow = true; }
+    _sbmPhoneSend(pl);
+  }
+  // Scrolling the desk brings the phone to the moment in the middle of it.
+  function _sbmPhoneOnScroll() {
+    clearTimeout(_sbmPhoneScrollT);
+    _sbmPhoneScrollT = setTimeout(function() {
+      var P = _sbmPhone; if (!P || !P.ready || Date.now() - _sbmPhoneStrokeAt < 1500) return;
+      var root = document.getElementById('sbmRoot'); if (!root) return;
+      var rr = root.getBoundingClientRect(), mid = rr.top + root.clientHeight / 2, best = null, bestD = Infinity;
+      Array.prototype.forEach.call(root.querySelectorAll('.sbm-score .vl-sys[data-anchor], #sbmLyrics > [data-anchor]'), function(el) {
+        var r = el.getBoundingClientRect(); if (!(r.height > 0)) return;
+        var d = (r.top <= mid && r.bottom >= mid) ? 0 : Math.min(Math.abs(r.top - mid), Math.abs(r.bottom - mid));
+        if (d < bestD) { bestD = d; best = el; }
+      });
+      if (!best) return;
+      var pl = _sbmPhonePayload(false); if (!pl) return;
+      pl.focus = best.getAttribute('data-anchor'); delete pl.marks;
+      _sbmPhoneSend(pl);
+    }, 250);
+  }
+
+  // ---- inside the phone view ----
+  // Which of the book's items is the desk's song: the same id, else the
+  // nth copy of the same song. Pure, for the harness.
+  function _sbmPhoneFind(list, sid, base, nth) {
+    list = list || [];
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === sid) return list[i];
+    var same = list.filter(function(x) { return x && String(x.songId || String(x.id || '').split('--')[0]) === String(base); });
+    return same[nth || 0] || same[0] || null;
+  }
+  function sbmPhoneBoot() {
+    var P = window.__SBM_PREVIEW; if (!P) return;
+    var key = String(P.key || ''), t0 = Date.now();
+    (function wait() {
+      var songsIn = window.STATE && Array.isArray(window.STATE.songs) && window.STATE.songs.length > 0;
+      if (!songsIn && Date.now() - t0 < 30000) { setTimeout(wait, 250); return; }
+      if (key.indexOf('sb_') === 0) openSongbookStandalone(key.slice(3));
+      else if (key.indexOf('order_') === 0) openSongbookByOrderId(key.slice(6));
+      else return;
+      var t1 = Date.now();
+      (function pick() {
+        var list = _sbmSongs();
+        if (!list.length) { if (Date.now() - t1 < 20000) setTimeout(pick, 250); return; }
+        var hit = _sbmPhoneFind(list, P.sid, P.base, P.nth);
+        if (hit) sbmSelectSong(hit.id);
+        window.__sbmPreviewReady = true;
+      })();
+    })();
+  }
+  function sbmPhoneApply(json) {
+    if (!window.__SBM_PREVIEW) return false;
+    var p; try { p = JSON.parse(json); } catch (e) { return false; }
+    var item = _sbmPhoneFind(_sbmSongs(), p.sid, p.base, p.nth);
+    if (!item) return false;
+    var base = _sbBaseSongId(item);
+    if (p.item) Object.keys(p.item).forEach(function(k) { item[k] = p.item[k]; });
+    if (p.transpose != null && typeof sbTransposeSteps !== 'undefined') sbTransposeSteps[item.id] = p.transpose;
+    if (p.lines) _sbVoiceLines[base] = p.lines;
+    if (p.mypart && typeof p.mypart === 'object') _sbMyPart = p.mypart;
+    if (p.marks) { _sbmMarks[base] = p.marks; _sbmMarksAt[base] = Date.now(); }
+    var rendered = false;
+    if (_sbmSid !== item.id) { sbmSelectSong(item.id); rendered = true; }
+    else if (p.render) { _sbmRender(); rendered = true; }
+    else _sbmMarksPaintAll();
+    if (p.focus) setTimeout(function() { _sbmPhoneFocus(p.focus, !!p.glow); }, rendered ? 150 : 0);
+    return true;
+  }
+  // Brings an anchor to the middle of the phone's screen, glowing if asked.
+  function _sbmPhoneFocus(key, glow) {
+    var root = document.getElementById('sbmRoot'); if (!root || !key) return;
+    var cards = _sbmMarkCards(), card = null, f = null;
+    for (var i = 0; i < cards.length && !f; i++) { f = _sbmMarkFrame(cards[i], key); if (f) card = cards[i]; }
+    if (!f) return;
+    var cr = card.getBoundingClientRect(), bs = f.kind === 'link' ? [f.A, f.B] : [f];
+    var top = Math.min.apply(null, bs.map(function(b) { return b.y; })) + cr.top;
+    var bottom = Math.max.apply(null, bs.map(function(b) { return b.y + b.h; })) + cr.top;
+    var rr = root.getBoundingClientRect();
+    _sbmScrollTo(root, Math.max(0, root.scrollTop + (top + bottom) / 2 - (rr.top + root.clientHeight / 2)));
+    if (glow) _sbmGlowShow(card, key);
+  }
+  // A smooth scroll runs on animation frames, and a page the browser is
+  // not painting gets none, so it would never arrive: if it has not moved
+  // at all by the time it should be nearly there, it jumps.
+  function _sbmScrollTo(el, top) {
+    var from = el.scrollTop;
+    try { el.scrollTo({ top: top, behavior: 'smooth' }); } catch (e) { el.scrollTop = top; }
+    setTimeout(function() { if (Math.abs(el.scrollTop - from) < 1 && Math.abs(top - from) >= 1) el.scrollTop = top; }, 700);
   }
 
   // ---- the index: the phone's contents page, and reordering ----
@@ -50321,6 +50827,7 @@ var WO = (function() {
     _sbmEvenRows();
     _sbmMarksMount();
     _sbmLiveStart();
+    _sbmPhoneFollowSoon();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
@@ -79837,6 +80344,7 @@ var WO = (function() {
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
     sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo,
     sbmLiveRefresh: sbmLiveRefresh, sbmLiveDismiss: sbmLiveDismiss, sbmLiveBanner: _sbmLiveBanner,
+    sbmPhone: sbmPhone, sbmPhoneDevice: sbmPhoneDevice, sbmPhoneReload: sbmPhoneReload, sbmPhoneBoot: sbmPhoneBoot, sbmPhoneApply: sbmPhoneApply,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
     sbmCutInput: sbmCutInput, sbmCutSave: sbmCutSave, sbmCutTargetChanged: sbmCutTargetChanged, sbmSectionRecord: sbmSectionRecord,
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
@@ -97610,6 +98118,42 @@ function filterLiturgyItems() {
 @keyframes sbmLivePulse { 0%, 100% { background: #b45309; } 50% { background: #f59e0b; } }
 .sbm-live__btn { min-height: 30px; padding: 0 12px; }
 .sbm-live__x { width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.18); color: #fff; cursor: pointer; }
+
+/* ---- Phone view: the song as a phone shows it, beside the desk's ------ */
+.sbm-drawbar__phone { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-drawbar__phone.is-on { background: #fff; color: var(--sbm-navy); }
+body.sbm-phone-open #songbookLiveModal { right: var(--sbm-phone-w, 430px) !important; }
+body.sbm-phone-open .sbm-drawbar, body.sbm-phone-open .sbm-live { left: calc((100vw - var(--sbm-phone-w, 430px)) / 2); }
+body.sbm-phone-narrow #sbmRoot.sbm--wide .sbm-wide { grid-template-columns: minmax(0, 1fr); }
+body.sbm-phone-narrow #sbmRoot.sbm--wide .sbm-side { display: none; }
+.sbm-phone { position: fixed; top: 0; right: 0; bottom: 0; width: var(--sbm-phone-w, 430px); z-index: 2300; display: flex; flex-direction: column; background: #0b1424; color: #e2e8f0; font-family: var(--sbm-font-ui); box-shadow: -10px 0 30px rgba(0,0,0,0.35); }
+.sbm-phone__hdr { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px 16px; }
+.sbm-phone__title { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; font: 700 15px/1.2 var(--sbm-font-ui); }
+.sbm-phone__title i { color: var(--sbm-gold); font-size: 17px; }
+.sbm-phone__btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: #e2e8f0; cursor: pointer; font-size: 13px; }
+.sbm-phone__btn:hover { background: rgba(255,255,255,0.12); }
+.sbm-phone__devs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
+.sbm-phone__dev { display: inline-flex; align-items: baseline; gap: 5px; min-height: 30px; padding: 7px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); background: transparent; color: #e2e8f0; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-phone__dev small { font-weight: 500; font-size: 11px; opacity: 0.65; }
+.sbm-phone__dev.is-on { background: #fff; color: var(--sbm-navy); border-color: #fff; }
+.sbm-phone__stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.sbm-phone__device { position: absolute; top: 4px; left: 0; transform-origin: 0 0; border-radius: 26px; border: 6px solid #1f2a3d; background: #fff; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,0.45); }
+.sbm-phone__device iframe { display: block; border: 0; background: #fff; }
+.sbm-phone__wait, .sbm-phone__fail { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: #94a3b8; font-size: 13px; }
+.sbm-phone__wait i { font-size: 22px; color: var(--sbm-gold); }
+.sbm-phone.is-waiting .sbm-phone__wait, .sbm-phone.is-failed .sbm-phone__fail { display: flex; }
+.sbm-phone.is-waiting .sbm-phone__device, .sbm-phone.is-failed .sbm-phone__device { visibility: hidden; }
+.sbm-phone__note { padding: 10px 16px 14px; font-size: 12px; line-height: 1.45; color: #94a3b8; }
+.sbm-phone__note b { color: #e2e8f0; }
+/* Inside the phone view: a screen to look at, not to work in. Scrolling
+   still works -- the wheel falls through to the scroller -- and no
+   scrollbar is drawn, because a desk's scrollbar takes width a phone's
+   does not and every line would wrap a little early. */
+html.sbm-preview, html.sbm-preview #sbmRoot { scrollbar-width: none; }
+html.sbm-preview::-webkit-scrollbar, html.sbm-preview #sbmRoot::-webkit-scrollbar { display: none; }
+html.sbm-preview body { overflow: hidden !important; }
+html.sbm-preview #sbmRoot * { pointer-events: none !important; }
+html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-preview .sbm-drawbar { display: none !important; }
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
