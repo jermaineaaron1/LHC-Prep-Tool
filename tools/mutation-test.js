@@ -449,6 +449,13 @@ const CASES = [
   ['songbook-marks-harness.js', 'a stroke is kept from the word\'s corner, not its centre',
     s => s.replace("  function _sbmMarkOrigin(box) { return box.kind === 'token' ? [box.x + box.w / 2, box.y + box.h / 2] : [box.x, box.y]; }",
                    "  function _sbmMarkOrigin(box) { return [box.x, box.y]; }")],
+  // Handwriting that runs off a phone's card must come back in, together
+  // with the arrow beside it, and about the word -- not off into nothing.
+  ['songbook-marks-harness.js', 'a stroke off the card is left to be cut off',
+    s => s.replace("        if (q[0] > right && q[0] > ox && ox < right) k = Math.min(k, (right - ox) / (q[0] - ox));", "")],
+  ['songbook-marks-harness.js', 'a shrunk stroke drifts from its word',
+    s => s.replace("    return pts.map(function(q) { return [origin[0] + (q[0] - origin[0]) * k, origin[1] + (q[1] - origin[1]) * k]; });",
+                   "    return pts.map(function(q) { return [q[0] * k, q[1] * k]; });")],
   ['songbook-marks-harness.js', 'a stroke no longer follows the width of its word',
     s => s.replace("  function _sbmMarkUnits(box) { var em = box.em || 16; return [box.kind === 'token' && box.w > 0 ? box.w : em, em]; }",
                    "  function _sbmMarkUnits(box) { var em = box.em || 16; return [em, em]; }")],

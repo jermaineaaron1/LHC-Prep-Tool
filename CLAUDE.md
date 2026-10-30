@@ -697,8 +697,12 @@ the anon key -- verify as `postgres`, not as the app.
     desk sets the choir's words in a monospace face and the phone in a
     proportional one, so widths differ while the type's height does not),
     so a ring stays round the word and an underline the length of three
-    words shrinks with them. A section sung twice under one name gets
-    `#2` on its second run's key (`s:2nd CHORUS#2|3`).
+    words shrinks with them. Strokes that would still run off the card --
+    handwriting in the empty room a desk's row has to the right of its
+    words -- are shrunk about their anchor until they fit, all of one
+    anchor's strokes by one scale (`_sbmMarkFit`), never below 0.3. A
+    section sung twice under one name gets `#2` on its second run's key
+    (`s:2nd CHORUS#2|3`).
     The anchor is the NEAREST chord or word to the stroke's centre, among
     the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
     third chord token of that moment), a word of one part's row
