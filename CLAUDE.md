@@ -705,7 +705,10 @@ the anon key -- verify as `postgres`, not as the app.
     letters stay a word and are fitted by one scale. A closed stroke is
     anchored to the token it RINGS, not to whatever lies nearest its
     centre. An open stroke of three ems or more whose ends each reach a
-    token, the two in different rows, is kept BETWEEN them
+    token -- the nearest chord or word to that end in ANY row, because an
+    arrow's tip stops short of what it points at, often just inside the
+    top of the row under a chord -- the two in different rows, is kept
+    BETWEEN them
     (`keyA>keyB@g..`): along the line between their centres, in lengths
     of it, so an arrow from a word to a chord runs from that word to that
     chord on every screen, at whatever angle and distance they sit there;
@@ -717,7 +720,12 @@ the anon key -- verify as `postgres`, not as the app.
     desk's row has to the right of its words -- are shrunk about their
     anchor until they fit, all of one drawing's strokes by one scale
     (`_sbmMarkFit`), never below 0.3. A section sung twice under one name
-    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`).
+    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). The moment a
+    stroke lands, what it is attached to GLOWS for about two seconds with
+    a caption ("On the chord F", "From “story” · 2nd Part to the chord F"),
+    drawn on the canvas from the same frame every screen places it by
+    (`_sbmGlowDraw`); a repaint during a stroke redraws the stroke being
+    drawn, or the fading glow would wipe it.
     The anchor is the NEAREST chord or word to the stroke's centre, among
     the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
     third chord token of that moment), a word of one part's row
@@ -756,6 +764,32 @@ the anon key -- verify as `postgres`, not as the app.
     and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
     adopted, not announced to itself; a change undone before the refresh
     takes the banner away with it; Not now adopts the state as seen.
+
+33. **The Phone view is a SECOND COPY of the whole app, on production
+    data, and the head of the page makes it read-only.** In Draw mode on
+    a desk, "Phone view" opens `?sbmPreview=<songbook key>&sbmSong=...` in
+    a panel beside the song (`_sbmPhone*`), drawn at a phone's or tablet's
+    true width and scaled to fit, so the phone's layout is the phone's
+    layout, not an imitation. That copy runs everything -- its boot, its
+    autosaves, `WO.saveImmediately` on pagehide (fired when the panel
+    closes), presence on `sb-presence-*`, edit locks -- so before any of
+    the app runs, the script after the supabase-js tag
+    (`window.__SBM_PREVIEW`) wraps `createClient`: insert / upsert /
+    update / delete / rpc / storage writes return a chainable error that
+    sends nothing, channels listen but `send`/`track`/`untrack` do
+    nothing; `fetch` lets only GET and HEAD out (plus storage list/sign);
+    `BroadcastChannel.postMessage` and `sendBeacon` are dead; and
+    `localStorage`/`sessionStorage` writes go to memory, so the copy reads
+    the desk's settings and never changes them. `tools/songbook-phone-harness.js`
+    proves each. The desk pushes what to show (`WO.sbmPhoneApply`, as
+    JSON): the song (matched by id, else by which copy of which song --
+    an order's item ids are its own), its fields, lines, marks and the
+    part chosen, and each new stroke's anchor, which it scrolls to and
+    glows. Inside, `#sbmRoot *` takes no pointer events (the wheel falls
+    through to the scroller) and no scrollbar is drawn, because a desk
+    scrollbar steals width a phone's does not and every line would wrap
+    early. Anything new that WRITES must be reachable only through
+    `_supabase`/`fetch`, or it must check `window.__SBM_PREVIEW` itself.
 
 ## Quick Commands for Claude Code
 

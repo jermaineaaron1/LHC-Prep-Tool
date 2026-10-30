@@ -473,6 +473,36 @@ const CASES = [
   ['songbook-marks-harness.js', 'a stroke drawn beside the last one starts a drawing of its own',
     s => s.replace("  function _sbmBoxesNear(a, b, pad) { return !(b[0] > a[2] + pad || b[2] < a[0] - pad || b[1] > a[3] + pad || b[3] < a[1] - pad); }",
                    "  function _sbmBoxesNear(a, b, pad) { return !(b[0] > a[2] || b[2] < a[0] || b[1] > a[3] || b[3] < a[1]); }")],
+  // The phone view is a second copy of the app on production data: every
+  // way it could write must stay shut, or opening a panel to LOOK at a
+  // song could save over it, announce a phantom user, or post as one.
+  ['songbook-phone-harness.js', 'the phone view can delete rows',
+    s => s.replace("        ['insert', 'upsert', 'update', 'delete'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });",
+                   "        ['insert', 'upsert', 'update'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });")],
+  ['songbook-phone-harness.js', 'the phone view can call a database function',
+    s => s.replace("      if (c.rpc) c.rpc = _lhcDenied;", "")],
+  ['songbook-phone-harness.js', 'the phone view uploads through a fresh storage client',
+    s => s.replace("      if (desc && desc.get) Object.defineProperty(c, 'storage', { configurable: true, get: function() { return fixStorage(desc.get.call(c)); } });",
+                   "      if (desc && desc.get) fixStorage(desc.get.call(c));")],
+  ['songbook-phone-harness.js', 'the phone view broadcasts to the songbook\'s channel',
+    s => s.replace("          ch.send = function() { return Promise.resolve('ok'); };", "")],
+  ['songbook-phone-harness.js', 'the phone view lets a PATCH onto the network',
+    s => s.replace("        if (m === 'GET' || m === 'HEAD' || /\\/storage\\/v1\\/object\\/(list|sign)\\//.test(u)) return f.apply(this, arguments);",
+                   "        if (m !== 'POST') return f.apply(this, arguments);")],
+  ['songbook-phone-harness.js', 'the phone view saves its settings over the desk\'s',
+    s => s.replace("      P.setItem = function(k, v) { bag(this)[String(k)] = String(v); };", "")],
+  // What a stroke is attached to has to be shown long enough to see, and
+  // named right; and the phone view must find the desk's song in a book
+  // built from an order, whose item ids differ from load to load.
+  ['songbook-marks-harness.js', 'an arrow ending just under a chord is pinned to a word of that row',
+    s => s.replace("    var pool = (at.rowHit && !anyRow) ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;",
+                   "    var pool = at.rowHit ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;")],
+  ['songbook-marks-harness.js', 'the glow is gone before it is seen',
+    s => s.replace("    var hold = 1100, fade = 800;", "    var hold = 0, fade = 1;")],
+  ['songbook-marks-harness.js', 'an arrow is captioned by its tail alone',
+    s => s.replace("    if (ends.length > 1) return 'From ' + one(ends[0]) + ' to ' + one(ends[1]);", "")],
+  ['songbook-marks-harness.js', 'the phone view loses the song in a book built from an order',
+    s => s.replace("    return same[nth || 0] || same[0] || null;", "    return null;")],
   ['songbook-marks-harness.js', 'a printed stroke between two words loses its ends',
     s => s.replace(`class="sb-mark-svg sb-mark-link" data-a="' + a + '" data-b="' + b + '">`, `class="sb-mark-svg sb-mark-link">`)],
   ['voice-lines-harness.js', 'a chorus sung twice is one anchor',

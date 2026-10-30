@@ -72,13 +72,18 @@ const WANTED = [
   [/^  function _sbmMarkAlong\(/, '_sbmMarkAlong'],
   [/^  function _sbmBoxesNear\(/, '_sbmBoxesNear'],
   [/^  function _sbmBoxUnion\(/, '_sbmBoxUnion'],
-  [/^  function _sbMarkLinkSvg\(/, '_sbMarkLinkSvg']
+  [/^  function _sbMarkLinkSvg\(/, '_sbMarkLinkSvg'],
+  [/^  function _sbmGlowAlpha\(/, '_sbmGlowAlpha'],
+  [/^  function _sbmMarkCaption\(/, '_sbmMarkCaption'],
+  [/^  function _sbmPhoneFind\(/, '_sbmPhoneFind'],
+  [/^  function _sbmMarkGap\(/, '_sbmMarkGap'],
+  [/^  function _sbmMarkTokenNear\(/, '_sbmMarkTokenNear']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg, glow: _sbmGlowAlpha, caption: _sbmMarkCaption, phoneFind: _sbmPhoneFind, tokenNear: _sbmMarkTokenNear };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -175,6 +180,41 @@ check('an arrowhead lies along its shaft', S.along([[200, 40], [212, 36], [206, 
 check('  a word written beside the shaft does not', S.along([[300, 60], [320, 40], [330, 70]], [325, 130], [206, 30], 32), false);
 check('the box round a stroke', S.bbox([[3, 9], [1, 2], [8, 5]]), [1, 2, 8, 9]);
 check('  of nothing is nothing', S.bbox([]), [0, 0, 0, 0]);
+
+console.log('\nwhat a stroke is attached to is shown as it lands');
+check('the glow is full for a second', [S.glow(0), S.glow(500), S.glow(1100)], [1, 1, 1]);
+check('  then fades', r4(S.glow(1500)), 0.5);
+check('  and is gone', [S.glow(1900), S.glow(5000)], [0, 0]);
+check('  a time before it began, or none, shows nothing', [S.glow(-5), S.glow(NaN)], [0, 0]);
+check('a chord is named', S.caption([{ kind: 'chord', text: 'F' }]), 'On the chord F');
+check('  a word, with whose row it is in', S.caption([{ kind: 'word', text: 'story', part: '2nd Part' }]), 'On \u201cstory\u201d \u00b7 2nd Part');
+check('  an arrow, from its tail to its head', S.caption([{ kind: 'word', text: 'story', part: '2nd Part' }, { kind: 'chord', text: 'F' }]), 'From \u201cstory\u201d \u00b7 2nd Part to the chord F');
+check('  a row, and the moment it is in', S.caption([{ kind: 'row', part: 'Melody', section: 'VERSE 1', n: 3 }]), 'On the Melody row, VERSE 1 line 3');
+check('  a moment by its section and number', S.caption([{ kind: 'moment', section: '1st CHORUS', n: 4 }]), 'On 1st CHORUS, line 4');
+check('  a lyric line by its number', S.caption([{ kind: 'line', n: 13 }]), 'On lyric line 13');
+check('  nothing, no caption', S.caption([]), '');
+
+console.log('\nan arrow\'s tip is about the nearest chord or word, whatever row it stops in');
+// The chord F sits above the melody's row; an arrow's tip stops 5px under
+// it, just inside the top of that row, where the row's own nearest word
+// is "story", 66px away.
+const rowM = { id: 'melody row' };
+const at = { X: 486, Y: 1193, rowHit: rowM, tokens: [
+  { key: 'c:2', kind: 'c', row: null, rect: { left: 483, right: 494, top: 1167, bottom: 1188, width: 11 } },
+  { key: 'w:melody:5', kind: 'w', row: rowM, rect: { left: 367, right: 420, top: 1195, bottom: 1216, width: 53 } }
+] };
+check('handwriting in a row is kept beside that row\'s words', S.tokenNear(at, null).key, 'w:melody:5');
+check('  an arrow\'s tip there is about the chord just above', S.tokenNear(at, 27, true).key, 'c:2');
+check('  and a tip further than reach from anything is about nothing', S.tokenNear(Object.assign({}, at, { X: 700 }), 27, true), null);
+
+console.log('\nthe phone view finds the desk\'s song in its own copy of the book');
+const book = [{ id: 'sbsong_a_0', songId: 'a' }, { id: 'sbsong_b_1', songId: 'b' }, { id: 'sbsong_a_2', songId: 'a' }];
+check('by its id', S.phoneFind(book, 'sbsong_b_1', 'b', 0).id, 'sbsong_b_1');
+// An order's item ids are its own; the same song is the same song.
+const order = [{ id: 'a--x1' }, { id: 'b--x2' }, { id: 'a--x3' }];
+check('  failing that, the same copy of the same song', [S.phoneFind(order, 'a--zz', 'a', 0).id, S.phoneFind(order, 'a--yy', 'a', 1).id], ['a--x1', 'a--x3']);
+check('  a copy it has fewer of is the first', S.phoneFind(order, 'b--q', 'b', 4).id, 'b--x2');
+check('  a song it does not have is nothing, and the view opens again', S.phoneFind(book, 'sbsong_z_9', 'z', 0), null);
 
 console.log('\nstrokes drawn together are one drawing');
 check('a stroke beside the last one joins its drawing', S.near([100, 100, 200, 140], [230, 120, 300, 160], 40), true);
