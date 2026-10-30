@@ -51,6 +51,7 @@ The ones worth knowing; there are around 29 in all.
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
 | `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
+| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -689,6 +690,18 @@ the anon key -- verify as `postgres`, not as the app.
     name gone, one name new); two renamed in the same save cannot be told
     apart and stay under the old name, listed in Practice Tracks but on no
     badge. Until the column exists the carry is a write that fails quietly.
+
+31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
+    keeps each stroke as fractions of one anchor's box: a moment of the
+    choir score (`s:<section>|<n>`, the same count as the margin numbers)
+    or a block child of `#sbmLyrics` (`l:<index>`). The canvas over each
+    card is repainted from the live boxes (`_sbmMarksPaint`), so the ring
+    drawn round a word on a desk sits round the same word on a phone,
+    squashed to that box's shape. Consequences: a stroke that starts in a
+    gap belongs to the nearest line above or below; the A4 Page view and
+    print have their own, older, page-coordinate annotations and do not
+    show these; and the table is probed once per page -- without it there
+    is no Draw chip at all.
 
 ## Quick Commands for Claude Code
 

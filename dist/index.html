@@ -15946,11 +15946,12 @@ window.lhcVoiceLines = {
       // No bar column. The rows still carry their bars and the editor still
       // places by them, but on the page somebody sings from they were a
       // gutter of numbers crowding every line to say nothing a singer needs.
-      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '">');
       // A footnote-sized number in the margin: the line's place in its
       // section, and under it its place in the whole song. A moment is
-      // one line however many parts sing it (see lineNumbers).
+      // one line however many parts sing it (see lineNumbers). The same
+      // place names the moment as an anchor for remarks drawn on it.
       var at = numbered[gi] || { n: gi + 1, overall: gi + 1 };
+      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '" data-anchor="' + V._esc('s:' + (section || '') + '|' + at.n) + '">');
       out.push('<span class="vl-no" title="' + V._esc((section ? section + ', ' : '') + 'line ' + at.n + ' (line ' + at.overall + ' of the song)') + '"><span class="vl-no__n">' + at.n + '</span><span class="vl-no__all">' + at.overall + '</span></span>');
       out.push('<div class="vl-sys-lines">');
 
@@ -47964,6 +47965,7 @@ var WO = (function() {
   }
 
   function closeSongbook() {
+    if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
     // Finish a take that is still running rather than dropping it.
     //
     // A recording is written by MediaRecorder's onstop, and onstop only
@@ -48371,6 +48373,260 @@ var WO = (function() {
       }
       el.parentNode.insertBefore(row, el.nextSibling);
     });
+  }
+
+  // ==================== MARKS: REMARKS DRAWN ON THE SONG ====================
+  //
+  // A quicker remark than typing: a ring round a word, an arrow, a breath
+  // mark, seen by everyone who opens the song. Each stroke is kept against
+  // an ANCHOR -- one moment of the choir score (`s:<section>|<n>`) or one
+  // line of the lyrics (`l:<n>`) -- as fractions of that anchor's box, so
+  // it lands on the same words on a phone held either way and on a desk,
+  // where the same anchor sits somewhere else and is another size. One row
+  // per stroke in song_marks (migrations/2026-10-30_song_marks.sql); the
+  // table is probed once and without it nothing is offered.
+  var _sbmMarks = {}, _sbmMarksAt = {}, _sbmMarksOk = null, _sbmMarksProbe = null, _sbmMarksRO = null;
+  var _sbmDraw = null;
+  var _SBM_PENS = [['#111827', 'Black'], ['#dc2626', 'Red'], ['#2563eb', 'Blue'], ['#eab308', 'Yellow'], ['#16a34a', 'Green']];
+  var _SBM_WEIGHTS = [2, 4, 7, 12];
+  function _sbmMarksSupport() {
+    if (_sbmMarksOk !== null) return Promise.resolve(_sbmMarksOk);
+    if (_sbmMarksProbe) return _sbmMarksProbe;
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    _sbmMarksProbe = sup.from('song_marks').select('id').limit(1).then(function(r) { _sbmMarksOk = !r.error; return _sbmMarksOk; }).catch(function() { _sbmMarksOk = false; return false; });
+    return _sbmMarksProbe;
+  }
+  // ---- the geometry, kept pure for tools/songbook-marks-harness.js ----
+  // A point of the card as fractions of an anchor's box, and back.
+  function _sbmMarkFrac(box, x, y) { return [box.w ? (x - box.x) / box.w : 0, box.h ? (y - box.y) / box.h : 0]; }
+  function _sbmMarkPoint(box, f) { return [box.x + f[0] * box.w, box.y + f[1] * box.h]; }
+  // The anchor a stroke belongs to: the box holding its first point, else
+  // the nearest above or below -- a ring drawn in the gap between two
+  // lines still means one of them, and a box with no height is nothing.
+  function _sbmMarkNearest(boxes, x, y) {
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i]; if (!b || !(b.h > 0)) continue;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
+      var dy = y < b.y ? b.y - y : (y > b.y + b.h ? y - (b.y + b.h) : 0);
+      var dx = x < b.x ? b.x - x : (x > b.x + b.w ? x - (b.x + b.w) : 0);
+      var d = dy * 4 + dx;
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  }
+  // Whether a point is within tol of a polyline: the eraser's question.
+  function _sbmMarkHit(pts, x, y, tol) {
+    if (!pts || !pts.length) return false;
+    if (pts.length === 1) return Math.hypot(pts[0][0] - x, pts[0][1] - y) <= tol;
+    for (var i = 1; i < pts.length; i++) {
+      var ax = pts[i - 1][0], ay = pts[i - 1][1], bx = pts[i][0], by = pts[i][1];
+      var vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy;
+      var t = L ? Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / L)) : 0;
+      if (Math.hypot(ax + t * vx - x, ay + t * vy - y) <= tol) return true;
+    }
+    return false;
+  }
+  // Fewer points: any closer than 1.5px to the one kept before it goes.
+  function _sbmMarkThin(pts) {
+    var out = [];
+    (pts || []).forEach(function(q) { var k = out[out.length - 1]; if (!k || Math.hypot(q[0] - k[0], q[1] - k[1]) >= 1.5) out.push(q); });
+    return out;
+  }
+
+  // ---- the cards and their canvases ----
+  function _sbmMarkCards() {
+    return Array.prototype.slice.call(document.querySelectorAll('#sbmRoot .sbm-card')).filter(function(c) { return c.querySelector('#sbmLyrics, .sbm-score'); });
+  }
+  // Lyric lines are the block children of #sbmLyrics; each gets its index
+  // as its anchor. The score's moments carry theirs from html().
+  function _sbmStampAnchors(card) {
+    var ly = card.querySelector('#sbmLyrics'); if (!ly) return;
+    var i = 0;
+    Array.prototype.slice.call(ly.children).forEach(function(el) { if (!el.hasAttribute('data-anchor')) el.setAttribute('data-anchor', 'l:' + i); i++; });
+  }
+  function _sbmMarkBoxes(card) {
+    var cr = card.getBoundingClientRect(), out = {};
+    Array.prototype.slice.call(card.querySelectorAll('[data-anchor]')).forEach(function(el) {
+      var key = el.getAttribute('data-anchor'); if (!key || out[key]) return;
+      var r = el.getBoundingClientRect();
+      out[key] = { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height };
+    });
+    return out;
+  }
+  function _sbmMarksMount() {
+    var song = _sbmSong(); if (!song) return;
+    if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmMarksPaintAll(); });
+    _sbmMarkCards().forEach(function(card) {
+      card.classList.add('sbm-card--marks');
+      if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
+      if (!card.querySelector('canvas.sbm-marks')) {
+        var cv = document.createElement('canvas'); cv.className = 'sbm-marks'; cv.setAttribute('aria-hidden', 'true');
+        cv.addEventListener('pointerdown', _sbmDrawDown); cv.addEventListener('pointermove', _sbmDrawMove);
+        cv.addEventListener('pointerup', _sbmDrawUp); cv.addEventListener('pointercancel', _sbmDrawUp);
+        card.appendChild(cv);
+      }
+      _sbmStampAnchors(card);
+      if (_sbmMarksRO) _sbmMarksRO.observe(card);
+      var sc = card.querySelector('.sbm-score');
+      if (sc && !sc.__marksScroll) { sc.__marksScroll = true; sc.addEventListener('scroll', function() { _sbmMarksPaint(card); }); }
+    });
+    _sbmLoadMarks(song);
+    _sbmMarksPaintAll();
+  }
+  function _sbmLoadMarks(song, force) {
+    var base = _sbBaseSongId(song), sup = window._supabase; if (!sup || !base) return Promise.resolve();
+    if (!force && _sbmMarksAt[base] && Date.now() - _sbmMarksAt[base] < 60000) return Promise.resolve();
+    _sbmMarksAt[base] = Date.now();
+    return _sbmMarksSupport().then(function(ok) {
+      if (!ok) return;
+      return sup.from('song_marks').select('*').eq('song_id', base).order('created_at').then(function(r) {
+        if (r.error) return;
+        _sbmMarks[base] = r.data || [];
+        _sbmMarksPaintAll();
+      });
+    });
+  }
+  function _sbmMarksPaintAll() { _sbmMarkCards().forEach(_sbmMarksPaint); }
+  function _sbmMarksPaint(card) {
+    var cv = card.querySelector('canvas.sbm-marks'); if (!cv) return;
+    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    var W = card.clientWidth, H = card.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!W || !H) return;
+    if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    var boxes = _sbmMarkBoxes(card), marks = _sbmMarks[base] || [];
+    cv.__laid = [];
+    marks.forEach(function(m) {
+      var box = boxes[m.anchor]; if (!box) return;
+      var pts = (m.points || []).map(function(f) { return _sbmMarkPoint(box, f); });
+      cv.__laid.push({ id: m.id, pts: pts, width: Number(m.width) || 4 });
+      _sbmMarkStroke(g, pts, m.colour, Number(m.width) || 4);
+    });
+  }
+  function _sbmMarkStroke(g, pts, colour, width) {
+    if (!pts.length) return;
+    g.strokeStyle = colour || '#111827'; g.lineWidth = width; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.globalAlpha = (colour === '#eab308') ? 0.75 : 0.92;
+    g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    if (pts.length === 1) g.lineTo(pts[0][0] + 0.1, pts[0][1]);
+    for (var i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.stroke(); g.globalAlpha = 1;
+  }
+  function _sbmDrawChip() {
+    if (_sbmMarksOk !== true) return '';
+    return '<button class="sbm-chip sbm-chip--draw' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. Everyone sees it."><i class="fa-solid fa-pen-nib"></i>Draw</button>';
+  }
+
+  // ---- drawing ----
+  function sbmDraw(on) {
+    if (on === false || (on == null && _sbmDraw)) { _sbmDrawEnd(); _sbmRender(); return; }
+    if (_sbmMarksOk !== true) { showToast('Drawing is not set up on this database yet', 'error'); return; }
+    var saved = {}; try { saved = JSON.parse(localStorage.getItem('lhc_sb_pen') || '{}') || {}; } catch (e) {}
+    _sbmDraw = {
+      tool: 'pen',
+      colour: _SBM_PENS.some(function(q) { return q[0] === saved.colour; }) ? saved.colour : _SBM_PENS[0][0],
+      width: _SBM_WEIGHTS.indexOf(Number(saved.width)) > -1 ? Number(saved.width) : 4,
+      scroll: false, undo: [], live: null
+    };
+    document.body.classList.add('sbm-drawing');
+    _sbmDrawBar();
+    _sbmMarkCards().forEach(function(c) { c.classList.add('is-drawing'); });
+    var chip = document.querySelector('#sbmRoot .sbm-chip--draw'); if (chip) chip.classList.add('is-on');
+    _sbmMarksPaintAll();
+  }
+  function _sbmDrawEnd() {
+    _sbmDraw = null;
+    document.body.classList.remove('sbm-drawing');
+    var bar = document.getElementById('sbmDrawBar'); if (bar) bar.remove();
+    _sbmMarkCards().forEach(function(c) { c.classList.remove('is-drawing'); c.classList.remove('is-scrolling'); });
+  }
+  function _sbmDrawBar() {
+    var bar = document.getElementById('sbmDrawBar');
+    if (!bar) { bar = document.createElement('div'); bar.id = 'sbmDrawBar'; bar.className = 'sbm sbm-drawbar'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Drawing tools'); document.body.appendChild(bar); }
+    var D = _sbmDraw; if (!D) return;
+    bar.innerHTML = '<div class="sbm-drawbar__row">' +
+      _SBM_PENS.map(function(q) { return '<button type="button" class="sbm-drawbar__pen' + (D.tool === 'pen' && D.colour === q[0] ? ' is-on' : '') + '" style="--c:' + q[0] + '" onclick="WO.sbmDrawColour(\'' + q[0] + '\')" aria-label="' + q[1] + ' pen" title="' + q[1] + '"></button>'; }).join('') +
+      '<span class="sbm-drawbar__gap"></span>' +
+      _SBM_WEIGHTS.map(function(w) { return '<button type="button" class="sbm-drawbar__w' + (D.tool === 'pen' && D.width === w ? ' is-on' : '') + '" onclick="WO.sbmDrawWeight(' + w + ')" aria-label="' + w + ' pixel pen" title="' + w + 'px"><i style="width:' + Math.min(18, w + 3) + 'px;height:' + Math.min(18, w + 3) + 'px"></i></button>'; }).join('') +
+      '<span class="sbm-drawbar__gap"></span>' +
+      '<button type="button" class="sbm-drawbar__tool' + (D.tool === 'eraser' ? ' is-on' : '') + '" onclick="WO.sbmDrawTool(\'eraser\')" title="Eraser: touch a stroke to remove it" aria-label="Eraser"><i class="fa-solid fa-eraser"></i></button>' +
+      '<button type="button" class="sbm-drawbar__tool" onclick="WO.sbmDrawUndo()" title="Undo the last stroke" aria-label="Undo"><i class="fa-solid fa-rotate-left"></i></button>' +
+      '<button type="button" class="sbm-drawbar__tool' + (D.scroll ? ' is-on' : '') + '" onclick="WO.sbmDrawScroll()" title="Scroll the page; drawing waits" aria-label="Scroll"><i class="fa-solid fa-hand"></i></button>' +
+      '<button type="button" class="sbm-btn sbm-btn--primary sbm-drawbar__done" onclick="WO.sbmDraw(false)">Done</button></div>';
+  }
+  function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width })); } catch (e) {} }
+  function sbmDrawColour(c) { if (!_sbmDraw) return; _sbmDraw.colour = c; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
+  function sbmDrawWeight(w) { if (!_sbmDraw) return; _sbmDraw.width = Number(w) || 4; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
+  function sbmDrawTool(t) { if (!_sbmDraw) return; _sbmDraw.tool = t === 'eraser' ? 'eraser' : 'pen'; _sbmDrawBar(); }
+  function sbmDrawScroll() {
+    if (!_sbmDraw) return;
+    _sbmDraw.scroll = !_sbmDraw.scroll;
+    _sbmMarkCards().forEach(function(c) { c.classList.toggle('is-scrolling', _sbmDraw.scroll); });
+    _sbmDrawBar();
+  }
+  function sbmDrawUndo() { if (!_sbmDraw || !_sbmDraw.undo.length) return; _sbmMarkDelete(_sbmDraw.undo.pop()); }
+  function _sbmMarkDelete(id) {
+    var sup = window._supabase; if (!sup) return;
+    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return String(m.id) !== String(id); });
+    _sbmMarksPaintAll();
+    sup.from('song_marks').delete().eq('id', id).then(function(r) {
+      if (r.error) { showToast('Could not remove the mark: ' + r.error.message, 'error'); _sbmLoadMarks(song, true); }
+    });
+  }
+  function _sbmDrawPos(ev, cv) { var r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; }
+  function _sbmDrawDown(ev) {
+    var D = _sbmDraw; if (!D || D.scroll) return;
+    var cv = ev.currentTarget, card = cv.parentNode;
+    ev.preventDefault();
+    try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+    var q = _sbmDrawPos(ev, cv);
+    if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card }; _sbmDrawErase(cv, q); return; }
+    var g = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    D.live = { cv: cv, card: card, pts: [q], g: g };
+    _sbmMarkStroke(g, [q], D.colour, D.width);
+  }
+  function _sbmDrawMove(ev) {
+    var D = _sbmDraw; if (!D || !D.live || D.live.cv !== ev.currentTarget) return;
+    ev.preventDefault();
+    var q = _sbmDrawPos(ev, ev.currentTarget);
+    if (D.live.erase) { _sbmDrawErase(ev.currentTarget, q); return; }
+    var pts = D.live.pts, k = pts[pts.length - 1];
+    pts.push(q);
+    _sbmMarkStroke(D.live.g, [k, q], D.colour, D.width);
+  }
+  function _sbmDrawUp(ev) {
+    var D = _sbmDraw; if (!D || !D.live) return;
+    var live = D.live; D.live = null;
+    try { ev.currentTarget.releasePointerCapture(ev.pointerId); } catch (e) {}
+    if (live.erase) return;
+    var pts = _sbmMarkThin(live.pts);
+    var boxes = _sbmMarkBoxes(live.card);
+    var box = _sbmMarkNearest(Object.keys(boxes).map(function(k) { return boxes[k]; }), pts[0][0], pts[0][1]);
+    if (!box) { _sbmMarksPaint(live.card); showToast('Nothing here to attach a mark to', 'error'); return; }
+    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    var mark = { song_id: base, anchor: box.key, tool: 'pen', colour: D.colour, width: D.width,
+                 points: pts.map(function(q) { return _sbmMarkFrac(box, q[0], q[1]).map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
+    var sup = window._supabase; if (!sup) return;
+    var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
+    (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
+    _sbmMarksPaint(live.card);
+    sup.from('song_marks').insert(mark).select().then(function(r) {
+      if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the mark did not come back from the database');
+      local.id = r.data[0].id;
+      if (_sbmDraw) _sbmDraw.undo.push(local.id);
+    }).catch(function(err) {
+      _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== local; });
+      _sbmMarksPaintAll();
+      showToast('Could not save the mark: ' + err.message, 'error');
+    });
+  }
+  function _sbmDrawErase(cv, q) {
+    (cv.__laid || []).filter(function(l) { return _sbmMarkHit(l.pts, q[0], q[1], Math.max(10, l.width / 2 + 6)); })
+      .forEach(function(l) { if (String(l.id).indexOf('tmp_') !== 0) _sbmMarkDelete(l.id); });
   }
 
   // ---- the index: the phone's contents page, and reordering ----
@@ -49309,14 +49565,14 @@ var WO = (function() {
         : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span></div>' +
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + '</div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' +
-          '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button></div>' +
+          '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button>' + _sbmDrawChip() + '</div>' +
         '<div class="sbm-score sb-song-page--choir' + (_sbmMics ? ' sbm-score--mics' : '') + '" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
@@ -49350,6 +49606,8 @@ var WO = (function() {
     });
     if (_sbRecSecOk === null && !_sbRecSecProbe) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     _sbmPaintSectionTakes(song);
+    _sbmMarksMount();
+    if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
       if (sc) V.filterPart(sc, cur);
@@ -78835,6 +79093,7 @@ var WO = (function() {
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
+    sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
     sbmCutInput: sbmCutInput, sbmCutSave: sbmCutSave, sbmCutTargetChanged: sbmCutTargetChanged, sbmSectionRecord: sbmSectionRecord,
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
@@ -96577,6 +96836,25 @@ function filterLiturgyItems() {
 .sbm-sec-take i { font-size: 10px; }
 .sbm-sec-takes { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
 .sbm-sec-take--part { color: var(--p); background: color-mix(in srgb, var(--p) 11%, #fff); border-color: color-mix(in srgb, var(--p) 40%, #fff); }
+
+/* ---- Marks: remarks drawn on the song ------------------------------------ */
+.sbm-card--marks { position: relative; }
+.sbm-marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; border-radius: inherit; }
+.sbm-card.is-drawing .sbm-marks { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.sbm-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
+.sbm-card.is-drawing { outline: 2px dashed rgba(37,99,235,0.5); outline-offset: 3px; }
+.sbm-chip--draw.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
+.sbm-drawbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3700; background: var(--sbm-navy); color: #fff; border-radius: 22px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); max-width: calc(100vw - 16px); }
+.sbm-drawbar__row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.sbm-drawbar__pen { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; background: var(--c); cursor: pointer; padding: 0; }
+.sbm-drawbar__pen.is-on { border-color: #fff; box-shadow: 0 0 0 2px var(--c); }
+.sbm-drawbar__w { width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.sbm-drawbar__w i { display: block; border-radius: 50%; background: #fff; }
+.sbm-drawbar__w.is-on { background: rgba(255,255,255,0.22); border-color: #fff; }
+.sbm-drawbar__tool { width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #fff; cursor: pointer; font-size: 14px; padding: 0; }
+.sbm-drawbar__tool.is-on { background: #fff; color: var(--sbm-navy); }
+.sbm-drawbar__gap { width: 4px; }
+.sbm-drawbar__done { min-height: 32px; padding: 0 14px; }
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
