@@ -31970,7 +31970,10 @@ var SBQ_VOICE_LINES = {
         // line would be the layer eating its host.
         return SBQ_SONGS.updateFields(songId, {
           voice_layout: rows.length ? 'two-part' : null
-        }).then(function() { return { success: true, count: rows.length }; });
+        }).then(function() {
+          try { window.dispatchEvent(new CustomEvent('lhc:lines-changed', { detail: { songId: songId } })); } catch (e) {}
+          return { success: true, count: rows.length };
+        });
       });
   },
 
@@ -47973,6 +47976,7 @@ var WO = (function() {
 
   function closeSongbook() {
     if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
+    if (typeof _sbmLiveStop === 'function') _sbmLiveStop();
     // Finish a take that is still running rather than dropping it.
     //
     // A recording is written by MediaRecorder's onstop, and onstop only
@@ -48271,7 +48275,10 @@ var WO = (function() {
     }
     // A take recorded or deleted on a line of the score is a change to the
     // practice card's list too.
+    // Lines rewritten on this device: tell the others.
+    window.addEventListener('lhc:lines-changed', function() { if (typeof _sbmLiveSend === 'function') _sbmLiveSend(); });
     window.addEventListener('lhc:recordings-changed', function(ev) {
+      if (typeof _sbmLiveSend === 'function') _sbmLiveSend();
       if (!_sbmActive() || !_sbmSid) return;
       var song = _sbmSong(); if (!song) return;
       var base = _sbBaseSongId(song);
@@ -48757,6 +48764,7 @@ var WO = (function() {
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
     _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return String(m.id) !== String(id); });
     _sbmMarksPaintAll();
+    _sbmLiveSend();
     sup.from('song_marks').delete().eq('id', id).then(function(r) {
       if (r.error) { showToast('Could not remove the mark: ' + r.error.message, 'error'); _sbmLoadMarks(song, true); }
     });
@@ -48842,6 +48850,7 @@ var WO = (function() {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the mark did not come back from the database');
       local.id = r.data[0].id;
       if (_sbmDraw) _sbmDraw.undo.push(local.id);
+      _sbmLiveSend();
     }).catch(function(err) {
       _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== local; });
       _sbmMarksPaintAll();
@@ -48993,6 +49002,130 @@ var WO = (function() {
       }
       hit.el.classList.add('sb-mark-host');
       hit.el.insertAdjacentHTML('beforeend', _sbMarkSvg([m], function() { return hit.shift; }, hit.el.classList.contains('sb-mark-tok') ? 'token' : 'box'));
+    });
+  }
+
+  // ==================== LIVE: WHAT CHANGED ON ANOTHER DEVICE ====================
+  //
+  // Nobody should have to reload the songbook to see what somebody else
+  // just did. A broadcast channel per songbook carries a nudge from any
+  // device that writes (a mark, a take, the lines), and a slow poll stands
+  // in for whatever does not nudge: every 30s while the tab is shown, and
+  // the moment it is shown again, a fingerprint of the songs' marks,
+  // takes, lines and settings is compared with the one last drawn. Marks
+  // and takes are reloaded quietly, in place. The lines, the songs' words
+  // and settings, and the book itself need the page rebuilt, so they
+  // raise a banner instead -- which goes away again of its own accord if
+  // the change is undone before the singer refreshes.
+  var _sbmLive = null, _sbmLiveOwnAt = 0;
+  function _sbmLiveKey() { return _sbStandaloneId ? 'sb_' + _sbStandaloneId : ((currentOrderData && currentOrderData.id) ? 'order_' + currentOrderData.id : null); }
+  function _sbmLiveStart() {
+    var key = _sbmLiveKey(); if (!key) return;
+    var ids = _sbmSongs().map(function(x) { return _sbBaseSongId(x); }).filter(Boolean);
+    if (_sbmLive && _sbmLive.key === key) { _sbmLive.ids = ids; if (Date.now() - _sbmLiveOwnAt < 15000) _sbmLiveCheck(true); return; }
+    _sbmLiveStop();
+    _sbmLive = { key: key, ids: ids, channel: null, timer: 0, seen: null, busy: false };
+    var sup = window._supabase;
+    if (sup && typeof sup.channel === 'function') {
+      try {
+        _sbmLive.channel = sup.channel('sbm-live-' + key, { config: { broadcast: { self: false } } })
+          .on('broadcast', { event: 'changed' }, function() { _sbmLiveCheck(false); })
+          .subscribe();
+      } catch (e) { _sbmLive.channel = null; }
+    }
+    _sbmLive.timer = setInterval(function() { if (!document.hidden) _sbmLiveCheck(false); }, 30000);
+    document.addEventListener('visibilitychange', _sbmLiveVisible);
+    _sbmLiveCheck(true);
+  }
+  function _sbmLiveVisible() { if (document.visibilityState === 'visible') _sbmLiveCheck(false); }
+  function _sbmLiveStop() {
+    if (!_sbmLive) return;
+    clearInterval(_sbmLive.timer);
+    document.removeEventListener('visibilitychange', _sbmLiveVisible);
+    var sup = window._supabase;
+    if (_sbmLive.channel && sup) { try { sup.removeChannel(_sbmLive.channel); } catch (e) {} }
+    _sbmLive = null;
+    _sbmLiveBanner(false);
+  }
+  // Called after this device writes: the others are nudged, and this one
+  // remembers not to take its own change for somebody else's.
+  function _sbmLiveSend() {
+    _sbmLiveOwnAt = Date.now();
+    if (_sbmLive && _sbmLive.channel) { try { _sbmLive.channel.send({ type: 'broadcast', event: 'changed', payload: { at: Date.now() } }); } catch (e) {} }
+  }
+  function _sbmHash(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h); }
+  function _sbmLiveFingerprint(ids) {
+    var sup = window._supabase; if (!sup || !ids.length) return Promise.resolve(null);
+    var latest = function(table, col) {
+      return sup.from(table).select(col, { count: 'exact' }).in('song_id', ids).order(col, { ascending: false }).limit(1)
+        .then(function(r) { return r.error ? 'na' : (r.count || 0) + '@' + ((r.data && r.data[0]) ? r.data[0][col] : ''); })
+        .catch(function() { return 'na'; });
+    };
+    var book = _sbStandaloneId
+      ? sup.from('songbooks').select('song_ids,items').eq('id', _sbStandaloneId).then(function(r) { return r.error ? 'na' : _sbmHash(JSON.stringify((r.data && r.data[0]) || {})); }).catch(function() { return 'na'; })
+      : Promise.resolve('');
+    return Promise.all([
+      latest('song_marks', 'created_at'),
+      latest('song_recordings', 'created_at'),
+      latest('song_voice_lines', 'updated_at'),
+      sup.from('songs').select('id,last_edited,display_style,voice_layout').in('id', ids)
+        .then(function(r) { return r.error ? 'na' : _sbmHash(JSON.stringify((r.data || []).slice().sort(function(a, b) { return a.id < b.id ? -1 : 1; }))); }).catch(function() { return 'na'; }),
+      book
+    ]).then(function(a) { return { marks: a[0], recs: a[1], lines: a[2], songs: a[3], book: a[4] }; });
+  }
+  // What a change of fingerprint means. Kept pure for the harness: marks
+  // and takes reload quietly; lines, words, settings and the book itself
+  // ask for a refresh. A part that could not be read ('na') says nothing.
+  function _sbmLiveDiff(seen, cur) {
+    if (!seen || !cur) return { marks: false, recs: false, structural: false };
+    var differs = function(k) { return seen[k] !== cur[k] && cur[k] !== 'na' && seen[k] !== 'na'; };
+    return { marks: differs('marks'), recs: differs('recs'), structural: differs('lines') || differs('songs') || differs('book') };
+  }
+  function _sbmLiveCheck(adopt) {
+    var L = _sbmLive; if (!L || L.busy) return;
+    L.busy = true;
+    _sbmLiveFingerprint(L.ids).then(function(fp) {
+      if (_sbmLive !== L) return;
+      L.busy = false;
+      if (!fp) return;
+      if (adopt || !L.seen || Date.now() - _sbmLiveOwnAt < 15000) { L.seen = fp; _sbmLiveBanner(false); return; }
+      var d = _sbmLiveDiff(L.seen, fp), song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+      if (d.marks) { L.seen.marks = fp.marks; if (song) { delete _sbmMarksAt[base]; _sbmLoadMarks(song, true); } }
+      if (d.recs) { L.seen.recs = fp.recs; if (base) _sbmRecRefresh(base); }
+      _sbmLiveBanner(d.structural);
+    }).catch(function() { if (_sbmLive === L) L.busy = false; });
+  }
+  function _sbmLiveBanner(show) {
+    var el = document.getElementById('sbmLiveBanner');
+    if (!show) { if (el) el.remove(); return; }
+    if (el) return;
+    el = document.createElement('div'); el.id = 'sbmLiveBanner'; el.className = 'sbm sbm-live'; el.setAttribute('role', 'status');
+    el.innerHTML = '<i class="fa-solid fa-rotate"></i><span>This songbook changed on another device.</span>' +
+      '<button type="button" class="sbm-btn sbm-btn--primary sbm-live__btn" onclick="WO.sbmLiveRefresh()">Refresh</button>' +
+      '<button type="button" class="sbm-live__x" onclick="WO.sbmLiveDismiss()" aria-label="Not now"><i class="fa-solid fa-xmark"></i></button>';
+    document.body.appendChild(el);
+  }
+  // Not now: the banner goes, and comes back only for a further change.
+  function sbmLiveDismiss() { if (_sbmLive) _sbmLive.seen = null; _sbmLiveBanner(false); }
+  // Refresh: the songs' rows and lines are fetched afresh, then the book
+  // is opened again the way it was opened.
+  function sbmLiveRefresh() {
+    _sbmLiveBanner(false);
+    var ids = _sbmLive ? _sbmLive.ids.slice() : [];
+    var sup = window._supabase;
+    var fresh = (sup && ids.length) ? sup.from('songs').select('*').in('id', ids).then(function(r) {
+      if (r.error || !window.STATE || !Array.isArray(STATE.songs)) return;
+      (r.data || []).forEach(function(row) {
+        var norm = (typeof normalizeSong === 'function') ? normalizeSong(row) : row;
+        var i = STATE.songs.findIndex(function(x) { return x && x.id === row.id; });
+        if (i > -1) STATE.songs[i] = Object.assign({}, STATE.songs[i], norm); else STATE.songs.push(norm);
+      });
+    }).catch(function() {}) : Promise.resolve();
+    fresh.then(function() {
+      ids.forEach(function(b) { delete _sbVoiceLines[b]; delete _sbmRecsAt[b]; delete _sbmMarksAt[b]; });
+      if (_sbStandaloneId) openSongbookStandalone(_sbStandaloneId);
+      else if (currentOrderData && currentOrderData.id) openSongbookByOrderId(currentOrderData.id);
+      if (_sbmLive) _sbmLiveCheck(true);
     });
   }
 
@@ -49975,6 +50108,7 @@ var WO = (function() {
     _sbmPaintSectionTakes(song);
     _sbmEvenRows();
     _sbmMarksMount();
+    _sbmLiveStart();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
@@ -50105,7 +50239,7 @@ var WO = (function() {
     // The whole JSON goes back, so it is the song's own with one key changed.
     var ds = Object.assign({}, (lib.display_style && typeof lib.display_style === 'object') ? lib.display_style : {});
     ds.partColours = colours;
-    return SBQ_SONGS.updateDisplayStyle(base, ds).then(function() { lib.display_style = ds; });
+    return SBQ_SONGS.updateDisplayStyle(base, ds).then(function() { lib.display_style = ds; if (typeof _sbmLiveSend === 'function') _sbmLiveSend(); });
   }
 
   // ==================== OVERVIEW EDIT: THE ARRANGEMENT AS A PAD ====================
@@ -54566,7 +54700,7 @@ var WO = (function() {
     // The whole JSON goes back, so it is the song's own with one key changed.
     var ds = Object.assign({}, (lib.display_style && typeof lib.display_style === 'object') ? lib.display_style : {});
     ds.recInstruments = n;
-    return SBQ_SONGS.updateDisplayStyle(base, ds).then(function() { lib.display_style = ds; });
+    return SBQ_SONGS.updateDisplayStyle(base, ds).then(function() { lib.display_style = ds; if (typeof _sbmLiveSend === 'function') _sbmLiveSend(); });
   }
   function _sbRecCatsFor(base) {
     var out = [['general', 'General recording']];
@@ -79485,6 +79619,7 @@ var WO = (function() {
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
     sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo,
+    sbmLiveRefresh: sbmLiveRefresh, sbmLiveDismiss: sbmLiveDismiss, sbmLiveBanner: _sbmLiveBanner,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
     sbmCutInput: sbmCutInput, sbmCutSave: sbmCutSave, sbmCutTargetChanged: sbmCutTargetChanged, sbmSectionRecord: sbmSectionRecord,
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
@@ -97252,6 +97387,12 @@ function filterLiturgyItems() {
 .sbm-drawbar__tool.is-on { background: #fff; color: var(--sbm-navy); }
 .sbm-drawbar__gap { width: 4px; }
 .sbm-drawbar__done { min-height: 32px; padding: 0 14px; }
+
+/* ---- Live: the banner for a change made on another device ------------- */
+.sbm-live { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 3650; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 999px; background: #b45309; color: #fff; font: 600 13px/1.2 var(--sbm-font-ui); box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: calc(100vw - 16px); animation: sbmLivePulse 1.6s ease-in-out infinite; }
+@keyframes sbmLivePulse { 0%, 100% { background: #b45309; } 50% { background: #f59e0b; } }
+.sbm-live__btn { min-height: 30px; padding: 0 12px; }
+.sbm-live__x { width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.18); color: #fff; cursor: pointer; }
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }

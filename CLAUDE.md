@@ -724,6 +724,20 @@ the anon key -- verify as `postgres`, not as the app.
     its line's share of the block; a song shown as rich lyrics has no
     source lines to match and its lyric marks stay on the screen.
 
+32. **The reading view learns of other devices' changes by nudge and by
+    poll.** `sbm-live-<songbook>` is a Supabase BROADCAST channel (no
+    publication to set up, like the songbook's `sb-<orderId>` channel):
+    a device that writes a mark, a take or the lines sends `changed`, and
+    every 30s while shown -- and the moment the tab is shown again -- each
+    device compares a fingerprint (count + newest of `song_marks`,
+    `song_recordings`, `song_voice_lines`; a hash of the songs' rows and
+    of the songbook row) with the one it last drew. Marks and takes are
+    reloaded quietly in place; lines, words, settings and the book raise
+    the pulsing banner, whose Refresh refetches the songs' rows and lines
+    and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
+    adopted, not announced to itself; a change undone before the refresh
+    takes the banner away with it; Not now adopts the state as seen.
+
 ## Quick Commands for Claude Code
 
 ```bash

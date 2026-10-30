@@ -457,6 +457,13 @@ const CASES = [
                    "        sectionKey = section;")],
   ['songbook-marks-harness.js', 'a box with no height takes a stroke',
     s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
+  // A rewritten line must raise the banner; a part that could not be read
+  // must not, or every hiccup of the network would nag.
+  ['songbook-live-harness.js', 'rewritten lines no longer ask for a refresh',
+    s => s.replace("structural: differs('lines') || differs('songs') || differs('book') };", "structural: differs('songs') || differs('book') };")],
+  ['songbook-live-harness.js', 'a part that could not be read counts as a change',
+    s => s.replace("    var differs = function(k) { return seen[k] !== cur[k] && cur[k] !== 'na' && seen[k] !== 'na'; };",
+                   "    var differs = function(k) { return seen[k] !== cur[k]; };")],
   ['songbook-overview-harness.js', 'every extra part gets the same brown again',
     s => s.replace("      out[k] = _SB_PART_PALETTE[i % _SB_PART_PALETTE.length]; i++;",
                    "      out[k] = _SB_PART_PALETTE[0]; i++;")],
