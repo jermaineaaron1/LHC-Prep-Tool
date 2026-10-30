@@ -15219,6 +15219,7 @@ window.lhcVoiceRec = {
         'title="Play this run-through">' +
         '<i class="fa-solid fa-' + (R._playing === t.id ? 'stop' : 'play') + '"></i> ' +
         R._dur(t.duration_sec) + '</button>' +
+        (t.section ? '<span class="vl-draft-sec">' + esc(t.section) + '</span>' : '') +
         '<span class="vl-draft-when">' + esc(R._when(t.created_at)) + '</span>' +
         '<button type="button" class="vl-draft-del" data-rec-act="del" ' +
         'data-rec-id="' + t.id + '" data-rec-path="' + esc(t.storage_path) + '" ' +
@@ -15283,7 +15284,7 @@ window.lhcVoiceRec = {
     });
   },
 
-  toggle: function(root, lineId) {
+  _start: function(root, lineId, section, secPart, secLabel) {
     var R = window.lhcVoiceRec;
     if (R._rec && R._rec.state !== 'inactive') { R.stop(); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -15293,7 +15294,9 @@ window.lhcVoiceRec = {
     var songId = R._songOf(root);
     if (!songId) { showToast('Nothing to record against', 'error'); return; }
     // lineId null is the whole song: a rehearsal draft, not a line reference.
-    var who = R._partOf(root, lineId);
+    // A section take is sung by the part chosen on the page (or everyone);
+    // the slot and the name come from that, not from a line.
+    var who = section ? { part: secPart || 'general', name: secLabel || 'All' } : R._partOf(root, lineId);
     var part = who.part;
 
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
@@ -15309,8 +15312,8 @@ window.lhcVoiceRec = {
         var secs = (Date.now() - R._started) / 1000;
         stream.getTracks().forEach(function(t) { t.stop(); });
         R._stream = null;
-        R._setBtn(root, lineId, false);
-        R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs, null, who.name);
+        R._setRecBtn(root, lineId, section, false);
+        R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs, null, who.name, section || null);
         R._rec = null; R._recLine = null; R._recSong = null;
       };
       // Without this a recorder that dies mid-take leaves the button
@@ -15318,16 +15321,34 @@ window.lhcVoiceRec = {
       mr.onerror = function(ev) {
         try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {}
         R._stream = null; R._rec = null; R._recLine = null; R._recSong = null;
-        R._setBtn(root, lineId, false);
+        R._setRecBtn(root, lineId, section, false);
         showToast('The recording stopped unexpectedly', 'error');
         console.error('[VoiceRec]', ev && ev.error);
       };
       mr.start();
-      R._setBtn(root, lineId, true);
+      R._setRecBtn(root, lineId, section, true);
     }).catch(function(err) {
       showToast('Microphone not available: ' + err.message, 'error');
     });
   },
+
+  toggle: function(root, lineId) { window.lhcVoiceRec._start(root, lineId, null, null, null); },
+  // A whole section -- "Verse 1" -- for one part, or for everyone: the
+  // microphone on the section's badge.
+  toggleSection: function(root, section, partSlug, partLabel) { window.lhcVoiceRec._start(root, null, section, partSlug, partLabel); },
+  _setRecBtn: function(root, lineId, section, on) {
+    var R = window.lhcVoiceRec;
+    if (section) R._setSecBtn(root, section, on); else R._setBtn(root, lineId, on);
+  },
+  _setSecBtn: function(root, section, on) {
+    var sel = '.sbm-sec-mic[data-section="' + String(section).replace(/"/g, '') + '"]';
+    var btn = (root && root.querySelector(sel)) || document.querySelector(sel);
+    if (!btn) return;
+    btn.classList.toggle('is-recording', !!on);
+    btn.innerHTML = on ? '<i class="fa-solid fa-stop"></i>' : '<i class="fa-solid fa-microphone"></i>';
+    btn.title = on ? 'Stop recording' : 'Record this section';
+  },
+  _slotOf: function(path) { var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(path || ''); return m ? m[1] : 'general'; },
 
   stop: function() {
     var R = window.lhcVoiceRec;
@@ -15441,7 +15462,7 @@ window.lhcVoiceRec = {
     });
   },
 
-  _save: function(root, songId, lineId, part, blob, secs, label, partName) {
+  _save: function(root, songId, lineId, part, blob, secs, label, partName, section) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (!sb || !blob || !blob.size) { showToast('Nothing was recorded', 'error'); return; }
@@ -15449,12 +15470,13 @@ window.lhcVoiceRec = {
     // go in the app's working bucket under the same prefix the whole-song
     // takes already use.
     var ext = R._ext(blob.type, blob.name);
-    var whole = lineId == null;
+    var whole = lineId == null && !section;
     var path = 'practice-recordings/' + songId + '/' +
                (whole ? 'draft' : part) + '__' + Date.now() + '.' + ext;
     R._takes[songId] = R._takes[songId] || {};
     R._drafts[songId] = R._drafts[songId] || [];
     var n = whole ? (R._drafts[songId].length + 1)
+                  : section ? (R._drafts[songId].filter(function(d) { return d.section === section && R._slotOf(d.storage_path) === part; }).length + 1)
                   : (R._takesFor(songId, lineId).length + 1);
     if (typeof showLoader === 'function') showLoader(true);
     var uploaded = false;
@@ -15463,11 +15485,14 @@ window.lhcVoiceRec = {
     }).then(function(up) {
       if (up.error) throw new Error(up.error.message);
       uploaded = true;
-      return sb.from('song_recordings').insert({
+      var ins = {
         song_id: songId, line_id: whole ? null : lineId,
         name: R._takeName(whole, part, partName, n, label),
         storage_path: path, duration_sec: Math.round(secs * 100) / 100
-      }).select();
+      };
+      // Only offered once the column exists (migrations/2026-10-30_song_recordings_section.sql).
+      if (section) ins.section = section;
+      return sb.from('song_recordings').insert(ins).select();
     }).then(function(res) {
       if (res.error) throw new Error(res.error.message);
       // Assert on the row that came back, not on the absence of an error: an
@@ -15480,6 +15505,13 @@ window.lhcVoiceRec = {
         R.paintDrafts(root);
         R._changed(songId);
         showToast(label ? 'Audio added to this song' : 'Run-through saved', 'success');
+        return;
+      }
+      if (section) {
+        R._drafts[songId].push(row);
+        R.paintDrafts(root);
+        R._changed(songId);
+        showToast('Take saved \u2014 ' + section, 'success');
         return;
       }
       var k = String(lineId);
@@ -48201,6 +48233,47 @@ var WO = (function() {
     _sbmSid = hit ? hit.id : null;
     return hit;
   }
+  // ---- section takes: only once the column exists ----
+  var _sbRecSecOk = null;
+  function _sbRecSectionSupport() {
+    if (_sbRecSecOk !== null) return Promise.resolve(_sbRecSecOk);
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    return sup.from('song_recordings').select('section').limit(1).then(function(r) {
+      _sbRecSecOk = !r.error;
+      return _sbRecSecOk;
+    }).catch(function() { _sbRecSecOk = false; return false; });
+  }
+  function _sbmSecNorm(x) { return String(x || '').trim().toLowerCase(); }
+  // Record the whole of a section for the part chosen on the page.
+  function sbmSectionRecord(name) {
+    var song = _sbmSong(); if (!song || !window.lhcVoiceRec) return;
+    var root = document.querySelector('#sbmRoot .sb-song-page--choir'); if (!root) return;
+    var V = window.lhcVoiceLines;
+    var lanes = (V && _sbSongHasChoir(song)) ? V.lanes(_sbVoiceRowsFor(song)) : [];
+    var cur = lanes.length ? _sbChoirPartFor(song, lanes) : '';
+    var slug = cur ? _sbmRecSlug(V.partKey(cur)) : 'general';
+    var label = cur ? V.partLabel(cur) : 'All';
+    window.lhcVoiceRec.toggleSection(root, name, slug, label);
+  }
+  // The takes a section has, as chips beside its badge.
+  function _sbmPaintSectionTakes(song) {
+    var root = document.getElementById('sbmRoot'); if (!root || !song) return;
+    var recs = _sbmRecs[_sbBaseSongId(song)] || [];
+    root.querySelectorAll('.sbm-score .vl-section').forEach(function(el) {
+      var name = el.getAttribute('data-section') || '';
+      Array.prototype.slice.call(el.querySelectorAll('.sbm-sec-take')).forEach(function(x) { x.remove(); });
+      var mine = recs.filter(function(r) { return r.section && _sbmSecNorm(r.section) === _sbmSecNorm(name); });
+      mine.slice(0, 4).forEach(function(r) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'sbm-sec-take';
+        b.title = _sbmTakeSub(r, song);
+        b.innerHTML = '<i class="fa-solid fa-play"></i>' + escapeHtml(_sbmTakeTitle(r, song, recs));
+        b.onclick = function(ev) { ev.stopPropagation(); sbmPlay(String(r.id)); };
+        el.appendChild(b);
+      });
+    });
+  }
+
   // ---- the index: the phone's contents page, and reordering ----
   var _sbmIndexOpen = false, _sbmIndexDecided = false, _sbmReorder = false, _sbmDragId = null;
   function sbmIndex() {
@@ -48540,6 +48613,7 @@ var WO = (function() {
         if (res.error) return;
         _sbmRecs[base] = res.data || [];
         var nEl = document.getElementById('sbmPracN'); if (nEl) nEl.textContent = _sbmPracCount(song);
+        if (_sbmActive() && _sbmSid === song.id) _sbmPaintSectionTakes(song);
         if (!_sbmPlayer && _sbmRecs[base].length) _sbmLoad(_sbmRecs[base][0], song);
         if (_sbmActive() && _sbmSid === song.id) _sbmPaintPractice(song);
       });
@@ -48783,7 +48857,7 @@ var WO = (function() {
   // take's name is used when every take in the group has one of its own;
   // the older names ("Take take 1" on every line) are counted instead.
   function _sbmTakeNumber(rec, recs) {
-    var keyOf = function(x) { return x.line_id != null ? 'L' + x.line_id : 'C' + _sbmRecTok(x.storage_path); };
+    var keyOf = function(x) { return x.line_id != null ? 'L' + x.line_id : (x.section ? 'S' + _sbmSecNorm(x.section) + '|' : 'C') + _sbmRecTok(x.storage_path); };
     var key = keyOf(rec);
     var group = recs.filter(function(x) { return keyOf(x) === key; })
       .sort(function(a, b) { return String(a.created_at || '').localeCompare(String(b.created_at || '')); });
@@ -48798,7 +48872,7 @@ var WO = (function() {
   }
   // "Take 2" for a line's take; the stored name for a take of the whole song.
   function _sbmTakeTitle(rec, song, recs) {
-    return rec.line_id != null ? 'Take ' + _sbmTakeNumber(rec, recs) : (rec.name || 'Recording');
+    return (rec.line_id != null || rec.section) ? 'Take ' + _sbmTakeNumber(rec, recs) : (rec.name || 'Recording');
   }
   // "Melody · “Is there room in your heart” · 1st Chorus · 29 Oct 12:07"
   function _sbmTakeSub(rec, song) {
@@ -48810,6 +48884,7 @@ var WO = (function() {
       bits.push('\u201c' + (String(row.text || '').trim().length > 42 ? String(row.text || '').trim().slice(0, 40) + '\u2026' : String(row.text || '').trim()) + '\u201d');
       if (row.section) bits.push(row.section);
     } else if (rec.line_id != null) bits.push('one line');
+    else if (rec.section) bits.push(String(rec.section) + ' (whole section)');
     else bits.push('whole song');
     var when = _sbmTakeWhen(rec); if (when) bits.push(when);
     return bits.join(' \u00b7 ');
@@ -49059,8 +49134,19 @@ var WO = (function() {
       b.title = 'Overview edit \u2014 ' + name; b.setAttribute('aria-label', 'Edit ' + name + ' as text');
       b.innerHTML = '<i class="fa-solid fa-pen"></i>';
       b.onclick = function(ev) { ev.stopPropagation(); sbmOverview(name); };
+      el.setAttribute('data-section', name);
       el.appendChild(b);
+      if (_sbRecSecOk === true && hasChoir) {
+        var mic = document.createElement('button');
+        mic.type = 'button'; mic.className = 'sbm-sec-mic'; mic.setAttribute('data-section', name);
+        mic.title = 'Record this section'; mic.setAttribute('aria-label', 'Record ' + name);
+        mic.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+        mic.onclick = function(ev) { ev.stopPropagation(); sbmSectionRecord(name); };
+        el.appendChild(mic);
+      }
     });
+    if (_sbRecSecOk === null) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
+    _sbmPaintSectionTakes(song);
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
       if (sc) V.filterPart(sc, cur);
@@ -49629,7 +49715,11 @@ var WO = (function() {
       return '<optgroup label="' + escapeHtml(k || 'Untitled section') + '">' + groups[k].map(function(r) {
         return '<option value="' + escapeHtml(String(r.id)) + '">' + escapeHtml((V ? V.partLabel(r.part) : r.part) + ' \u00b7 ' + String(r.text || '').trim()) + '</option>';
       }).join('') + '</optgroup>';
-    }).join('') + '</select>';
+    }).join('') + (_sbRecSecOk === true && order.length ? '<optgroup label="Whole sections">' + order.map(function(k) {
+      return '<option value="sec:' + escapeHtml(k) + '">Whole section \u00b7 ' + escapeHtml(k || 'Untitled section') + '</option>';
+    }).join('') + '</optgroup>' : '') + '</select>' +
+      '<div class="sbm-cut__partrow" id="sbmCutPartRow" style="display:none;"><label for="sbmCutPart">Sung by</label><select class="sbm-cut__sel" id="sbmCutPart" onchange="WO.sbmCutTargetChanged()">' +
+        '<option value="">All \u2014 everyone</option>' + (V && _sbSongHasChoir(h.song) ? V.lanes(rows).map(function(p) { return '<option value="' + escapeHtml(_sbmRecSlug(V.partKey(p))) + '">' + escapeHtml(V.partLabel(p)) + '</option>'; }).join('') : '') + '</select></div>';
     var hero = '<div class="sbm-ed__hero">' +
       (wide ? '' : '<button class="sbm-ed__back" onclick="WO.sbmCutClose()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>') +
       '<div style="min-width:0;"><div class="sbm-ed__title">Cut a take</div><div class="sbm-ed__song">' + escapeHtml(h.song.title || '') + ' \u00b7 ' + escapeHtml(h.rec.name || 'Recording') + '</div></div>' +
@@ -49787,56 +49877,72 @@ var WO = (function() {
     C.start = c.start; C.end = c.end; _sbmCutDraw();
     var ln = C.host.querySelector('#sbmCutLen'); if (ln) ln.textContent = (C.end - C.start).toFixed(1) + ' s';
   }
+  // What the span is attached to: a line of the song, or the whole of a
+  // section as sung by one part (or everyone).
   function _sbmCutTarget() {
     var C = _sbmCut; if (!C) return null;
     var sel = C.host.querySelector('#sbmCutTarget'); if (!sel || !sel.value) return null;
+    var V = window.lhcVoiceLines;
+    if (sel.value.indexOf('sec:') === 0) {
+      var ps = C.host.querySelector('#sbmCutPart'), slug = ps ? ps.value : '';
+      var lanes = (V && _sbSongHasChoir(C.song)) ? V.lanes(_sbVoiceRowsFor(C.song)) : [];
+      var lane = lanes.find(function(p) { return _sbmRecSlug(V.partKey(p)) === slug; });
+      return { section: sel.value.slice(4), slug: slug || 'general', label: lane ? V.partLabel(lane) : 'All' };
+    }
     var rows = _sbVoiceRowsFor(C.song);
-    for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === sel.value) return rows[i];
+    for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === sel.value) return { row: rows[i], slug: _sbmRecSlug(V ? V.partKey(rows[i].part) : String(rows[i].part)), label: V ? V.partLabel(rows[i].part) : String(rows[i].part) };
     return null;
+  }
+  function _sbmCutNames(t) {
+    var C = _sbmCut, recs = _sbmRecs[C.base] || [];
+    return recs.filter(function(x) {
+      return t.row ? String(x.line_id) === String(t.row.id)
+                   : (x.section && _sbmSecNorm(x.section) === _sbmSecNorm(t.section) && _sbmRecTok(x.storage_path) === t.slug);
+    }).map(function(x) { return x.name; });
   }
   function sbmCutTargetChanged() { _sbmCutTargetChanged(); }
   function _sbmCutTargetChanged() {
     var C = _sbmCut; if (!C) return;
-    var row = _sbmCutTarget(), V = window.lhcVoiceLines;
+    var t = _sbmCutTarget();
+    var pr = C.host.querySelector('#sbmCutPartRow'); if (pr) pr.style.display = (t && t.section) ? '' : 'none';
     var el = C.host.querySelector('#sbmCutNext'); if (!el) return;
-    if (!row) { el.textContent = 'This song has no choir lines yet.'; return; }
-    var recs = _sbmRecs[C.base] || [];
-    var names = recs.filter(function(x) { return String(x.line_id) === String(row.id); }).map(function(x) { return x.name; });
-    el.textContent = 'Will be saved as \u201c' + _sbmCutNextName(V ? V.partLabel(row.part) : String(row.part), names) + '\u201d' + (names.length ? ' \u2014 this line has ' + names.length + ' take' + (names.length === 1 ? '' : 's') + ' already' : '');
+    if (!t) { el.textContent = 'This song has no choir lines yet.'; return; }
+    var names = _sbmCutNames(t);
+    el.textContent = 'Will be saved as \u201c' + _sbmCutNextName(t.label, names) + '\u201d' +
+      (t.section ? ' for ' + t.section : '') +
+      (names.length ? ' \u2014 ' + (t.section ? 'that section' : 'this line') + ' has ' + names.length + ' take' + (names.length === 1 ? '' : 's') + ' already' : '');
   }
   function sbmCutSave() {
     var C = _sbmCut; if (!C || !C.buffer) return;
-    var row = _sbmCutTarget(); if (!row) { showToast('Choose a line to attach the span to', 'error'); return; }
+    var t = _sbmCutTarget(); if (!t) { showToast('Choose where to attach the span', 'error'); return; }
     if (C.end - C.start < 0.3) { showToast('The span is too short', 'error'); return; }
-    var V = window.lhcVoiceLines, sup = window._supabase; if (!sup) return;
-    var label = V ? V.partLabel(row.part) : String(row.part);
-    var recs = _sbmRecs[C.base] || [];
-    var names = recs.filter(function(x) { return String(x.line_id) === String(row.id); }).map(function(x) { return x.name; });
-    var name = _sbmCutNextName(label, names);
+    var sup = window._supabase; if (!sup) return;
+    var name = _sbmCutNextName(t.label, _sbmCutNames(t));
     var samples = _sbmCutSlice(C.buffer, C.start, C.end);
     var blob = new Blob([_sbmWavBytes(samples, C.buffer.sampleRate)], { type: 'audio/wav' });
-    var slug = _sbmRecSlug(V ? V.partKey(row.part) : String(row.part));
-    var path = 'practice-recordings/' + C.base + '/' + slug + '__' + Date.now() + '.wav';
+    var path = 'practice-recordings/' + C.base + '/' + t.slug + '__' + Date.now() + '.wav';
     var secs = Math.round((C.end - C.start) * 100) / 100;
+    var ins = { song_id: C.base, line_id: t.row ? t.row.id : null, name: name, storage_path: path, duration_sec: secs };
+    if (t.section) ins.section = t.section;
     var btn = C.host.querySelector('#sbmCutSaveBtn'); if (btn) btn.disabled = true;
     if (typeof showLoader === 'function') showLoader(true);
     var uploaded = false;
     sup.storage.from(LHC_SUPABASE_BUCKET).upload(path, blob, { contentType: 'audio/wav', upsert: false }).then(function(up) {
       if (up.error) throw new Error(up.error.message);
       uploaded = true;
-      return sup.from('song_recordings').insert({ song_id: C.base, line_id: row.id, name: name, storage_path: path, duration_sec: secs }).select();
+      return sup.from('song_recordings').insert(ins).select();
     }).then(function(res) {
       if (res.error) throw new Error(res.error.message);
       var saved = (res.data || [])[0];
       if (!saved) throw new Error('the take did not come back from the database');
       _sbmRecs[C.base] = (_sbmRecs[C.base] || []).concat([saved]);
       _sbmRecRefresh(C.base);
-      showToast('Saved as ' + name, 'success');
+      showToast('Saved as ' + name + (t.section ? ' \u2014 ' + t.section : ''), 'success');
       // on to the next span and the next line
       var len = C.end - C.start, dur = _sbmCutDur();
       if (C.end < dur - 0.3) { var c = _sbmCutClamp(C.end, Math.min(dur, C.end + len), dur, 'end'); C.start = c.start; C.end = c.end; C.audio.currentTime = C.start; }
       var sel = C.host.querySelector('#sbmCutTarget');
-      if (sel && sel.selectedIndex < sel.options.length - 1) sel.selectedIndex = sel.selectedIndex + 1;
+      if (sel && !t.section && sel.selectedIndex < sel.options.length - 1) sel.selectedIndex = sel.selectedIndex + 1;
       _sbmCutTargetChanged();
       _sbmCutPaint();
     }).catch(function(err) {
@@ -53535,10 +53641,10 @@ var WO = (function() {
       // Marked so the cap can tell this panel's own run-throughs from the
       // per-line takes the choir view made. Both are listed -- a singer
       // wants them in one place -- but only the panel's own ones count.
-      var lineMark = r.line_id != null ? ' data-line-take="1"' : '';
+      var lineMark = (r.line_id != null || r.section) ? ' data-line-take="1"' : '';
       return '<div class="sb-rec-item"'+lineMark+' id="sbRecItem-'+r.id+'">' +
         '<div class="sb-rec-item-head">' +
-          '<div class="sb-rec-item-name" id="sbRecName-'+r.id+'" ondblclick="WO.sbRenameRecording(\''+r.id+'\')">'+escapeHtml(r.name||'Recording')+'</div>' +
+          '<div class="sb-rec-item-name" id="sbRecName-'+r.id+'" ondblclick="WO.sbRenameRecording(\''+r.id+'\')">'+escapeHtml(r.name||'Recording')+(r.section ? ' <span class="sb-rec-item-sec">'+escapeHtml(r.section)+'</span>' : '')+'</div>' +
           '<button type="button" class="sb-rec-cat sb-rec-cat--'+cat+'" onclick="WO.sbRecMoveFromPanel(\''+r.id+'\')" title="Move this take to another part or category">'+_sbRecCatLabel(cat)+'</button>' +
           '<span class="sb-rec-item-when">'+((window.lhcVoiceRec && window.lhcVoiceRec._when && r.created_at) ? window.lhcVoiceRec._when(r.created_at) : '')+'</span>' +
           '<span class="sb-rec-item-dur">'+_sbFmtDur(r.duration_sec)+'</span>' +
@@ -78316,7 +78422,7 @@ var WO = (function() {
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
-    sbmCutInput: sbmCutInput, sbmCutSave: sbmCutSave, sbmCutTargetChanged: sbmCutTargetChanged,
+    sbmCutInput: sbmCutInput, sbmCutSave: sbmCutSave, sbmCutTargetChanged: sbmCutTargetChanged, sbmSectionRecord: sbmSectionRecord,
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
     sbmOverview: sbmOverview, sbmEdOverview: sbmEdOverview, sbmPadCancel: sbmPadCancel, sbmPadSave: sbmPadSave, sbmPadInput: sbmPadInput,
     sbmPadScroll: sbmPadScroll, sbmPadInsertSection: sbmPadInsertSection, sbmPadPrefix: sbmPadPrefix, sbmPadHold: sbmPadHold,
@@ -96044,6 +96150,16 @@ function filterLiturgyItems() {
 .sbm-cut__hint { margin-top: 8px; font: 500 12px/1.45 var(--sbm-font-ui); color: var(--sbm-muted); }
 .sbm-cut__hint b { color: var(--sbm-text-2); }
 .sbm-cut__sel { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--sbm-line); border-radius: 10px; background: #fff; color: var(--sbm-text); font: 600 14px/1.2 var(--sbm-font-ui); }
+
+/* ---- Section takes: the badge's microphone and its takes ---------------- */
+.sbm-sec-mic { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-danger); font-size: 12px; cursor: pointer; }
+.sbm-sec-mic.is-recording { background: var(--sbm-danger); border-color: var(--sbm-danger); color: #fff; animation: vlRecPulse 1.2s ease-in-out infinite; }
+.sbm-sec-take { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(13,148,136,0.35); background: var(--sbm-teal-soft); color: var(--sbm-teal); font: 700 11px/1 var(--sbm-font-ui); cursor: pointer; letter-spacing: 0; text-transform: none; }
+.sbm-sec-take i { font-size: 10px; }
+.vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
+.sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
+.sbm-cut__partrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.sbm-cut__partrow label { flex: 0 0 auto; font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--sbm-text-2); }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
