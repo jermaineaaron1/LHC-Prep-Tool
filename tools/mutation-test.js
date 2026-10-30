@@ -428,6 +428,16 @@ const CASES = [
   ['voice-lines-harness.js', 'a section deleted and another written is taken for a rename',
     s => s.replace("      if (kept * 2 < was.length) return null;",
                    "")],
+  // A drawn remark lands on the words it was drawn round because its
+  // anchor is the box its first point is in, or the nearest one above or
+  // below; and the eraser asks the distance to a SEGMENT, clamped to it.
+  ['songbook-marks-harness.js', 'a stroke in the gap is anchored sideways rather than to the nearer line',
+    s => s.replace("      var d = dy * 4 + dx;", "      var d = dx;")],
+  ['songbook-marks-harness.js', 'the eraser reaches past the end of a stroke',
+    s => s.replace("      var t = L ? Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / L)) : 0;",
+                   "      var t = L ? ((x - ax) * vx + (y - ay) * vy) / L : 0;")],
+  ['songbook-marks-harness.js', 'a box with no height takes a stroke',
+    s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
   ['songbook-overview-harness.js', 'every extra part gets the same brown again',
     s => s.replace("      out[k] = _SB_PART_PALETTE[i % _SB_PART_PALETTE.length]; i++;",
                    "      out[k] = _SB_PART_PALETTE[0]; i++;")],
