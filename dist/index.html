@@ -48996,7 +48996,9 @@ var WO = (function() {
   var _sbmPracPart = '';
   function sbmPracPart(key) { _sbmPracPart = String(key || ''); var song = _sbmSong(); if (song) _sbmPaintPractice(song); }
   // The slot in a file's name: the part or category it was filed under.
-  function _sbmRecTok(path) { var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(path || ''); return m ? m[1] : 'general'; }
+  // The slot in a take's file name. The choir view files a whole-song
+  // take under "draft", which is a run-through like the panel's "general".
+  function _sbmRecTok(path) { var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(path || ''); return (m && m[1] !== 'draft') ? m[1] : 'general'; }
   function _sbmRecRow(rec, song) {
     if (rec.line_id == null) return null;
     var rows = _sbVoiceRowsFor(song);
@@ -49964,7 +49966,7 @@ var WO = (function() {
                 rows: rows, groups: groups, order: order, nums: V ? V.lineNumbers(rows).byId : {} };
     // The picker starts on the part chosen on the page, and on the lines.
     var partSel = host.querySelector('#sbmCutPart'), curPart = lanes.length ? _sbChoirPartFor(h.song, lanes) : '';
-    if (partSel && curPart && V) partSel.value = _sbmRecSlug(V.partKey(curPart));
+    if (partSel) partSel.value = (curPart && V) ? _sbmRecSlug(V.partKey(curPart)) : '';
     _sbmCutFillLines();
     audio.addEventListener('ended', function() { _sbmCutPaint(); });
     audio.addEventListener('pause', function() { _sbmCutPaint(); });
@@ -53838,6 +53840,7 @@ var WO = (function() {
   }
   function sbLoadRecordings(songId) {
     if (!songId) return; _sbRecCurrentSongId = songId;
+    _sbRecFillCategories(songId);
     var sup = window._supabase || null; if (!sup) return;
     var orderId = currentOrderData ? currentOrderData.id : null;
     // Per SONG, across every service and songbook — these takes are the
