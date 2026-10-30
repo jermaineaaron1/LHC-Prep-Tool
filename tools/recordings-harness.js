@@ -221,7 +221,8 @@ check('  but it is the choir view too, so it carries the marker',
   listEl.querySelectorAll('.sb-rec-item[data-line-take="1"]').length, 2);
 check('  and does not count against the panel limit', S._sbOwnRecCount(), 2);
 check('  nor in the counter', cntEl.textContent, '(2/10)');
-check('  and its name says which section', /sb-rec-item-sec/.test(listEl.innerHTML), true);
+check('  and its name says which section',
+  (/<span class="sb-rec-item-sec">([^<]*)<\/span>/.exec(listEl.innerHTML) || [])[1], 'Verse 1');
 
 S.sbRenderRecordings('s1', Array.from({ length: 10 }, (_, i) => own(i)));
 check('ten of the panel own DO reach the limit', S._sbOwnRecCount(), 10);

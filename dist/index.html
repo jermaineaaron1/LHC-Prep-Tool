@@ -15475,8 +15475,11 @@ window.lhcVoiceRec = {
                (whole ? 'draft' : part) + '__' + Date.now() + '.' + ext;
     R._takes[songId] = R._takes[songId] || {};
     R._drafts[songId] = R._drafts[songId] || [];
-    var n = whole ? (R._drafts[songId].length + 1)
-                  : section ? (R._drafts[songId].filter(function(d) { return d.section === section && R._slotOf(d.storage_path) === part; }).length + 1)
+    // The drafts store holds every take without a line: a run-through is
+    // numbered among run-throughs, a section take among its section's.
+    var secKey = function(x) { return String(x || '').trim().toLowerCase(); };
+    var n = whole ? (R._drafts[songId].filter(function(d) { return !d.section; }).length + 1)
+                  : section ? (R._drafts[songId].filter(function(d) { return d.section && secKey(d.section) === secKey(section) && R._slotOf(d.storage_path) === part; }).length + 1)
                   : (R._takesFor(songId, lineId).length + 1);
     if (typeof showLoader === 'function') showLoader(true);
     var uploaded = false;
@@ -16085,6 +16088,17 @@ window.lhcVoiceLines = {
     return lines.join('\n');
   },
 
+  // A section take follows its section by NAME (song_recordings.section).
+  // When the editor renames one section -- one name gone, one name new --
+  // the takes go with it; two renamed at once cannot be told apart and
+  // are left where they are. Returns { from, to } or null.
+  sectionRename: function(oldNames, newNames) {
+    var uniq = function(xs) { var seen = {}, out = []; (xs || []).forEach(function(x) { var t = String(x == null ? '' : x).trim(); if (t && !seen[t]) { seen[t] = 1; out.push(t); } }); return out; };
+    var a = uniq(oldNames), b = uniq(newNames);
+    var gone = a.filter(function(x) { return b.indexOf(x) === -1; });
+    var fresh = b.filter(function(x) { return a.indexOf(x) === -1; });
+    return (gone.length === 1 && fresh.length === 1) ? { from: gone[0], to: fresh[0] } : null;
+  },
   // Which new row is which old row, after the editor rewrote the lot.
   //
   // replaceAll deletes every row and inserts fresh ones, so every id
@@ -31869,7 +31883,7 @@ var SBQ_VOICE_LINES = {
     // delete: the foreign key nulls line_id on the way out, so afterwards
     // there is nothing left to say where a take belonged.
     var oldRows = [], oldTakes = [];
-    return sb.from('song_voice_lines').select('id,part,sort_order,text').eq('song_id', songId)
+    return sb.from('song_voice_lines').select('id,part,sort_order,text,section').eq('song_id', songId)
       .then(function(r) {
         if (!r.error) oldRows = r.data || [];
         return sb.from('song_recordings').select('id,line_id').eq('song_id', songId);
@@ -31885,6 +31899,7 @@ var SBQ_VOICE_LINES = {
       })
       .then(function(r) {
         return SBQ_VOICE_LINES._carryTakes(oldRows, (r && r.data) || [], oldTakes)
+          .then(function() { return SBQ_VOICE_LINES._carrySections(oldRows, rows, songId); })
           .then(function() {
             // Every line id just changed. lhcVoiceRec keys its takes by
             // line id and sets _loaded once, for ever, so without this the
@@ -31937,6 +31952,21 @@ var SBQ_VOICE_LINES = {
       console.warn('[VoiceLines] takes kept, links not restored:', e && e.message);
       return 0;
     });
+  },
+
+  // A section take is keyed by its section's NAME, which replaceAll does
+  // not touch: one section renamed is carried along. A write that fails
+  // -- the column is not there yet -- is let go of quietly, because the
+  // lines themselves are already saved.
+  _carrySections: function(oldRows, newRows, songId) {
+    var VL = window.lhcVoiceLines;
+    if (!VL || typeof VL.sectionRename !== 'function') return Promise.resolve(0);
+    var ren = VL.sectionRename((oldRows || []).map(function(r) { return r.section; }), (newRows || []).map(function(r) { return r.section; }));
+    if (!ren) return Promise.resolve(0);
+    var sb = SBQ_VOICE_LINES._sb();
+    if (!sb) return Promise.resolve(0);
+    return sb.from('song_recordings').update({ section: ren.to }).eq('song_id', songId).eq('section', ren.from)
+      .then(function(r) { return r.error ? 0 : 1; }).catch(function() { return 0; });
   },
 
   // One row, inserted where a part was silent.
@@ -48234,14 +48264,18 @@ var WO = (function() {
     return hit;
   }
   // ---- section takes: only once the column exists ----
-  var _sbRecSecOk = null;
+  var _sbRecSecOk = null, _sbRecSecProbe = null;
   function _sbRecSectionSupport() {
     if (_sbRecSecOk !== null) return Promise.resolve(_sbRecSecOk);
+    if (_sbRecSecProbe) return _sbRecSecProbe;
     var sup = window._supabase; if (!sup) return Promise.resolve(false);
-    return sup.from('song_recordings').select('section').limit(1).then(function(r) {
+    // One probe, shared: the first open renders several times before it
+    // answers, and each render used to ask again and re-render on the answer.
+    _sbRecSecProbe = sup.from('song_recordings').select('section').limit(1).then(function(r) {
       _sbRecSecOk = !r.error;
       return _sbRecSecOk;
     }).catch(function() { _sbRecSecOk = false; return false; });
+    return _sbRecSecProbe;
   }
   function _sbmSecNorm(x) { return String(x || '').trim().toLowerCase(); }
   // Record the whole of a section for the part chosen on the page.
@@ -48487,10 +48521,26 @@ var WO = (function() {
   }
   // ---- one take: rename it, move it to a part, delete it ----
   function _sbmRecById(id) {
-    var song = _sbmSong(); if (!song) return null;
-    var recs = _sbmRecs[_sbBaseSongId(song)] || [];
-    var rec = recs.find(function(r) { return String(r.id) === String(id); });
-    return rec ? { song: song, rec: rec, base: _sbBaseSongId(song) } : null;
+    var hit = function(sg) {
+      var base = _sbBaseSongId(sg);
+      var rec = (_sbmRecs[base] || []).find(function(r) { return String(r.id) === String(id); });
+      return rec ? { song: sg, rec: rec, base: base } : null;
+    };
+    var song = _sbmSong(), h = song ? hit(song) : null;
+    if (h) return h;
+    // The recordings panel opens per page in Page view and knows its song
+    // by the panel's own id, not the reading view's: a take it hands over
+    // has to be found under whichever song holds it.
+    var list = _sbmSongs();
+    for (var i = 0; i < list.length; i++) { h = hit(list[i]); if (h) return h; }
+    var bases = Object.keys(_sbmRecs);
+    for (var k = 0; k < bases.length; k++) {
+      var rec = (_sbmRecs[bases[k]] || []).find(function(r) { return String(r.id) === String(id); });
+      if (!rec) continue;
+      var sg = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === bases[k]; }) || { id: bases[k], songId: bases[k] };
+      return { song: sg, rec: rec, base: bases[k] };
+    }
+    return null;
   }
   function _sbmRecRefresh(base) {
     delete _sbmRecsAt[base];
@@ -48577,6 +48627,13 @@ var WO = (function() {
     var hit = moment.find(function(x) { return _sbmRecSlug(V.partKey(x.part)) === tok; });
     return hit ? hit.id : null;
   }
+  // Whether a take's name is one the app gave it -- "Melody take 2",
+  // "Run-through 1" -- rather than one a person typed or imported. Only
+  // the app's own are given again when the take moves.
+  function _sbmAutoTakeName(name) {
+    var s = String(name || '').trim();
+    return !s || /^(?:.+ take \d+|Run-through \d+|Recording)$/i.test(s);
+  }
   // The takes a moved take is numbered after: the destination line's when
   // it lands on a line; otherwise the same slot's -- and, for a section
   // take, the same section's. A run-through and a section take never
@@ -48624,7 +48681,7 @@ var WO = (function() {
         var others = _sbmMoveSiblings(res.data, rec, destLine, cat);
         var n = 0; others.forEach(function(x) { var mm = /take (\d+)\s*$/i.exec(x.name || ''); n = Math.max(n, mm ? parseInt(mm[1], 10) : 0); });
         n = Math.max(n, others.length) + 1;
-        name = label + ' take ' + n;
+        name = _sbmAutoTakeName(rec.name) ? label + ' take ' + n : rec.name;
         return sup.from('song_recordings').update({ storage_path: next, line_id: destLine, name: name }).eq('id', rec.id).select();
       })
       .then(function(res) {
@@ -49199,7 +49256,7 @@ var WO = (function() {
         el.appendChild(mic);
       }
     });
-    if (_sbRecSecOk === null) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
+    if (_sbRecSecOk === null && !_sbRecSecProbe) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     _sbmPaintSectionTakes(song);
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
@@ -49233,6 +49290,14 @@ var WO = (function() {
   }
   function sbmPractice() {
     var song = _sbmSong(); if (!song) return;
+    // The part filter is the viewer's (gotcha 26), but it is one variable
+    // for the whole book: a part this song does not have would leave its
+    // list empty and every take looking lost. Fall back to All.
+    var V0 = window.lhcVoiceLines;
+    if (_sbmPracPart && V0) {
+      var lanes0 = _sbSongHasChoir(song) ? V0.lanes(_sbVoiceRowsFor(song)) : [];
+      if (!lanes0.some(function(q) { return V0.partKey(q) === _sbmPracPart; })) _sbmPracPart = '';
+    }
     _sbmPracClose();
     _sbmCloseSheet();
     var wide = !_sbFoldPhone();
@@ -49261,6 +49326,10 @@ var WO = (function() {
   }
   function sbmPracClose() { _sbmPracClose(); }
   function _sbmPracKey(ev) {
+    // The cutter sits over this page and has its own Escape. Both listen
+    // on document in the capture phase, where stopPropagation cannot keep
+    // this one, registered first, from closing the page underneath.
+    if (_sbmCut) return;
     if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); _sbmPracClose(); }
   }
 
@@ -49720,8 +49789,10 @@ var WO = (function() {
     return buf;
   }
   function _sbmCutFmt(t) {
-    t = Math.max(0, Number(t) || 0);
-    var m = Math.floor(t / 60), sec = t - m * 60;
+    // Tenths first, then minutes: rounding the seconds on their own made
+    // 59.96 read "0:60.0".
+    var tenths = Math.round(Math.max(0, Number(t) || 0) * 10);
+    var m = Math.floor(tenths / 600), sec = (tenths - m * 600) / 10;
     return m + ':' + (sec < 10 ? '0' : '') + sec.toFixed(1);
   }
   // "1:02.5", "62.5", "1:02" -> seconds; nonsense -> null
@@ -49734,14 +49805,31 @@ var WO = (function() {
   }
   // A span kept inside the recording and at least a breath long, the
   // handle that moved giving way to the other.
+  // A span shorter than a breath is refused, with a tolerance: 5.1 - 4.8 is
+  // 0.29999999999999982 to a float, and what the clamp just made must pass.
+  function _sbmCutShort(start, end) { return end - start < 0.3 - 1e-9; }
   function _sbmCutClamp(start, end, dur, moved) {
     var MIN = 0.3;
     dur = Math.max(MIN, dur || 0);
     start = Math.max(0, Math.min(dur, start)); end = Math.max(0, Math.min(dur, end));
-    var EPS = 1e-9;
-    if (end - start < MIN - EPS) { if (moved === 'end') start = Math.max(0, end - MIN); else end = Math.min(dur, start + MIN); }
-    if (end - start < MIN - EPS) { start = Math.max(0, dur - MIN); end = dur; }
+    if (_sbmCutShort(start, end)) { if (moved === 'end') start = Math.max(0, end - MIN); else end = Math.min(dur, start + MIN); }
+    if (_sbmCutShort(start, end)) { start = Math.max(0, dur - MIN); end = dur; }
     return { start: start, end: end };
+  }
+  // After a span is saved to a line, the line to offer next: the first of
+  // the NEXT moment, this part's if it sings there. The next <option> is
+  // not it -- in a split moment that is the other part of the SAME words,
+  // while the span has moved on in time.
+  function _sbmCutNextTarget(rows, currentId) {
+    var i = -1; rows.forEach(function(r, k) { if (i === -1 && String(r.id) === String(currentId)) i = k; });
+    if (i === -1) return null;
+    var so = function(r) { return r.sortOrder == null ? r.sort_order : r.sortOrder; };
+    var cur = rows[i], same = function(a, b) { return (a.section || '') === (b.section || '') && so(a) === so(b); };
+    var j = i + 1; while (j < rows.length && same(rows[j], cur)) j++;
+    if (j >= rows.length) return null;
+    var moment = [rows[j]]; for (var k = j + 1; k < rows.length && same(rows[k], rows[j]); k++) moment.push(rows[k]);
+    var mine = moment.find(function(r) { return String(r.part || '') === String(cur.part || ''); });
+    return (mine || moment[0]).id;
   }
   // "Melody take 3" after "Melody take 2" and "Take take 1" -- one past the
   // highest number the line already has, or past how many it has, never
@@ -49765,12 +49853,15 @@ var WO = (function() {
     var rows = _sbVoiceRowsFor(h.song).slice().sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
     var groups = {}, order = [];
     rows.forEach(function(r) { var k = r.section || ''; if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(r); });
+    // Lines before the first header have no section name, and a take "of
+    // the whole of" nothing cannot be filed: only named sections are offered.
+    var named = order.filter(function(k) { return k; });
     var select = '<select class="sbm-cut__sel" id="sbmCutTarget" onchange="WO.sbmCutTargetChanged()">' + order.map(function(k) {
       return '<optgroup label="' + escapeHtml(k || 'Untitled section') + '">' + groups[k].map(function(r) {
         return '<option value="' + escapeHtml(String(r.id)) + '">' + escapeHtml((V ? V.partLabel(r.part) : r.part) + ' \u00b7 ' + String(r.text || '').trim()) + '</option>';
       }).join('') + '</optgroup>';
-    }).join('') + (_sbRecSecOk === true && order.length ? '<optgroup label="Whole sections">' + order.map(function(k) {
-      return '<option value="sec:' + escapeHtml(k) + '">Whole section \u00b7 ' + escapeHtml(k || 'Untitled section') + '</option>';
+    }).join('') + (_sbRecSecOk === true && named.length ? '<optgroup label="Whole sections">' + named.map(function(k) {
+      return '<option value="sec:' + escapeHtml(k) + '">Whole section \u00b7 ' + escapeHtml(k) + '</option>';
     }).join('') + '</optgroup>' : '') + '</select>' +
       '<div class="sbm-cut__partrow" id="sbmCutPartRow" style="display:none;"><label for="sbmCutPart">Sung by</label><select class="sbm-cut__sel" id="sbmCutPart" onchange="WO.sbmCutTargetChanged()">' +
         '<option value="">All \u2014 everyone</option>' + (V && _sbSongHasChoir(h.song) ? V.lanes(rows).map(function(p) { return '<option value="' + escapeHtml(_sbmRecSlug(V.partKey(p))) + '">' + escapeHtml(V.partLabel(p)) + '</option>'; }).join('') : '') + '</select></div>';
@@ -49969,7 +50060,7 @@ var WO = (function() {
   function sbmCutSave() {
     var C = _sbmCut; if (!C || !C.buffer) return;
     var t = _sbmCutTarget(); if (!t) { showToast('Choose where to attach the span', 'error'); return; }
-    if (C.end - C.start < 0.3) { showToast('The span is too short', 'error'); return; }
+    if (_sbmCutShort(C.start, C.end)) { showToast('The span is too short', 'error'); return; }
     var sup = window._supabase; if (!sup) return;
     var name = _sbmCutNextName(t.label, _sbmCutNames(t));
     var samples = _sbmCutSlice(C.buffer, C.start, C.end);
@@ -49996,7 +50087,11 @@ var WO = (function() {
       var len = C.end - C.start, dur = _sbmCutDur();
       if (C.end < dur - 0.3) { var c = _sbmCutClamp(C.end, Math.min(dur, C.end + len), dur, 'end'); C.start = c.start; C.end = c.end; C.audio.currentTime = C.start; }
       var sel = C.host.querySelector('#sbmCutTarget');
-      if (sel && !t.section && sel.selectedIndex < sel.options.length - 1) sel.selectedIndex = sel.selectedIndex + 1;
+      if (sel && t.row) {
+        var rowsNow = _sbVoiceRowsFor(C.song).slice().sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+        var nextId = _sbmCutNextTarget(rowsNow, t.row.id);
+        if (nextId != null) sel.value = String(nextId);
+      }
       _sbmCutTargetChanged();
       _sbmCutPaint();
     }).catch(function(err) {

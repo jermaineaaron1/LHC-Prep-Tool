@@ -1128,6 +1128,14 @@ const whoW = (/flex: 0 0 (\d+)px; width: (\d+)px/.exec(whoRule) || []);
 check('  and its box is one width, not two', whoW[1] === whoW[2] && !!whoW[1], true);
 check('  wide enough for a named part at that size', parseInt(whoW[1], 10) >= 84, true);
 
+console.log('\na section renamed in the editor takes its takes with it');
+check('one name gone and one new is a rename', V.sectionRename(['Verse 1', 'Chorus'], ['Verse One', 'Chorus']), { from: 'Verse 1', to: 'Verse One' });
+check('  a section added is not', V.sectionRename(['Verse 1'], ['Verse 1', 'Verse 2']), null);
+check('  nor one removed', V.sectionRename(['Verse 1', 'Verse 2'], ['Verse 1']), null);
+check('  nor two renamed at once -- nobody can say which is which', V.sectionRename(['A', 'B'], ['C', 'D']), null);
+check('  blank sections are nobody', V.sectionRename(['', 'Verse 1'], ['Verse 2', '']), { from: 'Verse 1', to: 'Verse 2' });
+check('  and a section counts once however many lines it has', V.sectionRename(['V1', 'V1', 'V1'], ['V2', 'V2']), { from: 'V1', to: 'V2' });
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

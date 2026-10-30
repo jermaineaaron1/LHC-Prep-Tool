@@ -681,6 +681,15 @@ the anon key -- verify as `postgres`, not as the app.
     is the accessor that settles it: it reads the module's `STATE` and
     stamps `body.pic-mode`.
 
+30. **A section take is keyed by its section's NAME.** `song_recordings.section`
+    holds the text of the badge it was recorded under, and nothing re-points
+    it when the lines are rewritten -- `rematch` follows LINE takes by their
+    words, and a section has no words of its own. `replaceAll` carries the
+    takes of ONE renamed section along (`lhcVoiceLines.sectionRename`: one
+    name gone, one name new); two renamed in the same save cannot be told
+    apart and stay under the old name, listed in Practice Tracks but on no
+    badge. Until the column exists the carry is a write that fails quietly.
+
 ## Quick Commands for Claude Code
 
 ```bash
