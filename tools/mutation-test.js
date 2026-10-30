@@ -432,10 +432,18 @@ const CASES = [
     s => s.replace("return listEl ? listEl.querySelectorAll('.sb-rec-item:not([data-line-take])').length : 0;",
                    "return listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;")],
   ['recordings-harness.js', 'a line take is no longer marked as one',
-    s => s.replace("var lineMark = r.line_id != null ? ' data-line-take=\"1\"' : '';",
+    s => s.replace("var lineMark = (r.line_id != null || r.section) ? ' data-line-take=\"1\"' : '';",
                    "var lineMark = '';")],
+  // A section take has no line_id either. Counted as the panel's, ten of
+  // them would stop it recording; unmarked, the cap would count them.
+  ['recordings-harness.js', 'a section take counts against the panel limit',
+    s => s.replace("return r.line_id == null && !r.section; }).length;",
+                   "return r.line_id == null; }).length;")],
+  ['recordings-harness.js', 'a section take is no longer marked as the choir view',
+    s => s.replace("(r.line_id != null || r.section) ? ' data-line-take=",
+                   "(r.line_id != null) ? ' data-line-take=")],
   ['recordings-harness.js', 'the counter goes back to counting everything',
-    s => s.replace("var ownCount = recs.filter(function(r) { return r.line_id == null; }).length;",
+    s => s.replace("var ownCount = recs.filter(function(r) { return r.line_id == null && !r.section; }).length;",
                    "var ownCount = recs.length;")],
   // forget() is what stops a deleted take leaving a chip behind that plays
   // nothing. It has to sweep both stores, across every song.

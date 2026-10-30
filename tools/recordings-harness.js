@@ -190,6 +190,13 @@ const lineTake = (i) => ({
   name: 'Women take ' + i, duration_sec: 3,
   storage_path: 'practice-recordings/s1/women__' + (2000 + i) + '.webm'
 });
+// A take of a whole SECTION has no line_id either, but it is the choir's,
+// not a run-through: the panel lists it, marks it, and does not count it.
+const sectionTake = (i) => ({
+  id: 'sec' + i, song_id: 's1', line_id: null, section: 'Verse ' + i,
+  name: 'Women take ' + i, duration_sec: 12,
+  storage_path: 'practice-recordings/s1/women__' + (3000 + i) + '.webm'
+});
 
 console.log('\nthe panel lists both recorders, and counts only its own');
 
@@ -206,6 +213,15 @@ check('  of which two are the panel own', S._sbOwnRecCount(), 2);
 check('  and the counter counts those', cntEl.textContent, '(2/10)');
 check('  the line takes carry the marker',
   listEl.querySelectorAll('.sb-rec-item[data-line-take="1"]').length, 3);
+
+S.sbRenderRecordings('s1', [own(1), own(2), sectionTake(1), lineTake(1)]);
+check('a take of a whole section is listed with the rest',
+  listEl.querySelectorAll('.sb-rec-item').length, 4);
+check('  but it is the choir view too, so it carries the marker',
+  listEl.querySelectorAll('.sb-rec-item[data-line-take="1"]').length, 2);
+check('  and does not count against the panel limit', S._sbOwnRecCount(), 2);
+check('  nor in the counter', cntEl.textContent, '(2/10)');
+check('  and its name says which section', /sb-rec-item-sec/.test(listEl.innerHTML), true);
 
 S.sbRenderRecordings('s1', Array.from({ length: 10 }, (_, i) => own(i)));
 check('ten of the panel own DO reach the limit', S._sbOwnRecCount(), 10);
