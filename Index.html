@@ -48554,7 +48554,7 @@ var WO = (function() {
   }
   function _sbmMarksMount() {
     var song = _sbmSong(); if (!song) return;
-    if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmMarksPaintAll(); });
+    if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmEvenRows(); _sbmMarksPaintAll(); });
     _sbmMarkCards().forEach(function(card) {
       card.classList.add('sbm-card--marks');
       if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
@@ -48595,7 +48595,31 @@ var WO = (function() {
   var _sbmMarksHooked = false, _sbmMarksTimer = 0;
   function _sbmMarksQueue() {
     if (_sbmMarksTimer) return;
-    _sbmMarksTimer = setTimeout(function() { _sbmMarksTimer = 0; _sbmMarksPaintAll(); }, 24);
+    _sbmMarksTimer = setTimeout(function() { _sbmMarksTimer = 0; _sbmEvenRows(); _sbmMarksPaintAll(); }, 24);
+  }
+  // ---- the rows of one moment lay out alike ----
+  //
+  // On a phone a row's words sit beside the part chip when they fit and
+  // under it when they do not, so one moment showed the melody's words
+  // under its chip and the 2nd Part's beside it, and the eye lost the
+  // columns. If any row of a moment has to stack, every row of it stacks.
+  // Decided from the live layout, so it is redone whenever the layout
+  // can change: render, resize, the font control, rows filtered in or
+  // out, chips arriving. Idempotent: a second pass changes nothing.
+  function _sbmEvenRows() {
+    var root = document.getElementById('sbmRoot'); if (!root || !_sbFoldPhone()) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.sbm-score .vl-sys'), function(sys) {
+      var had = sys.classList.contains('vl-sys--stack');
+      if (had) sys.classList.remove('vl-sys--stack');
+      var rows = sys.querySelectorAll('.vl-ln'), stack = false;
+      for (var i = 0; i < rows.length && !stack; i++) {
+        var who = rows[i].querySelector('.vl-who'), body = rows[i].querySelector('.vl-body');
+        if (!who || !body || !rows[i].offsetParent) continue;   // a hidden row does not vote
+        var wr = who.getBoundingClientRect(), br = body.getBoundingClientRect();
+        if (br.height > 0 && br.top >= wr.bottom - 1) stack = true;
+      }
+      if (stack) sys.classList.add('vl-sys--stack');
+    });
   }
   function _sbmLoadMarks(song, force) {
     var base = _sbBaseSongId(song), sup = window._supabase; if (!sup || !base) return Promise.resolve();
@@ -49864,6 +49888,7 @@ var WO = (function() {
     });
     if (_sbRecSecOk === null && !_sbRecSecProbe) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     _sbmPaintSectionTakes(song);
+    _sbmEvenRows();
     _sbmMarksMount();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     if (showScore && V && cur) {
@@ -97069,6 +97094,8 @@ function filterLiturgyItems() {
 .vl-w__c { position: absolute; left: 0; top: -0.92em; font: 800 0.8em/1 ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace; color: #14532d; white-space: nowrap; letter-spacing: 0; }
 .vl-w--tail { min-width: 1.4em; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln { padding: 0 6px; row-gap: 2px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-sys--stack .vl-ln { flex-wrap: wrap; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-sys--stack .vl-ln > .vl-body { flex: 1 1 100%; min-width: 100%; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-who { height: 18px; line-height: 18px; font-size: 9.5px; flex-basis: 70px; width: 70px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-sys { padding: 9px 0 5px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-rec { padding-left: 0; }
