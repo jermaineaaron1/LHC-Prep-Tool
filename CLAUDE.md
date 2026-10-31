@@ -720,7 +720,9 @@ the anon key -- verify as `postgres`, not as the app.
     desk's row has to the right of its words -- are shrunk about their
     anchor until they fit, all of one drawing's strokes by one scale
     (`_sbmMarkFit`), never below 0.3. A section sung twice under one name
-    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). The moment a
+    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). A key is read
+    by its SHAPE (`_sbmKeyParts`), never split on a character: a section's
+    name is the song writer's and may hold '/', '>' or '@'. The moment a
     stroke lands, what it is attached to GLOWS for about two seconds with
     a caption ("On the chord F", "From “story” · 2nd Part to the chord F"),
     drawn on the canvas from the same frame every screen places it by
