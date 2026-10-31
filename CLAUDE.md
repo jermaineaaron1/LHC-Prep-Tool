@@ -764,8 +764,13 @@ the anon key -- verify as `postgres`, not as the app.
     reloaded quietly in place; lines, words, settings and the book raise
     the pulsing banner, whose Refresh refetches the songs' rows and lines
     and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
-    adopted, not announced to itself; a change undone before the refresh
-    takes the banner away with it; Not now adopts the state as seen.
+    adopted, not announced to itself -- so every write path the fingerprint
+    covers must call `_sbmLiveSend()` (or, for lines, dispatch
+    `lhc:lines-changed`), or the writer banners itself 30s later; a change
+    undone before the refresh takes the banner away with it; Not now adopts
+    the state as seen. The live layer runs only while the songbook modal is
+    open (`_sbmBookOpen`). Refresh forgets `_sbVoiceWanted` along with
+    `_sbVoiceLines`, or the prefetch never asks for the parts again.
 
 33. **The Phone view is a SECOND COPY of the whole app, on production
     data, and the head of the page makes it read-only.** In Draw mode on

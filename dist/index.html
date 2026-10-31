@@ -32006,6 +32006,9 @@ var SBQ_VOICE_LINES = {
       // read back reports success and leaves nothing behind.
       var made = (r.data || [])[0];
       if (!made) throw new Error('the line did not come back from the database');
+      // Like replaceAll: the reading view marks the change as this device's
+      // own and nudges the others, instead of bannering itself in 30s.
+      try { window.dispatchEvent(new CustomEvent('lhc:lines-changed', { detail: { songId: songId } })); } catch (e) {}
       return made;
     });
   },
@@ -32028,6 +32031,7 @@ var SBQ_VOICE_LINES = {
         // Assert on the row, not the absence of an error: an update the anon
         // key cannot read back reports success and changes nothing.
         if (!r.data || !r.data.length) throw new Error('the line did not come back');
+        try { window.dispatchEvent(new CustomEvent('lhc:lines-changed', { detail: { songId: r.data[0].song_id } })); } catch (e) {}
         return SBQ_VOICE_LINES._fromRow(r.data[0]);
       });
   },
@@ -48214,7 +48218,10 @@ var WO = (function() {
     if (window.__SBM_PREVIEW) _sbmScale = 1;   // a phone at its own size, not the desk's
     if (window.matchMedia) {
       var mq = window.matchMedia('(max-width: 820px)');
-      var onChange = function() { if (typeof renderSongbookLive === 'function') renderSongbookLive(); };
+      // Only an open book is redrawn when the screen crosses the phone's
+      // width: a closed one, redrawn, started its live polling again and
+      // could raise its banner over whatever page was showing.
+      var onChange = function() { if (typeof renderSongbookLive === 'function' && _sbmBookOpen()) renderSongbookLive(); };
       if (mq.addEventListener) mq.addEventListener('change', onChange);
       else if (mq.addListener) mq.addListener(onChange);
     }
@@ -49030,7 +49037,29 @@ var WO = (function() {
     _sbmMarkCards().forEach(function(c) { c.classList.toggle('is-scrolling', _sbmDraw.scroll); });
     _sbmDrawBar();
   }
-  function sbmDrawUndo() { if (!_sbmDraw || !_sbmDraw.undo.length) return; _sbmMarkDelete(_sbmDraw.undo.pop()); }
+  // Undo takes back the last stroke drawn on the song in front of you. The
+  // list holds every stroke of the session with its song, so a stroke on
+  // another song -- one the reader cannot see -- is never what goes; it used
+  // to be deleted from the database while nothing on this screen changed.
+  // A stroke still being saved is taken off the page at once and out of the
+  // database the moment its id comes back; undo used to skip it and take
+  // the stroke before.
+  function sbmDrawUndo() {
+    var D = _sbmDraw; if (!D || !D.undo.length) return;
+    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '', i;
+    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;
+    if (i < 0) return;
+    var u = D.undo.splice(i, 1)[0];
+    if (String(u.local.id).indexOf('tmp_') === 0) {
+      u.local.undone = true;
+      _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== u.local; });
+      _sbmGroupStillDrawn(base);
+      _sbmMarksPaintAll();
+      _sbmPhoneMarks(null);
+      return;
+    }
+    _sbmMarkDelete(u.local.id, u.base);
+  }
   // A drawing whose strokes have all gone -- undone, rubbed out, refused by
   // the database -- is over: the next stroke finds its own anchor. Without
   // this, a stroke that glowed on the wrong word, undone and redrawn closer
@@ -49042,10 +49071,12 @@ var WO = (function() {
     var tag = _sbmKeyParts(D.group.key).tag;
     if (!tag || !(_sbmMarks[base] || []).some(function(m) { return _sbmKeyParts(m.anchor).tag === tag; })) D.group = null;
   }
-  function _sbmMarkDelete(id) {
+  function _sbmMarkDelete(id, onBase) {
     var sup = window._supabase; if (!sup) return;
-    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    var song = _sbmSong(), base = onBase || (song ? _sbBaseSongId(song) : '');
+    if (onBase && song && _sbBaseSongId(song) !== onBase) song = _sbmSongs().filter(function(x) { return _sbBaseSongId(x) === onBase; })[0] || song;
     _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return String(m.id) !== String(id); });
+    if (_sbmDraw) _sbmDraw.undo = _sbmDraw.undo.filter(function(u) { return String(u.local.id) !== String(id); });
     _sbmGroupStillDrawn(base);
     _sbmMarksPaintAll();
     _sbmPhoneMarks(null);
@@ -49081,12 +49112,15 @@ var WO = (function() {
       }
       if (D.ignore) return;
     }
+    // One pointer draws at a time: a palm or finger landing while the pen is
+    // down used to take the stroke over and fold the pen's points into it.
+    if (D.live && D.live.pointerId != null && D.live.pointerId !== ev.pointerId) return;
     var q = _sbmDrawPos(ev, cv);
-    if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card }; _sbmDrawErase(cv, q); return; }
+    if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card, pointerId: ev.pointerId }; _sbmDrawErase(cv, q); return; }
     _sbmGlowStop();   // the last stroke's glow gives way to the next stroke
     var g = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    D.live = { cv: cv, card: card, pts: [q], g: g };
+    D.live = { cv: cv, card: card, pts: [q], g: g, pointerId: ev.pointerId };
     _sbmMarkStroke(g, [q], D.colour, D.width);
   }
   function _sbmDrawMove(ev) {
@@ -49099,7 +49133,7 @@ var WO = (function() {
       D.pan.mid = mid;
       return;
     }
-    if (!D.live || D.live.cv !== ev.currentTarget) return;
+    if (!D.live || D.live.cv !== ev.currentTarget || (D.live.pointerId != null && D.live.pointerId !== ev.pointerId)) return;
     ev.preventDefault();
     var q = _sbmDrawPos(ev, ev.currentTarget);
     if (D.live.erase) { _sbmDrawErase(ev.currentTarget, q); return; }
@@ -49115,9 +49149,12 @@ var WO = (function() {
       if (_sbmDrawTouches(D) < 2) D.pan = null;
       if (_sbmDrawTouches(D) === 0) D.ignore = false;
     }
-    if (!D.live) return;
+    if (!D.live || (D.live.pointerId != null && D.live.pointerId !== ev.pointerId)) return;
     var live = D.live; D.live = null;
     if (live.erase) return;
+    // A stroke the browser cancelled -- a gesture took over, the pen left the
+    // screen's edge -- is dropped, not saved as a fragment.
+    if (ev.type === 'pointercancel') { _sbmMarksPaint(live.card); return; }
     var pts = _sbmMarkThin(live.pts);
     var hit = _sbmMarkAnchorFor(live.card, pts, D.group), frame = hit ? _sbmMarkFrame(live.card, hit.key) : null;
     if (!frame) { _sbmMarksPaint(live.card); showToast('Nothing here to attach a mark to', 'error'); return; }
@@ -49128,16 +49165,18 @@ var WO = (function() {
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
     (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
+    D.undo.push({ local: local, base: base });
     _sbmMarksPaint(live.card);
     _sbmGlowShow(live.card, hit.key);
     _sbmPhoneMarks(hit.key);
     sup.from('song_marks').insert(mark).select().then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the mark did not come back from the database');
       local.id = r.data[0].id;
-      if (_sbmDraw) _sbmDraw.undo.push(local.id);
+      if (local.undone) { _sbmMarkDelete(local.id, base); return; }   // undone while it was saving
       _sbmLiveSend();
     }).catch(function(err) {
       _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== local; });
+      if (_sbmDraw) _sbmDraw.undo = _sbmDraw.undo.filter(function(u) { return u.local !== local; });
       _sbmGroupStillDrawn(base);
       _sbmMarksPaintAll();
       _sbmPhoneMarks(null);
@@ -49358,10 +49397,19 @@ var WO = (function() {
   // the change is undone before the singer refreshes.
   var _sbmLive = null, _sbmLiveOwnAt = 0;
   function _sbmLiveKey() { return _sbStandaloneId ? 'sb_' + _sbStandaloneId : ((currentOrderData && currentOrderData.id) ? 'order_' + currentOrderData.id : null); }
+  function _sbmBookOpen() { var m = document.getElementById('songbookLiveModal'); return !!m && m.style.display !== 'none' && m.style.display !== ''; }
   function _sbmLiveStart() {
+    if (!_sbmBookOpen()) return;
     var key = _sbmLiveKey(); if (!key) return;
     var ids = _sbmSongs().map(function(x) { return _sbBaseSongId(x); }).filter(Boolean);
-    if (_sbmLive && _sbmLive.key === key) { _sbmLive.ids = ids; if (Date.now() - _sbmLiveOwnAt < 15000) _sbmLiveCheck(true); return; }
+    if (_sbmLive && _sbmLive.key === key) {
+      // A song added or taken out here changes which rows the fingerprint
+      // covers: what is seen now is adopted, not announced as a change.
+      var same = _sbmLive.ids.join('|') === ids.join('|');
+      _sbmLive.ids = ids;
+      if (!same || Date.now() - _sbmLiveOwnAt < 15000) _sbmLiveCheck(true);
+      return;
+    }
     _sbmLiveStop();
     _sbmLive = { key: key, ids: ids, channel: null, timer: 0, seen: null, busy: false };
     var sup = window._supabase;
@@ -49451,6 +49499,11 @@ var WO = (function() {
   function sbmLiveRefresh() {
     _sbmLiveBanner(false);
     var ids = _sbmLive ? _sbmLive.ids.slice() : [];
+    var cur = _sbmSong(), keep = null;
+    if (cur) {
+      var cb = _sbBaseSongId(cur);
+      keep = { sid: cur.id, base: cb, nth: Math.max(0, _sbmSongs().filter(function(x) { return _sbBaseSongId(x) === cb; }).indexOf(cur)) };
+    }
     var sup = window._supabase;
     var fresh = (sup && ids.length) ? sup.from('songs').select('*').in('id', ids).then(function(r) {
       if (r.error || !window.STATE || !Array.isArray(STATE.songs)) return;
@@ -49461,9 +49514,27 @@ var WO = (function() {
       });
     }).catch(function() {}) : Promise.resolve();
     fresh.then(function() {
-      ids.forEach(function(b) { delete _sbVoiceLines[b]; delete _sbmRecsAt[b]; delete _sbmMarksAt[b]; });
+      // The lines are forgotten AND the asking for them: the prefetch skips a
+      // song it has asked about once, so forgetting only the lines left every
+      // score on "Loading the choir parts" until the page was reloaded.
+      ids.forEach(function(b) { delete _sbVoiceLines[b]; delete _sbVoiceWanted[b]; delete _sbmRecsAt[b]; delete _sbmMarksAt[b]; });
+      var before = songOrderSections;
       if (_sbStandaloneId) openSongbookStandalone(_sbStandaloneId);
       else if (currentOrderData && currentOrderData.id) openSongbookByOrderId(currentOrderData.id);
+      // Back to the song the reader was on. A standalone book's item ids carry
+      // their place in it, so a reorder on another device renumbers them and
+      // the old id is gone: found again by which copy of which song it was.
+      if (keep) {
+        var t0 = Date.now();
+        (function back() {
+          if (songOrderSections === before && Date.now() - t0 < 10000) { setTimeout(back, 200); return; }
+          var list = _sbmSongs();
+          if (list.length && !list.some(function(x) { return x.id === _sbmSid; })) {
+            var hit = _sbmPhoneFind(list, keep.sid, keep.base, keep.nth);
+            if (hit) sbmSelectSong(hit.id);
+          }
+        })();
+      }
       if (_sbmLive) _sbmLiveCheck(true);
     });
   }
@@ -57677,6 +57748,30 @@ var WO = (function() {
     }
   }
 
+  // Whether the order has changed since the poll last applied it: its
+  // last-edited time alone, a few bytes, where the poll used to read the
+  // whole order and every item -- 12KB for a small songbook, 46KB for a
+  // service order -- every 2 seconds on every open device, 20 to 80MB an
+  // hour each. The poll applies nothing unless that time has moved, so
+  // nothing is lost by reading the rest only when it has. The first poll of
+  // an open still reads everything (the seed guard needs the items), and a
+  // probe that cannot tell reads everything, as before.
+  //
+  // Leaving the stored fingerprints (SBQ._noteStored) unrefreshed in between
+  // is safe: a save skips an item matching its record, so an older record
+  // keeps an unchanged item here from being written over another device's
+  // newer one -- a refreshed record would have let it through.
+  var _sbPollFullRead = {};   // orderId -> read in full since the songbook opened
+  function _sbPollChanged(oid) {
+    if (!_sbPollFullRead[oid]) { _sbPollFullRead[oid] = true; return Promise.resolve(true); }
+    var sb = SBQ._sb(); if (!sb) return Promise.resolve(true);
+    return sb.from('orders').select('last_edited').eq('id', oid).maybeSingle().then(function(r) {
+      if (!r || r.error || !r.data || !r.data.last_edited) return true;
+      var t = new Date(r.data.last_edited).getTime();
+      return !(t > 0) || t > _sbLastPollTs;
+    }, function() { return true; });
+  }
+
   // 349 — Start fast sync when Songbook is open
   function sbStartFastSync() {
     // BroadcastChannel: instant updates between tabs on the SAME browser/device
@@ -57702,7 +57797,10 @@ var WO = (function() {
         if (!currentOrderData || !currentOrderData.id || _sbPolling) return;
 
         _sbPolling = true;
-        SBQ.loadOrder(currentOrderData.id).then(function(result) {
+        var _pollId = currentOrderData.id;
+        _sbPollChanged(_pollId).then(function(changed) {
+          if (!changed) { _sbPolling = false; return; }
+          return SBQ.loadOrder(_pollId).then(function(result) {
           _sbPolling = false;
           if (!result || !result.items) return;
 
@@ -57744,6 +57842,7 @@ var WO = (function() {
               sbLinks:         Array.isArray(cont.sbLinks)        ? cont.sbLinks       : []
             };
             sbApplyBroadcast({ orderId: currentOrderData.id, songs: [incoming] });
+          });
           });
         }).catch(function() { _sbPolling = false; });
       }, 2000);
@@ -57808,6 +57907,7 @@ var WO = (function() {
     if (sbSyncChannel) { sbSyncChannel.close(); sbSyncChannel = null; }
     if (sbFastSyncInterval) { clearInterval(sbFastSyncInterval); sbFastSyncInterval = null; }
     _sbSeeded = false; // reset so the next open re-checks whether order_items need seeding
+    _sbPollFullRead = {}; // and reads the order in full on its first poll
     // Note: _sbVisListenerAdded stays true — the listener is idempotent (checks currentOrderData)
   }
 
@@ -65426,7 +65526,8 @@ var WO = (function() {
       if (row) row.choirView = view;
       else items.push({ songId: baseId, choirView: view });
       sb.items = items;
-      return SBQ_SONGBOOKS.save(sb);
+      _sbmLiveSend();   // this device's own change, not another's
+      return SBQ_SONGBOOKS.save(sb).then(function(r) { _sbmLiveSend(); return r; });
     }).catch(function(err) {
       console.error(err);
       showToast('The view changed here but could not be saved for everyone', 'error');
@@ -68995,7 +69096,8 @@ var WO = (function() {
       // every saved choirView -- every time a song was dragged.
       SBQ_SONGBOOKS.updateFields(_sbStandaloneId, {
         songIds: songOrderSections.map(function(s) { return s.songId || s.id; })
-      }).catch(function() {});
+      }).then(function() { _sbmLiveSend(); }).catch(function() {});
+      _sbmLiveSend();   // this device's own change, not another's
     }
     return true;
   }

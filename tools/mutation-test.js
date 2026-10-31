@@ -503,6 +503,13 @@ const CASES = [
                    "      var b = /^([^\\/]*)(?:\\/([\\s\\S]*))?$/.exec(x);")],
   ['songbook-marks-harness.js', 'a > in a section\'s name is taken for a link',
     s => s.replace("    var ends = k.split(/>(?=[sl]:)/).map(function(x) {", "    var ends = k.split('>').map(function(x) {")],
+  // Undo on one song deleted the last stroke of another, in the database,
+  // with nothing on the screen to show for it.
+  ['songbook-marks-harness.js', 'undo deletes the last stroke of any song',
+    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;",
+                   "    i = D.undo.length - 1;")],
+  ['songbook-marks-harness.js', 'undo skips a stroke that is still saving',
+    s => s.replace("    if (String(u.local.id).indexOf('tmp_') === 0) {", "    if (false) {")],
   ['songbook-marks-harness.js', 'keeping rows alike churns the class and the canvas loops on it',
     s => s.replace("      if (stack !== had) sys.classList.toggle('vl-sys--stack', stack);",
                    "      if (had) sys.classList.remove('vl-sys--stack');\r\n      if (stack) sys.classList.add('vl-sys--stack');")],
@@ -524,6 +531,14 @@ const CASES = [
     s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
   // A rewritten line must raise the banner; a part that could not be read
   // must not, or every hiccup of the network would nag.
+  // The songbook poll read the whole order every 2 seconds on every open
+  // device; it asks for the last-edited time first, and must not skip a
+  // change, or one device's edit never reaches the others.
+  ['songbook-live-harness.js', 'the poll reads the whole order every time again',
+    s => s.replace("    if (!_sbPollFullRead[oid]) { _sbPollFullRead[oid] = true; return Promise.resolve(true); }",
+                   "    return Promise.resolve(true);")],
+  ['songbook-live-harness.js', 'the poll skips an order that has changed',
+    s => s.replace("      return !(t > 0) || t > _sbLastPollTs;", "      return false;")],
   ['songbook-live-harness.js', 'rewritten lines no longer ask for a refresh',
     s => s.replace("structural: differs('lines') || differs('songs') || differs('book') };", "structural: differs('songs') || differs('book') };")],
   ['songbook-live-harness.js', 'a part that could not be read counts as a change',

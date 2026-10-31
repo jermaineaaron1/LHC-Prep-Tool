@@ -47,6 +47,7 @@ let S;
 try {
   const src = extract(/^  function _sbmLiveDiff\(/, '_sbmLiveDiff') + '\n' + extract(/^  function _sbmHash\(/, '_sbmHash');
   S = new Function(src + '\nreturn { diff: _sbmLiveDiff, hash: _sbmHash };')();
+  S.pollSrc = extract(/^  function _sbPollChanged\(/, '_sbPollChanged');
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -76,6 +77,23 @@ console.log('\nthe hash');
 check('the same text hashes the same', S.hash('abc') === S.hash('abc'), true);
 check('  and different text differently', S.hash('abc') === S.hash('abd'), false);
 
-const failed = results.filter(r => !r).length;
-console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
-process.exit(failed ? 1 : 0);
+(async function() {
+  console.log('\nthe songbook\'s 2-second poll asks first whether anything changed');
+  // A stand-in client that answers the orders table and notes what was asked.
+  let stamp = '2026-10-31T10:00:00.000Z', fail = false;
+  const asked = [];
+  const sb = { from: t => ({ select: cols => { asked.push(t + ':' + cols); return { eq: () => ({ maybeSingle: () => Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: { last_edited: stamp }, error: null }) }) }; } }) };
+  const P = new Function('SBQ', 'var _sbPollFullRead = {}, _sbLastPollTs = 0;\n' + S.pollSrc + '\nreturn { changed: _sbPollChanged, seen: function(t) { _sbLastPollTs = t; } };')({ _sb: () => sb });
+  check('the first poll of an open reads everything, asking nothing first', [await P.changed('o1'), asked.length], [true, 0]);
+  P.seen(new Date(stamp).getTime());
+  check('  after that it asks for the last-edited time alone', [await P.changed('o1'), asked], [false, ['orders:last_edited']]);
+  stamp = '2026-10-31T10:00:05.000Z';
+  check('  and reads everything again once that time has moved', await P.changed('o1'), true);
+  fail = true;
+  check('  a probe that cannot tell reads everything, as before', await P.changed('o1'), true);
+  check('another order is read in full on its first poll', await P.changed('o2'), true);
+
+  const failed = results.filter(r => !r).length;
+  console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
+  process.exit(failed ? 1 : 0);
+})();
