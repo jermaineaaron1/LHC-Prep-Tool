@@ -69245,11 +69245,11 @@ var WO = (function() {
 
   // Join slide idx to the one above it -- Backspace at the start of a
   // slide, Delete at the end of the one before, or the break's own ×.
-  function _lbdMergeAt(itemId, idx) {
+  function _lbdMergeAt(itemId, idx, stay) {
     var it = _lbdItem(itemId);
     if (!it || !Array.isArray(it.slides) || idx < 1 || idx >= it.slides.length) return;
     var prev = String(it.slides[idx - 1].content || ''), cur = String(it.slides[idx].content || '');
-    var join = prev.length + (prev && cur ? 1 : 0);
+    var join = stay ? prev.length : prev.length + (prev && cur ? 1 : 0);
     _lbdOpen['item:' + itemId] = true;
     _lbdChange(function() {
       _lbdSetSlide(it, idx - 1, prev && cur ? prev + '\n' + cur : prev + cur);
@@ -69268,16 +69268,30 @@ var WO = (function() {
     _lbdKeepInView(el);
   }
 
-  // Text pasted with blank lines in it can become a slide per verse.
-  function _lbdSplitBlank(itemId, idx) {
+  // Text pasted with blank lines in it can become a slide per verse: the
+  // slide is broken at the blank lines of what was pasted -- at start, in
+  // the slide's text -- and nowhere else.
+  function _lbdSplitPasted(itemId, idx, start, text) {
     var it = _lbdItem(itemId);
     if (!it || !Array.isArray(it.slides) || !it.slides[idx]) return;
-    var parts = _lbdSplitSlides(String(it.slides[idx].content || '').split('\n'), 'blank');
+    var s = String(it.slides[idx].content || '');
+    var t = String(text || '').replace(/\n+$/, '');
+    if (s.substr(start, t.length) !== t) {
+      showToast('That text has changed since it was pasted. Break the slides with Ctrl+Enter instead.', 'info');
+      return;
+    }
+    var cuts = [], re = /\n[ \t]*\n\s*/g, m;
+    while ((m = re.exec(t))) cuts.push([start + m.index, start + m.index + m[0].length]);
+    if (!cuts.length) return;
+    var parts = [], from = 0;
+    cuts.forEach(function(c) { parts.push(s.slice(from, c[0])); from = c[1]; });
+    parts.push(s.slice(from));
+    parts = parts.map(function(x) { return x.replace(/\s+$/, ''); }).filter(function(x) { return x.trim(); });
     if (parts.length < 2) return;
     _lbdOpen['item:' + itemId] = true;
     _lbdChange(function() {
       _lbdSetSlide(it, idx, parts[0]);
-      var add = parts.slice(1).map(function(t) { return { index: 0, content: t, background: '' }; });
+      var add = parts.slice(1).map(function(x) { return { index: 0, content: x, background: '' }; });
       Array.prototype.splice.apply(it.slides, [idx + 1, 0].concat(add));
       _lbdRenumber(it.slides);
     });
@@ -69795,7 +69809,7 @@ var WO = (function() {
         if (e.key === 'Backspace' && car.start === 0 && c.idx > 0) { e.preventDefault(); _lbdMergeAt(c.item, c.idx); return; }
         if (e.key === 'Delete' && car.start >= _lbdTextOf(el).replace(/\n+$/, '').length) {
           var it = _lbdItem(c.item);
-          if (it && Array.isArray(it.slides) && c.idx < it.slides.length - 1) { e.preventDefault(); _lbdMergeAt(c.item, c.idx + 1); return; }
+          if (it && Array.isArray(it.slides) && c.idx < it.slides.length - 1) { e.preventDefault(); _lbdMergeAt(c.item, c.idx + 1, true); return; }
         }
       }
     }
@@ -69818,12 +69832,13 @@ var WO = (function() {
     text = String(text).replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
     var f = el.getAttribute('data-field');
     if (f === 'sec-title' || f === 'item-title') text = text.replace(/\s*\n\s*/g, ' ');
+    var car = _lbdCaret(el);
     _lbdInsertText(text);
-    if (f === 'slide' && /\n[ \t]*\n/.test(text.replace(/^\s+|\s+$/g, ''))) {
-      var c = _lbdCtx(el);
+    if (f === 'slide' && car && /\n[ \t]*\n/.test(text.replace(/^\s+|\s+$/g, ''))) {
+      var c = _lbdCtx(el), at = car.start, pasted = text;
       showToast('Pasted text with blank lines in it', 'info', {
         action: 'Split into slides', duration: 8000,
-        onAction: function() { _lbdSplitBlank(c.item, c.idx); }
+        onAction: function() { _lbdSplitPasted(c.item, c.idx, at, pasted); }
       });
     }
   }
