@@ -7219,6 +7219,9 @@
                       <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Songbook">
                         <i class="fa-solid fa-book-open"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Songbook</span>
                       </button>
+                      <button class="wo-control-btn wo-print-btn wo-old-song-order-btn" onclick="WO.selectOrder('song')" title="The old Song Order list. Everything in it is now in the Songbook">
+                        <i class="fa-solid fa-list-ol"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Song Order (old view)</span>
+                      </button>
                       <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save As">
                         <i class="fa-solid fa-copy"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Save As</span>
                       </button>
@@ -7227,18 +7230,19 @@
                 </div>
                 <div class="wo-order-title">Prepare this service in three steps</div>
                 <!-- The three steps of an order, in the order the work is done.
-                     The Liturgy Builder shapes the service; Song Order and LCD
-                     Projection are drawn from what it holds. -->
+                     The Liturgy Builder shapes the service; the Songbook and LCD
+                     Projection are drawn from what it holds. The Songbook opens
+                     over whichever step is showing and closes back to it. -->
                 <div class="wo-order-buttons" role="group" aria-label="Steps of this worship order">
                   <button class="wo-order-btn wo-step-btn" id="woLiturgyBuilderBtn" onclick="WO.selectOrder('liturgy')" title="Step 1 — the order of worship: sections, songs, liturgy, readings and notes">
                     <span class="wo-step-num" aria-hidden="true">1</span>
                     <i class="fa-solid fa-book-bible"></i>
                     <span class="wo-step-text"><span class="wo-order-btn-label">Liturgy Builder</span><span class="wo-order-btn-sub">Order of Worship</span><span class="wo-order-btn-short">Builder</span></span>
                   </button>
-                  <button class="wo-order-btn wo-step-btn" id="woSongOrderBtn" onclick="WO.selectOrder('song')" title="Step 2 — the music team's songs: keys, lyrics, markings and the Songbook">
+                  <button class="wo-order-btn wo-step-btn" id="woSongbookStepBtn" onclick="WO.openSongbook()" title="Step 2 — the music team's book: every song as the service runs, with its key, words, chords, markings, recordings, links and medleys">
                     <span class="wo-step-num" aria-hidden="true">2</span>
-                    <i class="fa-solid fa-music"></i>
-                    <span class="wo-step-text"><span class="wo-order-btn-label">Song Order</span><span class="wo-order-btn-sub">Music Team</span><span class="wo-order-btn-short">Songs</span></span>
+                    <i class="fa-solid fa-book-open"></i>
+                    <span class="wo-step-text"><span class="wo-order-btn-label">Songbook</span><span class="wo-order-btn-sub">Music Team</span><span class="wo-order-btn-short">Songbook</span></span>
                   </button>
                   <button class="wo-order-btn wo-step-btn" id="woServiceOrderBtn" onclick="WO.selectOrder('service')" title="Step 3 — every slide in service order, ready to project">
                     <span class="wo-step-num" aria-hidden="true">3</span>
@@ -7260,12 +7264,12 @@
                     <div class="wo-mode-card-kicker">Order of Worship</div>
                     <div class="wo-mode-card-sub">Shape the service: add, remove and order its sections, then choose the songs, liturgy and readings for each, with notes for the liturgist</div>
                   </button>
-                  <button class="wo-mode-card wo-mode-card--song" onclick="WO.selectOrder('song')">
+                  <button class="wo-mode-card wo-mode-card--song" onclick="WO.openSongbook()">
                     <span class="wo-mode-card-step">Step 2</span>
-                    <div class="wo-mode-card-icon"><i class="fa-solid fa-music"></i></div>
-                    <div class="wo-mode-card-name">Song Order</div>
+                    <div class="wo-mode-card-icon"><i class="fa-solid fa-book-open"></i></div>
+                    <div class="wo-mode-card-name">Songbook</div>
                     <div class="wo-mode-card-kicker">Music Team</div>
-                    <div class="wo-mode-card-sub">Keys, lyrics, markings and annotations for every song, and the Songbook for rehearsal</div>
+                    <div class="wo-mode-card-sub">Every song as the service runs: keys, words and chords, markings, recordings, links and medleys. Links shared to this service wait in its inbox</div>
                   </button>
                   <button class="wo-mode-card wo-mode-card--lcd" onclick="WO.selectOrder('service')">
                     <span class="wo-mode-card-step">Step 3</span>
@@ -7321,8 +7325,8 @@
                 <!-- LCD Projection top bar: title + quick Song Order access -->
                 <div class="lcd-topbar">
                   <div class="wo-preview-title"><i class="fa-solid fa-tv mr-2"></i> LCD Projection</div>
-                  <button class="lcd-song-order-btn" onclick="WO.selectOrder('song')" title="Switch to Song Order">
-                    <i class="fa-solid fa-music"></i> Song Order
+                  <button class="lcd-song-order-btn" onclick="WO.openSongbook()" title="Open the Songbook: every song's key, words, chords and links">
+                    <i class="fa-solid fa-book-open"></i> Songbook
                   </button>
                   <button class="lcd-fullscreen-btn" id="lcdWorkspaceFsBtn" onclick="WO.lcdToggleWorkspaceFullscreen()" title="Show the whole projection workspace on one screen (Esc to exit)">
                     <i class="fa-solid fa-expand" id="lcdWorkspaceFsIcon"></i> <span id="lcdWorkspaceFsLabel">Full Screen</span>
@@ -7362,7 +7366,7 @@
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
                         <button class="lcd-mini-btn" id="lcdAllSlidesBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
                         <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
-                        <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
+                        <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Open this song in the Songbook"><i class="fa-solid fa-book-open"></i> Open in Songbook</button>
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
@@ -28178,7 +28182,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
           setTimeout(function() {
             window.WO.loadOrder(deepOrderId);
             if (deepView === 'songs') {
-              // Wait for order to load then switch to Song Order tab
+              // Wait for the order to load, then open its Songbook. view=songs
+              // is what Song Order's Share used to send, and the Songbook is
+              // where those songs are now.
               var songViewAttempts = 0;
               var songViewInterval = setInterval(function() {
                 songViewAttempts++;
@@ -28187,7 +28193,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
                 var editor = document.getElementById('woEditor');
                 if (editor && editor.style.display !== 'none') {
                   clearInterval(songViewInterval);
-                  window.WO.selectOrder('song');
+                  window.WO.openSongbook();
                 }
               }, 500);
             }
@@ -28520,9 +28526,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       var det     = detectType(url);
       var display = (title || url);
       if (display.length > 90) display = display.substring(0, 90) + '…';
-      var destHint = det.playlist
-        ? 'Will be added to the <strong>Playlist / Media</strong> section of the order.'
-        : 'Will be listed in <strong>Docs &amp; Links</strong> in the order.';
+      var destHint = 'Goes into the order’s <strong>Songbook</strong> inbox, ready to put on a song.';
 
       var orders = (window.WO && window.WO.savedOrders) ? window.WO.savedOrders : [];
       var rowsHtml = orders.length
@@ -28590,14 +28594,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
 
       if (typeof showToast === 'function') showToast(item.icon + ' Link added to "' + orderName + '"', 'success');
 
-      // Open the chosen order and go straight to the Song Order tab
+      // Open the chosen order. Its Songbook opens on the new link once the
+      // order is on screen (see openOrderInEditor); addToOrder above is the
+      // localStorage copy the load reads, and the inbox matches the two up.
       if (orderId !== '__unassigned__' && window.WO) {
-        setTimeout(function() {
-          window.WO.loadOrder(orderId);
-          setTimeout(function() {
-            if (window.WO.selectOrder) window.WO.selectOrder('song');
-          }, 600);
-        }, 300);
+        window._pendingShareItem = item;
+        setTimeout(function() { window.WO.loadOrder(orderId); }, 300);
       }
     }
 
@@ -28888,14 +28890,14 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         };
       }
 
-      // ── 2. Warm-start short-circuit: order already open → drop into bar ──
-      // If the WO editor is visible with an active order, skip the picker and
-      // load the link straight into the messenger input bar (like WhatsApp).
+      // ── 2. Warm-start short-circuit: order already open → its inbox ──
+      // If the WO editor is visible with an active order, skip the picker:
+      // the link goes into that order's inbox and its Songbook opens on it.
       var _editorEl = document.getElementById('woEditor');
       var _editorOpen = _editorEl && _editorEl.style.display !== 'none';
       if (_editorOpen && window.WO && typeof window.WO.activeOrderId === 'function' && window.WO.activeOrderId()) {
         if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
-        window.WO.selectOrder('song'); // switches to Song Order tab → initializeSongOrder picks up _pendingShareItem
+        window.WO.openSongbookInbox();
         try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
         return;
       }
@@ -28983,7 +28985,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         previewHtml +
         '<div style="padding:12px 16px 8px;">' +
           '<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;line-height:1.4;">' +
-            'This link will be added to the <strong>Song Order</strong> of ' +
+            'This link will go into the <strong>Songbook</strong> inbox of ' +
             '<strong>' + _esc(orderName) + '</strong>' +
             (orderDate ? ' <span style="color:#9ca3af;">· ' + _esc(orderDate) + '</span>' : '') +
           '</div>' +
@@ -28991,7 +28993,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
             'border-radius:12px;padding:15px;font-size:1rem;font-weight:700;cursor:pointer;' +
             'font-family:Poppins,sans-serif;display:flex;align-items:center;justify-content:center;' +
             'gap:10px;box-shadow:0 4px 16px rgba(24,142,68,.35);">' +
-            '<i class="fa-solid fa-paper-plane"></i> Send to Song Order' +
+            '<i class="fa-solid fa-paper-plane"></i> Send to the Songbook' +
           '</button>' +
           '<div style="text-align:center;margin-top:10px;padding-bottom:8px;">' +
             '<button onclick="SharePickerModal.close()" style="background:none;border:none;color:#9ca3af;font-size:.8rem;cursor:pointer;">Cancel</button>' +
@@ -29003,7 +29005,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         _rebuildOrdersList(sheet);
       });
 
-      // Send button: stage item + open the order in Song Order tab
+      // Send button: stage item + open the order; its Songbook opens on it
       document.getElementById('spmSendBtn').addEventListener('click', function() {
         window._pendingShareItem = item;
 
@@ -29018,7 +29020,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         }
 
         close();
-        // Open the order → Song Order tab will pick up _pendingShareItem
+        // close() drops the pending item, as it should when a share is
+        // cancelled; this one is on its way to the order. Without it the
+        // order opened with nothing to show for the Send.
+        window._pendingShareItem = item;
+        // Open the order → openOrderInEditor takes _pendingShareItem into its
+        // inbox and opens the Songbook on it
         if (window.WO) {
           window.WO.loadOrder(orderId);
         } else {
@@ -31544,7 +31551,8 @@ var WO_Inbox = (function() {
       })
       .catch(function(e) { console.warn('inbox assign error:', e); });
 
-    // Open the order in the editor — the song-order bar will pick up _pendingShareItem
+    // Open the order in the editor — openOrderInEditor takes _pendingShareItem
+    // into the order's inbox and opens the Songbook on it
     if (window.WO && window.WO.loadOrder) {
       showToast('Opening order…', 'info');
       window.WO.loadOrder(orderId);
@@ -32731,14 +32739,12 @@ var WO = (function() {
     if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(order.id, _pendingShare);
     var name = order.title || 'Order';
     var icon = _pendingShare.icon || '🔗';
+    // Into the order's inbox as it opens, and its Songbook opens on it.
+    window._pendingShareItem = _pendingShare;
     _pendingShare = null;
     window.__SHARE_INBOX_URL = '';
     showToast(icon + ' Link added to "' + name + '"', 'success');
     loadOrder(idx);
-    setTimeout(function() {
-      selectOrder('song');
-      setTimeout(renderResourceSections, 400);
-    }, 700);
   }
 
   // Silently fetch orders in the background at startup so the Orders page
@@ -33207,23 +33213,10 @@ var WO = (function() {
     if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
     showToast((item.icon || '🔗') + ' Added to "' + (order.title || 'Order') + '"', 'success');
 
-    // Keep _pendingShareItem set — initializeSongOrder() will read it to pre-fill the
-    // messenger bar and then clear it itself after use.
-    // Note: openOrderInEditor() called by loadOrder() will populate currentOrderData.mediaLinks
-    // from localStorage (which now includes this item), so renderMediaRows() will find it.
+    // _pendingShareItem stays set: openOrderInEditor takes it into the order's
+    // inbox and opens the Songbook on it. ShareInbox above is the localStorage
+    // copy the load reads; the inbox matches the two up (_woInboxAdd).
     loadOrder(orderIdx);
-    setTimeout(function() {
-      if (typeof selectOrder === 'function') selectOrder('song');
-      // Ensure in-memory mediaLinks is populated for the just-loaded order
-      if (currentOrderData && orderId && typeof ShareInbox !== 'undefined') {
-        currentOrderData.mediaLinks = ShareInbox.getForOrder(orderId);
-      }
-      renderMediaRows();
-      // Immediate save to dedicated Supabase table (no debounce)
-      _inboxSaveNow();
-      // Also bake into order record
-      if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    }, 700);
   }
 
   // Clean a serviceDate for display — strips full UTC/timezone strings
@@ -34644,6 +34637,7 @@ var WO = (function() {
           if (typeof _renderLinkInbox === 'function') _renderLinkInbox();
           if (typeof renderMediaRows === 'function') renderMediaRows();
           if (typeof renderResourceSections === 'function') renderResourceSections();
+          _sbmInboxRefresh();
         }
       }).catch(function(e) {
         console.warn('[LHC] inbox load from order_media_links failed:', e);
@@ -34799,6 +34793,15 @@ var WO = (function() {
         if (typeof selectOrder === 'function') selectOrder(_resume);
         if (_target) _orderSyncRevealTarget(_target);
       }, 60);
+    }
+    // A link shared to this service -- from a phone's share sheet, the share
+    // picker or the inbox overlay -- waits in window._pendingShareItem while
+    // the order loads. It goes into the order's inbox, and the Songbook
+    // opens on it (openSongbookInbox).
+    if (window._pendingShareItem && order.id) {
+      setTimeout(function() {
+        if (currentOrderData === order && window._pendingShareItem) openSongbookInbox();
+      }, 80);
     }
   }
 
@@ -35063,7 +35066,7 @@ var WO = (function() {
             fillReadingsFromRoster({ dateStr: serviceDate, quiet: true });
           }
           if (window._lpPendingOrderSongTitle) {
-            showToast('Now add “' + window._lpPendingOrderSongTitle + '” to it with + Add Song', 'info');
+            showToast('Now add “' + window._lpPendingOrderSongTitle + '” to it: Liturgy Builder › Insert › Song, or Songbook › Add a song', 'info', { duration: 7000 });
             window._lpPendingOrderSongTitle = '';
           }
         }
@@ -35072,11 +35075,12 @@ var WO = (function() {
         showToast('Order created locally (save failed)', 'warning');
       });
 
-    // Open editor immediately (don't wait for save)
+    // Open editor immediately (don't wait for save), on its three steps --
+    // as every order opens. Song Order used to be where a new one landed.
     $('woMainMenu').style.display = 'none';
     $('woEditor').style.display = 'block';
     $('woCurrentOrderInfo').textContent = title;
-    selectOrder('song');
+    showOrderModeLanding();
   }
 
   // Auto-save disabled - only save when Save button is pressed
@@ -36941,6 +36945,9 @@ var WO = (function() {
   }
 
   function selectOrder(orderType) {
+    // Step 2 is the Songbook. It opens over whichever step is showing rather
+    // than replacing it, and closes back to it.
+    if (orderType === 'songbook') { openSongbook(); return; }
     // Hide landing, show content
     var landing = $('woModeLanding');
     var mainContent = document.querySelector('.wo-main-content');
@@ -36968,7 +36975,8 @@ var WO = (function() {
       _lbdSetActive(true);
       lbdRender();
     } else if (orderType === 'song') {
-      $('woSongOrderBtn').classList.add('active');
+      // The old Song Order list, kept behind More while it is retired. It is
+      // not one of the three steps, so no tab lights for it.
       document.querySelector('.wo-main-content').classList.add('wo-song-order');
       _woSetLcdMode(false);
       $('woPreviewPanel').style.display = 'none';
@@ -37301,6 +37309,11 @@ var WO = (function() {
     container.innerHTML =
       '<div class="wo-song-order-compact">' +
 
+      // Being retired: all of this is in the Songbook now.
+      '<div class="wo-so-retire" role="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>' +
+        '<span>This is the old Song Order list. Everything in it is now in the <b>Songbook</b> (step 2), and links shared to this service wait in the Songbook’s inbox.</span>' +
+        '<button class="wo-toolbar-btn" onclick="WO.openSongbook()"><i class="fa-solid fa-book-open"></i> Open the Songbook</button></div>' +
+
       // ── Toolbar ────────────────────────────────────────────────────────
       '<div class="wo-song-order-toolbar-compact">' +
         '<button class="wo-toolbar-btn primary" onclick="WO.openSongLibrary()">' +
@@ -37388,18 +37401,13 @@ var WO = (function() {
     // Render any existing media items for this order
     renderMediaRows();
 
-    // Auto-submit any pending shared link straight into the inbox.
-    // This handles: OS share sheet, "Send to order" from picker, and
-    // any link/file shared while the app was in the background.
-    // Links that are already part of song library links are skipped
-    // (they live in the song card expand panel, not the inbox).
+    // A link shared while Song Order is open goes into the order's inbox as
+    // it would anywhere else (_woTakePendingShare); with no order saved yet
+    // it waits in the bar until there is one.
     setTimeout(function() {
       var ps = window._pendingShareItem;
       if (!ps) return;
-
-      var orderId = currentOrderData && currentOrderData.id;
-      if (!orderId) {
-        // No order saved yet — fall back to pre-filling the bar so user can Save first
+      if (!(currentOrderData && currentOrderData.id)) {
         var inp2 = document.getElementById('woSoInput');
         if (inp2) {
           var val2 = ps.url || ps.name || ps.title || '';
@@ -37411,48 +37419,7 @@ var WO = (function() {
         }
         return;
       }
-
-      // Check if this URL is already a library link in one of the songs
-      // (i.e. came from the Songs page, not shared externally)
-      var sharedUrl = ps.url || '';
-      var alreadyInSong = sharedUrl && songOrderSections.some(function(s) {
-        var libYt = Array.isArray(s.youtube) ? s.youtube
-          : (typeof s.youtube === 'string' && s.youtube.trim() ? s.youtube.split(/[,\n]+/).map(function(u){return u.trim();}) : []);
-        var libDocs = Array.isArray(s.attachments) ? s.attachments.map(function(a){return a.url||'';}) : [];
-        return libYt.indexOf(sharedUrl) !== -1 || libDocs.indexOf(sharedUrl) !== -1;
-      });
-
-      if (alreadyInSong) {
-        // Already in a song's library — don't duplicate in inbox, just clear
-        window._pendingShareItem = null;
-        showToast('Link already in a song\'s media — see the song card below', 'info');
-        return;
-      }
-
-      // Build the inbox item
-      var item = ps.isFile
-        ? { isFile: true, name: ps.name, mimeType: ps.mimeType, size: ps.size,
-            title: ps.title || ps.name, data: ps.data || null,
-            type: ps.type, label: ps.label, icon: ps.icon || '📎', playlist: ps.playlist || false,
-            addedAt: new Date().toISOString() }
-        : { url: sharedUrl, type: ps.type, label: ps.label, icon: ps.icon || '🔗',
-            playlist: ps.playlist || false, title: ps.title || sharedUrl,
-            addedAt: new Date().toISOString() };
-
-      window._pendingShareItem = null;
-
-      // Add to localStorage mirror
-      if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
-      // Push into in-memory array
-      if (!currentOrderData.mediaLinks) currentOrderData.mediaLinks = [];
-      currentOrderData.mediaLinks.push(item);
-      // Render + persist
-      renderResourceSections();
-      _renderLinkInbox();
-      renderMediaRows();
-      showToast((item.icon || '🔗') + ' Added to inbox', 'success');
-      _inboxSaveNow();
-      if (typeof autoSaveOrder === 'function') autoSaveOrder();
+      if (!_woTakePendingShare()) return;
       // Expand inbox so user sees the new card
       var body = document.getElementById('woParkingBody');
       var chevron = document.getElementById('woParkingChevron');
@@ -38675,57 +38642,19 @@ var WO = (function() {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
 
-    var type = _lcType(item);
-    var url  = item.url || '';
-
-    // ── Determine media type exactly as the ADD toolbar buttons do ─────
-    // YouTube / video → customYoutube[]
-    // Everything else (webpage, Google Doc, Drive, PDF, Spotify, image) → customDocs[]
-    var isYT = (type === 'youtube') || !!(url && soExtractYouTubeId(url));
-
-    if (!url && !item.data) { showToast('No URL in this link', 'warning'); return; }
+    if (!item.url && !item.data) { showToast('No URL in this link', 'warning'); return; }
 
     // Ensure the inbox item has a stable id (older items pre-dating this fix may not)
     if (!item.id) {
       item.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     }
 
-    if (isYT) {
-      if (!Array.isArray(song.customYoutube)) song.customYoutube = [];
-      if (song.customYoutube.indexOf(url) < 0) {
-        song.customYoutube.push(url);
-        // Store rich metadata keyed by URL so the card can show a real title
-        if (!song.customYoutubeMeta) song.customYoutubeMeta = {};
-        song.customYoutubeMeta[url] = {
-          inboxId: item.id,
-          title:   item.title || null,
-          addedAt: new Date().toISOString()
-        };
-      }
+    // The Songbook's inbox puts a link on a song the same way.
+    var type = _lcType(item);
+    var kind = _woAttachInboxItem(item, song);
+    if (kind === 'video') {
       showToast('🎬 YouTube added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
-    } else if (url) {
-      if (!Array.isArray(song.customDocs)) song.customDocs = [];
-      var exists = song.customDocs.some(function(d) { return (d.url || d) === url; });
-      if (!exists) {
-        // Build a rich name — prefer stored title, fall back to hostname
-        var docName = item.title || item.name || '';
-        if (!docName || docName === url) {
-          try { docName = new URL(url).hostname.replace(/^www\./, ''); } catch(ex2) { docName = url; }
-        }
-        // storageProvider mirrors what openMediaAddModal sets so soMakeDocCard renders correctly
-        var provider = (type === 'gdoc' || type === 'gdrive') ? 'google_drive'
-                     : (type === 'pdf')     ? 'pdf'
-                     : (type === 'spotify') ? 'spotify'
-                     : 'custom';
-        // Store inboxId so we can trace this doc card back to its inbox item
-        song.customDocs.push({
-          url:     url,
-          name:    docName.substring(0, 55),
-          type:    provider,
-          inboxId: item.id,
-          addedAt: new Date().toISOString()
-        });
-      }
+    } else if (kind === 'doc') {
       var typeLabel = { gdoc:'📄 Doc', gdrive:'☁️ Drive file', pdf:'📑 PDF',
                         spotify:'🎵 Spotify', image:'🖼 Image', link:'🔗 Link' };
       showToast((typeLabel[type] || '🔗 Link') + ' added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
@@ -39907,6 +39836,473 @@ var WO = (function() {
   function _woDedupeItems() {
     if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
     currentOrderData.allItems = _woUniqueItems(currentOrderData.allItems);
+  }
+
+
+  // ── Medleys ─────────────────────────────────────────────────────────────
+  //
+  // Songs sung one straight into the next are a medley. Each stays a song of
+  // its own -- its key, words, markings and recordings are its own -- and
+  // the medley says only that they go together. Stored with the template:
+  // currentOrderData.template.medleys = [{ id, songs: [order entry id] }].
+  //
+  // The stored list is a set, read through _woMedleyList, which keeps it
+  // honest against the order as it stands: a song that has left the order
+  // leaves its medley, a song is in one medley only, the members share one
+  // section (the one most of them are in; a member moved elsewhere drops
+  // out), and a medley left with one song is no medley. The order they are
+  // sung in is their order in songOrderSections, the running order every
+  // view and every save follows; _woSaveMedley writes it there.
+  //
+  // secOf(song) -> the song's section, '' for none; secRank(id) -> that
+  // section's place in the service.
+  function _woMedleyList(raw, songs, secOf, secRank) {
+    var byId = {};
+    (songs || []).forEach(function(s) { if (s && s.id && s.itemType !== 'blank') byId[s.id] = s; });
+    var rank = function(k) { return secRank ? secRank(k) : 0; };
+    var used = {}, out = [];
+    (Array.isArray(raw) ? raw : []).forEach(function(m) {
+      if (!m || !m.id || !Array.isArray(m.songs)) return;
+      var ids = [];
+      m.songs.forEach(function(id) { if (byId[id] && !used[id] && ids.indexOf(id) === -1) ids.push(id); });
+      // The section most of them are sung in; a tie goes to the earlier one.
+      var count = {}, best = null;
+      ids.forEach(function(id) { var k = secOf ? secOf(byId[id]) : ''; count[k] = (count[k] || 0) + 1; });
+      Object.keys(count).forEach(function(k) {
+        if (best === null || count[k] > count[best] || (count[k] === count[best] && rank(k) < rank(best))) best = k;
+      });
+      ids = ids.filter(function(id) { return !secOf || secOf(byId[id]) === best; });
+      if (ids.length < 2) return;
+      ids.forEach(function(id) { used[id] = true; });
+      out.push({ id: String(m.id), songs: ids });
+    });
+    return out;
+  }
+
+  // The section a song is first sung in, as the service runs; '' for none.
+  function _woSongFirstSec(song, list) {
+    list = list || _woSectionList();
+    var ids = _woSongSectionIds(song, list);
+    for (var i = 0; i < list.length; i++) { if (ids.indexOf(list[i].id) !== -1) return list[i].id; }
+    return '';
+  }
+
+  // This order's medleys, each with its songs in the order they are sung.
+  function _woMedleys() {
+    var raw = currentOrderData && currentOrderData.template && currentOrderData.template.medleys;
+    if (!Array.isArray(raw) || !raw.length) return [];
+    var list = _woSectionList(), rank = {}, pos = {};
+    list.forEach(function(s, i) { rank[s.id] = i; });
+    songOrderSections.forEach(function(s, i) { if (s && s.id) pos[s.id] = i; });
+    return _woMedleyList(raw, songOrderSections,
+      function(s) { return _woSongFirstSec(s, list); },
+      function(id) { return (id && rank[id] != null) ? rank[id] : Infinity; }
+    ).map(function(m) {
+      m.songs.sort(function(a, b) { return pos[a] - pos[b]; });
+      return m;
+    });
+  }
+
+  // { medley, at, n } for a song in a medley -- at counted from 0 -- or null.
+  function _woMedleyOf(songId, medleys) {
+    var all = medleys || _woMedleys();
+    for (var i = 0; i < all.length; i++) {
+      var at = all[i].songs.indexOf(songId);
+      if (at !== -1) return { medley: all[i], at: at, n: all[i].songs.length };
+    }
+    return null;
+  }
+
+  // A list of songs with each medley's members brought together where the
+  // first of them stands, in the order the list already has them. Every list
+  // of the order's songs that people read goes through here, so a medley is
+  // never shown split by a song that is not in it.
+  function _woRunWithMedleys(list, medleys) {
+    var by = {};
+    (medleys || []).forEach(function(m) { m.songs.forEach(function(id) { by[id] = m; }); });
+    var done = {}, out = [];
+    (list || []).forEach(function(s) {
+      if (!s || (s.id && done[s.id])) return;
+      var m = s.id ? by[s.id] : null;
+      if (!m) { out.push(s); if (s.id) done[s.id] = true; return; }
+      (list || []).forEach(function(t) {
+        if (t && t.id && by[t.id] === m && !done[t.id]) { out.push(t); done[t.id] = true; }
+      });
+    });
+    return out;
+  }
+
+  // A list cut into what moves together: a medley's members, standing
+  // together, are one unit; every other song is a unit of its own.
+  function _woUnits(seq, medleys) {
+    var by = {};
+    (medleys || []).forEach(function(m) { m.songs.forEach(function(id) { by[id] = m.id; }); });
+    var units = [];
+    (seq || []).forEach(function(s) {
+      var mid = (s && s.id && by[s.id]) || '';
+      var last = units[units.length - 1];
+      if (mid && last && last.md === mid) last.items.push(s);
+      else units.push({ md: mid, items: [s] });
+    });
+    return units;
+  }
+
+  function _woFlatUnits(units) {
+    var out = [];
+    units.forEach(function(u) { Array.prototype.push.apply(out, u.items); });
+    return out;
+  }
+
+  // One song a place up (-1) or down (+1) a list with medleys in it. Inside
+  // its medley it changes places with its neighbour there; otherwise it moves
+  // with its whole medley, and a medley in the way is passed as one. null
+  // when there is nowhere to go.
+  function _woStepInSeq(seq, id, delta, medleys) {
+    var units = _woUnits(seq, medleys), ui = -1, ii = -1;
+    units.forEach(function(u, k) { u.items.forEach(function(s, j) { if (s && s.id === id) { ui = k; ii = j; } }); });
+    if (ui < 0) return null;
+    var u = units[ui];
+    if (u.md && u.items[ii + delta]) {
+      var t = u.items[ii]; u.items[ii] = u.items[ii + delta]; u.items[ii + delta] = t;
+      return _woFlatUnits(units);
+    }
+    var to = ui + delta;
+    if (to < 0 || to >= units.length) return null;
+    units.splice(ui, 1);
+    units.splice(to, 0, u);
+    return _woFlatUnits(units);
+  }
+
+  // A song dropped on another's place. Moving down it lands after its
+  // target, moving up before it, as the songbook's drag always has; a song in
+  // a medley takes its medley with it, a target in a medley stands for the
+  // whole of it, and a drop inside one medley reorders that medley.
+  function _woDropInSeq(seq, fromId, toId, medleys) {
+    if (!fromId || !toId || fromId === toId) return null;
+    var units = _woUnits(seq, medleys);
+    var loc = function(id) {
+      for (var k = 0; k < units.length; k++) {
+        for (var j = 0; j < units[k].items.length; j++) { if (units[k].items[j] && units[k].items[j].id === id) return [k, j]; }
+      }
+      return null;
+    };
+    var a = loc(fromId), b = loc(toId);
+    if (!a || !b) return null;
+    if (a[0] === b[0]) {
+      var items = units[a[0]].items;
+      items.splice(b[1], 0, items.splice(a[1], 1)[0]);
+    } else {
+      units.splice(b[0], 0, units.splice(a[0], 1)[0]);
+    }
+    return _woFlatUnits(units);
+  }
+
+  // A sublist put in a new order and written back into the places its songs
+  // hold in the whole list, so that everything else stays where it was.
+  function _woWriteSeq(all, seqOld, seqNew) {
+    var slots = (seqOld || []).map(function(s) { return all.indexOf(s); })
+      .filter(function(at) { return at !== -1; }).sort(function(x, y) { return x - y; });
+    if (slots.length !== (seqNew || []).length) return all.slice();
+    var out = all.slice();
+    slots.forEach(function(at, k) { out[at] = seqNew[k]; });
+    return out;
+  }
+
+  // Is LCD Projection's schedule in the page? While it is, it is what a save
+  // reads for everything but the songs, and the builder's change -- which
+  // rebuilds the copies a save reads from the order's data -- must not run.
+  function _woLcdInPage() {
+    return !!document.querySelector('#woWorshipOrder .wo-worship-section');
+  }
+
+  // A change to the order's songs made from outside the builder's page (the
+  // Songbook's Add a song, the medley editor). It goes through the builder's
+  // own change -- snapshot, undo, save -- unless LCD Projection's schedule is
+  // in the page, when it is made on the data and saved.
+  function _woSongsChange(fn) {
+    if (!currentOrderData) return false;
+    if (!_woLcdInPage()) return _lbdChange(fn);
+    if (fn() === false) return false;
+    currentOrderData.songs = songOrderSections.slice();
+    autoSaveOrder();
+    return true;
+  }
+
+  // A medley saved: these songs, in this order, sung one into the next -- or,
+  // with fewer than two, the medley broken up. Its songs move into the
+  // section the first of them is sung in (a song leaves the section it was
+  // first in) and stand together there in this order; a song is in one
+  // medley only, so it leaves any other. id: the medley edited, '' for new.
+  function _woSaveMedley(id, ids) {
+    if (!currentOrderData) return false;
+    var list = _woSectionList();
+    var songs = (ids || []).map(_lbdSong).filter(function(s) { return s && s.itemType !== 'blank'; });
+    var sec = songs.length >= 2 ? _woSongFirstSec(songs[0], list) : '';
+    if (sec && _woLcdInPage()) {
+      var away = songs.filter(function(s) { return _woSongFirstSec(s, list) !== sec; });
+      if (away.length) {
+        showToast('“' + (away[0].title || 'A song') + '” is in another section. Move it in the Liturgy Builder first.', 'info');
+        return false;
+      }
+    }
+    return _woSongsChange(function() {
+      if (!currentOrderData.template) currentOrderData.template = {};
+      var keep = _woMedleys().filter(function(m) { return m.id !== id; }).map(function(m) {
+        return { id: m.id, songs: m.songs.filter(function(x) { return !songs.some(function(s) { return s.id === x; }); }) };
+      }).filter(function(m) { return m.songs.length >= 2; });
+      if (songs.length >= 2) {
+        if (sec) songs.forEach(function(s) {
+          var from = _woSongFirstSec(s, list);
+          if (from === sec) return;
+          s.serviceSections = [sec].concat(_woSongSectionIds(s, list).filter(function(x) { return x !== from && x !== sec; }));
+          s.sectionId = sec;
+          delete _woSongsTakenOutOfSections[s.id];
+        });
+        // Together, in this order, where the first of them stands.
+        var at = songOrderSections.indexOf(songs[0]);
+        var rest = songOrderSections.filter(function(s) { return songs.indexOf(s) === -1; });
+        var before = songOrderSections.slice(0, at).filter(function(s) { return songs.indexOf(s) === -1; }).length;
+        Array.prototype.splice.apply(rest, [before, 0].concat(songs));
+        songOrderSections.length = 0;
+        Array.prototype.push.apply(songOrderSections, rest);
+        _lbdSortSongsByService();
+        keep.push({ id: id || ('md_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+                    songs: songs.map(function(s) { return s.id; }) });
+      }
+      currentOrderData.template.medleys = keep;
+    });
+  }
+
+  // ── Adding a song from outside the builder ─────────────────────────────
+  // An order's entry for a library song, as the builder makes one.
+  function _woNewSongEntry(libSong, secId) {
+    var entry = _woBuildSongSectionEntry(libSong, secId);
+    if (!Array.isArray(libSong.youtube) && typeof libSong.youtube === 'string' && libSong.youtube.trim()) {
+      entry.youtube = libSong.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean);
+    }
+    entry.serviceSections = [secId];
+    entry.transposeSteps = 0;
+    entry.annotations = [];
+    entry.customYoutube = [];
+    entry.customDocs = [];
+    return entry;
+  }
+
+  // A library song put in one section of the order, from the Songbook. With
+  // LCD Projection's schedule in the page its slides are drawn into that
+  // section the way the LCD's own library adds a song; otherwise it goes
+  // through the builder (_lbdAddSong). Returns the order's entry, or null.
+  function _woAddSongToSection(secId, libSong) {
+    if (!currentOrderData || !libSong || !secId) return null;
+    if (!_woLcdInPage()) return _lbdAddSong(secId, libSong, null) || null;
+    var list = _woSectionList();
+    var entry = null;
+    songOrderSections.forEach(function(s) { if (!entry && s && s.itemType !== 'blank' && s.songId === libSong.id) entry = s; });
+    if (entry && _woSongSectionIds(entry, list).indexOf(secId) !== -1) {
+      showToast('“' + (libSong.title || 'That song') + '” is already in that section', 'info');
+      return null;
+    }
+    if (entry) {
+      _lbdPlaceSong(entry, secId, list);
+      entry.savedSlides = null;
+    } else {
+      entry = _woNewSongEntry(libSong, secId);
+      songOrderSections.push(entry);
+    }
+    _lbdSortSongsByService();
+    if ($(secId + '-boxes')) addSongToServiceSection(secId, entry, true);
+    currentOrderData.songs = songOrderSections.slice();
+    autoSaveOrder();
+    return entry;
+  }
+
+  // A song taken out of the order from elsewhere, taken off LCD
+  // Projection's schedule too while that is in the page -- or it would stay
+  // on the screen, ready to project, until the schedule was next drawn.
+  function _woLcdDropSong(songId) {
+    if (!songId || !_woLcdInPage()) return;
+    var q = '#woWorshipOrder .wo-song-banner[data-song-id="' + String(songId).replace(/["\\]/g, '\\$&') + '"]';
+    document.querySelectorAll(q).forEach(function(b) {
+      var sec = b.closest('.wo-worship-section');
+      if (sec && sec.id) removeSongFromSection(null, sec.id, songId, { remote: true });
+    });
+  }
+
+  // ── The order's inbox ──────────────────────────────────────────────────
+  // Links and files shared to a service -- from a phone's share sheet, the
+  // share picker, the inbox overlay, or pasted -- wait in
+  // currentOrderData.mediaLinks until somebody puts them on a song. The
+  // Songbook shows them (sbmInbox), as Song Order's Media & Links panel did.
+
+  // What an item IS, to tell another copy of it from something new: its
+  // address, or a file's name, size and type.
+  function _woInboxKey(it) {
+    if (!it) return '';
+    if (it.url) return 'u:' + String(it.url).trim();
+    return 'f:' + [it.name || it.title || '', it.size || 0, it.mimeType || ''].join('|');
+  }
+
+  function _woInboxFileMeta(mime) {
+    mime = String(mime || '');
+    var kind = /^audio\//.test(mime) ? 'audio' : /^video\//.test(mime) ? 'video' : /^image\//.test(mime) ? 'image' : 'file';
+    return {
+      type: kind,
+      label: { audio: 'Audio File', video: 'Video File', image: 'Image', file: 'File' }[kind],
+      icon: { audio: '🎵', video: '🎬', image: '🖼', file: '📎' }[kind],
+      playlist: kind === 'audio' || kind === 'video'
+    };
+  }
+
+  // An inbox item made from a pending share or a pasted address.
+  function _woInboxItem(ps) {
+    var now = new Date().toISOString();
+    var id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    if (ps.isFile) {
+      var fm = _woInboxFileMeta(ps.mimeType);
+      return { id: id, isFile: true, name: ps.name || 'File', mimeType: ps.mimeType || '', size: ps.size || 0,
+               title: ps.title || ps.name || 'File', data: ps.data || null,
+               type: ps.type || fm.type, label: ps.label || fm.label, icon: ps.icon || fm.icon,
+               playlist: ps.playlist != null ? !!ps.playlist : fm.playlist, addedAt: now };
+    }
+    var url = String(ps.url || '').trim();
+    var det = (typeof ShareInbox !== 'undefined') ? ShareInbox.detectType(url)
+      : { type: 'link', label: 'Web Link', icon: '🔗', playlist: false };
+    return { id: id, url: url, type: ps.type || det.type, label: ps.label || det.label, icon: ps.icon || det.icon,
+             playlist: ps.playlist != null ? !!ps.playlist : !!det.playlist, title: ps.title || url, addedAt: now };
+  }
+
+  // Into the inbox once: another copy of something already there is the one
+  // already there. Saved at once (_inboxSaveNow). Returns { item, added }.
+  function _woInboxAdd(ps) {
+    if (!ps || !currentOrderData || !currentOrderData.id) return null;
+    if (!ps.isFile && !String(ps.url || '').trim()) return null;
+    if (!Array.isArray(currentOrderData.mediaLinks)) currentOrderData.mediaLinks = [];
+    var key = _woInboxKey(ps);
+    var have = currentOrderData.mediaLinks.filter(function(m) { return _woInboxKey(m) === key; })[0];
+    var item = have || _woInboxItem(ps);
+    if (!have) currentOrderData.mediaLinks.push(item);
+    if (!item.id) item.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    _inboxSaveNow();
+    autoSaveOrder();
+    // Song Order's panels, when that view is up.
+    renderMediaRows();
+    if (item.url && _ytVideoId(item.url) && (!item.title || item.title === item.url)) _woInboxFetchTitle(item);
+    return { item: item, added: !have };
+  }
+
+  // A YouTube link's title, for a card that would otherwise show its address.
+  function _woInboxFetchTitle(item) {
+    fetch('https://noembed.com/embed?url=' + encodeURIComponent(item.url))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d || !d.title || (item.title && item.title !== item.url)) return;
+        item.title = d.title;
+        if (currentOrderData && Array.isArray(currentOrderData.mediaLinks) && currentOrderData.mediaLinks.indexOf(item) !== -1) _inboxSaveNow();
+        _sbmInboxRefresh();
+      }).catch(function() {});
+  }
+
+  // The link or file somebody has just shared to this order, taken into its
+  // inbox -- unless it is already one of a song's own links, which is where
+  // it belongs. Several routes write it to the localStorage mirror before
+  // the order loads and the load reads the mirror, so _woInboxAdd matches it
+  // against what is there. Returns the inbox item, or null.
+  function _woTakePendingShare() {
+    var ps = window._pendingShareItem;
+    if (!ps || !currentOrderData || !currentOrderData.id) return null;
+    window._pendingShareItem = null;
+    var url = String(ps.url || '').trim();
+    var inSong = url ? songOrderSections.filter(function(s) {
+      if (!s || s.itemType === 'blank') return false;
+      var yt = Array.isArray(s.youtube) ? s.youtube
+        : (typeof s.youtube === 'string' && s.youtube.trim() ? s.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }) : []);
+      var docs = (Array.isArray(s.attachments) ? s.attachments : []).concat(Array.isArray(s.customDocs) ? s.customDocs : [])
+        .map(function(a) { return (a && a.url) || ''; });
+      var mine = Array.isArray(s.customYoutube) ? s.customYoutube : [];
+      return yt.concat(docs, mine).indexOf(url) !== -1;
+    })[0] : null;
+    if (inSong) {
+      showToast('That link is already on “' + (inSong.title || 'a song') + '”', 'info');
+      return null;
+    }
+    var r = _woInboxAdd(ps);
+    if (!r) return null;
+    showToast((r.item.icon || '🔗') + (r.added ? ' Added to this service’s inbox' : ' Already in this service’s inbox'), 'success');
+    return r.item;
+  }
+
+  // An inbox item put on a song: a YouTube link joins the song's videos for
+  // this service, anything else with an address its documents -- the lists
+  // the Songbook, Song Order and the playlist read. The item stays in the
+  // inbox, marked with the song it went to. Returns 'video', 'doc', or ''
+  // when there was nothing to put on (a file kept on the phone it came
+  // from). Saving is the caller's: the views save differently.
+  function _woAttachInboxItem(item, song) {
+    if (!item || !song || !item.url) return '';
+    var url = item.url, type = _lcType(item);
+    if (!item.id) item.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    item.linkedSongId = song.id;
+    if (type === 'youtube' || soExtractYouTubeId(url)) {
+      if (!Array.isArray(song.customYoutube)) song.customYoutube = [];
+      if (song.customYoutube.indexOf(url) < 0) {
+        song.customYoutube.push(url);
+        // Rich metadata keyed by URL, so the card can show a real title.
+        if (!song.customYoutubeMeta) song.customYoutubeMeta = {};
+        song.customYoutubeMeta[url] = { inboxId: item.id, title: item.title || null, addedAt: new Date().toISOString() };
+      }
+      return 'video';
+    }
+    if (!Array.isArray(song.customDocs)) song.customDocs = [];
+    if (!song.customDocs.some(function(d) { return (d.url || d) === url; })) {
+      // A name: the stored title, else the host.
+      var name = item.title || item.name || '';
+      if (!name || name === url) { try { name = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { name = url; } }
+      // storageProvider as openMediaAddModal sets it, so soMakeDocCard renders it.
+      var provider = (type === 'gdoc' || type === 'gdrive') ? 'google_drive'
+                   : type === 'pdf' ? 'pdf' : type === 'spotify' ? 'spotify' : 'custom';
+      song.customDocs.push({ url: url, name: name.substring(0, 55), type: provider, inboxId: item.id, addedAt: new Date().toISOString() });
+    }
+    return 'doc';
+  }
+
+  // The other way: an item taken off the song it was put on. Only what it
+  // put there, by its id -- the same address added to the song by hand is
+  // the song's own, and putting the item on did not copy it (see above).
+  function _woDetachInboxItem(item, song) {
+    if (!item || !song) return;
+    var url = item.url;
+    if (url && Array.isArray(song.customYoutube)) {
+      var meta = song.customYoutubeMeta && song.customYoutubeMeta[url];
+      var at = song.customYoutube.indexOf(url);
+      if (at !== -1 && meta && meta.inboxId === item.id) {
+        song.customYoutube.splice(at, 1);
+        delete song.customYoutubeMeta[url];
+      }
+    }
+    if (url && Array.isArray(song.customDocs)) {
+      song.customDocs = song.customDocs.filter(function(d) { return !(d && d.url === url && d.inboxId === item.id); });
+    }
+    if (item.linkedSongId === song.id) delete item.linkedSongId;
+  }
+
+  // An inbox item back to waiting: its link was taken off the song.
+  function _woInboxUnlink(inboxId, songId) {
+    var items = (currentOrderData && currentOrderData.mediaLinks) || [];
+    var hit = items.filter(function(m) { return m && m.id === inboxId && m.linkedSongId === songId; })[0];
+    if (!hit) return null;
+    delete hit.linkedSongId;
+    _inboxSaveNow();
+    return hit;
+  }
+
+  // Where a shared link lands: this order's Songbook, its inbox open and the
+  // link at the top, ready to go on a song.
+  function openSongbookInbox() {
+    var took = _woTakePendingShare();
+    if (!currentOrderData || !currentOrderData.id) return;
+    var wasOpen = _sbmBookOpen() && !_sbStandaloneId;
+    if (!wasOpen) openSongbook();
+    setTimeout(function() { sbmInbox(took ? took.id : ''); }, wasOpen ? 0 : 320);
   }
 
   // serviceSectionItems rebuilt from an item list. This is what a save from
@@ -46615,32 +47011,9 @@ var WO = (function() {
       return;
     }
 
-    // Build the deep-link URL using the actual webapp deployment URL
-    var baseUrl = window.__WEBAPP_URL || window.location.href.split('?')[0];
-    var shareUrl = baseUrl + '?order=' + encodeURIComponent(currentOrderData.id) + '&view=songs';
-
-    // Build message with song list
-    var title = currentOrderData.title || 'Worship Order';
-    var date = currentOrderData.serviceDate || '';
-    var msg = '*' + title + '*';
-    if (date) msg += ' - ' + date;
-    msg += '\n\n';
-
-    if (songOrderSections.length > 0) {
-      msg += '*Songs:*\n';
-      songOrderSections.forEach(function(s, i) {
-        msg += (i + 1) + '. ' + (s.title || 'Untitled');
-        if (s.artist) msg += ' - ' + s.artist;
-        msg += '\n';
-      });
-      msg += '\n';
-    }
-
-    msg += 'View the full order here:\n' + shareUrl;
-
-    // Open WhatsApp with the message
-    var waUrl = 'https://wa.me/?text=' + encodeURIComponent(msg);
-    window.open(waUrl, '_blank');
+    // The Songbook's own message: the songs as the service runs them, under
+    // their sections, a medley on one line, and the Songbook's link.
+    sbShareWhatsApp();
   }
 
   // ============================================================
@@ -48488,7 +48861,7 @@ var WO = (function() {
     var list = _woSectionList();
     var pos = {};
     list.forEach(function(sec, i) { pos[sec.id] = i; });
-    return songs.map(function(s, i) {
+    var sorted = songs.map(function(s, i) {
       var first = Infinity;
       _woSongSectionIds(s, list).forEach(function(id) { if (pos[id] < first) first = pos[id]; });
       return { s: s, at: first, i: i };
@@ -48496,6 +48869,8 @@ var WO = (function() {
       if (a.at !== b.at) return a.at < b.at ? -1 : 1;
       return a.i - b.i;
     }).map(function(k) { return k.s; });
+    // A medley's songs together, where the first of them stands.
+    return _woRunWithMedleys(sorted, _woMedleys());
   }
 
   // The section a song is first sung in, numbered as the service runs, for
@@ -50093,9 +50468,12 @@ var WO = (function() {
   function sbmIndexReorder() { _sbmReorder = !_sbmReorder; _sbmRender(); }
   function sbmMoveSong(id, delta) {
     var list = _sbmSongs(), i = list.findIndex(function(x) { return x.id === id; });
-    var to = list[i + delta]; if (i === -1 || !to) return;
-    if (!_sbmSameSection(list[i], to)) { _sbmOtherSectionToast(); return; }
-    _sbReorderSongs(id, to.id);
+    if (i === -1) return;
+    // Within its own section, a medley moving as one.
+    var seq = list.filter(function(x) { return _sbmSameSection(x, list[i]); });
+    var next = _woStepInSeq(seq, id, delta, _sbStandaloneId ? [] : _woMedleys());
+    if (!next) { if (list[i + delta]) _sbmOtherSectionToast(); return; }
+    _sbApplySongOrder(_woWriteSeq(songOrderSections, seq, next));
   }
   function _sbmSameSection(a, b) {
     return _sbmSectionLabel(a) === _sbmSectionLabel(b);
@@ -50119,15 +50497,22 @@ var WO = (function() {
   function _sbmIndexHtml(list) {
     var html = '<div class="sbm-stack"><div class="sbm-card sbm-index">' +
       '<div class="sbm-index__head"><div class="sbm-label" style="margin:0;"><i class="fa-solid fa-list-ol"></i>Song List \u00b7 ' + list.length + ' song' + (list.length === 1 ? '' : 's') + '</div>' +
-      '<button class="sbm-chip' + (_sbmReorder ? ' is-on' : '') + '" onclick="WO.sbmIndexReorder()" aria-pressed="' + (_sbmReorder ? 'true' : 'false') + '"><i class="fa-solid fa-arrow-down-up-across-line"></i>' + (_sbmReorder ? 'Done' : 'Reorder') + '</button></div>';
+      '<span class="sbm-index__chips">' + (_sbmOrderBook() && !_sbmReorder ? '<button class="sbm-chip" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add</button>' : '') +
+      '<button class="sbm-chip' + (_sbmReorder ? ' is-on' : '') + '" onclick="WO.sbmIndexReorder()" aria-pressed="' + (_sbmReorder ? 'true' : 'false') + '"><i class="fa-solid fa-arrow-down-up-across-line"></i>' + (_sbmReorder ? 'Done' : 'Reorder') + '</button></span></div>';
+    // Links shared to this service and not yet on a song.
+    var waiting = _sbmInboxWaiting();
+    if (waiting) html += '<button class="sbm-inbox-note" onclick="WO.sbmInbox()"><i class="fa-solid fa-inbox" aria-hidden="true"></i><span><b>' + waiting + ' link' + (waiting === 1 ? '' : 's') + '</b> shared to this service ' + (waiting === 1 ? 'is' : 'are') + ' waiting to go on a song</span><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>';
+    var mp = _sbmMedleyPlaces(list);
     html += list.map(function(x, i) {
       var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(q) { return q && q.id === (x.songId || x.id); }) : null;
       var theme = String(x.theme || (lib && lib.theme) || '').split(',').map(function(t) { return t.trim(); }).filter(Boolean).slice(0, 2);
       var sub = [_sbmSectionLabel(x), x.artist || ''].concat(theme).filter(Boolean).join(' \u00b7 ') + (_sbSongHasChoir(x) ? ' \u00b7 choir parts' : '');
       var id = escapeHtml(x.id);
-      return '<div class="sbm-index__row' + (x.id === _sbmSid ? ' is-on' : '') + '">' +
+      var m = mp[x.id];
+      return '<div class="sbm-index__row' + (x.id === _sbmSid ? ' is-on' : '') + (m ? ' sbm-index__row--md' : '') + '">' +
         '<button class="sbm-index__open" onclick="WO.sbmSelectSong(\'' + id + '\')"' + (_sbmReorder ? ' disabled' : '') + '>' +
-          '<span class="n">' + (i + 1) + '</span><span class="t">' + escapeHtml(x.title || 'Song ' + (i + 1)) + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+          '<span class="n">' + (i + 1) + '</span><span class="t">' + escapeHtml(x.title || 'Song ' + (i + 1)) +
+            ((sub || m) ? '<small>' + (m ? '<span class="sbm-md-tag">Medley ' + (m.at + 1) + '/' + m.n + '</span>' : '') + escapeHtml(sub) + '</small>' : '') + '</span>' +
           (_sbmReorder ? '' : '<i class="fa-solid fa-chevron-right"></i>') + '</button>' +
         (_sbmReorder ? '<span class="sbm-index__mv">' +
           '<button onclick="WO.sbmMoveSong(\'' + id + '\',-1)" ' + (i === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
@@ -50163,38 +50548,65 @@ var WO = (function() {
   }
 
   // ---- what the song carries ----
+  // Each with where it comes from, so it can be taken off: src 'lib-doc' /
+  // 'lib-yt' (the library song's own, hidden for this service by address),
+  // 'doc' / 'yt' (this service's, by k, its place in its list), 'file', 'link'.
   function _sbmResources(song) {
     var removedDocUrls = Array.isArray(song.removedLibraryDocUrls) ? song.removedLibraryDocUrls : [];
-    var docs = (Array.isArray(song.attachments) ? song.attachments : [])
-      .filter(function(a) { return removedDocUrls.indexOf(a.url || '') === -1; })
-      .concat(Array.isArray(song.customDocs) ? song.customDocs : []);
+    var libDocs = (Array.isArray(song.attachments) ? song.attachments : [])
+      .filter(function(a) { return removedDocUrls.indexOf(a.url || '') === -1; });
+    var custDocs = Array.isArray(song.customDocs) ? song.customDocs : [];
     var removedVidUrls = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
-    var vids = (Array.isArray(song.youtube) ? song.youtube :
+    var libVids = (Array.isArray(song.youtube) ? song.youtube :
       (typeof song.youtube === 'string' && song.youtube.trim() ?
         song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []))
-      .filter(function(u) { return removedVidUrls.indexOf(u) === -1; })
-      .concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
+      .filter(function(u) { return removedVidUrls.indexOf(u) === -1; });
+    var custVids = Array.isArray(song.customYoutube) ? song.customYoutube : [];
     var files = Array.isArray(song.sbFiles) ? song.sbFiles : [];
     var links = Array.isArray(song.sbLinks) ? song.sbLinks : [];
     var out = [];
-    docs.forEach(function(d, i) {
+    var doc = function(d, src, k) {
       var url = d.url || '', name = d.name || d.title || url.split('/').pop() || 'Document';
       var pdf = /\.pdf(\?|$)/i.test(url) || /\.pdf$/i.test(name);
-      out.push({ kind: pdf ? 'pdf' : 'doc', title: name, url: url, sub: pdf ? 'PDF' : (url.replace(/^https?:\/\//, '').split('/')[0] || 'Document') });
-    });
-    vids.forEach(function(u) {
+      out.push({ kind: pdf ? 'pdf' : 'doc', title: name, url: url, sub: pdf ? 'PDF' : (url.replace(/^https?:\/\//, '').split('/')[0] || 'Document'), src: src, k: k });
+    };
+    libDocs.forEach(function(d) { doc(d, 'lib-doc', d.url || ''); });
+    custDocs.forEach(function(d, k) { doc(d, 'doc', k); });
+    var vid = function(u, src, k) {
       var info = window.detectMediaType ? window.detectMediaType(u) : null;
-      out.push({ kind: 'yt', title: 'YouTube video', url: u, sub: (info && info.label) || 'youtube.com', ytId: info && info.id });
-    });
-    files.forEach(function(f) {
+      var meta = song.customYoutubeMeta && song.customYoutubeMeta[u];
+      out.push({ kind: 'yt', title: (meta && meta.title && meta.title !== u) ? meta.title : 'YouTube video', url: u, sub: (info && info.label) || 'youtube.com', ytId: info && info.id, src: src, k: k });
+    };
+    libVids.forEach(function(u) { vid(u, 'lib-yt', u); });
+    custVids.forEach(function(u, k) { vid(u, 'yt', k); });
+    files.forEach(function(f, k) {
       var pdf = /\.pdf$/i.test(f.name || '') || /pdf/i.test(f.mimeType || '');
       var img = /^image\//i.test(f.mimeType || '');
-      out.push({ kind: pdf ? 'pdf' : (img ? 'img' : 'file'), title: f.name || 'File', url: f.url || '', sub: pdf ? 'PDF' : (img ? 'Image' : (f.mimeType || 'File')) });
+      out.push({ kind: pdf ? 'pdf' : (img ? 'img' : 'file'), title: f.name || 'File', url: f.url || '', sub: pdf ? 'PDF' : (img ? 'Image' : (f.mimeType || 'File')), src: 'file', k: k });
     });
-    links.forEach(function(l) {
+    links.forEach(function(l, k) {
       var info = window.detectMediaType ? window.detectMediaType(l.url) : null;
       var yt = info && info.type === 'youtube';
-      out.push({ kind: yt ? 'yt' : 'link', title: l.label || l.url, url: l.url, sub: (l.url || '').replace(/^https?:\/\//, '').split('/')[0], ytId: yt ? info.id : null });
+      out.push({ kind: yt ? 'yt' : 'link', title: l.label || l.url, url: l.url, sub: (l.url || '').replace(/^https?:\/\//, '').split('/')[0], ytId: yt ? info.id : null, src: 'link', k: k });
+    });
+    return out;
+  }
+
+  // The library song's own links this service has hidden, to show again.
+  function _sbmResHidden(song) {
+    var out = [];
+    var docs = Array.isArray(song.attachments) ? song.attachments : [];
+    (Array.isArray(song.removedLibraryDocUrls) ? song.removedLibraryDocUrls : []).forEach(function(u, k) {
+      var d = docs.filter(function(a) { return a && a.url === u; })[0];
+      if (!d) return;   // gone from the library: nothing to show again
+      out.push({ src: 'lib-doc', k: k, title: d.name || d.title || String(u).split('/').pop() || 'Document', sub: _sbmHost(u) || 'Document' });
+    });
+    var vids = Array.isArray(song.youtube) ? song.youtube :
+      (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+    (Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : []).forEach(function(u, k) {
+      if (vids.indexOf(u) === -1) return;
+      var info = window.detectMediaType ? window.detectMediaType(u) : null;
+      out.push({ src: 'lib-yt', k: k, title: 'YouTube video', sub: (info && info.label) || 'youtube.com', ytId: info && info.id });
     });
     return out;
   }
@@ -50680,27 +51092,37 @@ var WO = (function() {
   function sbmContents() {
     if (_sbFoldPhone()) { sbmIndex(); return; }
     var list = _sbmSongs();
+    var mp = _sbmMedleyPlaces(list);
     _sbmSheet('Song List', '<div class="sbm-contents">' + list.map(function(x, i) {
+      var m = mp[x.id];
+      var small = [m ? 'Medley ' + (m.at + 1) + '/' + m.n : '', x.artist || ''].filter(Boolean).join(' · ');
       return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeHtml(x.id) + '\')">' +
         '<span class="n">' + (i + 1) + '</span><span>' + escapeHtml(x.title || 'Song ' + (i + 1)) +
-        (x.artist ? '<small>' + escapeHtml(x.artist) + '</small>' : '') + '</span></button>';
+        (small ? '<small>' + escapeHtml(small) + '</small>' : '') + '</span></button>';
     }).join('') + '</div>');
   }
 
   function sbmMore() {
     var song = _sbmSong();
-    var rows = [
-      ['fa-list-ol', 'Song List', 'WO.sbmContents()'],
-      ['fa-file-lines', 'Page view \u2014 the printed page, with annotations', 'WO.sbmPageView(true)'],
+    var order = _sbmOrderBook();
+    var rows = [['fa-list-ol', 'Song List', 'WO.sbmContents()']];
+    if (order) {
+      var waiting = _sbmInboxWaiting();
+      rows.push(['fa-inbox', 'Inbox — links shared to this service' + (waiting ? ' (' + waiting + ' waiting)' : ''), 'WO.sbmInbox()']);
+      rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()']);
+      if (song) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
+    }
+    rows = rows.concat([
+      ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)'],
       ['fa-book-open', 'Read in full screen', 'WO.sbmCloseSheet();WO.sbOpenFullscreen()'],
       ['fa-list-music', 'Playlist', 'WO.sbmCloseSheet();WO.sbOpenPlaylist()'],
       ['fa-file-pdf', 'Save as PDF', 'WO.sbmCloseSheet();WO.sbSavePDF()'],
       ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()'],
       ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()'],
-      ['fa-arrows-rotate', 'Reset this song\u2019s layout', 'WO.sbmCloseSheet();WO.sbmReset()'],
+      ['fa-arrows-rotate', 'Reset this song’s layout', 'WO.sbmCloseSheet();WO.sbmReset()'],
       ['fa-people-group', 'Edit choir parts', 'WO.sbmCloseSheet();WO.sbmEditParts()'],
-      ['fa-align-left', 'Overview edit \u2014 the arrangement as text', 'WO.sbmCloseSheet();WO.sbmOverview(null)']
-    ];
+      ['fa-align-left', 'Overview edit — the arrangement as text', 'WO.sbmCloseSheet();WO.sbmOverview(null)']
+    ]);
     var html = '<div class="sbm-menu">' + rows.map(function(r) {
       return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '"></i>' + r[1] + '</button>';
     }).join('');
@@ -50716,16 +51138,449 @@ var WO = (function() {
       var icon = { pdf: 'fa-file-pdf', doc: 'fa-file-lines', yt: 'fa-brands fa-youtube', link: 'fa-link', file: 'fa-paperclip', img: 'fa-image' }[r.kind] || 'fa-file';
       var thumb = r.ytId ? '<img src="https://img.youtube.com/vi/' + escapeHtml(r.ytId) + '/mqdefault.jpg" alt="">' :
                   (r.kind === 'img' ? '<img src="' + escapeHtml(r.url) + '" alt="">' : '<i class="' + (icon.indexOf('fa-brands') === 0 ? icon : 'fa-solid ' + icon) + '"></i>');
-      return '<div class="sbm-res" onclick="WO.sbmOpenResource(' + i + ')">' +
+      var lib = r.src === 'lib-doc' || r.src === 'lib-yt';
+      return '<div class="sbm-res sbm-res--acts" onclick="WO.sbmOpenResource(' + i + ')">' +
         '<div class="sbm-res__thumb">' + thumb + '</div>' +
         '<div><span class="sbm-res__kind sbm-res__kind--' + r.kind + '"><i class="' + (icon.indexOf('fa-brands') === 0 ? icon : 'fa-solid ' + icon) + '"></i>' + kind + '</span>' +
-          '<div class="sbm-res__title">' + escapeHtml(r.title) + '</div><div class="sbm-res__sub">' + escapeHtml(r.sub || '') + '</div></div>' +
-        '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmOpenExternal(' + i + ')" aria-label="Open in a new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></div>';
+          '<div class="sbm-res__title">' + escapeHtml(r.title) + '</div><div class="sbm-res__sub">' + escapeHtml(r.sub || '') + (lib ? ' · from the library' : '') + '</div></div>' +
+        '<div class="sbm-res__acts">' +
+          '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmOpenExternal(' + i + ')" aria-label="Open in a new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
+          (r.src ? '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmResRemove(' + i + ')" title="' + (lib ? 'Hide it for this service (the song keeps it in the library)' : 'Take it off this song') + '" aria-label="' + (lib ? 'Hide for this service' : 'Remove') + '"><i class="fa-solid ' + (lib ? 'fa-eye-slash' : 'fa-xmark') + '"></i></button>' : '') +
+        '</div></div>';
     }).join('') : '<p class="sbm-empty">Nothing attached to this song yet.</p>';
+    var hid = _sbmResHidden(song);
+    if (hid.length) {
+      html += '<div class="sbm-label sbm-res__hidden-h"><i class="fa-solid fa-eye-slash"></i>Hidden for this service · ' + hid.length + '</div>' + hid.map(function(h) {
+        return '<div class="sbm-res sbm-res--acts sbm-res--hidden">' +
+          '<div class="sbm-res__thumb">' + (h.ytId ? '<img src="https://img.youtube.com/vi/' + escapeHtml(h.ytId) + '/mqdefault.jpg" alt="">' : '<i class="' + (h.src === 'lib-yt' ? 'fa-brands fa-youtube' : 'fa-solid fa-file-lines') + '"></i>') + '</div>' +
+          '<div><div class="sbm-res__title">' + escapeHtml(h.title) + '</div><div class="sbm-res__sub">' + escapeHtml(h.sub) + '</div></div>' +
+          '<div class="sbm-res__acts"><button class="sbm-btn" onclick="WO.sbmResRestore(\'' + h.src + '\',' + h.k + ')"><i class="fa-solid fa-eye"></i>Show again</button></div></div>';
+      }).join('');
+    }
     html += '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAttachFile(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-paperclip"></i>Attach a file</button>' +
       '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAddSongLink(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-link"></i>Add a link</button></div>';
     _sbmSheet('Attached resources (' + res.length + ')', html);
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'resources');
   }
+
+  // A link taken off the song for this service: the library song's own is
+  // hidden (it stays in the library), one added for this service removed,
+  // and a link that came from the inbox goes back to waiting there.
+  function sbmResRemove(i) {
+    var song = _sbmSong(); if (!song) return;
+    var r = _sbmResources(song)[i]; if (!r || !r.src) return;
+    var lib = r.src === 'lib-doc' || r.src === 'lib-yt';
+    var undo = null;
+    if (lib) {
+      var key = r.src === 'lib-doc' ? 'removedLibraryDocUrls' : 'removedLibraryYoutubeUrls';
+      if (!Array.isArray(song[key])) song[key] = [];
+      if (song[key].indexOf(r.url) === -1) song[key].push(r.url);
+      undo = function() { song[key] = (song[key] || []).filter(function(u) { return u !== r.url; }); };
+    } else {
+      var list = { doc: song.customDocs, yt: song.customYoutube, file: song.sbFiles, link: song.sbLinks }[r.src];
+      if (!Array.isArray(list) || list[r.k] === undefined) return;
+      var gone = list.splice(r.k, 1)[0];
+      var meta = (r.src === 'yt' && song.customYoutubeMeta) ? song.customYoutubeMeta[gone] : null;
+      if (meta) delete song.customYoutubeMeta[gone];
+      var inboxId = r.src === 'doc' ? (gone && gone.inboxId) : (meta && meta.inboxId);
+      var back = inboxId ? _woInboxUnlink(inboxId, song.id) : null;
+      undo = function() {
+        list.splice(Math.min(r.k, list.length), 0, gone);
+        if (meta) { if (!song.customYoutubeMeta) song.customYoutubeMeta = {}; song.customYoutubeMeta[gone] = meta; }
+        if (back) { back.linkedSongId = song.id; _inboxSaveNow(); }
+      };
+    }
+    _sbmResSaved();
+    sbmResources();
+    showToast(lib ? 'Hidden for this service' : 'Taken off this song', 'info', { action: 'Undo', duration: 6000, onAction: function() {
+      undo();
+      _sbmResSaved();
+      var sh = document.getElementById('sbmSheet');
+      if (sh && sh.getAttribute('data-sheet') === 'resources') sbmResources();
+    } });
+  }
+
+  function sbmResRestore(src, k) {
+    var song = _sbmSong(); if (!song) return;
+    var key = src === 'lib-yt' ? 'removedLibraryYoutubeUrls' : 'removedLibraryDocUrls';
+    if (!Array.isArray(song[key]) || song[key][k] == null) return;
+    song[key].splice(k, 1);
+    _sbmResSaved();
+    sbmResources();
+    showToast('Shown again for this service', 'success');
+  }
+
+  // A song's links changed: synced at once, saved whole, the page redrawn.
+  function _sbmResSaved() {
+    sbAutoSave();
+    autoSaveOrder();
+    _sbmPaintInboxCount();
+    renderSongbookLive();
+  }
+
+  // ---- the inbox: links and files shared to this service ----
+  // An order's songbook, rather than a standalone one: it has an order of
+  // worship, an inbox, and medleys.
+  function _sbmOrderBook() { return !_sbStandaloneId && !!currentOrderData; }
+  function _sbmInboxItems() { return (currentOrderData && Array.isArray(currentOrderData.mediaLinks)) ? currentOrderData.mediaLinks : []; }
+  function _sbmInboxById(id) { return _sbmInboxItems().filter(function(m) { return m && String(m.id) === String(id); })[0] || null; }
+  // The song an item went on, while that song is still in the order.
+  function _sbmInboxSong(it) { return (it && it.linkedSongId) ? _lbdSong(it.linkedSongId) : null; }
+  function _sbmInboxWaiting() {
+    if (!_sbmOrderBook()) return 0;
+    return _sbmInboxItems().filter(function(it) { return it && !_sbmInboxSong(it); }).length;
+  }
+  function _sbmInboxBadge() {
+    var n = _sbmInboxWaiting();
+    return '<span class="sbm-count" data-inbox-count' + (n ? '' : ' hidden') + '>' + n + '</span>';
+  }
+  // The counts in the top bar and the hero, without drawing the page again.
+  function _sbmPaintInboxCount() {
+    var n = _sbmInboxWaiting();
+    document.querySelectorAll('[data-inbox-count]').forEach(function(el) { el.textContent = String(n); el.hidden = !n; });
+  }
+  // The inbox sheet drawn again if it is open: a title arrived, the stored
+  // inbox came back from the database.
+  function _sbmInboxRefresh() {
+    _sbmPaintInboxCount();
+    var sh = document.getElementById('sbmSheet');
+    if (!sh || sh.getAttribute('data-sheet') !== 'inbox') return;
+    var inp = document.getElementById('sbmInboxUrl'), typed = inp ? inp.value : '';
+    var top = (sh.querySelector('.sbm-sheet') || {}).scrollTop || 0;
+    sbmInbox();
+    var inp2 = document.getElementById('sbmInboxUrl');
+    if (inp2 && typed) inp2.value = typed;
+    var sh2 = document.querySelector('#sbmSheet .sbm-sheet');
+    if (sh2) sh2.scrollTop = top;
+  }
+  function _sbmHost(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
+
+  var _sbmInboxFocus = '';   // the item just shared, outlined
+  function sbmInbox(focusId) {
+    if (!_sbmOrderBook()) { showToast('Links are shared to a service order, not to a standalone songbook.', 'info'); return; }
+    if (!currentOrderData.id) { showToast('Save this order first; then links can be shared to it.', 'info'); return; }
+    if (focusId !== undefined) _sbmInboxFocus = focusId || '';
+    var items = _sbmInboxItems().slice().reverse();   // newest first
+    var waiting = items.filter(function(it) { return it && !_sbmInboxSong(it); });
+    var placed = items.filter(function(it) { return it && !!_sbmInboxSong(it); });
+    var html = '<div class="sbm-inbox">' +
+      '<p class="sbm-inbox__lead">Links and files shared to this service, from a phone’s Share button or pasted here. Put each one on the song it belongs to.</p>' +
+      '<div class="sbm-inbox__paste"><input type="url" class="sbm-input" id="sbmInboxUrl" placeholder="Paste a YouTube, Spotify, Google Doc or web link" autocomplete="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();WO.sbmInboxPaste();}">' +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmInboxPaste()"><i class="fa-solid fa-plus"></i>Add</button></div>' +
+      (waiting.length
+        ? '<div class="sbm-label sbm-inbox__h"><i class="fa-solid fa-hourglass-half"></i>Waiting for a song · ' + waiting.length + '</div>' + waiting.map(_sbmInboxCard).join('')
+        : '<p class="sbm-empty">' + (items.length ? 'Everything shared here is on a song.' : 'Nothing shared to this service yet. On a phone, share a YouTube video, a chord sheet or a document to LHC Worship Prep and choose this service.') + '</p>') +
+      (placed.length ? '<div class="sbm-label sbm-inbox__h"><i class="fa-solid fa-circle-check"></i>On a song · ' + placed.length + '</div>' + placed.map(_sbmInboxCard).join('') : '') +
+      '</div>';
+    _sbmSheet('Inbox', html);
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'inbox');
+    _sbmPaintInboxCount();
+  }
+
+  function _sbmInboxCard(it) {
+    var type = _lcType(it), song = _sbmInboxSong(it);
+    var kind = { youtube: 'YouTube', spotify: 'Spotify', gdoc: 'Document', pdf: 'PDF', audio: 'Audio', video: 'Video', image: 'Image', file: 'File', link: 'Link' }[type] || 'Link';
+    var cls = { youtube: 'yt', pdf: 'pdf', gdoc: 'doc', audio: 'file', video: 'file', image: 'file', file: 'file' }[type] || 'link';
+    var vid = type === 'youtube' ? _ytVideoId(it.url || '') : null;
+    var thumb = vid ? '<img src="https://img.youtube.com/vi/' + escapeHtml(vid) + '/mqdefault.jpg" alt="">'
+      : ((it.isFile && /^image\//.test(it.mimeType || '') && it.data) ? '<img src="' + escapeHtml(it.data) + '" alt="">'
+      : '<i class="' + _lcIcon(type) + '"></i>');
+    var title = (it.title && it.title !== it.url) ? it.title
+      : (it.name || (type === 'youtube' ? 'YouTube video' : _sbmHost(it.url || '')) || 'Link');
+    if (title.length > 90) title = title.slice(0, 88) + '…';
+    // Where it is: the song it went on, or its address -- shortened, and in
+    // full rather than just the host when the host is already its title.
+    var addr = it.url ? String(it.url).replace(/^https?:\/\/(www\.)?/, '') : '';
+    if (addr.length > 60) addr = addr.slice(0, 58) + '…';
+    var sub = song ? 'On “' + (song.title || 'Song') + '”'
+      : (it.url ? (title === _sbmHost(it.url) ? addr : (_sbmHost(it.url) || addr)) : (it.label || 'File'));
+    var id = escapeHtml(String(it.id || ''));
+    return '<div class="sbm-inbox__item' + (it.id && String(it.id) === String(_sbmInboxFocus) ? ' is-new' : '') + '">' +
+      '<div class="sbm-res__thumb">' + thumb + '</div>' +
+      '<div class="sbm-inbox__main"><span class="sbm-res__kind sbm-res__kind--' + cls + '">' + escapeHtml(kind) + '</span>' +
+        '<div class="sbm-res__title">' + escapeHtml(title) + '</div><div class="sbm-res__sub">' + escapeHtml(sub) + '</div></div>' +
+      '<div class="sbm-inbox__acts">' +
+        (it.url ? '<button class="sbm-btn' + (song ? '' : ' sbm-btn--primary') + '" onclick="WO.sbmInboxAttach(\'' + id + '\')">' + (song ? 'Move' : '<i class="fa-solid fa-music"></i>Put on a song') + '</button>'
+                : '<span class="sbm-inbox__note">A file stays here</span>') +
+        ((it.url || it.data) ? '<button class="sbm-res__more" onclick="WO.sbmInboxOpen(\'' + id + '\')" title="Open" aria-label="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' : '') +
+        '<button class="sbm-res__more" onclick="WO.sbmInboxRemove(\'' + id + '\')" title="Take out of the inbox" aria-label="Take out of the inbox"><i class="fa-solid fa-xmark"></i></button>' +
+      '</div></div>';
+  }
+
+  // Which song an item goes on: the song list, the one you are on marked.
+  function sbmInboxAttach(id) {
+    var it = _sbmInboxById(id); if (!it || !it.url) return;
+    var list = _sbmSongs(), on = _sbmInboxSong(it);
+    if (!list.length) { showToast('Add a song to this service first.', 'info'); return; }
+    var what = (it.title && it.title !== it.url) ? it.title : it.url;
+    var rows = list.map(function(x, i) {
+      var note = [x.id === _sbmSid ? 'The song you are on' : '', on && on.id === x.id ? 'It is on this one now' : '', _sbmSectionLabel(x)].filter(Boolean).join(' · ');
+      return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '"' + (on && on.id === x.id ? ' disabled' : '') +
+        ' onclick="WO.sbmInboxAttachTo(\'' + escapeHtml(String(it.id)) + '\',\'' + escapeHtml(x.id) + '\')">' +
+        '<span class="n">' + (i + 1) + '</span><span>' + escapeHtml(x.title || 'Song ' + (i + 1)) +
+        (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</span></button>';
+    }).join('');
+    _sbmSheet(on ? 'Move it to another song' : 'Put it on a song',
+      '<p class="sbm-inbox__what">' + escapeHtml(what.length > 140 ? what.slice(0, 138) + '…' : what) + '</p>' +
+      '<div class="sbm-contents">' + rows + '</div>' +
+      '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmInbox()"><i class="fa-solid fa-arrow-left"></i>Back to the inbox</button>');
+  }
+
+  function sbmInboxAttachTo(id, sid) {
+    var it = _sbmInboxById(id), song = _lbdSong(sid);
+    if (!it || !song) return;
+    var was = _sbmInboxSong(it);
+    if (was && was.id === song.id) { sbmInbox(); return; }
+    if (was) _woDetachInboxItem(it, was);
+    var kind = _woAttachInboxItem(it, song);
+    if (!kind) { showToast('Only a link can go on a song.', 'info'); return; }
+    _inboxSaveNow();
+    sbAutoSave();
+    autoSaveOrder();
+    renderMediaRows();   // Song Order's panel, if that view is up
+    _refreshPlaylistIfOpen();
+    renderSongbookLive();
+    showToast((kind === 'video' ? 'Video' : 'Link') + ' put on “' + (song.title || 'Song') + '”', 'success');
+    if (_sbmInboxWaiting()) sbmInbox(); else _sbmCloseSheet();
+  }
+
+  function sbmInboxRemove(id) {
+    var items = _sbmInboxItems(), at = -1;
+    items.forEach(function(m, i) { if (at === -1 && m && String(m.id) === String(id)) at = i; });
+    if (at === -1 || !currentOrderData || !currentOrderData.id) return;
+    var gone = items[at], song = _sbmInboxSong(gone);
+    removeSharedLink(currentOrderData.id, at);
+    sbmInbox();
+    showToast('Taken out of the inbox' + (song ? ' (it stays on “' + (song.title || 'its song') + '”)' : ''), 'info', { action: 'Undo', duration: 6000, onAction: function() {
+      var list = currentOrderData && currentOrderData.mediaLinks;
+      if (!list) return;
+      list.splice(Math.min(at, list.length), 0, gone);
+      _inboxSaveNow();
+      autoSaveOrder();
+      renderMediaRows();
+      _sbmInboxRefresh();
+    } });
+  }
+
+  function sbmInboxPaste() {
+    var inp = document.getElementById('sbmInboxUrl'); if (!inp) return;
+    var val = String(inp.value || '').trim(); if (!val) return;
+    if (!/^https?:\/\//i.test(val)) {
+      if (/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(val)) val = 'https://' + val;
+      else { showToast('That does not look like a link.', 'warning'); return; }
+    }
+    var r = _woInboxAdd({ url: val });
+    if (!r) return;
+    sbmInbox(r.item.id);
+    showToast(r.added ? 'Added to the inbox' : 'That link is already in the inbox', r.added ? 'success' : 'info');
+  }
+
+  function sbmInboxOpen(id) {
+    var it = _sbmInboxById(id); if (!it) return;
+    var title = (it.title && it.title !== it.url) ? it.title : (it.name || 'Shared');
+    var back = '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmInbox()"><i class="fa-solid fa-arrow-left"></i>Back to the inbox</button>';
+    var vid = it.url ? _ytVideoId(it.url) : null;
+    if (vid) {
+      _sbmSheet(title, '<div class="sbm-embed"><iframe src="https://www.youtube.com/embed/' + escapeHtml(vid) + '?rel=0&autoplay=1" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>' + back);
+      return;
+    }
+    if (it.url) { window.open(it.url, '_blank', 'noopener'); return; }
+    var mime = String(it.mimeType || ''), src = escapeHtml(it.data || '');
+    if (it.data && /^image\//.test(mime)) { _sbmSheet(title, '<img src="' + src + '" alt="" style="width:100%;border-radius:12px;">' + back); return; }
+    if (it.data && /^audio\//.test(mime)) { _sbmSheet(title, '<audio controls style="width:100%;" src="' + src + '"></audio>' + back); return; }
+    if (it.data && /^video\//.test(mime)) { _sbmSheet(title, '<video controls style="width:100%;border-radius:12px;" src="' + src + '"></video>' + back); return; }
+    showToast('This file opens only on the phone it was shared from.', 'info');
+  }
+
+  // ---- adding a song to the service, from the book ----
+  function sbmAddSong() {
+    if (!_sbmOrderBook()) { showToast('Add songs to a standalone songbook from Song Finder, with the bookmark button.', 'info'); return; }
+    var list = _woSectionList();
+    if (!list.length) { showToast('This order has no sections yet. Add them in the Liturgy Builder first.', 'info'); return; }
+    var cur = _sbmSong();
+    var def = (cur && _woSongFirstSec(cur, list)) || '';
+    if (!def) {
+      var music = list.filter(function(s) { return /song|hymn|praise|worship|music/i.test(s.title); })[0];
+      def = (music || list[0]).id;
+    }
+    var opts = list.map(function(s, i) {
+      return '<option value="' + escapeHtml(s.id) + '"' + (s.id === def ? ' selected' : '') + '>' + (i + 1) + '. ' + escapeHtml(s.title) + '</option>';
+    }).join('');
+    _sbmSheet('Add a song', '<div class="sbm-add">' +
+      '<label class="sbm-add__sec"><span>Sung in</span><select id="sbmAddSec" onchange="WO.sbmAddSongFilter()">' + opts + '</select></label>' +
+      '<input type="search" class="sbm-input" id="sbmAddQ" placeholder="Search by title, artist, theme or key" oninput="WO.sbmAddSongFilter()" autocomplete="off">' +
+      '<div class="sbm-add__list" id="sbmAddList"></div></div>');
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'add');
+    sbmAddSongFilter();
+    setTimeout(function() { var q = document.getElementById('sbmAddQ'); if (q && !_sbFoldPhone()) q.focus(); }, 40);
+  }
+
+  function sbmAddSongFilter() {
+    var box = document.getElementById('sbmAddList'); if (!box) return;
+    var q = String((document.getElementById('sbmAddQ') || {}).value || '').trim().toLowerCase();
+    var secId = (document.getElementById('sbmAddSec') || {}).value || '';
+    var lib = ((window.LHC_STATE && window.LHC_STATE.songs) || []).slice();
+    if (!lib.length) { box.innerHTML = '<p class="sbm-empty">The song library is still loading…</p>'; return; }
+    var list = _woSectionList(), inOrder = {};
+    songOrderSections.forEach(function(s) { if (s && s.songId && s.itemType !== 'blank') inOrder[s.songId] = s; });
+    var rows = lib.filter(function(s) {
+      if (!s || !s.title) return false;
+      if (!q) return true;
+      return [s.title, s.artist, s.theme, s.key].some(function(v) { return String(v || '').toLowerCase().indexOf(q) !== -1; });
+    });
+    rows.sort(function(a, b) { return String(a.title).localeCompare(String(b.title)); });
+    box.innerHTML = rows.slice(0, 60).map(function(s) {
+      var o = inOrder[s.id];
+      var here = o && _woSongSectionIds(o, list).indexOf(secId) !== -1;
+      var badge = here ? '<span class="sbm-add__badge">In this section</span>'
+                : (o ? '<span class="sbm-add__badge sbm-add__badge--soft">In this service</span>' : '');
+      return '<button class="sbm-add__song"' + (here ? ' disabled' : '') + ' onclick="WO.sbmAddSongPick(\'' + escapeHtml(s.id) + '\')">' +
+        '<span class="sbm-add__t">' + escapeHtml(s.title) + '<small>' + escapeHtml([s.artist, s.key ? 'Key ' + s.key : '', s.theme].filter(Boolean).join(' · ')) + '</small></span>' +
+        badge + '<i class="fa-solid fa-plus" aria-hidden="true"></i></button>';
+    }).join('') || '<p class="sbm-empty">No songs match “' + escapeHtml(q) + '”.</p>';
+  }
+
+  function sbmAddSongPick(libId) {
+    var lib = _lbdLibSong(libId); if (!lib) return;
+    var secId = (document.getElementById('sbmAddSec') || {}).value || '';
+    if (!secId) return;
+    var entry = _woAddSongToSection(secId, lib);
+    if (!entry) return;
+    // The book's record of the song's own words, as openSongbook seeds it.
+    songOriginalLyrics[entry.id] = entry.masterLyrics || entry.lyrics || '';
+    songOriginalRichLyrics[entry.id] = entry.richLyrics || formatLyricsWithHighlights(songOriginalLyrics[entry.id]);
+    if (entry.transposeSteps) sbTransposeSteps[entry.id] = entry.transposeSteps;
+    _sbmCloseSheet();
+    _sbmSid = entry.id;
+    _sbmIndexOpen = false;
+    try { localStorage.setItem('lhc_sbm_song_' + ((currentOrderData && currentOrderData.id) || ''), entry.id); } catch (e) {}
+    renderSongbookLive();
+    showToast('Added “' + (lib.title || 'the song') + '” to ' + _lbdSecTitle(secId), 'success');
+  }
+
+  // ---- medleys, in the book ----
+  // Where each song of a medley stands in it, as the list shows them.
+  function _sbmMedleyPlaces(list) {
+    var out = {};
+    if (!_sbmOrderBook()) return out;
+    _woUnits(list, _woMedleys()).forEach(function(u) {
+      if (!u.md) return;
+      u.items.forEach(function(s, k) { out[s.id] = { at: k, n: u.items.length }; });
+    });
+    return out;
+  }
+
+  // On a song in a medley: which of it this is, the songs either side, and
+  // the way into the medley editor.
+  function _sbmMedleyRibbon(song, md) {
+    var title = function(id) { var s = _lbdSong(id); return (s && s.title) || 'Song'; };
+    var prev = md.medley.songs[md.at - 1], next = md.medley.songs[md.at + 1];
+    var says = next ? 'into <b>' + escapeHtml(title(next)) + '</b>' : 'after <b>' + escapeHtml(title(prev)) + '</b>';
+    return '<div class="sbm-md-ribbon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>' +
+      '<span class="sbm-md-ribbon__t">Medley · ' + (md.at + 1) + ' of ' + md.n + ' · sung straight ' + says + '</span>' +
+      (prev ? '<button onclick="WO.sbmSelectSong(\'' + escapeHtml(prev) + '\')" title="' + escapeHtml(title(prev)) + '" aria-label="The song before it in the medley"><i class="fa-solid fa-chevron-left"></i></button>' : '') +
+      (next ? '<button onclick="WO.sbmSelectSong(\'' + escapeHtml(next) + '\')" title="' + escapeHtml(title(next)) + '" aria-label="The song after it in the medley"><i class="fa-solid fa-chevron-right"></i></button>' : '') +
+      '<button onclick="WO.sbmMedley()">Edit</button></div>';
+  }
+
+  function sbmMedley() {
+    var song = _sbmSong();
+    if (!song || !_sbmOrderBook()) return;
+    openMedleyEditor(song.id);
+  }
+
+  // ---- the medley editor (the Songbook and the Liturgy Builder) ----
+  var _mdEd = null;   // { id, songs: [entry ids] } while it is open
+
+  function openMedleyEditor(songId) {
+    if (!currentOrderData || _sbStandaloneId) return;
+    var md = _woMedleyOf(songId);
+    _mdEd = { id: md ? md.medley.id : '', songs: md ? md.medley.songs.slice() : [songId] };
+    _mdEdRender();
+  }
+
+  function _mdEdRender() {
+    if (!_mdEd) return;
+    var all = _sbmSongs(), list = _woSectionList(), byId = {};
+    all.forEach(function(s) { byId[s.id] = s; });
+    _mdEd.songs = _mdEd.songs.filter(function(id) { return !!byId[id]; });
+    var n = _mdEd.songs.length;
+    var sec = n ? _woSongFirstSec(byId[_mdEd.songs[0]], list) : '';
+    var lcd = _woLcdInPage();
+    var secName = function(id) {
+      for (var i = 0; i < list.length; i++) { if (list[i].id === id) return (i + 1) + '. ' + list[i].title; }
+      return 'no section';
+    };
+    var rows = _mdEd.songs.map(function(id, k) {
+      var s = byId[id], from = _woSongFirstSec(s, list), away = sec && from !== sec;
+      return '<div class="md-row"><span class="md-row__n">' + (k + 1) + '</span>' +
+        '<span class="md-row__t">' + escapeHtml(s.title || 'Song') + '<small>' + escapeHtml(away ? 'Moves here from ' + secName(from) : secName(from)) + '</small></span>' +
+        '<button onclick="WO.mdEdMove(' + k + ',-1)"' + (k === 0 ? ' disabled' : '') + ' aria-label="Sing it earlier"><i class="fa-solid fa-arrow-up"></i></button>' +
+        '<button onclick="WO.mdEdMove(' + k + ',1)"' + (k === n - 1 ? ' disabled' : '') + ' aria-label="Sing it later"><i class="fa-solid fa-arrow-down"></i></button>' +
+        '<button onclick="WO.mdEdDrop(' + k + ')" aria-label="Leave it out of the medley"><i class="fa-solid fa-xmark"></i></button></div>';
+    }).join('');
+    var rest = all.filter(function(s) { return _mdEd.songs.indexOf(s.id) === -1; });
+    var near = rest.filter(function(s) { return !sec || _woSongFirstSec(s, list) === sec; });
+    var cand = near.concat(rest.filter(function(s) { return near.indexOf(s) === -1; })).map(function(s) {
+      var from = _woSongFirstSec(s, list), away = sec && from !== sec;
+      var other = _woMedleyOf(s.id), leaves = other && other.medley.id !== _mdEd.id;
+      var note = [secName(from), away ? (lcd ? 'in another section: move it in the Liturgy Builder first' : 'moves to ' + secName(sec)) : '', leaves ? 'leaves its other medley' : ''].filter(Boolean).join(' · ');
+      return '<button class="md-cand"' + (away && lcd ? ' disabled' : '') + ' onclick="WO.mdEdAdd(\'' + escapeHtml(s.id) + '\')"><i class="fa-solid fa-plus" aria-hidden="true"></i>' +
+        '<span>' + escapeHtml(s.title || 'Song') + '<small>' + escapeHtml(note) + '</small></span></button>';
+    }).join('');
+    var html = '<div class="md-ed">' +
+      '<p class="md-ed__lead">Songs in a medley are sung one straight into the next. Each keeps its own key, words and markings; they are listed together, in this order, in the Songbook, the Liturgy Builder, the playlist and the shared song list.</p>' +
+      '<div class="sbm-label"><i class="fa-solid fa-layer-group"></i>Sung in this order' + (sec ? ' · ' + escapeHtml(secName(sec)) : '') + '</div>' +
+      '<div class="md-rows">' + rows + '</div>' +
+      (n < 2 ? '<p class="md-ed__hint">Add one more song to make a medley.</p>' : '') +
+      '<div class="sbm-label md-ed__h2"><i class="fa-solid fa-plus"></i>Add a song from this service</div>' +
+      '<div class="md-cands">' + (cand || '<p class="sbm-empty">Every song in this service is in the medley.</p>') + '</div>' +
+      '<div class="md-ed__foot">' +
+        (_mdEd.id ? '<button class="sbm-btn sbm-btn--danger" onclick="WO.mdEdBreak()"><i class="fa-solid fa-scissors"></i>Break up</button>' : '') +
+        '<button class="sbm-btn" onclick="WO.mdEdClose()">Cancel</button>' +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.mdEdSave()"' + (n < 2 ? ' disabled' : '') + '><i class="fa-solid fa-check"></i>Save medley</button>' +
+      '</div></div>';
+    var prev = document.getElementById('sbmSheet');
+    var top = (prev && prev.getAttribute('data-sheet') === 'medley') ? (prev.querySelector('.sbm-sheet') || {}).scrollTop || 0 : 0;
+    _sbmSheet(_mdEd.id ? 'Edit the medley' : 'Make a medley', html);
+    var sh = document.getElementById('sbmSheet');
+    if (sh) {
+      sh.setAttribute('data-sheet', 'medley');
+      var box = sh.querySelector('.sbm-sheet');
+      if (box && top) box.scrollTop = top;
+    }
+  }
+
+  function mdEdMove(k, d) {
+    if (!_mdEd) return;
+    var a = _mdEd.songs, j = k + d;
+    if (j < 0 || j >= a.length) return;
+    var t = a[k]; a[k] = a[j]; a[j] = t;
+    _mdEdRender();
+  }
+  function mdEdDrop(k) { if (!_mdEd) return; _mdEd.songs.splice(k, 1); _mdEdRender(); }
+  function mdEdAdd(id) { if (!_mdEd || _mdEd.songs.indexOf(id) !== -1) return; _mdEd.songs.push(id); _mdEdRender(); }
+  function mdEdClose() { _mdEd = null; _sbmCloseSheet(); }
+  function mdEdSave() {
+    if (!_mdEd || _mdEd.songs.length < 2) return;
+    var ed = _mdEd;
+    if (_woSaveMedley(ed.id, ed.songs) === false) return;
+    _mdEd = null;
+    _sbmCloseSheet();
+    _woAfterSongsChange();
+    var names = ed.songs.map(function(id) { var s = _lbdSong(id); return (s && s.title) || 'Song'; });
+    showToast('Medley: ' + names.join(' + '), 'success', _woUndoOpts());
+  }
+  function mdEdBreak() {
+    if (!_mdEd || !_mdEd.id) return;
+    var ed = _mdEd;
+    if (_woSaveMedley(ed.id, []) === false) return;
+    _mdEd = null;
+    _sbmCloseSheet();
+    _woAfterSongsChange();
+    showToast('The medley is broken up; its songs stay in the service', 'info', _woUndoOpts());
+  }
+
   function sbmOpenExternal(i) {
     var song = _sbmSong(); if (!song) return;
     var r = _sbmResources(song)[i]; if (!r || !r.url) return;
@@ -50887,6 +51742,7 @@ var WO = (function() {
       '<div class="sbm-top__brand"><i class="fa-solid fa-book-open"></i><div><div class="sbm-top__title">Worship Songbook</div>' +
         '<div class="sbm-top__sub">' + (orderTitle ? escapeHtml(orderTitle) : 'LHC Worship Prep') + '</div></div></div>' +
       '<div class="sbm-top__right">' +
+        (_sbmOrderBook() ? '<button class="sbm-btn sbm-btn--ghost sbm-top__inbox" onclick="WO.sbmInbox()" title="Inbox: links and files shared to this service"><i class="fa-solid fa-inbox"></i><span class="lbl">Inbox</span>' + _sbmInboxBadge() + '</button>' : '') +
         '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmPageView(true)" title="Page view — the printed pages: annotate, set page breaks, print"><i class="fa-solid fa-file-lines"></i><span class="lbl">Page view</span></button>' +
         '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbOpenPlaylist()" title="Playlist"><i class="fa-solid fa-headphones"></i><span class="lbl">Playlist</span></button>' +
         '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbProjectMenu(this)" title="Project the songbook \u2014 lyrics only, full screen"><i class="fa-solid fa-display"></i><span class="lbl">Project</span></button>' +
@@ -50896,12 +51752,20 @@ var WO = (function() {
         '<button class="sbm-hero__close sbm-top__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div></div>';
   }
   function _sbmSideHtml(list, song) {
-    return '<div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Song List<span class="sbm-side__hint">drag to reorder</span></div>' + list.map(function(x, i) {
-      var id = escapeHtml(x.id);
+    var order = _sbmOrderBook();
+    var item = function(x) {
+      var i = list.indexOf(x), id = escapeHtml(x.id);
       return '<button class="sbm-side__item' + (song && x.id === song.id ? ' is-on' : '') + '" draggable="true" onclick="WO.sbmSelectSong(\'' + id + '\')" ondragstart="WO.sbmDragSong(event,\'' + id + '\')" ondragover="WO.sbmDragOverSong(event,this)" ondragleave="this.classList.remove(\'is-over\')" ondrop="WO.sbmDropSong(event,\'' + id + '\')" ondragend="WO.sbmDragEndSong(event)">' +
         '<span class="n">' + (i + 1) + '</span><span class="t">' + escapeHtml(x.title || 'Song ' + (i + 1)) +
-        ((_sbmSectionLabel(x) || x.artist) ? '<small>' + escapeHtml([_sbmSectionLabel(x), x.artist || ''].filter(Boolean).join(' \u00b7 ')) + '</small>' : '') + '</span></button>';
+        ((_sbmSectionLabel(x) || x.artist) ? '<small>' + escapeHtml([_sbmSectionLabel(x), x.artist || ''].filter(Boolean).join(' · ')) + '</small>' : '') + '</span></button>';
+    };
+    // A medley's songs in a box of their own, under its name.
+    var body = _woUnits(list, order ? _woMedleys() : []).map(function(u) {
+      if (!u.md) return item(u.items[0]);
+      return '<div class="sbm-side__md"><div class="sbm-side__md-h"><i class="fa-solid fa-layer-group"></i>Medley</div>' + u.items.map(item).join('') + '</div>';
     }).join('');
+    return '<div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Song List<span class="sbm-side__hint">drag to reorder</span></div>' + body +
+      (order ? '<button class="sbm-side__add" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add a song</button>' : '');
   }
 
   function _sbmRender() {
@@ -50926,10 +51790,14 @@ var WO = (function() {
       '<div class="sbm-hero__kicker">LHC WORSHIP PREP</div>' +
       '<div class="sbm-hero__title">Worship Songbook</div>' +
       '<div class="sbm-hero__sub">' + (orderTitle ? escapeHtml(orderTitle).toUpperCase() : 'SONGS \u2022 PREPARE \u2022 WORSHIP TOGETHER') + '</div>' +
-      '</div></div><button class="sbm-hero__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div>';
+      '</div></div>' +
+      (_sbmOrderBook() ? '<button class="sbm-hero__inbox" onclick="WO.sbmInbox()" aria-label="Inbox: links shared to this service"><i class="fa-solid fa-inbox"></i>' + _sbmInboxBadge() + '</button>' : '') +
+      '<button class="sbm-hero__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div>';
 
     if (!song) {
-      html += '<div class="sbm-stack"><div class="sbm-card"><p class="sbm-empty">This songbook is empty. Add songs from Song Finder with the bookmark button.</p></div></div>';
+      html += '<div class="sbm-stack"><div class="sbm-card">' + (_sbmOrderBook()
+        ? '<p class="sbm-empty">No songs in this service yet.</p><button class="sbm-btn sbm-btn--primary sbm-btn--block" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add a song</button>'
+        : '<p class="sbm-empty">This songbook is empty. Add songs from Song Finder with the bookmark button.</p>') + '</div></div>';
       root.innerHTML = (wide ? _sbmTopBar(orderTitle, null, list) : hero) + html; return;
     }
     if (!wide) {
@@ -50972,7 +51840,8 @@ var WO = (function() {
     if (nPdf) badges += '<span class="sbm-badge sbm-badge--pdf sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-file-pdf"></i>PDF' + (nPdf > 1 ? ' \u00d7' + nPdf : '') + '</span>';
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
     if (wide) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
-    songCard += '<div class="sbm-song__badges">' + badges + '</div></div>';
+    var mdHere = _sbmOrderBook() ? _woMedleyOf(song.id) : null;
+    songCard += '<div class="sbm-song__badges">' + badges + '</div>' + (mdHere ? _sbmMedleyRibbon(song, mdHere) : '') + '</div>';
 
     // -- toolbar --
     var toolbar = '<div class="sbm-toolbar">' +
@@ -51015,7 +51884,10 @@ var WO = (function() {
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-paperclip"></i>Files</button>' +
+      // Links and Files opened the same sheet; an order's book has medleys instead.
+      (_sbmOrderBook()
+        ? '<button class="sbm-tile' + (mdHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmMedley()" title="' + (mdHere ? 'Edit the medley this song is in' : 'Make a medley: songs sung one straight into the next') + '"><i class="fa-solid fa-layer-group"></i>Medley</button>'
+        : '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-paperclip"></i>Files</button>') +
       '<button class="sbm-tile" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button></div></div>';
 
     // -- choir parts --
@@ -67917,6 +68789,7 @@ var WO = (function() {
       items: JSON.stringify(o.allItems || []),
       cleared: JSON.stringify(o.clearedSections || []),
       svcNotes: (o.template && o.template.serviceNotes) || '',
+      medleys: JSON.stringify((o.template && o.template.medleys) || []),
       songs: songOrderSections.slice(),
       fields: songOrderSections.map(function(s) {
         return { ss: Array.isArray(s.serviceSections) ? s.serviceSections.slice() : s.serviceSections,
@@ -67932,6 +68805,7 @@ var WO = (function() {
     currentOrderData.clearedSections = JSON.parse(snap.cleared);
     if (!currentOrderData.template) currentOrderData.template = {};
     currentOrderData.template.serviceNotes = snap.svcNotes;
+    if (snap.medleys != null) currentOrderData.template.medleys = JSON.parse(snap.medleys);
     songOrderSections = snap.songs.slice();
     snap.songs.forEach(function(s, i) {
       var f = snap.fields[i];
@@ -68226,15 +69100,7 @@ var WO = (function() {
         placed = existing;
         return;
       }
-      var entry = _woBuildSongSectionEntry(libSong, secId);
-      if (!Array.isArray(libSong.youtube) && typeof libSong.youtube === 'string' && libSong.youtube.trim()) {
-        entry.youtube = libSong.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean);
-      }
-      entry.serviceSections = [secId];
-      entry.transposeSteps = 0;
-      entry.annotations = [];
-      entry.customYoutube = [];
-      entry.customDocs = [];
+      var entry = _woNewSongEntry(libSong, secId);
       var after = afterSongId ? songOrderSections.indexOf(_lbdSong(afterSongId)) : -1;
       if (after >= 0) songOrderSections.splice(after + 1, 0, entry);
       else songOrderSections.push(entry);
@@ -68245,7 +69111,8 @@ var WO = (function() {
       _lbdSetCur(secId, 'song:' + placed.id);
       _lbdReveal('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"] .lbw-el--song[data-song="' + _lbdCssId(placed.id) + '"]');
     }
-    return ok;
+    // The entry it placed, for a caller that shows it (the Songbook).
+    return ok ? (placed || ok) : false;
   }
 
   function lbdPlaceSong(songId, secId) {
@@ -68301,18 +69168,42 @@ var WO = (function() {
 
   // Songs keep one running order (songOrderSections); moving one within a
   // section swaps it with its neighbour in that section.
+  // A song a place up or down its section. A song in a medley moves with
+  // its medley unless its neighbour is in the medley too (_woStepInSeq).
   function lbdMoveSong(songId, secId, delta) {
     var list = _woSectionList();
     var inSec = songOrderSections.filter(function(s) { return _woSongSectionIds(s, list).indexOf(secId) !== -1; });
-    var k = -1;
-    for (var i = 0; i < inSec.length; i++) { if (inSec[i].id === songId) k = i; }
-    var other = inSec[k + delta];
-    if (k < 0 || !other) return;
+    var next = _woStepInSeq(inSec, songId, delta, _woMedleys());
+    if (!next) return;
     _lbdChange(function() {
-      var a = songOrderSections.indexOf(inSec[k]), b = songOrderSections.indexOf(other);
-      songOrderSections[a] = other;
-      songOrderSections[b] = inSec[k];
+      var out = _woWriteSeq(songOrderSections, inSec, next);
+      songOrderSections.length = 0;
+      Array.prototype.push.apply(songOrderSections, out);
     });
+  }
+
+  // A song out of its medley; the rest stay one, or the medley ends.
+  function woMedleyLeave(songId) {
+    var md = _woMedleyOf(songId);
+    if (!md) return;
+    var ids = md.medley.songs.filter(function(x) { return x !== songId; });
+    if (_woSaveMedley(md.medley.id, ids) === false) return;
+    _woAfterSongsChange();
+    showToast(ids.length >= 2 ? 'Taken out of the medley' : 'The medley is broken up; its songs stay in the service', 'info', _woUndoOpts());
+  }
+
+  // After the order's songs changed from the Songbook or the medley editor,
+  // the views that are up show it. The builder is redrawn by its change.
+  function _woAfterSongsChange() {
+    if (_sbmBookOpen()) renderSongbookLive();
+  }
+
+  // An Undo on the toast for a change made through the builder's change.
+  // With LCD Projection's schedule in the page there is no snapshot to go
+  // back to, so no button.
+  function _woUndoOpts() {
+    if (_woLcdInPage()) return undefined;
+    return { action: 'Undo', duration: 6000, onAction: function() { lbdUndo(); _woAfterSongsChange(); } };
   }
 
   function _lbdAddLiturgy(secId, lit, afterId) {
@@ -69088,10 +69979,12 @@ var WO = (function() {
       meta.push('words edited for this service');
     }
     var cur = _lbdCurSec === sec.id && _lbdCurEl === 'song:' + s.id;
-    return '<div class="lbw-el lbw-el--song' + (cur ? ' is-current' : '') + '" data-song="' + _lbdEsc(s.id) + '">' +
+    var md = _woMedleyOf(s.id);
+    return '<div class="lbw-el lbw-el--song' + (cur ? ' is-current' : '') + (md ? ' lbw-el--md' : '') + '" data-song="' + _lbdEsc(s.id) + '">' +
       '<span class="lbw-ico" aria-hidden="true"><i class="fa-solid fa-music"></i></span>' +
       '<div class="lbw-el-line">' +
         '<span class="lbw-kind">Song</span>' +
+        (md ? '<span class="lbw-md" title="Sung straight into the next song: a medley">Medley ' + (md.at + 1) + '/' + md.n + '</span>' : '') +
         '<span class="lbw-el-title">' + _lbdEsc(s.title || 'Song') + '</span>' +
         (meta.length ? '<span class="lbw-el-meta">' + _lbdEsc(meta.join(' \u00b7 ')) + '</span>' : '') +
       '</div>' +
@@ -69546,17 +70439,20 @@ var WO = (function() {
       var inSec = songOrderSections.filter(function(x) { return _woSongSectionIds(x, list).indexOf(c.sec) !== -1; });
       var k = inSec.indexOf(s);
       var hasNote = !!String(s.liturgistNotes || '').trim();
-      _lbdOpenMenu(anchor, s.title || 'Song', [
+      var md = _woMedleyOf(s.id);
+      var menu = [
         { label: 'Open in the Songbook', icon: 'fa-solid fa-book-open', run: function() { soOpenInSongbook(s.id); } },
         { label: hasNote ? 'Edit the note' : 'Add a note', icon: 'fa-regular fa-comment', run: function() { _lbdOpenSongNote(s.id); } },
         '-',
         { label: 'Move up', icon: 'fa-solid fa-arrow-up', disabled: k <= 0, run: function() { lbdMoveSong(s.id, c.sec, -1); } },
         { label: 'Move down', icon: 'fa-solid fa-arrow-down', disabled: k < 0 || k >= inSec.length - 1, run: function() { lbdMoveSong(s.id, c.sec, 1); } },
         { label: 'Move to section\u2026', icon: 'fa-solid fa-right-left', sub: _lbdMoveSub(c.sec, function(to) { lbdMoveSongToSection(s.id, c.sec, to); }) },
-        { label: 'Go to Song Order', icon: 'fa-solid fa-list-ol', run: function() { selectOrder('song'); } },
         '-',
-        { label: 'Take out of this section', icon: 'fa-solid fa-xmark', danger: true, run: function() { lbdUnplaceSong(s.id, c.sec); } }
-      ]);
+        { label: md ? 'Edit the medley\u2026' : 'Make a medley\u2026', icon: 'fa-solid fa-layer-group', run: function() { openMedleyEditor(s.id); } }
+      ];
+      if (md) menu.push({ label: 'Take out of the medley', icon: 'fa-solid fa-link-slash', run: function() { woMedleyLeave(s.id); } });
+      menu.push('-', { label: 'Take out of this section', icon: 'fa-solid fa-xmark', danger: true, run: function() { lbdUnplaceSong(s.id, c.sec); } });
+      _lbdOpenMenu(anchor, s.title || 'Song', menu);
       return;
     }
     var it = _lbdItem(c.item);
@@ -72249,6 +73145,12 @@ var WO = (function() {
     var baseSongId = sid.indexOf('__sb__') !== -1 ? sid.split('__sb__')[0] : sid;
     // Remove from songOrderSections
     songOrderSections = songOrderSections.filter(function(s) { return s.id !== baseSongId; });
+    if (!_sbStandaloneId) {
+      // Taken out on purpose, so a save may clear the last one; and off
+      // LCD Projection's schedule if that is in the page underneath.
+      _woUserClearedTypes.song = true;
+      _woLcdDropSong(baseSongId);
+    }
     renderSongbookLive();
     autoSaveOrder();
     // If standalone, persist to localStorage
@@ -72286,13 +73188,18 @@ var WO = (function() {
   var _sbDragOverSid = null;
 
   // Move one song to where another is. The printed pages' drag, the
-  // reading view's contents and the phone's index all come here.
+  // reading view's contents and the phone's index all come here. A song in
+  // a medley moves with its medley (_woDropInSeq).
   function _sbReorderSongs(fromId, toId) {
-    var fromIdx = songOrderSections.findIndex(function(s) { return s.id === fromId; });
-    var toIdx = songOrderSections.findIndex(function(s) { return s.id === toId; });
-    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return false;
-    var moved = songOrderSections.splice(fromIdx, 1)[0];
-    songOrderSections.splice(toIdx, 0, moved);
+    var next = _woDropInSeq(songOrderSections, fromId, toId, _sbStandaloneId ? [] : _woMedleys());
+    return next ? _sbApplySongOrder(next) : false;
+  }
+
+  // The book's songs in a new order, and what follows from that: the book
+  // redrawn, the order saved, a standalone songbook's list written.
+  function _sbApplySongOrder(next) {
+    songOrderSections.length = 0;
+    Array.prototype.push.apply(songOrderSections, next);
     renderSongbookLive();
     autoSaveOrder();
     if (_sbStandaloneId) {
@@ -74381,15 +75288,12 @@ var WO = (function() {
     });
   }
 
-  // LCD Projection redesign (Chunk 6): targeted jumps between LCD
-  // Projection and Song Order for one specific song, mirroring the
-  // existing soOpenInSongbook() idiom (switch view, then locate + scroll
-  // after a short delay) rather than a new navigation pattern.
+  // The song being edited, opened in the Songbook -- step 2, where the
+  // music team keeps its key, words and links. It opened Song Order until
+  // that was retired; the name stays so the button's wiring does.
   function lcdOpenInSongOrder() {
     if (!_lcdEditingSongId) { showToast('Select a slide first.', 'warning'); return; }
-    var songId = _lcdEditingSongId;
-    selectOrder('song');
-    setTimeout(function() { _lcdScrollToSongRow(songId); }, 220);
+    soOpenInSongbook(_lcdEditingSongId);
   }
 
   function _lcdScrollToSongRow(songId) {
@@ -80744,8 +81648,12 @@ var WO = (function() {
   // Double-click a song title in the Song Order → open Songbook and jump to that song
   function soOpenInSongbook(songId) {
     openSongbook();
-    // Short delay so the modal is visible before we scroll
-    setTimeout(function() { sbScrollToSong(songId); }, 220);
+    // Short delay so the modal is visible first. The reading view goes to
+    // the song; Page view scrolls to its page.
+    setTimeout(function() {
+      if (_sbmActive()) sbmSelectSong(songId);
+      else sbScrollToSong(songId);
+    }, 220);
   }
 
   // Double-click a Media & Links card → open the URL in a new tab
@@ -82437,10 +83345,11 @@ var WO = (function() {
     sbAutoSave();
   }
 
-  // Open the new playlist player with all YouTube links from the current songbook
+  // Open the new playlist player with all YouTube links from the current songbook,
+  // in the order the songs are sung
   function sbOpenPlaylist() {
     var items = [];
-    songOrderSections.forEach(function(song) {
+    _sbmSongs().forEach(function(song) {
       var removed = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
       var libUrls = (Array.isArray(song.youtube) ? song.youtube :
         (typeof song.youtube === 'string' && song.youtube.trim() ?
@@ -82460,10 +83369,11 @@ var WO = (function() {
     window.openPlaylistPlayer(items);
   }
 
-  // Build a compact playlist array from current songbook (for encoding in share URL)
+  // Build a compact playlist array from current songbook (for encoding in share URL),
+  // in the order the songs are sung
   function _sbCurrentPlaylistItems() {
     var items = [];
-    songOrderSections.forEach(function(song) {
+    _sbmSongs().forEach(function(song) {
       var removed = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
       var libUrls = (Array.isArray(song.youtube) ? song.youtube :
         (typeof song.youtube === 'string' && song.youtube.trim() ?
@@ -82517,14 +83427,8 @@ var WO = (function() {
     if (pop) pop.style.display = 'none';
     var name = (currentOrderData && currentOrderData.title) || 'Songbook';
     var serviceDate = (currentOrderData && currentOrderData.serviceDate) || '';
-    var songLines = songOrderSections.map(function(s, i) { return (i + 1) + '. ' + (s.title || ''); });
     var plItems = _sbCurrentPlaylistItems();
-    var sbUrl = _sbShareUrl();
-    var msg = '*' + name + '*\n';
-    if (serviceDate) msg += '_' + serviceDate + '_\n';
-    msg += '\n';
-    if (songLines.length) msg += songLines.join('\n') + '\n\n';
-    msg += 'Open Songbook: ' + sbUrl + '\n';
+    var playlistUrl = '';
     if (plItems.length) {
       try {
         var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(
@@ -82534,11 +83438,60 @@ var WO = (function() {
           })
         ))));
         var base = (window.__WEBAPP_URL || window.location.href).split('?')[0];
-        msg += 'Playlist: ' + base + '?playlist=' + encoded + '\n';
+        playlistUrl = base + '?playlist=' + encoded;
       } catch(e) {}
     }
-    msg += '\n_LHC Worship Prep_';
+    var msg = _sbShareMessage({ title: name, date: serviceDate, rows: _sbShareRows(),
+                                songbookUrl: _sbShareUrl(), playlistUrl: playlistUrl });
     window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  }
+
+  // The key a song is sung in here: the library song's key (an order's
+  // entry carries none of its own), moved by this service's transposition,
+  // as the Liturgy Builder shows it. '' when the song has no key.
+  function _sbSungKey(song) {
+    if (!song) return '';
+    var lib = _lbdLibSong(song.songId);
+    var key = String(song.key || (lib && lib.key) || '').trim();
+    if (!key) return '';
+    var steps = (sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (parseInt(song.transposeSteps, 10) || 0);
+    if (!steps || typeof transposeChord !== 'function') return key;
+    try { return String(transposeChord(key, steps)).trim() || key; } catch (e) { return key; }
+  }
+
+  // The shared list's lines: the songs as the service runs, each under the
+  // section it is first sung in and with the key it is sung in, and a
+  // medley as one line.
+  function _sbShareRows() {
+    var md = (_sbStandaloneId || !currentOrderData) ? [] : _woMedleys();
+    return _woUnits(_sbmSongs(), md).map(function(u) {
+      var bits = u.items.map(function(s) {
+        var k = _sbSungKey(s);
+        return (s.title || 'Untitled') + (k ? ' (' + k + ')' : '');
+      });
+      return { section: _sbmSectionLabel(u.items[0]), text: u.md ? 'Medley: ' + bits.join(' + ') : bits[0] };
+    });
+  }
+
+  // The message itself, from those lines. Pure, for the harness.
+  function _sbShareMessage(o) {
+    var lines = ['*' + (o.title || 'Songbook') + '*'];
+    if (o.date) lines.push('_' + o.date + '_');
+    var sec = null, n = 0;
+    (o.rows || []).forEach(function(r) {
+      if (r.section !== sec) {
+        lines.push('');
+        if (r.section) lines.push('*' + r.section + '*');
+        sec = r.section;
+      }
+      n++;
+      lines.push(n + '. ' + r.text);
+    });
+    lines.push('');
+    if (o.songbookUrl) lines.push('Open Songbook: ' + o.songbookUrl);
+    if (o.playlistUrl) lines.push('Playlist: ' + o.playlistUrl);
+    lines.push('', '_LHC Worship Prep_');
+    return lines.join('\n');
   }
 
   // Copy shareable songbook link to clipboard
@@ -83581,6 +84534,14 @@ var WO = (function() {
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmLineMics: sbmLineMics,
+    // Step 2: the inbox, adding a song, medleys
+    openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
+    sbmInboxAttachTo: sbmInboxAttachTo, sbmInboxRemove: sbmInboxRemove, sbmInboxPaste: sbmInboxPaste,
+    sbmInboxOpen: sbmInboxOpen, sbmAddSong: sbmAddSong, sbmAddSongFilter: sbmAddSongFilter,
+    sbmAddSongPick: sbmAddSongPick, sbmResRemove: sbmResRemove, sbmResRestore: sbmResRestore,
+    sbmMedley: sbmMedley, openMedleyEditor: openMedleyEditor, woMedleyLeave: woMedleyLeave,
+    mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
+    mdEdSave: mdEdSave, mdEdBreak: mdEdBreak,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
@@ -102151,6 +103112,174 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
 .sbm-cut__partrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .sbm-cut__partrow label { flex: 0 0 auto; font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--sbm-text-2); }
+</style>
+
+<style id="wo-songbook-step-css">
+/* ==================== THE SONGBOOK AS STEP 2 ====================
+   Song Order's retirement note; the Songbook's inbox, Add a song, hidden
+   library links and medleys; the medley editor, which the Liturgy Builder
+   opens too (it is an .sbm sheet on <body>). */
+#worshipOrderView .wo-so-retire {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 12px;
+  border-radius: 10px; background: #fff8e6; border: 1px solid #f1d58f; color: #6b4e10;
+  font: 500 0.8rem/1.4 'Poppins', sans-serif;
+}
+#worshipOrderView .wo-so-retire > i { color: #c08a12; flex: 0 0 auto; }
+#worshipOrderView .wo-so-retire > span { flex: 1 1 auto; min-width: 0; }
+#worshipOrderView .wo-so-retire .wo-toolbar-btn { flex: 0 0 auto; }
+@media (max-width: 600px) { #worshipOrderView .wo-so-retire { flex-wrap: wrap; } }
+
+/* counts on the inbox buttons */
+.sbm-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px; background: var(--sbm-gold); color: var(--sbm-navy); font: 700 11px/1 var(--sbm-font-ui);
+}
+.sbm-count[hidden] { display: none; }
+.sbm-hero__inbox {
+  position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(var(--sbm-gutter) + var(--sbm-touch) + 8px);
+  width: var(--sbm-touch); height: var(--sbm-touch); border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff;
+  font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.sbm-hero__inbox .sbm-count { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px; font-size: 10px; }
+#sbmRoot:not(.sbm--wide) .sbm-hero__inbox { width: 36px; height: 36px; font-size: 14px; right: calc(var(--sbm-gutter) + 44px); }
+
+/* the phone's song list */
+/* Two chips beside the list's name; on a phone they drop under it together
+   rather than stacking one above the other. */
+.sbm-index__head { flex-wrap: wrap; row-gap: 8px; }
+.sbm-index__chips { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-end; margin-left: auto; }
+.sbm-inbox-note {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 8px; padding: 10px 12px;
+  border-radius: var(--sbm-radius-md); border: 1px solid rgba(201,162,39,0.45); background: var(--sbm-gold-soft);
+  color: #6b4e10; font: 500 13px/1.35 var(--sbm-font-ui); text-align: left; cursor: pointer;
+}
+.sbm-inbox-note > i:first-child { color: #a67c12; font-size: 16px; }
+.sbm-inbox-note > span { flex: 1 1 auto; min-width: 0; }
+.sbm-index__row--md { box-shadow: inset 3px 0 0 var(--sbm-gold); padding-left: 6px; }
+.sbm-md-tag {
+  display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; background: var(--sbm-gold-soft);
+  color: #8a6510; font: 700 10px/1.5 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; font-style: normal;
+}
+
+/* the inbox sheet */
+.sbm-inbox__lead, .md-ed__lead { margin: 0 0 10px; font: 400 13px/1.45 var(--sbm-font-body); color: var(--sbm-text-2); }
+.sbm-inbox__paste { display: flex; gap: 8px; margin: 0 0 12px; }
+.sbm-input {
+  flex: 1 1 auto; min-width: 0; min-height: var(--sbm-btn); padding: 0 12px; border-radius: var(--sbm-radius-md);
+  border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-text); font: 400 15px/1.2 var(--sbm-font-ui);
+}
+.sbm-input:focus { outline: 2px solid var(--sbm-teal-2); outline-offset: 1px; }
+.sbm-inbox__paste .sbm-btn--primary { min-height: var(--sbm-btn); }
+.sbm-inbox__h { margin: 14px 0 8px; }
+.sbm-inbox__item {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px; margin-bottom: 8px; border-radius: var(--sbm-radius-md); background: var(--sbm-card); border: 1px solid var(--sbm-line);
+}
+.sbm-inbox__item.is-new { border-color: var(--sbm-teal); box-shadow: 0 0 0 2px var(--sbm-teal-soft); }
+.sbm-inbox__main { min-width: 0; }
+.sbm-inbox__acts { display: flex; align-items: center; gap: 2px; }
+.sbm-inbox__acts .sbm-btn { min-height: 38px; padding: 0 10px; font-size: 13px; }
+.sbm-inbox__acts .sbm-res__more, .sbm-res__acts .sbm-res__more { cursor: pointer; }
+.sbm-inbox__note { font: 500 11px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); padding: 0 6px; }
+.sbm-inbox__what {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--sbm-card-2);
+  font: 600 13px/1.35 var(--sbm-font-ui); color: var(--sbm-text-2); overflow-wrap: anywhere;
+}
+/* On a desk the inbox is a wider card than the other sheets: its rows carry
+   a title, where it is and three actions. */
+@media (min-width: 821px) { .sbm-sheet:has(.sbm-inbox) { width: min(640px, 92vw); } }
+.sbm-inbox__item .sbm-res__title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 460px) {
+  .sbm-inbox__item { grid-template-columns: 48px minmax(0, 1fr); }
+  .sbm-inbox__item .sbm-res__thumb { width: 48px; height: 48px; }
+  .sbm-inbox__acts { grid-column: 1 / -1; justify-content: flex-end; }
+}
+.sbm-contents button:disabled { opacity: 0.55; cursor: default; }
+.sbm-res__kind--doc { background: #2563eb; }
+
+/* a song's links: hide or remove, and show again */
+.sbm-res--acts { grid-template-columns: 56px minmax(0, 1fr) auto; }
+.sbm-res__acts { display: flex; align-items: center; }
+.sbm-res__hidden-h { margin: 16px 0 8px; }
+.sbm-res--hidden { cursor: default; opacity: 0.85; }
+.sbm-res--hidden .sbm-btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+
+/* Add a song */
+.sbm-add__sec {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--sbm-text-2);
+}
+.sbm-add__sec select {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 10px; border-radius: var(--sbm-radius-md);
+  border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-text);
+  font: 600 14px/1.2 var(--sbm-font-ui); letter-spacing: 0; text-transform: none;
+}
+.sbm-add .sbm-input { width: 100%; margin-bottom: 10px; }
+.sbm-add__list { display: flex; flex-direction: column; gap: 6px; }
+.sbm-add__song {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 6px 12px;
+  border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line); background: var(--sbm-card);
+  text-align: left; cursor: pointer; color: var(--sbm-text); font: 600 15px/1.2 var(--sbm-font-ui);
+}
+.sbm-add__song:disabled { opacity: 0.55; cursor: default; }
+.sbm-add__song > i { color: var(--sbm-teal); flex: 0 0 auto; }
+.sbm-add__t { flex: 1 1 auto; min-width: 0; }
+.sbm-add__t small, .md-row__t small, .md-cand small { display: block; margin-top: 2px; font: 400 12px/1.25 var(--sbm-font-body); color: var(--sbm-muted); }
+.sbm-add__badge { flex: 0 0 auto; padding: 3px 8px; border-radius: 999px; background: var(--sbm-teal-soft); color: var(--sbm-teal); font: 700 11px/1 var(--sbm-font-ui); }
+.sbm-add__badge--soft { background: var(--sbm-card-2); color: var(--sbm-muted); }
+.sbm-side__add {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; margin-top: 8px; padding: 6px 10px;
+  border: 1px dashed rgba(15,31,61,0.25); border-radius: 10px; background: transparent; color: var(--sbm-teal);
+  font: 600 13px/1.2 var(--sbm-font-ui); cursor: pointer;
+}
+.sbm-side__add:hover { background: var(--sbm-teal-soft); }
+
+/* medleys in the book */
+.sbm-side__md { margin: 4px 0; padding: 2px 0 2px 6px; border-left: 3px solid var(--sbm-gold); border-radius: 0 10px 10px 0; background: var(--sbm-gold-soft); }
+.sbm-side__md-h { display: flex; align-items: center; gap: 6px; padding: 5px 10px 2px; font: 700 10px/1 var(--sbm-font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: #8a6510; }
+.sbm-md-ribbon {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 5px 5px 5px 10px; border-radius: 10px;
+  background: rgba(201,162,39,0.18); border: 1px solid rgba(201,162,39,0.45); color: #fff; font: 500 13px/1.3 var(--sbm-font-ui);
+}
+.sbm-md-ribbon > i { color: var(--sbm-gold); }
+.sbm-md-ribbon__t { flex: 1 1 auto; min-width: 0; }
+.sbm-md-ribbon button {
+  flex: 0 0 auto; min-height: 32px; min-width: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
+}
+.sbm-tile--gold { color: #8a6510; background: var(--sbm-gold-soft); border-color: transparent; }
+
+/* the medley editor */
+.md-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.md-row {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) 36px 36px 36px; gap: 6px; align-items: center;
+  padding: 6px 6px 6px 8px; border-radius: var(--sbm-radius-md); border: 1px solid rgba(201,162,39,0.45); background: var(--sbm-gold-soft);
+}
+.md-row__n { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--sbm-gold); color: var(--sbm-navy); font: 700 12px/1 var(--sbm-font-ui); }
+.md-row__t { min-width: 0; font: 600 15px/1.2 var(--sbm-font-ui); color: var(--sbm-text); overflow-wrap: anywhere; }
+.md-row button { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-navy); cursor: pointer; }
+.md-row button:disabled { opacity: 0.3; cursor: default; }
+.md-ed__hint { margin: 4px 0 0; font: 500 12px/1.4 var(--sbm-font-ui); color: #8a6510; }
+.md-ed__h2 { margin-top: 14px; }
+.md-cands { display: flex; flex-direction: column; gap: 6px; }
+.md-cand {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 12px; border-radius: var(--sbm-radius-md);
+  border: 1px dashed var(--sbm-line); background: var(--sbm-card); text-align: left; cursor: pointer; color: var(--sbm-text); font: 600 14px/1.2 var(--sbm-font-ui);
+}
+.md-cand > i { color: var(--sbm-teal); }
+.md-cand > span { min-width: 0; }
+.md-cand:disabled { opacity: 0.55; cursor: default; }
+.md-ed__foot {
+  position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; margin: 14px calc(-1 * var(--sbm-gutter)) 0;
+  padding: 10px var(--sbm-gutter); background: rgba(246,248,252,0.97); border-top: 1px solid var(--sbm-line);
+}
+.md-ed__foot .sbm-btn--danger { margin-right: auto; }
+.md-ed__foot .sbm-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* the Liturgy Builder's mark on a song in a medley */
+.lbw-md { flex: 0 0 auto; padding: 0 6px; border-radius: 5px; background: #fdf3d4; color: #8a6510; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.lbw-el--md { box-shadow: inset 3px 0 0 #c9a227; }
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
