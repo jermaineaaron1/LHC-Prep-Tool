@@ -212,7 +212,8 @@ const destLine = new Function('window', '_sbmRecRow', '_sbVoiceRowsFor', '_sbmRe
   () => dRows,
   k => String(k || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general');
 check('a take on the women\'s line, moved to the men, lands on the men\'s line of the same words', destLine({ line_id: 11 }, {}, 'men'), 12);
-check('  a take on a line everyone sings stays on it, whichever part it moves to', [destLine({ line_id: 10 }, {}, 'men'), destLine({ line_id: 10 }, {}, 'general')], [10, 10]);
+check('  a take on a line everyone sings stays on it, whichever part it moves to', [destLine({ line_id: 10 }, {}, 'men'), destLine({ line_id: 10 }, {}, 'women')], [10, 10]);
+check('  but General and the instruments are not sung on a line: the take comes off it', [destLine({ line_id: 10 }, {}, 'general'), destLine({ line_id: 10 }, {}, 'instrumental')], [null, null]);
 check('  a part that does not sing the moment takes the whole part', destLine({ line_id: 11 }, {}, 'altos'), null);
 check('  a take on no line stays on no line', destLine({ line_id: null }, {}, 'men'), null);
 

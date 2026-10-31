@@ -573,6 +573,17 @@ the anon key -- verify as `postgres`, not as the app.
     one row. `replaceAll` deletes and re-inserts everything, which clears
     the bars on rows nobody was editing. Inline edits preserve them; the
     full editor is for restructuring, and pays the price above.
+    The editors (Edit Parts, Overview Edit) READ the arrangement before
+    they open (`_sbLinesReady`): opened on lines not loaded yet they took
+    the song for one without parts, seeded it from the lyrics, and the
+    save replaced the real arrangement. A song marked two-part that reads
+    as no lines is a failed read (`forSong` answers [] on an error) and
+    the editor refuses to open. In both editors a section sung twice is
+    TWO sections, by run not by name: `_sbmEdFromRows` starts a section
+    whenever the name changes, and a section's Overview pen carries its
+    run (`sbmOverview(name, run)`, `_sbmPadText(..., run)`,
+    `_sbmPadReplaceSection(..., run)`) -- by name alone the second chorus
+    was merged into the first and the save dropped it.
 
 19. **A practice take follows its line by its WORDS, not by its id.**
     `replaceAll` gives every row a new id, and `song_recordings.line_id`

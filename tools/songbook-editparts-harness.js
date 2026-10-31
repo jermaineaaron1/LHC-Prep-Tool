@@ -92,6 +92,7 @@ const WANTED = [
   [/^  function _sbmEdPartLabel\(/, '_sbmEdPartLabel'],
   [/^  function _sbmEdCanonical\(/, '_sbmEdCanonical'],
   [/^  function _sbmEdFromRows\(/, '_sbmEdFromRows'],
+  [/^  function _sbmAllPrefix\(/, '_sbmAllPrefix'],
   [/^  function _sbmEdToText\(/, '_sbmEdToText'],
   [/^  function _sbmEdFind\(/, '_sbmEdFind'],
   [/^  function _sbmEdPartsOn\(/, '_sbmEdPartsOn'],

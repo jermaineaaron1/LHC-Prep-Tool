@@ -9003,6 +9003,11 @@
      would keep its height and the page would be as long as before, which
      is the thing the filter exists to fix. */
   .vl-ln--off { display: none !important; }
+  /* A filtered-out line kept for the chords it carries: the chords as
+     they are, its words faint, no chip, no recording controls. */
+  .vl-ln--off.vl-ln--chords { display: flex !important; }
+  .vl-ln--chords > .vl-who, .vl-ln--chords > .vl-rec { display: none !important; }
+  .vl-ln--chords .vl-w { color: rgba(100, 116, 139, 0.45); }
 
   /* Which pages a song shows. Shared, not per-browser: this is stored on
      the songbook so every caroler opening it sees the same book. */
@@ -15524,7 +15529,10 @@ window.lhcVoiceRec = {
     // One past the highest number already used, or past how many there
     // are: counting alone gave a take the number of one still kept after
     // an earlier one was deleted.
-    var next = function(list) { var n = list.length; list.forEach(function(d) { var m = /(\d+)\s*$/.exec((d && d.name) || ''); if (m) n = Math.max(n, parseInt(m[1], 10)); }); return n + 1; };
+    // The number of "Melody take 3" or "Run-through 2" -- not the trailing
+    // digits of an imported file's name, which made the next one
+    // "Run-through 201544".
+    var next = function(list) { var n = list.length; list.forEach(function(d) { var m = /(?:take|run-through)\s+(\d+)\s*$/i.exec((d && d.name) || ''); if (m) n = Math.max(n, parseInt(m[1], 10)); }); return n + 1; };
     var n = whole ? next(R._drafts[songId].filter(function(d) { return !d.section; }))
                   : section ? next(R._drafts[songId].filter(function(d) { return d.section && secKey(d.section) === secKey(section) && R._slotOf(d.storage_path) === part; }))
                   : next(R._takesFor(songId, lineId));
@@ -16269,7 +16277,9 @@ window.lhcVoiceLines = {
         section = g.section;
       }
       var rows = [];
-      if (g.both) rows.push(['', g.both]);
+      // [All] for a line everyone sings that opens with a number: bare, the
+      // parser reads the number as bars and the word is lost.
+      if (g.both) rows.push([/^\s*\d+\s*(?:[-\u2013\u2014]\s*\d+)?\s+/.test(String(g.both.text || '')) ? '[All] ' : '', g.both]);
       else {
         // In lane order, so reading the editor top to bottom matches
         // reading the page top to bottom. The two canonical lanes keep
@@ -16430,6 +16440,19 @@ window.lhcVoiceLines = {
       }
       if (mine) shown++;
       ln.classList.toggle('vl-ln--off', !mine);
+    });
+    // On a phone a moment's chords ride on one line of it, the lead. When
+    // the part chosen is not that line's, the line stays as a faint guide
+    // carrying them -- the desk's chord row, in effect -- or the part sang
+    // that moment without its chords.
+    Array.prototype.forEach.call(score.querySelectorAll('.vl-sys'), function(sys) {
+      var lines = sys.querySelectorAll('.vl-ln'), carrier = null, seen = false;
+      Array.prototype.forEach.call(lines, function(ln) {
+        ln.classList.remove('vl-ln--chords');
+        if (!ln.querySelector('.vl-w__c')) return;
+        if (ln.classList.contains('vl-ln--off')) carrier = carrier || ln; else seen = true;
+      });
+      if (carrier && !seen) carrier.classList.add('vl-ln--chords');
     });
     return shown;
   },
@@ -47949,6 +47972,9 @@ var WO = (function() {
   function closeSongbook() {
     if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
     if (typeof _sbmPhoneClose === 'function') _sbmPhoneClose();
+    // The recordings panel's song goes with the book, or the next book's
+    // first recording is filed against a song from this one.
+    _sbRecCurrentSongId = null;
     if (typeof _sbmLiveStop === 'function') _sbmLiveStop();
     // Finish a take that is still running rather than dropping it.
     //
@@ -49137,6 +49163,9 @@ var WO = (function() {
     }
     // One pointer draws at a time: a palm or finger landing while the pen is
     // down used to take the stroke over and fold the pen's points into it.
+    // A stroke whose canvas was redrawn away mid-stroke never gets its
+    // pointerup, and must not hold the pen out until Done.
+    if (D.live && (!D.live.cv || !D.live.cv.isConnected)) D.live = null;
     if (D.live && D.live.pointerId != null && D.live.pointerId !== ev.pointerId) return;
     var q = _sbmDrawPos(ev, cv);
     if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card, pointerId: ev.pointerId }; _sbmDrawErase(cv, q); return; }
@@ -49459,9 +49488,14 @@ var WO = (function() {
   }
   // Called after this device writes: the others are nudged, and this one
   // remembers not to take its own change for somebody else's.
+  var _sbmLiveAdoptT = 0;
   function _sbmLiveSend() {
     _sbmLiveOwnAt = Date.now();
     if (_sbmLive && _sbmLive.channel) { try { _sbmLive.channel.send({ type: 'broadcast', event: 'changed', payload: { at: Date.now() } }); } catch (e) {} }
+    // ...and takes what its own write left as seen, once it has landed, or
+    // a check 15 to 30 seconds later bannered the writer with its own change.
+    clearTimeout(_sbmLiveAdoptT);
+    _sbmLiveAdoptT = setTimeout(function() { if (_sbmLive) _sbmLiveCheck(true); }, 2500);
   }
   function _sbmHash(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h); }
   function _sbmLiveFingerprint(ids) {
@@ -49551,10 +49585,13 @@ var WO = (function() {
         var t0 = Date.now();
         (function back() {
           if (songOrderSections === before && Date.now() - t0 < 10000) { setTimeout(back, 200); return; }
+          // The reader's own id, not _sbmSid: a render in between has already
+          // moved _sbmSid to the first song when the old id went. And only
+          // on the reading surface -- in Page view this drew it over the pages.
           var list = _sbmSongs();
-          if (list.length && !list.some(function(x) { return x.id === _sbmSid; })) {
+          if (list.length && _sbmActive() && !list.some(function(x) { return x.id === keep.sid; })) {
             var hit = _sbmPhoneFind(list, keep.sid, keep.base, keep.nth);
-            if (hit) sbmSelectSong(hit.id);
+            if (hit && hit.id !== _sbmSid) sbmSelectSong(hit.id);
           }
         })();
       }
@@ -50139,7 +50176,10 @@ var WO = (function() {
     // on it moves to that part and stays on the same words. Looking only
     // for the part's own row found none, and the take came loose from its
     // line as a whole-part run-through with no way back.
-    if (!hit) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });
+    // Only a PART: "General" and the instruments are not sung on a line,
+    // and moving a take there takes it off its line, as it always did.
+    var isLane = rows.some(function(x) { return V.partFamily(x.part) !== 'both' && _sbmRecSlug(V.partKey(x.part)) === tok; });
+    if (!hit && isLane) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });
     return hit ? hit.id : null;
   }
   // Whether a take's name is one the app gave it -- "Melody take 2",
@@ -50793,13 +50833,15 @@ var WO = (function() {
     var ly = document.getElementById('sbmLyrics');
     if (ly && typeof sbApplySectionBadges === 'function') sbApplySectionBadges(ly);
     // Each section of the score gets its own way into the pad.
+    var secRuns = {};
     root.querySelectorAll('.sbm-score .vl-section').forEach(function(el) {
       var name = el.textContent.trim();
+      var nk = name.toLowerCase(), run = secRuns[nk] = (secRuns[nk] || 0) + 1;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'sbm-sec-edit';
       b.title = 'Overview edit \u2014 ' + name; b.setAttribute('aria-label', 'Edit ' + name + ' as text');
       b.innerHTML = '<i class="fa-solid fa-pen"></i>';
-      b.onclick = function(ev) { ev.stopPropagation(); sbmOverview(name); };
+      b.onclick = function(ev) { ev.stopPropagation(); sbmOverview(name, run); };
       el.setAttribute('data-section', name);
       el.appendChild(b);
       if (_sbRecSecOk === true && hasChoir) {
@@ -50810,7 +50852,7 @@ var WO = (function() {
         mic.onclick = function(ev) { ev.stopPropagation(); sbmSectionRecord(name); };
         // Redrawn mid-take: still says so.
         var VR = window.lhcVoiceRec;
-        if (VR && VR._rec && VR._rec.state !== 'inactive' && VR._recSec && _sbmSecNorm(VR._recSec) === _sbmSecNorm(name)) {
+        if (VR && VR._rec && VR._rec.state !== 'inactive' && VR._recSec && _sbmSecNorm(VR._recSec) === _sbmSecNorm(name) && String(VR._recSong) === String(_sbBaseSongId(song))) {
           mic.classList.add('is-recording'); mic.innerHTML = '<i class="fa-solid fa-stop"></i>'; mic.title = 'Stop recording';
         }
         el.appendChild(mic);
@@ -50966,28 +51008,54 @@ var WO = (function() {
   // lyrics, which is where the score has always read them from.
   var _sbmPad = null, _sbmPadTimer = null;
   function _sbmIsChord() { return (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null; }
+  // A line everyone sings is written bare -- unless it opens with a number
+  // and a space, which the parser takes for bars ("3 kings came" lost its
+  // first word): then it is labelled [All].
+  function _sbmAllPrefix(text) { return /^\s*\d+\s*(?:[-\u2013\u2014]\s*\d+)?\s+/.test(String(text || '')) ? '[All] ' : ''; }
   function _sbmPadLine(ln) {
     var V = window.lhcVoiceLines, k = V.partKey(ln.part);
-    var pre = (k === 'both') ? '' : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + V.partLabel(ln.part) + '] ';
+    var pre = (k === 'both') ? _sbmAllPrefix(ln.text) : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + V.partLabel(ln.part) + '] ';
     return pre + (ln.sustained ? '~' : '') + String(ln.text || '').replace(/\r?\n/g, ' ');
   }
   // rows -> the pad's text; sectionName keeps one section (with its header).
   // The chord cursor walks EVERY moment, so a section left out of the pad
   // still takes its own chords and cannot steal the next section's.
-  function _sbmPadText(rows, lyrics, sectionName, isChord) {
+  // run: which time through the section (1, 2...), when one is asked for.
+  function _sbmPadText(rows, lyrics, sectionName, isChord, run) {
     var V = window.lhcVoiceLines;
     var index = V.chordIndex(lyrics || '', isChord || null), cursor = {};
-    var out = [], section = null, want = (sectionName == null) ? null : String(sectionName).trim().toLowerCase();
+    var out = [], want = (sectionName == null) ? null : String(sectionName).trim().toLowerCase();
+    var wantRun = (want === null) ? null : (run || 1), runs = {}, lastSec = null, header = null;
     V.group(rows).forEach(function(g) {
       var hit = V.chordFor(index, g, cursor);
-      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;
-      if (g.section && g.section !== section) { if (out.length) out.push(''); out.push('[' + g.section + ']'); section = g.section; }
+      var name = String(g.section || ''), key = name.trim().toLowerCase();
+      if (name !== lastSec) { runs[key] = (runs[key] || 0) + 1; lastSec = name; }
+      if (want !== null && (key !== want || runs[key] !== wantRun)) return;
+      var here = key + '#' + runs[key];
+      if (g.section && here !== header) { if (out.length) out.push(''); out.push('[' + g.section + ']'); header = here; }
       else if (out.length) out.push('');
-      if (hit && hit.chord && String(hit.chord).trim()) out.push(String(hit.chord).replace(/\s+$/, ''));
-      if (g.both) out.push(_sbmPadLine(g.both));
-      Object.keys(g.byPart || {}).forEach(function(p) { out.push(_sbmPadLine(g.byPart[p])); });
+      // The chord line goes over the moment's LEAD line -- the one it is
+      // saved against -- not over a held note above it, where the save
+      // never matched it; and it is indented by that line's part label, so
+      // a chord over a word here is over the same word in the lyrics.
+      var lead = V.leadLine(g), lines = [];
+      if (g.both) lines.push(g.both);
+      Object.keys(g.byPart || {}).forEach(function(p) { lines.push(g.byPart[p]); });
+      var chord = (hit && hit.chord && String(hit.chord).trim()) ? String(hit.chord).replace(/\s+$/, '') : '';
+      if (chord && (!lead || lines.indexOf(lead) < 0)) { out.push(chord); chord = ''; }
+      lines.forEach(function(ln) {
+        var t = _sbmPadLine(ln);
+        if (chord && ln === lead) { out.push(_sbmPadIndent(t) + chord); chord = ''; }
+        out.push(t);
+      });
     });
     return out.join('\n');
+  }
+  // As many spaces as a pad line's part label takes ("W: ", "[Melody] ",
+  // a hold mark): the room a chord line above it is indented by.
+  function _sbmPadIndent(line) {
+    var m = /^\s*(?:W:|M:|\[[^\]]+\])\s*~?|^\s*~/.exec(String(line || ''));
+    return m ? new Array(m[0].length + 1).join(' ') : '';
   }
   // the words of a pad line, without its part prefix or hold mark
   function _sbmPadWords(l) {
@@ -51005,7 +51073,9 @@ var WO = (function() {
         var j = i + 1;
         while (j < lines.length && !lines[j].trim()) j++;
         if (j < lines.length && !/^\s*\[.+\]\s*$/.test(lines[j]) && !isChord(lines[j], lines[j + 1])) {
-          chords.push({ words: _sbmPadWords(lines[j]), chord: l.replace(/\s+$/, '') });
+          // the indent the pad gave it for the line's part label comes off
+          var pre = _sbmPadIndent(lines[j]).length, lead = (/^ */.exec(l) || [''])[0].length;
+          chords.push({ words: _sbmPadWords(lines[j]), chord: l.slice(Math.min(pre, lead)).replace(/\s+$/, '') });
           continue;
         }
       }
@@ -51016,16 +51086,20 @@ var WO = (function() {
   // Put one section's block back into the whole pad text. A block starts
   // at a header alone on a line; the text before the first header is the
   // unnamed block. A section the text does not have goes on the end.
-  function _sbmPadReplaceSection(fullText, sectionName, blockText) {
+  function _sbmPadReplaceSection(fullText, sectionName, blockText, run) {
     var lines = String(fullText || '').replace(/\r\n?/g, '\n').split('\n');
     var name = String(sectionName || '').trim().toLowerCase();
     var block = String(blockText || '').replace(/\r\n?/g, '\n').replace(/\s+$/, '');
-    var out = [], inTarget = (name === ''), replaced = false;
+    var out = [], inTarget = (name === ''), replaced = false, seenRuns = 0, wantRun = run || 1;
     if (inTarget) { out.push(block); replaced = true; }
     for (var i = 0; i < lines.length; i++) {
       var m = /^\s*\[(.+)\]\s*$/.exec(lines[i]);
       if (m) {
-        inTarget = (m[1].trim().toLowerCase() === name);
+        // Only the asked-for time through the section: the other times it
+        // is sung keep their own words.
+        var same = (m[1].trim().toLowerCase() === name);
+        if (same) seenRuns++;
+        inTarget = same && seenRuns === wantRun;
         if (inTarget) {
           if (!replaced) { if (out.length && out[out.length - 1].trim()) out.push(''); out.push(block); replaced = true; }
           continue;
@@ -51067,7 +51141,7 @@ var WO = (function() {
     if (!lib || !chords || !chords.length) return Promise.resolve({ written: false, orphans: [] });
     var isChord = _sbmIsChord();
     var lyrics = lib.lyrics || '', changed = false, orphans = [];
-    var groups = V.group(rows), ci = 0, used = {};
+    var groups = V.group(rows), ci = 0, used = {}, wrote = {};
     groups.forEach(function(g) {
       var want = V.leadText(g);
       if (!want) return;
@@ -51082,8 +51156,14 @@ var WO = (function() {
       for (var y = 0; y < groups.length; y++) { var h = V.chordFor(index, groups[y], cursor); if (groups[y] === g) { hit = h; break; } }
       if (!hit) { orphans.push(want); return; }
       var cur = String(hit.chord || '').replace(/\s+$/, ''), next = String(chords[k].chord || '').replace(/\s+$/, '');
+      // Two moments by different parts with the same words share one line
+      // of the lyrics. Once one has been written, the other -- an unchanged
+      // copy -- does not put the old chord back.
+      if (wrote[hit.lyricAt]) return;
       if (cur === next) return;
+      var inserted = !(hit.chordAt != null && hit.chordAt >= 0);
       lyrics = V.withChord(lyrics, hit.lyricAt, hit.chordAt, next);
+      wrote[inserted ? hit.lyricAt + 1 : hit.lyricAt] = true;   // a new chord row pushes its lyric down one
       changed = true;
     });
     chords.forEach(function(c, x) { if (!used[x]) orphans.push(c.words); });
@@ -51151,11 +51231,11 @@ var WO = (function() {
         '<div class="sbm-pad__tools"><span class="sbm-pad__lbl">Insert</span>' +
           ['Verse', 'Chorus', 'Pre-Chorus', 'Bridge', 'Ending'].map(function(n) { return '<button class="sbm-pad__tb sbm-pad__tb--sec" onclick="WO.sbmPadInsertSection(\'' + n + '\')">+ ' + n + '</button>'; }).join('') +
           '<span class="sbm-pad__sep"></span>' +
-          roles.map(function(r) { return '<button class="sbm-pad__tb sbm-pad__tb--role" data-role="' + q(r.key) + '" style="--p:' + _sbmPadColourOf(r.key) + '" onclick="WO.sbmPadPrefix(\'' + q(r.key) + '\')" title="This line is sung by ' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</button>'; }).join('') +
+          roles.map(function(r) { return '<button class="sbm-pad__tb sbm-pad__tb--role" data-role="' + q(r.key) + '" style="--p:' + _sbmPadColourOf(r.key) + '" onclick="WO.sbmPadPrefix(this.getAttribute(\'data-role\'))" title="This line is sung by ' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</button>'; }).join('') +
           '<button class="sbm-pad__tb" onclick="WO.sbmPadHold()" title="A held note">~ Hold</button>' +
           '<button class="sbm-pad__tb sbm-pad__tb--chord" onclick="WO.sbmPadChordLine()" title="A chord line above these words">+ Chords</button></div>' +
         '<div class="sbm-pad__colours"><span class="sbm-pad__lbl">Colours</span>' +
-          roles.map(function(r) { return '<label class="sbm-pad__sw" data-role="' + q(r.key) + '"><input type="color" value="' + _sbmPadColourOf(r.key) + '" oninput="WO.sbmPadColour(\'' + q(r.key) + '\', this.value)"><span style="background:' + _sbmPadColourOf(r.key) + '">' + escapeHtml(r.label) + '</span></label>'; }).join('') +
+          roles.map(function(r) { return '<label class="sbm-pad__sw" data-role="' + q(r.key) + '"><input type="color" value="' + _sbmPadColourOf(r.key) + '" oninput="WO.sbmPadColour(this.parentNode.getAttribute(\'data-role\'), this.value)"><span style="background:' + _sbmPadColourOf(r.key) + '">' + escapeHtml(r.label) + '</span></label>'; }).join('') +
           '<button class="sbm-pad__tb" onclick="WO.sbmPadColoursReset()">Reset colours</button></div>' +
         '<div class="sbm-pad"><pre class="sbm-pad__hl" aria-hidden="true"></pre>' +
           '<textarea class="sbm-pad__ta" spellcheck="false" autocapitalize="off" oninput="WO.sbmPadInput()" onscroll="WO.sbmPadScroll()"></textarea></div>' +
@@ -51262,18 +51342,43 @@ var WO = (function() {
     _sbmPad = null;
   }
   function sbmPadSave() {
-    var P = _sbmPad; if (!P) return;
+    var P = _sbmPad; if (!P || P.saving) return;   // one save at a time, by key as by button
     var ta = _sbmPadTa(), text = ta ? ta.value : '';
     var colours = P.colours;
     var btn = P.host.querySelector('.sbm-ed__foot .sbm-btn--primary'); if (btn) btn.disabled = true;
+    P.saving = true;
     Promise.resolve(P.o.onSave(text, colours)).then(function() {
+      P.saving = false;
       if (_sbmPad === P) { P.dirty = false; _sbmPadClose(); }
-    }).catch(function() { if (btn) btn.disabled = false; });
+    }).catch(function() { P.saving = false; if (btn) btn.disabled = false; });
   }
   // The whole arrangement, or one section of it, for any song: the reading
   // view's song on screen, or a printed choir page's.
-  function _sbOverviewOpen(base, sid, title, sectionName) {
+  // The song's arrangement, read before anything edits it. An editor opened
+  // on lines not loaded yet took the song for one without parts, seeded it
+  // from the lyrics, and its save replaced the real arrangement with
+  // everyone singing the words. A song that has parts and reads as none is
+  // a read that failed (forSong answers [] on an error), and is refused.
+  function _sbLinesReady(base) {
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    var hasParts = !!(lib && lib.voiceLayout === 'two-part');
+    var have = _sbVoiceLines[base];
+    if (have && (have.length || !hasParts)) return Promise.resolve(have);
+    if (!window.SBQ_VOICE_LINES) return Promise.reject(new Error('unread'));
+    return window.SBQ_VOICE_LINES.forSong(base).then(function(rows) {
+      rows = rows || [];
+      if (!rows.length && hasParts) throw new Error('unread');
+      _sbVoiceLines[base] = rows;
+      return rows;
+    });
+  }
+  function _sbLinesUnread() { showToast('The choir parts could not be loaded \u2014 check the connection and try again', 'error'); }
+  function _sbOverviewOpen(base, sid, title, sectionName, run) {
     var V = window.lhcVoiceLines; if (!V || !base) return;
+    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run); }, _sbLinesUnread);
+  }
+  function _sbOverviewOpenNow(base, sid, title, sectionName, run) {
+    var V = window.lhcVoiceLines;
     var rows = _sbVoiceLines[base] || [];
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     var lyrics = (lib && lib.lyrics) || '';
@@ -51284,17 +51389,20 @@ var WO = (function() {
     }
     var isChord = _sbmIsChord();
     var full = _sbmPadText(rows, lyrics, null, isChord);
-    var text = (sectionName != null) ? _sbmPadText(rows, lyrics, sectionName, isChord) : full;
+    // One section is one TIME through it: a chorus sung twice is two, and
+    // the pen on the second edits the second. Editing "Chorus" by name
+    // showed both runs as one and the save dropped the second.
+    var text = (sectionName != null) ? _sbmPadText(rows, lyrics, sectionName, isChord, run) : full;
     _sbmCloseSheet();
     _sbmPadOpen({ title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
       onSave: function(t, colours) {
-        var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t) : t;
+        var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t, run) : t;
         return _sbmPadSaveSong(base, sid, whole, colours);
       } });
   }
-  function sbmOverview(sectionName) {
+  function sbmOverview(sectionName, run) {
     var song = _sbmSong(); if (!song) return;
-    _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', sectionName);
+    _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', sectionName, run);
   }
   // From a printed choir page, which knows its song by the base id.
   function sbOverviewFor(baseSongId, sectionName) {
@@ -51313,10 +51421,13 @@ var WO = (function() {
     var lyrics = (lib && lib.lyrics) || '';
     var rowsAll = V.parseVoiceText(_sbmEdToText(ed));
     var name = f ? (f.sec.name || '') : null;
+    var nk = String(name || '').trim().toLowerCase();
+    var run = f ? ed.sections.slice(0, f.si + 1).filter(function(x) { return String(x.name || '').trim().toLowerCase() === nk; }).length : null;
     _sbmCloseSheet();
-    _sbmPadOpen({ title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord),
+    _sbmPadOpen({ title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord, run),
       roles: _sbmPadRoles(rowsAll), colours: ed.pendingColours || _sbPartColours(ed.base), saveLabel: 'Apply',
       onSave: function(t, colours) {
+        if (_sbmEd !== ed) return Promise.resolve();   // the editor was closed underneath
         var split = _sbmPadSplit(t, isChord);
         var built = _sbmEdFromRows(V.parseVoiceText(split.text));
         if (built.sections.length) built.sections[0].open = true;
@@ -51832,12 +51943,15 @@ var WO = (function() {
 
   function _sbmEdFromRows(rows) {
     var V = window.lhcVoiceLines;
-    var secs = [], byName = {}, parts = [];
+    var secs = [], sec = null, parts = [];
     var seen = {};
     V.group(rows).forEach(function(g) {
       var name = g.section || '';
-      var sec = byName[name];
-      if (!sec) { sec = { id: _sbmEdId(), name: name, open: secs.length === 0, moments: [] }; byName[name] = sec; secs.push(sec); }
+      // A new section each time the name changes, not one per name: a song
+      // that sings Verse 1, Chorus, Verse 2, Chorus has two choruses, and
+      // keying them by name merged the second into the first and saved the
+      // song as Verse 1, Chorus, Chorus, Verse 2.
+      if (!sec || sec.name !== name) { sec = { id: _sbmEdId(), name: name, open: secs.length === 0, moments: [] }; secs.push(sec); }
       var lines = [];
       if (g.both) lines.push({ id: _sbmEdId(), part: 'both', text: g.both.text || '', sustained: !!g.both.sustained });
       Object.keys(g.byPart).forEach(function(p) {
@@ -51860,7 +51974,7 @@ var WO = (function() {
         if (!ls.length) return;
         body.push(ls.map(function(l) {
           var k = _sbmEdPartKey(l.part);
-          var pre = (k === 'both') ? '' : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] ';
+          var pre = (k === 'both') ? _sbmAllPrefix(l.text) : (k === 'women') ? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] ';
           return pre + (l.sustained ? '~' : '') + String(l.text || '').replace(/\r?\n/g, ' ');
         }).join('\n'));
       });
@@ -51925,10 +52039,12 @@ var WO = (function() {
     var base = _sbBaseSongId(song);
     var wide = !_sbFoldPhone();
     _sbmStopPlayer();
-    _sbmEdOpen({ base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
-                 rows: _sbVoiceLines[base] || [], lyrics: song.lyrics || '',
-                 desktop: wide, previewOpts: { compact: true },
-                 onText: wide ? function(t) { sbmPageView(true); setTimeout(function() { _sbChoirTextEditor(base, t); }, 80); } : null });
+    _sbLinesReady(base).then(function(rows) {
+      _sbmEdOpen({ base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
+                   rows: rows, lyrics: song.lyrics || '',
+                   desktop: wide, previewOpts: { compact: true },
+                   onText: wide ? function(t) { sbmPageView(true); setTimeout(function() { _sbChoirTextEditor(base, t); }, 80); } : null });
+    }, _sbLinesUnread);
   }
   // Anyone else's entry: the dialog. The library's Choir parts tab uses it
   // with its own save.
@@ -51936,7 +52052,10 @@ var WO = (function() {
     _sbmEdOpen(Object.assign({ desktop: !_sbFoldPhone() }, o || {}));
   }
   function _sbmEdKey(ev) {
-    if (!_sbmEd) return;
+    // Both listen on the document: with the Overview pad open over the
+    // editor, Ctrl+Enter saved the editor -- without the pad's text -- and
+    // Escape closed the editor under the pad.
+    if (!_sbmEd || _sbmPad) return;
     if (ev.key === 'Escape') {
       ev.stopPropagation(); ev.preventDefault();
       if (document.getElementById('sbmSheet')) { _sbmCloseSheet(); return; }
@@ -52016,7 +52135,7 @@ var WO = (function() {
       '<span class="sbm-ed__tg is-on" style="--p:var(--sbm-part-all)" title="Everyone sings these lines"><span>All</span><span class="sw"></span></span>' +
       names.map(function(p) {
         var k = _sbmEdPartKey(p), isOn = !!on[k];
-        return '<button class="sbm-ed__tg' + (isOn ? ' is-on' : '') + '" style="--p:var(--sbm-part-' + fam(p) + ')" onclick="WO.sbmEdTogglePart(\'' + escapeHtml(p).replace(/'/g, '&#39;') + '\')" aria-pressed="' + (isOn ? 'true' : 'false') + '"><span>' + escapeHtml(_sbmEdPartLabel(p)) + '</span><span class="sw"></span></button>';
+        return '<button class="sbm-ed__tg' + (isOn ? ' is-on' : '') + '" style="--p:var(--sbm-part-' + fam(p) + ')" data-part="' + escapeHtml(p) + '" onclick="WO.sbmEdTogglePart(this.getAttribute(\'data-part\'))" aria-pressed="' + (isOn ? 'true' : 'false') + '"><span>' + escapeHtml(_sbmEdPartLabel(p)) + '</span><span class="sw"></span></button>';
       }).join('') + '</div></div>';
 
     // the sections
@@ -52156,7 +52275,7 @@ var WO = (function() {
     var options = [['both', 'All']];
     Object.keys(on).forEach(function(k) { options.push([on[k], _sbmEdPartLabel(on[k])]); });
     var html = '<div class="sbm-choice">' + options.map(function(o) {
-      return '<button class="sbm-btn" style="--p:var(--sbm-part-' + _sbmPartFamily(o[0]) + ');color:var(--p)" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',\'' + escapeHtml(o[0]).replace(/'/g, '&#39;') + '\')"><i class="fa-solid ' + _SBM_PART_ICON[_sbmPartFamily(o[0])] + '"></i>' + escapeHtml(o[1]) + '</button>';
+      return '<button class="sbm-btn" style="--p:var(--sbm-part-' + _sbmPartFamily(o[0]) + ');color:var(--p)" data-part="' + escapeHtml(o[0]) + '" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',this.getAttribute(\'data-part\'))"><i class="fa-solid ' + _SBM_PART_ICON[_sbmPartFamily(o[0])] + '"></i>' + escapeHtml(o[1]) + '</button>';
     }).join('') + '<button class="sbm-btn" onclick="WO.sbmEdAddPartNamed(\'' + sec.id + '\',\'' + (momentId || '') + '\',null)"><i class="fa-solid fa-pen"></i>Custom part\u2026</button></div>';
     _sbmSheet('Add a part to ' + (sec.name || 'this section'), html);
   }
@@ -52266,6 +52385,9 @@ var WO = (function() {
   }
   function sbmEdSave() {
     var ed = _sbmEd; if (!ed) return;
+    // One save at a time: the loader blocks clicks, not keys, and two
+    // whole-arrangement writes interleaved can leave every line twice.
+    if (ed.saving) return;
     var V = window.lhcVoiceLines;
     var parsed = V.parseVoiceText(_sbmEdToText(ed));
     if (!parsed.length) { showToast('Nothing to save \u2014 there are no lines', 'error'); return; }
@@ -52281,6 +52403,7 @@ var WO = (function() {
       return;
     }
     if (typeof showLoader === 'function') showLoader(true);
+    ed.saving = true;
     window.SBQ_VOICE_LINES.replaceAll(ed.base, parsed).then(function() {
       return window.SBQ_VOICE_LINES.forSong(ed.base);
     }).then(function(fresh) {
@@ -52305,6 +52428,7 @@ var WO = (function() {
       console.error(err);
       showToast('Could not save the choir parts', 'error');
     }).finally(function() {
+      ed.saving = false;
       if (typeof showLoader === 'function') showLoader(false);
     });
   }
@@ -65491,6 +65615,7 @@ var WO = (function() {
   // offering an edit that goes nowhere.
   var _sbVoiceLines = {};        // base song id -> rows
   var _sbVoiceWanted = {};       // base song id -> true once asked
+  var _sbVoiceRetryAt = {};      // base song id -> not asked again before this (a read that failed)
 
   // The library id behind a songbook item.
   //
@@ -65526,15 +65651,25 @@ var WO = (function() {
     var want = (typeof songOrderSections !== 'undefined' ? songOrderSections : [])
       .filter(_sbSongHasChoir)
       .map(_sbBaseSongId)
-      .filter(function(id) { return id && !_sbVoiceWanted[id]; });
+      .filter(function(id) { return id && !_sbVoiceWanted[id] && !(_sbVoiceRetryAt[id] > Date.now()); });
     if (!want.length || !window.SBQ_VOICE_LINES) return Promise.resolve(false);
     want.forEach(function(id) { _sbVoiceWanted[id] = true; });
     return Promise.all(want.map(function(id) {
       return window.SBQ_VOICE_LINES.forSong(id).then(function(rows) {
-        _sbVoiceLines[id] = rows || [];
+        // Only songs that have parts are asked for, so none back is a read
+        // that failed (forSong answers [] on an error). It used to be kept
+        // as "no parts" for the rest of the session; it is asked again in
+        // a while, and the score says it is loading until then.
+        if (!(rows && rows.length)) {
+          delete _sbVoiceWanted[id]; _sbVoiceRetryAt[id] = Date.now() + 15000;
+          setTimeout(function() { if (typeof _sbmBookOpen === 'function' && _sbmBookOpen()) renderSongbookLive(); }, 15500);
+          return false;
+        }
+        _sbVoiceLines[id] = rows;
+        return true;
       });
-    })).then(function() {
-      if (typeof onReady === 'function') onReady();
+    })).then(function(got) {
+      if (got.some(Boolean) && typeof onReady === 'function') onReady();
       return true;
     }).catch(function() { return false; });
   }
