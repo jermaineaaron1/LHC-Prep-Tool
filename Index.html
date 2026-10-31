@@ -48759,6 +48759,10 @@ var WO = (function() {
   function _sbmMarksMount() {
     var song = _sbmSong(); if (!song) return;
     if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmEvenRows(); _sbmMarksPaintAll(); });
+    // Only this render's cards are watched: each render replaces them, and
+    // the last render's, still observed, were never let go -- one more
+    // detached card, score and all, for every song switch and redraw.
+    if (_sbmMarksRO) _sbmMarksRO.disconnect();
     _sbmMarkCards().forEach(function(card) {
       card.classList.add('sbm-card--marks');
       if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
