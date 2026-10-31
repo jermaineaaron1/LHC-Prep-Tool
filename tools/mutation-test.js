@@ -802,6 +802,17 @@ const CASES = [
                    '        min-height: 24px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #456158;')],
   // 14px tall is below anything anyone can aim at, and it is the control
   // that sends a whole service to the team.
+  // 104 of the 124 "..." icons on the live roster had nothing behind
+  // them, because the guard asked whether the cell had an icon rather
+  // than whether the icon was wired -- and the table's own markup gives
+  // every role cell one already.
+  ['roster-touch-edit-harness.js', 'the guard goes back to skipping an icon that exists',
+    s => s.replace('        if (!iconBtn._ddBound) {', '        if (!iconBtn._ddBound && false) {')],
+  ['roster-touch-edit-harness.js', 'only cells with no icon get a working one',
+    s => s.replace("        var iconBtn = td.querySelector('.roster-cell-dropdown-icon');\r\n        if (!iconBtn) {",
+                   "        var iconBtn = null;\r\n        if (!td.querySelector('.roster-cell-dropdown-icon')) {")],
+  ['roster-touch-edit-harness.js', 'a span icon is left without a button\'s semantics',
+    s => s.replace("            iconBtn.setAttribute('role', 'button');\r\n            iconBtn.setAttribute('tabindex', '0');\r\n", '')],
   ['roster-touch-edit-harness.js', 'the WhatsApp button goes back to 14px',
     s => s.replace('      .roster-share-btn { padding: 5px 9px !important; font-size: 8px !important; }',
                    '      .roster-share-btn { padding: 2px 6px !important; font-size: 8px !important; }')],

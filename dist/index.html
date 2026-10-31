@@ -105590,14 +105590,39 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         // Right-click opens same dropdown
         td.oncontextmenu = function(e) { e.preventDefault(); };
         // Add dropdown icon button if not already present
-        if (!td.querySelector('.roster-cell-dropdown-icon')) {
-          var iconBtn = document.createElement('button');
+        // Make the icon if the cell has none, then wire whichever icon is
+        // there -- the two are separate steps on purpose.
+        //
+        // The table's own markup already emits this icon as a bare <span>
+        // for every ROLE cell, so a guard of the form "if there is no
+        // icon, create one and bind it" skipped exactly the cells that
+        // needed binding: 104 of the 124 icons on the live roster had
+        // nothing behind them, Live Streaming among them. The 20 that
+        // worked were the cells the renderer does not give a span.
+        var iconBtn = td.querySelector('.roster-cell-dropdown-icon');
+        if (!iconBtn) {
+          iconBtn = document.createElement('button');
           iconBtn.className = 'roster-cell-dropdown-icon';
           iconBtn.innerHTML = '<i class="fa-solid fa-ellipsis-vertical"></i>';
           iconBtn.title = 'Options';
-          iconBtn.setAttribute('aria-label', 'Cell options');
-          iconBtn.onclick = function(e) { e.stopPropagation(); self.showCellDropdown(iconBtn, td); };
           td.appendChild(iconBtn);
+        }
+        if (!iconBtn._ddBound) {
+          iconBtn._ddBound = true;
+          iconBtn.title = iconBtn.title || 'Options';
+          iconBtn.setAttribute('aria-label', 'Cell options');
+          // A span is not a button, so it answers neither Enter nor a tab
+          // stop until it is told to.
+          if (iconBtn.tagName !== 'BUTTON') {
+            iconBtn.setAttribute('role', 'button');
+            iconBtn.setAttribute('tabindex', '0');
+            iconBtn.addEventListener('keydown', function(e) {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault(); e.stopPropagation();
+              self.showCellDropdown(iconBtn, td);
+            });
+          }
+          iconBtn.onclick = function(e) { e.stopPropagation(); self.showCellDropdown(iconBtn, td); };
         }
       });
       tbody.querySelectorAll('.altar-color-dot').forEach(function(dot) {

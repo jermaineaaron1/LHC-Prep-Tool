@@ -233,6 +233,42 @@ console.log('\nwho is allowed, and what each cell does');
   check('  and the scripture cell switches to editing', log, ['edit:reading1__Nov_1']);
 }
 
+console.log('\nthe cell menu actually opens');
+// Measured on the live roster BEFORE this was fixed: 124 cells carried
+// the "..." icon and 20 of them had a handler. The table's own markup
+// emits the icon as a bare <span> for every ROLE cell, and the guard
+// read "if this cell has no icon, make one and wire it" -- so it skipped
+// exactly the cells that needed wiring. Nobody noticed because on a
+// desktop the double-click is the first way in and this is the second;
+// on a phone there was no first way.
+{
+  const table = buildTable();
+  // The renderer gives a role cell its icon already, as a span.
+  const pre = new El('span', 'roster-cell-dropdown-icon');
+  pre._listeners = {};
+  pre.addEventListener = (type, fn) => { (pre._listeners[type] = pre._listeners[type] || []).push(fn); };
+  table.cells.live.appendChild(pre);
+  const log = [];
+  run(table, { picMode: true }, log).bindCellEvents();
+
+  const iconOf = k => table.cells[k].querySelector('.roster-cell-dropdown-icon');
+  check('a cell the renderer already gave an icon keeps that one',
+    iconOf('live') === pre, true);
+  check('  and it is wired', typeof (iconOf('live') || {}).onclick, 'function');
+  check('a cell with no icon still gets one made',
+    !!iconOf('pa') && typeof iconOf('pa').onclick === 'function', true);
+  // The one that would have caught it: not "does an icon exist" but
+  // "is there an icon anywhere that does nothing".
+  const dead = ['live', 'pa', 'scripture']
+    .filter(k => { const i = iconOf(k); return i && typeof i.onclick !== 'function'; });
+  check('no cell is left with an icon that does nothing', dead, []);
+  // A span answers neither Enter nor a tab stop until it is told to.
+  check('the span is given a button\'s semantics',
+    [pre.getAttribute('role'), pre.getAttribute('tabindex')], ['button', '0']);
+  iconOf('live').onclick({ stopPropagation() {} });
+  check('  and tapping it opens the menu', log, ['menu']);
+}
+
 console.log('\nthe cell menu is its own control');
 {
   const table = buildTable();
