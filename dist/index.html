@@ -15339,6 +15339,7 @@ window.lhcVoiceRec = {
       R._stream = stream;
       R._recLine = lineId;
       R._recSong = songId;
+      R._recSec = section || null;   // so a redrawn badge can show it is recording
       R._started = Date.now();
       var mr = new MediaRecorder(stream);
       R._rec = mr;
@@ -15350,13 +15351,13 @@ window.lhcVoiceRec = {
         R._stream = null;
         R._setRecBtn(root, lineId, section, false);
         R._save(root, songId, lineId, part, new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), secs, null, who.name, section || null);
-        R._rec = null; R._recLine = null; R._recSong = null;
+        R._rec = null; R._recLine = null; R._recSong = null; R._recSec = null;
       };
       // Without this a recorder that dies mid-take leaves the button
       // saying STOP, the microphone light on, and nothing saved.
       mr.onerror = function(ev) {
         try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch (e) {}
-        R._stream = null; R._rec = null; R._recLine = null; R._recSong = null;
+        R._stream = null; R._rec = null; R._recLine = null; R._recSong = null; R._recSec = null;
         R._setRecBtn(root, lineId, section, false);
         showToast('The recording stopped unexpectedly', 'error');
         console.error('[VoiceRec]', ev && ev.error);
@@ -15378,11 +15379,17 @@ window.lhcVoiceRec = {
   },
   _setSecBtn: function(root, section, on) {
     var sel = '.sbm-sec-mic[data-section="' + String(section).replace(/"/g, '') + '"]';
-    var btn = (root && root.querySelector(sel)) || document.querySelector(sel);
-    if (!btn) return;
-    btn.classList.toggle('is-recording', !!on);
-    btn.innerHTML = on ? '<i class="fa-solid fa-stop"></i>' : '<i class="fa-solid fa-microphone"></i>';
-    btn.title = on ? 'Stop recording' : 'Record this section';
+    // Every badge of the section, on the page as it is now. A section's
+    // takes belong to its name, so a chorus sung twice shows STOP on both
+    // badges, not just the first; and a redraw mid-take replaces the badge
+    // that was tapped, which used to leave the one on screen idle.
+    var btns = Array.prototype.slice.call(document.querySelectorAll(sel));
+    if (root && root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll(sel), function(b) { if (btns.indexOf(b) < 0) btns.push(b); });
+    btns.forEach(function(btn) {
+      btn.classList.toggle('is-recording', !!on);
+      btn.innerHTML = on ? '<i class="fa-solid fa-stop"></i>' : '<i class="fa-solid fa-microphone"></i>';
+      btn.title = on ? 'Stop recording' : 'Record this section';
+    });
   },
   _slotOf: function(path) { var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(path || ''); return m ? m[1] : 'general'; },
 
@@ -15514,9 +15521,13 @@ window.lhcVoiceRec = {
     // The drafts store holds every take without a line: a run-through is
     // numbered among run-throughs, a section take among its section's.
     var secKey = function(x) { return String(x || '').trim().toLowerCase(); };
-    var n = whole ? (R._drafts[songId].filter(function(d) { return !d.section; }).length + 1)
-                  : section ? (R._drafts[songId].filter(function(d) { return d.section && secKey(d.section) === secKey(section) && R._slotOf(d.storage_path) === part; }).length + 1)
-                  : (R._takesFor(songId, lineId).length + 1);
+    // One past the highest number already used, or past how many there
+    // are: counting alone gave a take the number of one still kept after
+    // an earlier one was deleted.
+    var next = function(list) { var n = list.length; list.forEach(function(d) { var m = /(\d+)\s*$/.exec((d && d.name) || ''); if (m) n = Math.max(n, parseInt(m[1], 10)); }); return n + 1; };
+    var n = whole ? next(R._drafts[songId].filter(function(d) { return !d.section; }))
+                  : section ? next(R._drafts[songId].filter(function(d) { return d.section && secKey(d.section) === secKey(section) && R._slotOf(d.storage_path) === part; }))
+                  : next(R._takesFor(songId, lineId));
     if (typeof showLoader === 'function') showLoader(true);
     var uploaded = false;
     sb.storage.from(LHC_SUPABASE_BUCKET).upload(path, blob, {
@@ -48242,7 +48253,15 @@ var WO = (function() {
     // A take recorded or deleted on a line of the score is a change to the
     // practice card's list too.
     // Lines rewritten on this device: tell the others.
-    window.addEventListener('lhc:lines-changed', function() { if (typeof _sbmLiveSend === 'function') _sbmLiveSend(); });
+    window.addEventListener('lhc:lines-changed', function(ev) {
+      if (typeof _sbmLiveSend === 'function') _sbmLiveSend();
+      // The save re-pointed this song's takes in the database (_carryTakes,
+      // _carrySections); the copies the reading view holds are reread now,
+      // not in up to a minute -- until then they named lines and sections
+      // that no longer existed, and a move made from them wrote no line.
+      var b = ev && ev.detail && ev.detail.songId;
+      if (b && typeof _sbmRecRefresh === 'function') _sbmRecRefresh(String(b));
+    });
     window.addEventListener('lhc:recordings-changed', function(ev) {
       if (typeof _sbmLiveSend === 'function') _sbmLiveSend();
       if (!_sbmActive() || !_sbmSid) return;
@@ -50094,8 +50113,11 @@ var WO = (function() {
     var song = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === base; }) || null;
     sup.from('song_recordings').select('*').eq('id', id).then(function(res) {
       var rec = (res.data || [])[0]; if (!rec) { showToast('Could not find that take', 'error'); return; }
-      _sbmRecs[base] = _sbmRecs[base] || [];
-      if (!_sbmRecs[base].some(function(x) { return String(x.id) === String(rec.id); })) _sbmRecs[base].push(rec);
+      // The row as it is in the database replaces any copy held here: a held
+      // copy can be older than the last arrangement save, and moving from it
+      // looked for a line that was gone.
+      _sbmRecs[base] = (_sbmRecs[base] || []).filter(function(x) { return String(x.id) !== String(rec.id); });
+      _sbmRecs[base].push(rec);
       _sbRecMoveSheet(rec, song || { id: base, songId: base });
     });
   }
@@ -50109,6 +50131,11 @@ var WO = (function() {
     var rows = _sbVoiceRowsFor(song);
     var moment = rows.filter(function(x) { return (x.section || '') === (row.section || '') && x.sortOrder === row.sortOrder; });
     var hit = moment.find(function(x) { return _sbmRecSlug(V.partKey(x.part)) === tok; });
+    // A line everyone sings is the destination part's line as well: a take
+    // on it moves to that part and stays on the same words. Looking only
+    // for the part's own row found none, and the take came loose from its
+    // line as a whole-part run-through with no way back.
+    if (!hit) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });
     return hit ? hit.id : null;
   }
   // Whether a take's name is one the app gave it -- "Melody take 2",
@@ -50544,7 +50571,9 @@ var WO = (function() {
     if (chipsEl) {
       var countOf = function(k) { return all.filter(function(r) { return bucketOf(r) === k; }).length; };
       chipsEl.innerHTML = chips.map(function(c) {
-        return '<button class="sbm-chip' + (_sbmPracPart === c[0] ? ' is-on' : '') + '" onclick="WO.sbmPracPart(\'' + escapeHtml(c[0]).replace(/'/g, '&#39;') + '\')">' + escapeHtml(c[1]) + '<span class="sbm-chip__n">' + countOf(c[0]) + '</span></button>';
+        // The key rides in an attribute, not in the script: a part named
+        // "Children's" closed the quoted string early and the chip did nothing.
+        return '<button class="sbm-chip' + (_sbmPracPart === c[0] ? ' is-on' : '') + '" data-part="' + escapeHtml(c[0]) + '" onclick="WO.sbmPracPart(this.getAttribute(\'data-part\'))">' + escapeHtml(c[1]) + '<span class="sbm-chip__n">' + countOf(c[0]) + '</span></button>';
       }).join('');
     }
     var ordered = all.filter(function(r) { return bucketOf(r) === _sbmPracPart; });
@@ -50775,6 +50804,11 @@ var WO = (function() {
         mic.title = 'Record this section'; mic.setAttribute('aria-label', 'Record ' + name);
         mic.innerHTML = '<i class="fa-solid fa-microphone"></i>';
         mic.onclick = function(ev) { ev.stopPropagation(); sbmSectionRecord(name); };
+        // Redrawn mid-take: still says so.
+        var VR = window.lhcVoiceRec;
+        if (VR && VR._rec && VR._rec.state !== 'inactive' && VR._recSec && _sbmSecNorm(VR._recSec) === _sbmSecNorm(name)) {
+          mic.classList.add('is-recording'); mic.innerHTML = '<i class="fa-solid fa-stop"></i>'; mic.title = 'Stop recording';
+        }
         el.appendChild(mic);
       }
     });
@@ -51385,7 +51419,9 @@ var WO = (function() {
       var mine = wanted ? moment.find(function(r) { return !unison(r) && _sbmRecSlug(key(r)) === wanted; }) : null;
       var all = moment.find(unison);
       if (mine || all) return (mine || all).id;
-      if (!wanted) return moment[0].id;
+      // Cutting for everyone, a moment the parts sing apart is skipped: its
+      // first row is one part's, and the next span -- sung by everyone --
+      // was filed as that part's take.
       j += moment.length;
     }
     return null;
@@ -51479,8 +51515,13 @@ var WO = (function() {
     fetch(url).then(function(r) { if (!r.ok) throw new Error('could not read the recording'); return r.arrayBuffer(); })
       .then(function(ab) {
         var C = window.AudioContext || window.webkitAudioContext;
-        _sbmCut.ctx = new C();
-        return new Promise(function(res, rej) { _sbmCut.ctx.decodeAudioData(ab, res, rej); });
+        // This cutter's own: closed and reopened before the file decoded, the
+        // first fetch put its context on the second cutter, and one context
+        // was never closed.
+        var cut = _sbmCut;
+        if (!cut || cut.host !== host) throw new Error('closed');
+        cut.ctx = new C();
+        return new Promise(function(res, rej) { cut.ctx.decodeAudioData(ab, res, rej); });
       })
       .then(function(buffer) {
         if (!_sbmCut || _sbmCut.host !== host) return;
@@ -51495,6 +51536,7 @@ var WO = (function() {
         _sbmCutTick();
       })
       .catch(function(err) {
+        if (err && err.message === 'closed') return;
         console.error(err);
         var ld = host.querySelector('#sbmCutLoading'); if (ld) ld.innerHTML = 'This recording could not be decoded here \u2014 ' + escapeHtml((err && err.message) || 'unknown error');
       });
@@ -51631,9 +51673,14 @@ var WO = (function() {
       return k === 'both' || !part || _sbmRecSlug(k) === part;
     });
     var opts = (_sbRecSecOk === true && sec) ? ['<option value="sec">Whole section \u00b7 ' + escapeHtml(sec) + '</option>'] : [];
+    // A section sung twice has its lines numbered afresh each time: the
+    // second time's are marked, or the list read "Line 1" twice. And with
+    // the part left at everyone, a line one part sings says whose it is --
+    // three parts of the same words read as the same line three times.
+    var runOf = function(at) { var m = at && /#(\d+)$/.exec(at.sectionKey || ''); if (!m) return ''; var n = parseInt(m[1], 10); return ' (' + n + (n === 2 ? 'nd' : n === 3 ? 'rd' : 'th') + ' time)'; };
     rows.forEach(function(r) {
       var at = C.nums[String(r.id)], k = V ? V.partKey(r.part) : '';
-      opts.push('<option value="' + escapeHtml(String(r.id)) + '">' + escapeHtml((at ? 'Line ' + at.n : 'Line') + ' \u00b7 ' + String(r.text || '').trim() + (k === 'both' && part ? ' (everyone)' : '')) + '</option>');
+      opts.push('<option value="' + escapeHtml(String(r.id)) + '">' + escapeHtml((at ? 'Line ' + at.n + runOf(at) : 'Line') + ' \u00b7 ' + String(r.text || '').trim() + (k === 'both' && part ? ' (everyone)' : '') + (k !== 'both' && !part && V ? ' \u2014 ' + V.partLabel(r.part) : '')) + '</option>');
     });
     lineSel.innerHTML = opts.length ? opts.join('') : '<option value="">' + (part ? 'This part has no lines in this section' : 'No lines in this section') + '</option>';
     if (was && lineSel.querySelector('option[value="' + was.replace(/"/g, '') + '"]')) lineSel.value = was;
@@ -55193,7 +55240,11 @@ var WO = (function() {
       var pid = (curPage.id || '').replace(/^sbPage-/, '');
       var pItem = pid ? (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(x) { return x && String(x.id) === pid; }) : null;
       var pResolved = pItem ? _sbBaseSongId(pItem) : '';
-      if (pResolved) _sbRecCurrentSongId = pResolved;
+      // Only when nothing has said which song this is. The panel sets the
+      // song it was opened on; the FIRST page of the book is song 1 whatever
+      // the reader is on, so a take recorded on song 3, once Page view had
+      // been drawn, was filed against song 1.
+      if (pResolved && !_sbRecCurrentSongId) _sbRecCurrentSongId = pResolved;
     }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       var mimeType = '';

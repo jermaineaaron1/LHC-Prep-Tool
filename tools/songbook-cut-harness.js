@@ -188,13 +188,33 @@ check('  a 2nd Part cut of a split moment moves on, not to the other row of the 
 check('  a moment the chosen part rests in is skipped, never flipped to whoever sings there', S.nextTarget(score, 2, 'melody'), 5);
 check('  the chosen part\'s line when both parts sing', S.nextTarget(score, 4, '2nd-part'), 6);
 check('  a line everyone sings is the chosen part\'s too', S.nextTarget(score, 5, 'melody'), 7);
-check('  everyone: a unison line, else whatever comes next', [S.nextTarget(score, 4, ''), S.nextTarget(score, 6, '')], [5, 7]);
+// Cutting for everyone: the next line everyone sings. A moment the parts
+// sing apart is skipped -- its first row is one part's, and the next span,
+// sung by everyone, was filed as that part's take.
+check('  everyone: the next line everyone sings, a moment sung apart skipped', [S.nextTarget(score, 4, ''), S.nextTarget(score, 6, '')], [7, 7]);
+check('  and nothing when no line after it is sung by everyone', S.nextTarget(score.slice(0, 6), 1, ''), null);
 check('  nothing after the last', S.nextTarget(score, 7, 'melody'), null);
 check('  nothing for a line that is not there', S.nextTarget(score, 99, 'melody'), null);
 
 console.log('\nwhich names a move gives again');
 check('the app\'s own names', [S.autoName('Melody take 2'), S.autoName('Run-through 1'), S.autoName(''), S.autoName('Recording')], [true, true, true, true]);
 check('  not one a person typed or imported', [S.autoName('Sunday rehearsal'), S.autoName('chorus-alto-take3')], [false, false]);
+
+console.log('\nwhere a moved take lands');
+// A moment everyone sings, and one the parts sing apart.
+const dl = (id, part, so) => ({ id: id, part: part, sortOrder: so, section: 'Chorus' });
+const dRows = [dl(10, 'both', 0), dl(11, 'Women', 1), dl(12, 'Men', 1)];
+const Vstub = { partKey: p => String(p || '').trim().toLowerCase(), partFamily: p => { const k = String(p || '').trim().toLowerCase(); return (k === 'both' || k === 'all') ? 'both' : k.indexOf('women') > -1 ? 'women' : k.indexOf('men') > -1 ? 'men' : 'other'; } };
+const destLine = new Function('window', '_sbmRecRow', '_sbVoiceRowsFor', '_sbmRecSlug',
+  extract(/^  function _sbRecDestLine\(/, '_sbRecDestLine') + '\nreturn _sbRecDestLine;')(
+  { lhcVoiceLines: Vstub },
+  rec => dRows.find(r => r.id === rec.line_id) || null,
+  () => dRows,
+  k => String(k || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general');
+check('a take on the women\'s line, moved to the men, lands on the men\'s line of the same words', destLine({ line_id: 11 }, {}, 'men'), 12);
+check('  a take on a line everyone sings stays on it, whichever part it moves to', [destLine({ line_id: 10 }, {}, 'men'), destLine({ line_id: 10 }, {}, 'general')], [10, 10]);
+check('  a part that does not sing the moment takes the whole part', destLine({ line_id: 11 }, {}, 'altos'), null);
+check('  a take on no line stays on no line', destLine({ line_id: null }, {}, 'men'), null);
 
 const failed = results.filter(r => !r).length;
 console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));

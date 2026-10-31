@@ -690,6 +690,13 @@ the anon key -- verify as `postgres`, not as the app.
     name gone, one name new); two renamed in the same save cannot be told
     apart and stay under the old name, listed in Practice Tracks but on no
     badge. Until the column exists the carry is a write that fails quietly.
+    A section sung twice under one name SHARES its takes -- deliberately,
+    it is the same music: both badges list them and both show STOP while
+    one is recorded (`_setSecBtn` marks every matching mic on the page as
+    it is now, and a badge redrawn mid-take reads `lhcVoiceRec._recSec`).
+    Line takes are by line id and do not share; the cutter marks a second
+    run's lines "(2nd time)". The reading view's held takes (`_sbmRecs`)
+    are reread on `lhc:lines-changed`, because a save re-points them.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
     keeps each stroke (tool `w`) as offsets from its anchor's origin in
