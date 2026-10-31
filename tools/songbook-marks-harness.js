@@ -220,6 +220,33 @@ check('  a part with a slash in its name', kp('s:V|1/w:Soprano/Alto:3'), [[['s:V
 check('  a line of the lyrics, and a word of it', [kp('l:12'), kp('l:12/w:4@gz')], [[[['l:12', '']], ''], [[['l:12', 'w:4']], 'gz']]);
 check('  a sung-twice section keeps its #2', kp('s:2nd CHORUS#2|3/c:1'), [[['s:2nd CHORUS#2|3', 'c:1']], '']);
 
+console.log('\nundo takes back the last stroke on the song in front of you');
+// The session's strokes, each with its song; a sandbox with the helpers
+// undo calls, recording what it deletes from the database.
+const undoSrc = extract(/^  function sbmDrawUndo\(/, 'sbmDrawUndo');
+function undoBox(current) {
+  const env = { deleted: [], _sbmDraw: { undo: [] }, _sbmMarks: {}, cur: current };
+  const f = new Function('env', 'var _sbmDraw = env._sbmDraw, _sbmMarks = env._sbmMarks;' +
+    'function _sbmSong() { return { songId: env.cur }; } function _sbBaseSongId(s) { return s.songId; }' +
+    'function _sbmMarkDelete(id, base) { env.deleted.push(id + "@" + base); }' +
+    'function _sbmGroupStillDrawn() {} function _sbmMarksPaintAll() {} function _sbmPhoneMarks() {}\n' +
+    undoSrc + '\nreturn sbmDrawUndo;');
+  env.undo = f(env);
+  env.add = (id, base) => { const local = { id: id }; (env._sbmMarks[base] = env._sbmMarks[base] || []).push(local); env._sbmDraw.undo.push({ local: local, base: base }); return local; };
+  return env;
+}
+let U = undoBox('B');
+U.add('a1', 'A'); U.add('a2', 'A');
+U.undo();
+check('on song B, a stroke drawn on song A is never what goes', U.deleted, []);
+U.add('b1', 'B'); U.cur = 'A'; U.undo();
+check('  back on song A, its own last stroke goes, not B\'s newer one', U.deleted, ['a2@A']);
+U = undoBox('A');
+const saving = U.add('tmp_1', 'A'); U.add('a0', 'A');
+U._sbmDraw.undo.reverse();   // the stroke still saving is the newest
+U.undo();
+check('a stroke still being saved is taken back, not the one before it', [U.deleted, saving.undone, U._sbmMarks.A.map(m => m.id)], [[], true, ['a0']]);
+
 console.log('\nkeeping a moment\'s rows alike changes nothing the second time');
 // A class taken off and put back is two changes, and the canvas over the
 // card repaints on every change and runs this again: a loop, ~11 a second.
