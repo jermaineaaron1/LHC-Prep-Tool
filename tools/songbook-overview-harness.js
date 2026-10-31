@@ -89,6 +89,8 @@ const WANTED = [
   [/^  function _sbPartColours\(/, '_sbPartColours'],
   [/^  function _sbPartColourCss\(/, '_sbPartColourCss'],
   [/^  function _sbPartColoursSave\(/, '_sbPartColoursSave'],
+  [/^  function _sbmAllPrefix\(/, '_sbmAllPrefix'],
+  [/^  function _sbmPadIndent\(/, '_sbmPadIndent'],
   [/^  function _sbmPadLine\(/, '_sbmPadLine'],
   [/^  function _sbmPadText\(/, '_sbmPadText'],
   [/^  function _sbmPadWords\(/, '_sbmPadWords'],
@@ -194,14 +196,24 @@ console.log('\nrows become the pad');
     api.padText(ROWS, LYRICS, null, isChord).split('\n'),
     ['[Verse 1]', '           F', 'A family hiding from the storm', '', 'G', 'Make room', '', 'Bb        Dm', 'Found no place', '',
      '[Chorus]', 'W: Make room', 'M: ~Make room', '',
-     'Bb   F', '[Melody] Is there room in your heart', '[1st Part] Is there room in your heart']);
+     '         Bb   F', '[Melody] Is there room in your heart', '[1st Part] Is there room in your heart']);
   // The chorus opens with the same words the verse ended on. On its own
   // it must still take the SECOND "Make room" -- the one with no chord --
   // not the verse's G.
   check('one section on its own keeps its header and its own chords, and not the section before it\'s',
     api.padText(ROWS, LYRICS, 'Chorus', isChord).split('\n'),
-    ['[Chorus]', 'W: Make room', 'M: ~Make room', '', 'Bb   F', '[Melody] Is there room in your heart', '[1st Part] Is there room in your heart']);
+    ['[Chorus]', 'W: Make room', 'M: ~Make room', '', '         Bb   F', '[Melody] Is there room in your heart', '[1st Part] Is there room in your heart']);
   check('and is found whatever its case', api.padText(ROWS, LYRICS, 'cHoRuS', isChord), api.padText(ROWS, LYRICS, 'Chorus', isChord));
+  // A held note above the line a chord belongs to: the chord sits over the
+  // line it is saved against, indented by that line's label.
+  const held = [row('women', 'oh', 0, 'V', { sustained: true }), row('men', 'A star a star', 0, 'V')];
+  check('a moment opening on a held note has its chord over the sung line', api.padText(held, 'C   G\nA star a star', null, isChord).split('\n'), ['[V]', 'W: ~oh', '   C   G', 'M: A star a star']);
+  check('  and the save finds it there, the indent taken off', api.split(api.padText(held, 'C   G\nA star a star', null, isChord), isChord).chords, [{ words: 'A star a star', chord: 'C   G' }]);
+  // The same section sung twice gives the pad one time through it at a time.
+  const two = [row('both', 'Open', 0, 'Verse 1'), row('both', 'First chorus', 1, 'Chorus'), row('both', 'Middle', 2, 'Verse 2'), row('both', 'Second chorus', 3, 'Chorus')];
+  check('a section sung twice: one time through at a time', [api.padText(two, '', 'Chorus', isChord, 1), api.padText(two, '', 'Chorus', isChord, 2)], ['[Chorus]\nFirst chorus', '[Chorus]\nSecond chorus']);
+  check('  and the whole song keeps both, in order', api.padText(two, '', null, isChord), '[Verse 1]\nOpen\n\n[Chorus]\nFirst chorus\n\n[Verse 2]\nMiddle\n\n[Chorus]\nSecond chorus');
+  check('a line everyone sings that opens with a number keeps its number', api.padText([row('both', '3 kings came', 0, 'V')], '', null, isChord), '[V]\n[All] 3 kings came');
   check('a song with no chords has no chord lines',
     api.padText(ROWS, 'A family hiding from the storm', null, isChord).split('\n').some(l => isChord(l)), false);
 }
@@ -229,6 +241,11 @@ console.log('\nputting one section back');
   check('whatever the case of its name', api.replaceSection(full, 'chorus', '[Chorus]\nX'), '[Verse 1]\nA\n\nB\n\n[Chorus]\nX\n\n[Verse 2]\nD');
   check('a section the text does not have goes on the end', api.replaceSection(full, 'Bridge', '[Bridge]\nZ'), full + '\n\n[Bridge]\nZ');
   check('the unnamed block before the first header is a section too', api.replaceSection('lead\n\n[Verse 1]\nA', '', 'new lead'), 'new lead\n\n[Verse 1]\nA');
+  // A chorus sung twice: the pen on the second edits the second, and the
+  // first keeps its words. By name alone the save dropped the second run.
+  const twice = '[Verse 1]\nA\n\n[Chorus]\nB\n\n[Verse 2]\nC\n\n[Chorus]\nD';
+  check('a section sung twice: the second time is replaced, the first kept', api.replaceSection(twice, 'Chorus', '[Chorus]\nX', 2), '[Verse 1]\nA\n\n[Chorus]\nB\n\n[Verse 2]\nC\n\n[Chorus]\nX');
+  check('  the first time, by default, and the second kept', api.replaceSection(twice, 'Chorus', '[Chorus]\nX'), '[Verse 1]\nA\n\n[Chorus]\nX\n\n[Verse 2]\nC\n\n[Chorus]\nD');
 }
 
 console.log('\ncolouring the pad');

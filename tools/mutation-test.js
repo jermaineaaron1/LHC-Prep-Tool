@@ -1255,10 +1255,12 @@ const CASES = [
   // section's chords, a section put back without the others, a colour
   // drawn for every song on the screen.
   ['songbook-overview-harness.js', 'a chord line is left in the parts text, sung by everyone',
-    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\]\), chord: l\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
+    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\]\), chord: l\.slice\(Math\.min\(pre, lead\)\)\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
   ['songbook-overview-harness.js', "a section edited on its own takes the next section's chords",
-    s => s.replace("      var hit = V.chordFor(index, g, cursor);\r\n      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;",
-                   "      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;\r\n      var hit = V.chordFor(index, g, cursor);")],
+    s => s.replace("      var hit = V.chordFor(index, g, cursor);\r\n      var name = String(g.section || ''), key = name.trim().toLowerCase();",
+                   "      var name = String(g.section || ''), key = name.trim().toLowerCase();")
+          .replace("      if (want !== null && (key !== want || runs[key] !== wantRun)) return;\r\n",
+                   "      if (want !== null && (key !== want || runs[key] !== wantRun)) return;\r\n      var hit = V.chordFor(index, g, cursor);\r\n")],
   ['songbook-overview-harness.js', 'putting one section back drops the others',
     s => s.replace("      if (inTarget) continue;\r\n      out.push(lines[i]);", "      if (inTarget) continue;")],
   ['songbook-overview-harness.js', "a part's colour is drawn for every song on the screen",
@@ -1297,8 +1299,23 @@ const CASES = [
   ['songbook-cut-harness.js', 'the next target hands the picker to whoever sings next',
     s => s.replace("      if (mine || all) return (mine || all).id;",
                    "      if (mine || all) return (mine || all).id;\r\n      return moment[0].id;")],
+  // A section sung twice is two sections: editing one by name merged them
+  // and the save dropped the second; a chord over a held note's moment was
+  // never saved; a line opening with a number lost it to the bar column.
+  ['songbook-overview-harness.js', 'editing a section sung twice replaces the wrong time through',
+    s => s.replace("        inTarget = same && seenRuns === wantRun;", "        inTarget = same;")],
+  ['songbook-overview-harness.js', 'the pad shows every time a section is sung as one',
+    s => s.replace("      if (want !== null && (key !== want || runs[key] !== wantRun)) return;", "      if (want !== null && key !== want) return;")],
+  ['songbook-overview-harness.js', 'a chord over a held note is put back over the held note',
+    s => s.replace("        if (chord && ln === lead) { out.push(_sbmPadIndent(t) + chord); chord = ''; }", "        if (chord) { out.push(_sbmPadIndent(t) + chord); chord = ''; }")],
+  ['songbook-overview-harness.js', 'a line opening with a number loses it to the bars',
+    s => s.replace("  function _sbmAllPrefix(text) { return /^\\s*\\d+\\s*(?:[-\\u2013\\u2014]\\s*\\d+)?\\s+/.test(String(text || '')) ? '[All] ' : ''; }",
+                   "  function _sbmAllPrefix(text) { return ''; }")],
+  ['songbook-cut-harness.js', 'a take moved to General stays on its line',
+    s => s.replace("    if (!hit && isLane) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });",
+                   "    if (!hit) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });")],
   ['songbook-cut-harness.js', 'a take on a line everyone sings comes loose when it moves',
-    s => s.replace("    if (!hit) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });", "")],
+    s => s.replace("    if (!hit && isLane) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });", "")],
   ['songbook-cut-harness.js', 'cutting for everyone files the next span under one part',
     s => s.replace("      if (mine || all) return (mine || all).id;",
                    "      if (mine || all) return (mine || all).id;\r\n      if (!wanted) return moment[0].id;")],
