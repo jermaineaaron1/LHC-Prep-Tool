@@ -277,6 +277,37 @@ check('  and only while signed in as one',
   /#rosterMobilePremium \.rmp-edit-hint \{ display: none !important; \}/.test(css) &&
   /body\.pic-mode #rosterMobilePremium \.rmp-edit-hint \{/.test(css), true);
 
+console.log('\nthe phone roster\'s controls stay big enough to hit');
+// FLOORS, not exact sizes. The sizes are a taste decision and have moved
+// once already (-6 on the menu, -15 across the month bar and tabs, +5 on
+// the share button, all asked for). What must not move is that each of
+// these is something a thumb has to find on a phone: the share button was
+// 14px tall before, below anything anyone can aim at, and it is the
+// control that sends a whole service to the team.
+const rule = sel => {
+  const i = css.indexOf(sel + ' {', css.indexOf('#worshipRosterView #rosterMobilePremium'));
+  return i < 0 ? '' : css.slice(i, css.indexOf('}', i) + 1);
+};
+const sizeOf = (r, prop) => parseFloat((new RegExp(prop + ':\\s*([\\d.]+)px').exec(r) || [])[1]);
+const moreRule = rule('.rmp-more');
+check('the appbar menu is a square you can hit',
+  sizeOf(moreRule, 'width') >= 28 && sizeOf(moreRule, 'height') >= 28, true);
+check('the month arrows are too', sizeOf(rule('.rmp-nav-btn'), 'height') >= 32, true);
+check('and the Whole Month / Service Cards tabs',
+  sizeOf(rule('.rmp-tab'), 'min-height') >= 30, true);
+// The share button has no height of its own -- it is padding either side
+// of an icon -- so the floor is on what adds up to one.
+const shareRule = (function () {
+  const i = css.indexOf('.roster-share-btn { padding:');
+  return i < 0 ? '' : css.slice(i, css.indexOf('}', i) + 1);
+})();
+const sp = /padding:\s*([\d.]+)px\s+([\d.]+)px/.exec(shareRule);
+const sf = /font-size:\s*([\d.]+)px/.exec(shareRule);
+check('the WhatsApp button is taller than the 14px it was',
+  !!sp && !!sf && (parseFloat(sp[1]) * 2 + parseFloat(sf[1])) >= 18, true);
+check('  and wider than its own glyph',
+  !!sp && parseFloat(sp[2]) >= 8, true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

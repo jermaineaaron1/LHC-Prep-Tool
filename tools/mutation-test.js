@@ -788,6 +788,23 @@ const CASES = [
   ['roster-touch-edit-harness.js', 'nobody tells a PIC on a phone what the gesture is',
     s => s.replace('<div class="rmp-edit-hint pic-only" id="rmpEditHint">',
                    '<div class="rmp-edit-hint-gone pic-only" id="rmpEditHint">')],
+  // Floors, not sizes. The sizes are taste and have moved once already;
+  // what must not move is that each of these is something a thumb has to
+  // find on a phone.
+  ['roster-touch-edit-harness.js', 'the appbar menu shrinks past a thumb',
+    s => s.replace('        width: 28px; height: 28px; border-radius: 9px; color: #fff; font-size: 12px;',
+                   '        width: 22px; height: 22px; border-radius: 9px; color: #fff; font-size: 12px;')],
+  ['roster-touch-edit-harness.js', 'the month arrows shrink past a thumb',
+    s => s.replace('        height: 34px; border-radius: 10px; color: #087b63; font-size: 15px;',
+                   '        height: 26px; border-radius: 10px; color: #087b63; font-size: 15px;')],
+  ['roster-touch-edit-harness.js', 'the view tabs shrink past a thumb',
+    s => s.replace('        min-height: 30px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #456158;',
+                   '        min-height: 24px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #456158;')],
+  // 14px tall is below anything anyone can aim at, and it is the control
+  // that sends a whole service to the team.
+  ['roster-touch-edit-harness.js', 'the WhatsApp button goes back to 14px',
+    s => s.replace('      .roster-share-btn { padding: 5px 9px !important; font-size: 8px !important; }',
+                   '      .roster-share-btn { padding: 2px 6px !important; font-size: 8px !important; }')],
 
   // Showing one part at a time. Each of these leaves a page that still
   // looks like a score, which is the whole reason the checks exist.
