@@ -21921,6 +21921,10 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     });
     var activeView = $(viewId);
     if (activeView) activeView.style.display = 'block';
+    // The Liturgy Builder's page-wide rules (body.wo-lbd-on) belong to it only
+    // while it is on screen: the builder stays open behind another view.
+    document.body.classList.toggle('wo-lbd-on',
+      viewId === 'worshipOrderView' && !!document.querySelector('.wo-main-content.wo-lbd-mode'));
 
     var navMap = {
       'homeView': 'navHomeBtn',
@@ -35451,7 +35455,8 @@ var WO = (function() {
       // Service sections are gone (Song Order tab is active).
       // Collect songs/blank-pages from the live song list but keep liturgy/content/
       // slides/video/scripture from the last known-good snapshot.
-      var _songItems = collectOrderItems(); // songs only (service DOM absent)
+      // Songs, and -- from serviceSectionItems -- the non-song items as well.
+      var _songItems = collectOrderItems();
       var _prevItems = (currentOrderData && Array.isArray(currentOrderData.allItems))
         ? currentOrderData.allItems : [];
       var _songIds = {};
@@ -35460,6 +35465,10 @@ var WO = (function() {
       items = _prevItems.filter(function(it) {
         return it.itemType !== 'song' && it.itemType !== 'blank';
       }).concat(_songItems);
+      // The snapshot's items and the fresh collection's are the same items.
+      // Listed twice, they came back as allItems after the save, and the LCD
+      // schedule drew every text box in them twice -- then saved both.
+      items = _woUniqueItems(items);
     }
 
     // ── Empty-items wipe guard, part 2 ──────────────────────────────────────
@@ -36536,7 +36545,7 @@ var WO = (function() {
       });
     }
 
-    return items;
+    return _woUniqueItems(items);
   }
 
   // Update local cache for quick access
@@ -39301,6 +39310,7 @@ var WO = (function() {
             }
           }
         } else if (item.itemType === 'content' && item.content && item.content.text) {
+          if (item.id && container.querySelector('.wo-content-box[data-item-id="' + String(item.id).replace(/["\\]/g, '\\$&') + '"]')) return;
           var placeholder = container.querySelector('.wo-content-placeholder');
           if (placeholder) placeholder.parentElement.remove();
           var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId +
@@ -39870,13 +39880,13 @@ var WO = (function() {
     return out;
   }
 
-  // allItems with the duplicates SBQ.saveOrder would drop anyway taken out
-  // first: one entry per id, one liturgy per section. Same rule, same order
-  // of preference (the first wins), so what is edited is what is stored.
-  function _woDedupeItems() {
-    if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
+  // An item list with the duplicates SBQ.saveOrder would drop anyway taken
+  // out first: one entry per id, one liturgy per section. Same rule, same
+  // order of preference (the first wins), so what is edited and drawn is
+  // what is stored.
+  function _woUniqueItems(list) {
     var seenId = {}, seenLit = {};
-    currentOrderData.allItems = currentOrderData.allItems.filter(function(it) {
+    return (list || []).filter(function(it) {
       if (!it) return false;
       if (it.id) {
         if (seenId[it.id]) return false;
@@ -39889,6 +39899,11 @@ var WO = (function() {
       }
       return true;
     });
+  }
+
+  function _woDedupeItems() {
+    if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
+    currentOrderData.allItems = _woUniqueItems(currentOrderData.allItems);
   }
 
   // serviceSectionItems rebuilt from an item list. This is what a save from
@@ -67769,7 +67784,8 @@ var WO = (function() {
   // ============================================================
   //
   // Step one of an order: shape the service section by section and say what
-  // happens in each -- songs, liturgy, readings and the liturgist's notes.
+  // happens in each -- songs, liturgy, readings and the liturgist's notes --
+  // on a page laid out like a Word document (see Drawing, below).
   //
   // It edits the order's own data with the LCD schedule taken down:
   // currentOrderData.sectionLayout for the sections, songOrderSections for
@@ -67790,9 +67806,9 @@ var WO = (function() {
   var _LBD_SLIDE_BREAK = new Array(36).join('\u2550');
   var _lbdUndoStack = [];
   var _lbdRedoStack = [];
-  var _lbdOpen = {};           // 'song:<id>:<section>' or 'item:<id>' -> editor open
-  var _lbdRenaming = null;     // section whose name is being typed
-  var _lbdNotesOpen = {};      // section id -> its notes field is showing
+  var _lbdOpen = {};           // 'item:<id>' -> its words showing, in the Outline view
+  var _lbdRenaming = null;     // a new section, whose name is selected after the next draw
+  var _lbdNotesOpen = {};      // section id or 'song:<id>' -> its note showing, empty or not
   var _lbdSvcNotesOpen = false;
   var _lbdBound = false;
   var _lbdTyping = null;       // the field being typed in: one undo step per edit
@@ -67813,7 +67829,7 @@ var WO = (function() {
     var host = $('woLiturgyBuilder');
     if (host) host.style.display = on ? '' : 'none';
     if (_lbdSeedTimer) { clearInterval(_lbdSeedTimer); _lbdSeedTimer = null; }
-    if (!on) { _lbdCloseSheet(); return; }
+    if (!on) { _lbdCloseSheet(); _lbdCloseMenu(); _lbdTyping = null; return; }
     // The LCD schedule must not stay in the DOM behind the builder: a save
     // serialises the schedule whenever its sections are present, and would
     // write it as it was over every change made here.
@@ -67829,6 +67845,7 @@ var WO = (function() {
     _woDedupeItems();
     _lbdUndoStack = []; _lbdRedoStack = [];
     _lbdOpen = {}; _lbdRenaming = null; _lbdNotesOpen = {}; _lbdSvcNotesOpen = false;
+    _lbdFolded = {}; _lbdCurSec = ''; _lbdCurEl = ''; _lbdTyping = null;
     // A new order starts from the liturgy its template assigns, exactly as the
     // LCD schedule fills it on first open (see _gapFillLiturgy). The library
     // may still be loading; it is waited for, briefly, for this order only.
@@ -67878,8 +67895,8 @@ var WO = (function() {
 
   function _lbdSyncSSI() {
     if (!currentOrderData) return;
-    // A save hands allItems back with each item listed twice (see
-    // saveCurrentOrder); the first copy is the one edited and the one kept.
+    // allItems can still carry a repeat (an order saved before saves were
+    // de-duplicated did); the first copy is the one edited and the one kept.
     _woDedupeItems();
     var ssi = _woSSIFromItems(currentOrderData.allItems || []);
     window.serviceSectionItems = ssi;
@@ -67930,6 +67947,7 @@ var WO = (function() {
   }
 
   function lbdUndo() {
+    _lbdFlushTyping();
     if (!_lbdUndoStack.length) { showToast('Nothing to undo', 'info'); return; }
     _lbdRedoStack.push(_lbdSnapshot());
     _lbdRestore(_lbdUndoStack.pop());
@@ -67938,6 +67956,7 @@ var WO = (function() {
   }
 
   function lbdRedo() {
+    _lbdFlushTyping();
     if (!_lbdRedoStack.length) { showToast('Nothing to redo', 'info'); return; }
     _lbdUndoStack.push(_lbdSnapshot());
     _lbdRestore(_lbdRedoStack.pop());
@@ -67961,6 +67980,8 @@ var WO = (function() {
   // to do, and then nothing is recorded or saved.
   function _lbdChange(fn) {
     if (!currentOrderData) return false;
+    // Typing in progress is its own undo step, before this one.
+    _lbdFlushTyping();
     // Outside the builder the order's data may still be split between
     // allItems and serviceSectionItems (a new order's seeded liturgy lives in
     // the second). One snapshot of the screen joins them before editing.
@@ -68042,6 +68063,15 @@ var WO = (function() {
     if (!dup) currentOrderData.clearedSections.push({ sectionId: secId, sourceId: sourceId });
   }
 
+  // A new part goes after the one the cursor is on (the LCD draws a
+  // section's parts in this order), or at the end of its section.
+  function _lbdInsertItem(item, afterId) {
+    var all = currentOrderData.allItems, at = -1;
+    for (var i = 0; afterId && i < all.length; i++) { if (all[i] && all[i].id === afterId) { at = i; break; } }
+    if (at >= 0 && all[at].sectionId === item.sectionId) all.splice(at + 1, 0, item);
+    else all.push(item);
+  }
+
   function _lbdRenumber(slides) {
     (slides || []).forEach(function(s, i) { if (s) s.index = i; });
   }
@@ -68101,20 +68131,13 @@ var WO = (function() {
     if (!currentOrderData) return;
     var id = 'wo-section-' + Date.now();
     _lbdRenaming = id;
+    _lbdCurSec = id;
+    _lbdCurEl = '';
     _lbdChange(function() {
       var lay = currentOrderData.sectionLayout;
       var idx = (typeof at === 'number' && at >= 0 && at <= lay.length) ? at : lay.length;
       lay.splice(idx, 0, { id: id, title: 'New Section', serviceSectionId: '' });
     });
-    _lbdFocus('[data-field="sec-title"]', true);
-  }
-
-  function lbdRenameSection(secId, title) {
-    var t = String(title == null ? '' : title).replace(/\s+/g, ' ').trim();
-    _lbdRenaming = null;
-    var i = _lbdSecIndex(secId);
-    if (i < 0 || !t || _woStripNum(currentOrderData.sectionLayout[i].title) === t) { lbdRender(); return; }
-    _lbdChange(function() { currentOrderData.sectionLayout[i].title = t; });
   }
 
   function lbdMoveSection(secId, delta) {
@@ -68122,7 +68145,7 @@ var WO = (function() {
     var lay = (currentOrderData && currentOrderData.sectionLayout) || [];
     if (i < 0 || j < 0 || j >= lay.length) return;
     _lbdChange(function() { var x = lay.splice(i, 1)[0]; lay.splice(j, 0, x); });
-    _lbdFocus('[data-sec="' + _lbdCssId(secId) + '"] [data-act="sec-' + (delta < 0 ? 'up' : 'down') + '"]');
+    _lbdReveal('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"]');
   }
 
   function _lbdMoveSectionTo(secId, targetId, after) {
@@ -68182,18 +68205,22 @@ var WO = (function() {
     currentOrderData.sectionLayout[i].notes = text;
   }
 
-  function _lbdAddSong(secId, libSong) {
+  // afterSongId: the song the cursor is on, which a new song follows. A song
+  // already in the order and added to one more section keeps its place in
+  // the running order, which its other sections share.
+  function _lbdAddSong(secId, libSong, afterSongId) {
     var list = _woSectionList();
-    var existing = null;
+    var existing = null, placed = null;
     songOrderSections.forEach(function(s) { if (!existing && s && s.itemType !== 'blank' && s.songId === libSong.id) existing = s; });
     if (existing && _woSongSectionIds(existing, list).indexOf(secId) !== -1) {
       showToast('“' + (libSong.title || 'That song') + '” is already in this section', 'info');
       return false;
     }
-    return _lbdChange(function() {
+    var ok = _lbdChange(function() {
       if (existing) {
         _lbdPlaceSong(existing, secId, list);
         _lbdSortSongsByService();
+        placed = existing;
         return;
       }
       var entry = _woBuildSongSectionEntry(libSong, secId);
@@ -68205,9 +68232,17 @@ var WO = (function() {
       entry.annotations = [];
       entry.customYoutube = [];
       entry.customDocs = [];
-      songOrderSections.push(entry);
+      var after = afterSongId ? songOrderSections.indexOf(_lbdSong(afterSongId)) : -1;
+      if (after >= 0) songOrderSections.splice(after + 1, 0, entry);
+      else songOrderSections.push(entry);
       _lbdSortSongsByService();
+      placed = entry;
     });
+    if (ok && placed) {
+      _lbdSetCur(secId, 'song:' + placed.id);
+      _lbdReveal('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"] .lbw-el--song[data-song="' + _lbdCssId(placed.id) + '"]');
+    }
+    return ok;
   }
 
   function lbdPlaceSong(songId, secId) {
@@ -68277,7 +68312,7 @@ var WO = (function() {
     });
   }
 
-  function _lbdAddLiturgy(secId, lit) {
+  function _lbdAddLiturgy(secId, lit, afterId) {
     var src = lit.id;
     var where = _lbdLiturgyPlacement(src);
     if (where === secId) {
@@ -68288,20 +68323,26 @@ var WO = (function() {
     // copy of its own so neither is lost.
     if (where) src = 'lbd_' + _lbdUid();
     var item = _lbdLiturgyItem(secId, src, lit);
-    return _lbdChange(function() {
-      currentOrderData.allItems.push(item);
+    var ok = _lbdChange(function() {
+      _lbdInsertItem(item, afterId);
       _lbdClearClearedFor(secId);
     });
+    if (ok) {
+      _lbdSetCur(secId, 'item:' + item.id);
+      _lbdReveal('[data-item="' + _lbdCssId(item.id) + '"]');
+    }
+    return ok;
   }
 
-  function lbdNewLiturgy(secId) {
+  function lbdNewLiturgy(secId, afterId) {
     var item = _lbdLiturgyItem(secId, 'lbd_' + _lbdUid(), { title: 'New liturgy', type: 'liturgy', content: '' });
     _lbdOpen['item:' + item.id] = true;
-    _lbdChange(function() {
-      currentOrderData.allItems.push(item);
+    if (!_lbdChange(function() {
+      _lbdInsertItem(item, afterId);
       _lbdClearClearedFor(secId);
-    });
-    _lbdFocus('[data-item="' + _lbdCssId(item.id) + '"] [data-field="item-title"]', true);
+    })) return;
+    _lbdSetCur(secId, 'item:' + item.id);
+    _lbdFocus('[data-item="' + _lbdCssId(item.id) + '"] [data-field="item-title"]', 'select');
   }
 
   // A reading, as the slides the LCD projects -- planned by the same
@@ -68325,13 +68366,18 @@ var WO = (function() {
     });
   }
 
-  function _lbdAddReading(secId, r) {
+  function _lbdAddReading(secId, r, afterId) {
     if (_lbdReadingTaken(secId, r.title)) {
       showToast(r.title + ' is already in this section', 'info');
       return false;
     }
     var item = _lbdReadingItem(secId, r);
-    return _lbdChange(function() { currentOrderData.allItems.push(item); });
+    var ok = _lbdChange(function() { _lbdInsertItem(item, afterId); });
+    if (ok) {
+      _lbdSetCur(secId, 'item:' + item.id);
+      _lbdReveal('[data-item="' + _lbdCssId(item.id) + '"]');
+    }
+    return ok;
   }
 
   function lbdRemoveItem(itemId) {
@@ -68396,6 +68442,7 @@ var WO = (function() {
       all.push(it);
       _lbdClearClearedFor(toSec);
     });
+    if (_lbdCurEl === oldKey) _lbdCurEl = '';
     if (_lbdOpen[oldKey]) { delete _lbdOpen[oldKey]; _lbdOpen['item:' + it.id] = true; lbdRender(); }
   }
 
@@ -68407,13 +68454,7 @@ var WO = (function() {
       if (!Array.isArray(it.slides)) it.slides = [];
       it.slides.push({ index: it.slides.length, content: '', background: '' });
     });
-    _lbdFocus('[data-item="' + _lbdCssId(itemId) + '"] .lbd-slide:last-child textarea', true);
-  }
-
-  function lbdRemoveSlide(itemId, idx) {
-    var it = _lbdItem(itemId);
-    if (!it || !Array.isArray(it.slides) || it.slides.length < 2 || idx < 0 || idx >= it.slides.length) return;
-    _lbdChange(function() { it.slides.splice(idx, 1); _lbdRenumber(it.slides); });
+    _lbdFocus('[data-item="' + _lbdCssId(itemId) + '"] .lbw-slide:last-child [data-field="slide"]', 'start');
   }
 
   // ── Readings from the roster, without the LCD schedule ─────────────────
@@ -68550,6 +68591,36 @@ var WO = (function() {
   function lbdFillReadings() { return _lbdFillReadings({}); }
 
   // ── Drawing ─────────────────────────────────────────────────────────────
+  //
+  // The builder is laid out as a document, the way a liturgist writes an
+  // order of worship in Word: a page of numbered headings (the sections),
+  // each part of the service under its heading -- songs, liturgy, readings,
+  // text -- and the liturgist's notes as comments in the margin. The words
+  // of the liturgy and the readings are the page itself, typed on directly,
+  // with a slide break where one slide ends and the next begins.
+  //
+  // Two views, as in Word: Outline, one line for each part, opened where you
+  // are working, so a whole service fits on a screen; and Full text, every
+  // word, to read the service through. Whatever is typed goes into the
+  // order's data as it is typed; nothing on the page is a copy to save back.
+  var _lbdView = 'outline';      // 'outline' | 'document'
+  var _lbdNavOn = true;          // the navigation pane, where there is room
+  var _lbdPrefsRead = false;
+  var _lbdFolded = {};           // section id -> folded under its heading
+  var _lbdCurSec = '';           // where the cursor is: what Insert inserts into
+  var _lbdCurEl = '';            // 'item:<id>' | 'song:<id>': inserts go after it
+  var _lbdMenu = null;           // the open context menu
+  // Plain text, Enter for a new line: what a slide holds. A browser without
+  // plaintext-only (Firefox before 136) edits normally, and the paste and
+  // Enter handling below keep what it stores plain.
+  var _LBD_CE = (function() {
+    try {
+      var d = document.createElement('div');
+      d.contentEditable = 'plaintext-only';
+      return d.contentEditable === 'plaintext-only' ? 'plaintext-only' : 'true';
+    } catch (e) { return 'true'; }
+  })();
+
   function _lbdEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
   function _lbdCssId(s) { return String(s || '').replace(/["\\]/g, '\\$&'); }
 
@@ -68567,23 +68638,273 @@ var WO = (function() {
     return 'Key ' + key + ' \u2192 ' + transposeChord(key, steps);
   }
 
-  // Focus something once the next draw has put it on the page.
-  function _lbdFocus(sel, select) {
+  // The view and the navigation pane are the viewer's own choice.
+  function _lbdPrefs(save) {
+    try {
+      if (save) { localStorage.setItem('lhc_lbd_view', JSON.stringify({ view: _lbdView, nav: _lbdNavOn })); return; }
+      var p = JSON.parse(localStorage.getItem('lhc_lbd_view') || '{}');
+      if (p.view === 'outline' || p.view === 'document') _lbdView = p.view;
+      if (typeof p.nav === 'boolean') _lbdNavOn = p.nav;
+    } catch (e) {}
+  }
+
+  // An editable run of text on the page. Read back with _lbdVal.
+  function _lbdCE(field, attrs) {
+    return ' contenteditable="' + _LBD_CE + '" data-field="' + field + '"' + (attrs || '');
+  }
+
+  // The text of an editable as the data holds it: '\n' between lines. A
+  // <br> is a line; a block element (ordinary editing makes them) starts one.
+  function _lbdTextOf(node) {
+    var out = '';
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.data;
+        else if (c.nodeType === 1) {
+          if (c.tagName === 'BR') out += '\n';
+          else {
+            if (/^(DIV|P|LI)$/.test(c.tagName) && out && out.charAt(out.length - 1) !== '\n') out += '\n';
+            walk(c);
+          }
+        }
+      }
+    })(node);
+    return out.replace(/\r/g, '').replace(/\u00a0/g, ' ');
+  }
+
+  function _lbdVal(el) {
+    if (!el) return '';
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return el.value;
+    return _lbdTextOf(el);
+  }
+
+  // The caret's place in an editable, counted as _lbdTextOf counts.
+  function _lbdCaret(el) {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var r = sel.getRangeAt(0);
+    if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null;
+    function at(node, off) {
+      var pre = document.createRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(node, off);
+      return _lbdTextOf(pre.cloneContents()).length;
+    }
+    return { start: at(r.startContainer, r.startOffset), end: at(r.endContainer, r.endOffset), collapsed: r.collapsed };
+  }
+
+  function _lbdPlaceCaret(el, pos) {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel) return;
+    var range = document.createRange(), left = Math.max(0, pos || 0), done = false;
+    (function walk(n) {
+      for (var c = n.firstChild; c && !done; c = c.nextSibling) {
+        if (c.nodeType === 3) {
+          if (left <= c.data.length) { range.setStart(c, left); done = true; return; }
+          left -= c.data.length;
+        } else if (c.nodeType === 1) {
+          if (c.tagName === 'BR') {
+            if (left === 0) { range.setStartBefore(c); done = true; return; }
+            left -= 1;
+          } else walk(c);
+        }
+      }
+    })(el);
+    if (done) range.collapse(true);
+    else { range.selectNodeContents(el); range.collapse(false); }
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Is the caret on the first (dir < 0) or the last (dir > 0) line of el?
+  function _lbdCaretAtEdge(el, dir) {
+    var c = _lbdCaret(el);
+    if (!c || !c.collapsed) return false;
+    var rects = window.getSelection().getRangeAt(0).getClientRects();
+    if (rects.length) {
+      var box = el.getBoundingClientRect(), rc = rects[0];
+      var lh = parseFloat(window.getComputedStyle(el).lineHeight) || 20;
+      return dir < 0 ? (rc.top - box.top) < lh * 0.8 : (box.bottom - rc.bottom) < lh * 0.8;
+    }
+    var text = _lbdTextOf(el);
+    return dir < 0 ? text.slice(0, c.start).indexOf('\n') === -1 : text.slice(c.start).replace(/\n+$/, '').indexOf('\n') === -1;
+  }
+
+  // Up and down move from one run of words to the next, as in a document.
+  function _lbdStep(el, dir) {
+    var host = $('woLiturgyBuilder');
+    var all = Array.prototype.slice.call(host.querySelectorAll('[data-field="slide"], [data-field="content-text"]'));
+    var i = all.indexOf(el), next = all[i + dir];
+    if (i < 0 || !next) return false;
+    try { next.focus({ preventScroll: true }); } catch (e) { next.focus(); }
+    _lbdPlaceCaret(next, dir > 0 ? 0 : _lbdTextOf(next).replace(/\n+$/, '').length);
+    _lbdKeepInView(next);
+    return true;
+  }
+
+  function _lbdKeepInView(el) {
+    var r = el.getBoundingClientRect();
+    if (r.top < 48 || r.bottom > window.innerHeight - 32) el.scrollIntoView({ block: 'center' });
+  }
+
+  // Focus something the last draw put on the page -- at once, so that
+  // typing straight after a click lands in it -- or, if it is not there yet,
+  // once the next draw has put it there. how: 'select' (all of it), 'start',
+  // or the end of it.
+  function _lbdFocus(sel, how) {
+    var host0 = $('woLiturgyBuilder');
+    if (host0 && host0.querySelector(sel)) go();
+    else setTimeout(go, 30);
+    function go() {
+      var host = $('woLiturgyBuilder');
+      var el = host && host.querySelector(sel);
+      if (!el) return;
+      try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      if (el.isContentEditable) {
+        if (how === 'select' || how === true) {
+          var r = document.createRange();
+          r.selectNodeContents(el);
+          var s = window.getSelection();
+          s.removeAllRanges();
+          s.addRange(r);
+        } else _lbdPlaceCaret(el, how === 'start' ? 0 : _lbdTextOf(el).replace(/\n+$/, '').length);
+      } else if ((how === 'select' || how === true) && el.select) el.select();
+      _lbdKeepInView(el);
+    }
+  }
+
+  // Scroll to something just added or moved, and let it glow for a moment.
+  function _lbdReveal(sel) {
     setTimeout(function() {
       var host = $('woLiturgyBuilder');
       var el = host && host.querySelector(sel);
       if (!el) return;
-      try { el.focus({ preventScroll: false }); } catch (e) { el.focus(); }
-      if (select && el.select) el.select();
-      if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      _lbdKeepInView(el);
+      el.classList.remove('is-flash');
+      void el.offsetWidth;
+      el.classList.add('is-flash');
     }, 30);
   }
 
+  // Which field has the cursor, so a redraw can hand it back. A redraw
+  // replaces the page; without this, typing stopped whenever anything
+  // redrew it.
+  function _lbdFocusKey() {
+    var ae = document.activeElement, host = $('woLiturgyBuilder');
+    if (!ae || !host || !host.contains(ae) || !ae.getAttribute || ae.tagName === 'SELECT') return null;
+    var f = ae.getAttribute('data-field');
+    if (!f) return null;
+    var note = ae.closest('.lbw-note[data-song]'), item = ae.closest('[data-item]'), sec = ae.closest('.lbw-sec[data-sec]');
+    var scope = note ? '.lbw-note[data-song="' + _lbdCssId(note.getAttribute('data-song')) + '"]'
+              : item ? '[data-item="' + _lbdCssId(item.getAttribute('data-item')) + '"]'
+              : sec ? '.lbw-sec[data-sec="' + _lbdCssId(sec.getAttribute('data-sec')) + '"]'
+              : ae.closest('.lbw-dochead') ? '.lbw-dochead' : '';
+    var slide = ae.closest('.lbw-slide');
+    var car = ae.isContentEditable ? _lbdCaret(ae) : null;
+    return { scope: scope, f: f, idx: slide ? slide.getAttribute('data-idx') : null, caret: car ? car.start : null };
+  }
+
+  function _lbdRestoreFocus(k) {
+    if (!k) return;
+    var host = $('woLiturgyBuilder');
+    var root = k.scope ? host.querySelector(k.scope) : host;
+    var el = root && root.querySelector((k.idx != null ? '.lbw-slide[data-idx="' + k.idx + '"] ' : '') + '[data-field="' + k.f + '"]');
+    if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    if (k.caret != null && el.isContentEditable) _lbdPlaceCaret(el, k.caret);
+  }
+
+  // One undo step for each run of typing in one field: the state before it
+  // is pushed when the field is left, or when anything else changes first.
+  function _lbdFlushTyping() {
+    var t = _lbdTyping;
+    if (!t) return;
+    _lbdTyping = null;
+    if (t.el && _lbdVal(t.el) !== t.value) _lbdPushUndo(t.snap);
+  }
+
+  // ── Where the cursor is ─────────────────────────────────────────────────
+  function _lbdSetCur(secId, elKey) {
+    if (secId === _lbdCurSec && (elKey === undefined || elKey === _lbdCurEl)) return;
+    _lbdCurSec = secId || '';
+    if (elKey !== undefined) _lbdCurEl = elKey || '';
+    var host = $('woLiturgyBuilder');
+    if (!host) return;
+    host.querySelectorAll('.lbw-sec.is-current, .lbw-nav-item.is-current, .lbw-el.is-current').forEach(function(n) { n.classList.remove('is-current'); });
+    if (_lbdCurSec) {
+      var q = '"' + _lbdCssId(_lbdCurSec) + '"';
+      host.querySelectorAll('.lbw-sec[data-sec=' + q + '], .lbw-nav-item[data-sec=' + q + ']').forEach(function(n) { n.classList.add('is-current'); });
+      var cut = _lbdCurEl.indexOf(':');
+      if (cut > 0) {
+        var kind = _lbdCurEl.slice(0, cut), id = _lbdCssId(_lbdCurEl.slice(cut + 1));
+        var n = host.querySelector('.lbw-sec[data-sec=' + q + '] ' + (kind === 'item' ? '.lbw-el[data-item="' + id + '"]' : '.lbw-el--song[data-song="' + id + '"]'));
+        if (n) n.classList.add('is-current');
+      }
+    }
+    var st = host.querySelector('.lbw-status-cur');
+    if (st) st.innerHTML = _lbdStatusCurHtml();
+  }
+
+  // What Insert inserts into: the section the cursor is in, else the one at
+  // the top of the screen.
+  function _lbdTargetSec() {
+    var list = _woSectionList();
+    if (_lbdCurSec && list.some(function(s) { return s.id === _lbdCurSec; })) return _lbdCurSec;
+    var host = $('woLiturgyBuilder');
+    var secs = host ? host.querySelectorAll('.lbw-sec') : [];
+    for (var i = 0; i < secs.length; i++) {
+      if (secs[i].getBoundingClientRect().bottom > 90) return secs[i].getAttribute('data-sec');
+    }
+    return (list[0] && list[0].id) || '';
+  }
+
+  function _lbdAfterItem(secId) {
+    if (_lbdCurSec !== secId || _lbdCurEl.indexOf('item:') !== 0) return '';
+    var it = _lbdItem(_lbdCurEl.slice(5));
+    return it && it.sectionId === secId ? it.id : '';
+  }
+
+  function _lbdAfterSong(secId) {
+    if (_lbdCurSec !== secId || _lbdCurEl.indexOf('song:') !== 0) return '';
+    var s = _lbdSong(_lbdCurEl.slice(5));
+    return s && _woSongSectionIds(s).indexOf(secId) !== -1 ? s.id : '';
+  }
+
+  function _lbdInsert(kind, secId, slot) {
+    secId = secId || _lbdTargetSec();
+    if (!secId) { showToast('Add a section first', 'info'); return; }
+    if (kind !== 'section') delete _lbdFolded[secId];
+    _lbdSetCur(secId);
+    if (kind === 'song') _lbdOpenSongSheet(secId, _lbdAfterSong(secId));
+    else if (kind === 'liturgy') _lbdOpenLiturgySheet(secId, _lbdAfterItem(secId));
+    else if (kind === 'reading') _lbdOpenReadingSheet(secId, slot || '', _lbdAfterItem(secId));
+    else if (kind === 'text') lbdAddText(secId, _lbdAfterItem(secId));
+    else if (kind === 'note') _lbdOpenSecNote(secId);
+    else if (kind === 'section') lbdAddSection(_lbdSecIndex(secId) + 1);
+  }
+
+  function _lbdGoTo(secId) {
+    var host = $('woLiturgyBuilder');
+    var el = host && host.querySelector('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"]');
+    if (!el) return;
+    _lbdSetCur(secId, '');
+    el.scrollIntoView({ block: 'start' });
+    el.classList.remove('is-flash');
+    void el.offsetWidth;
+    el.classList.add('is-flash');
+  }
+
+  // ── The page ────────────────────────────────────────────────────────────
   function lbdRender() {
     var host = $('woLiturgyBuilder');
     if (!host || !_lbdIsActive() || !currentOrderData) return;
+    if (!_lbdPrefsRead) { _lbdPrefsRead = true; _lbdPrefs(); }
     _lbdBind(host);
+    _lbdCloseMenu();
+    _lbdFlushTyping();
+    var keep = _lbdFocusKey();
     var list = _woSectionList();
+    if (_lbdCurSec && !list.some(function(s) { return s.id === _lbdCurSec; })) { _lbdCurSec = ''; _lbdCurEl = ''; }
     var counts = { songs: 0, liturgy: 0, readings: 0 };
     songOrderSections.forEach(function(s) { if (_woSongSectionIds(s, list).length) counts.songs++; });
     list.forEach(function(sec) {
@@ -68592,47 +68913,128 @@ var WO = (function() {
         else if (it.itemType === 'scripture') counts.readings++;
       });
     });
-    var h = _lbdTopHtml(list, counts) + _lbdServiceNotesHtml() + '<ol class="lbd-list">';
-    list.forEach(function(sec, i) { h += _lbdSectionHtml(sec, i, list); });
-    h += '</ol>' +
-      '<button type="button" class="lbd-add-section" data-act="add-section" data-at="' + list.length + '"><i class="fa-solid fa-plus"></i> Add a section</button>' +
-      _lbdUnplacedHtml(list);
-    host.innerHTML = '<div class="lbd">' + h + '</div>';
+    var unplaced = songOrderSections.filter(function(s) {
+      return s && s.itemType !== 'blank' && !_woSongSectionIds(s, list).length;
+    });
+    host.innerHTML =
+      '<div class="lbw lbw--' + _lbdView + (_lbdNavOn ? ' lbw--nav' : '') + '">' +
+        _lbdRibbonHtml(list) +
+        '<div class="lbw-body">' +
+          _lbdNavHtml(list) +
+          '<div class="lbw-canvas"><article class="lbw-page" aria-label="Order of worship">' +
+            _lbdDocHeadHtml() +
+            list.map(function(sec, i) { return _lbdSectionHtml(sec, i, list); }).join('') +
+            '<button type="button" class="lbw-add-sec" data-act="add-section" data-at="' + list.length + '"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add a section</button>' +
+            _lbdUnplacedHtml(unplaced, list) +
+          '</article></div>' +
+        '</div>' +
+        _lbdStatusHtml(list, counts, unplaced.length) +
+      '</div>';
     _woUpdateUndoRedoButtons();
-    if (_lbdRenaming) _lbdFocus('[data-field="sec-title"]', true);
+    if (_lbdRenaming) {
+      var rid = _lbdRenaming;
+      _lbdRenaming = null;
+      _lbdFocus('.lbw-sec[data-sec="' + _lbdCssId(rid) + '"] [data-field="sec-title"]', 'select');
+    } else _lbdRestoreFocus(keep);
   }
 
-  function _lbdTopHtml(list, c) {
+  function _lbdRibbonHtml(list) {
+    var doc = _lbdView === 'document';
+    var allFolded = list.length > 0 && list.every(function(s) { return _lbdFolded[s.id]; });
+    function b(act, icon, label, title, extra) {
+      return '<button type="button" class="lbw-rb" data-act="' + act + '" title="' + _lbdEsc(title) + '"' + (extra || '') + '>' +
+        '<i class="' + icon + '" aria-hidden="true"></i><span>' + label + '</span></button>';
+    }
+    return '<div class="lbw-ribbon" role="toolbar" aria-label="Liturgy Builder">' +
+      '<div class="lbw-rgroup" role="group" aria-label="Insert">' +
+        b('ins-song', 'fa-solid fa-music', 'Song', 'Insert a song from the library, after the one you are on') +
+        b('ins-liturgy', 'fa-solid fa-hands-praying', 'Liturgy', 'Insert liturgy from the library, or write your own') +
+        b('ins-reading', 'fa-solid fa-book-bible', 'Reading', 'Insert a scripture reading') +
+        b('ins-text', 'fa-solid fa-paragraph', 'Text', 'Insert a slide of your own words') +
+        b('ins-section', 'fa-solid fa-heading', 'Section', 'Insert a new section after this one') +
+        b('ins-break', 'fa-solid fa-scissors', 'Slide break', 'Start a new slide at the cursor (Ctrl+Enter)') +
+      '</div>' +
+      '<div class="lbw-rgroup" role="group" aria-label="Notes">' +
+        b('ins-note', 'fa-regular fa-comment', 'Note', 'A note for the liturgist on this section, never projected') +
+      '</div>' +
+      '<div class="lbw-rgroup" role="group" aria-label="Import">' +
+        b('import', 'fa-solid fa-file-import', 'Import', 'Bring in a Word document, or text pasted from one') +
+        b('fill-readings', 'fa-solid fa-calendar-check', 'Roster readings', 'Add this date\u2019s readings from the roster') +
+      '</div>' +
+      '<div class="lbw-rgroup" role="group" aria-label="View">' +
+        '<span class="lbw-seg">' +
+          '<button type="button" class="lbw-seg-b" data-act="view-outline" aria-pressed="' + !doc + '" title="One line for each part of the service">Outline</button>' +
+          '<button type="button" class="lbw-seg-b" data-act="view-document" aria-pressed="' + doc + '" title="Every word, as a document">Full text</button>' +
+        '</span>' +
+        b('fold-all', allFolded ? 'fa-solid fa-angles-down' : 'fa-solid fa-angles-up', allFolded ? 'Expand all' : 'Collapse all',
+          allFolded ? 'Show what is in every section' : 'Show only the section headings') +
+        b('nav-toggle', 'fa-solid fa-list-ol', 'Navigation', 'Show or hide the list of sections', ' aria-pressed="' + _lbdNavOn + '"') +
+      '</div>' +
+      '<div class="lbw-rgroup lbw-rgroup--end">' +
+        b('open-book', 'fa-solid fa-book-open', 'Liturgy Book', 'Read and print the whole liturgy as a book') +
+      '</div>' +
+    '</div>';
+  }
+
+  function _lbdSecCount(secId, list) {
+    var n = _woSectionItems(secId).length;
+    songOrderSections.forEach(function(s) { if (_woSongSectionIds(s, list).indexOf(secId) !== -1) n++; });
+    return n;
+  }
+
+  function _lbdNavHtml(list) {
+    return '<nav class="lbw-nav" aria-label="Sections">' +
+      '<div class="lbw-nav-head"><span>Navigation</span>' +
+        '<button type="button" class="lbw-x" data-act="nav-toggle" title="Hide the navigation pane" aria-label="Hide the navigation pane"><i class="fa-solid fa-xmark"></i></button></div>' +
+      '<ol class="lbw-nav-list">' + list.map(function(sec, i) {
+        var n = _lbdSecCount(sec.id, list);
+        return '<li class="lbw-nav-item' + (sec.id === _lbdCurSec ? ' is-current' : '') + '" data-sec="' + _lbdEsc(sec.id) + '" draggable="true">' +
+          '<button type="button" class="lbw-nav-b" data-act="nav-go" title="' + _lbdEsc(sec.title) + ' \u2014 drag to move">' +
+            '<span class="n">' + (i + 1) + '</span><span class="t">' + _lbdEsc(sec.title) + '</span>' +
+            (sec.notes ? '<i class="fa-solid fa-comment lbw-nav-note" aria-label="has a note"></i>' : '') +
+            (n ? '<span class="c">' + n + '</span>' : '') +
+          '</button></li>';
+      }).join('') + '</ol>' +
+      '<button type="button" class="lbw-nav-add" data-act="add-section" data-at="' + list.length + '"><i class="fa-solid fa-plus" aria-hidden="true"></i> Section</button>' +
+    '</nav>';
+  }
+
+  function _lbdNoteHtml(field, label, text, attrs, delAct) {
+    return '<div class="lbw-note"' + attrs + '>' +
+      '<div class="lbw-note-head"><i class="fa-regular fa-comment" aria-hidden="true"></i><span>' + _lbdEsc(label) + '</span>' +
+        '<button type="button" class="lbw-x" data-act="' + delAct + '" title="Delete this note" aria-label="Delete this note"><i class="fa-solid fa-xmark"></i></button></div>' +
+      '<div class="lbw-note-text"' + _lbdCE(field, ' role="textbox" aria-multiline="true" aria-label="' + _lbdEsc(label) + '" data-ph="A note for the liturgist \u2014 never projected"') + '>' + _lbdEsc(text) + '</div>' +
+    '</div>';
+  }
+
+  function _lbdDocHeadHtml() {
     var o = currentOrderData;
-    var when = o.serviceDate ? ' · ' + _lbdEsc(o.serviceDate) : '';
-    return '<header class="lbd-top">' +
-      '<div class="lbd-top-text">' +
-        '<div class="lbd-eyebrow"><span class="lbd-step">Step 1</span> Liturgy Builder' + when + '</div>' +
-        '<h2 class="lbd-title">Order of Worship</h2>' +
-        '<p class="lbd-lede">Shape the service section by section. Songs flow to Song Order and the Songbook; liturgy and readings flow to LCD Projection.</p>' +
-        '<div class="lbd-stats">' +
-          '<span><b>' + list.length + '</b> sections</span>' +
-          '<span><b>' + c.songs + '</b> songs</span>' +
-          '<span><b>' + c.liturgy + '</b> liturgy</span>' +
-          '<span><b>' + c.readings + '</b> readings</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="lbd-top-actions">' +
-        '<button type="button" class="lbd-btn" data-act="fill-readings" title="Look up this date\'s readings on the roster and add them to the order"><i class="fa-solid fa-calendar-check"></i> Readings from roster</button>' +
-        '<button type="button" class="lbd-btn lbd-btn--book" data-act="open-book" title="Read and print the whole liturgy as a book"><i class="fa-solid fa-book-open"></i> Liturgy Book</button>' +
-      '</div>' +
+    var notes = (o.template && o.template.serviceNotes) || '';
+    var sub = [o.orderName || o.title || '', o.serviceDate || '', o.occasion || ''].filter(Boolean);
+    return '<header class="lbw-dochead">' +
+      '<div class="lbw-dochead-main"><h1 class="lbw-doc-title">Order of Worship</h1>' +
+        (sub.length ? '<div class="lbw-doc-sub">' + _lbdEsc(sub.join(' \u00b7 ')) + '</div>' : '') + '</div>' +
+      '<aside class="lbw-margin">' +
+        (notes || _lbdSvcNotesOpen
+          ? _lbdNoteHtml('svc-notes', 'Service notes', notes, ' data-note="svc"', 'svc-note-del')
+          : '<button type="button" class="lbw-note-add" data-act="svc-notes-open"><i class="fa-regular fa-comment" aria-hidden="true"></i> Note on the whole service</button>') +
+      '</aside>' +
     '</header>';
   }
 
-  function _lbdServiceNotesHtml() {
-    var notes = (currentOrderData.template && currentOrderData.template.serviceNotes) || '';
-    if (!notes && !_lbdSvcNotesOpen) {
-      return '<button type="button" class="lbd-svcnotes-add" data-act="svc-notes-open"><i class="fa-solid fa-feather-pointed"></i> Add notes for the whole service</button>';
-    }
-    return '<section class="lbd-svcnotes">' +
-      '<label class="lbd-note-label" for="lbdSvcNotes"><i class="fa-solid fa-feather-pointed"></i> Service notes <span>for the liturgist — never projected</span></label>' +
-      '<textarea id="lbdSvcNotes" class="lbd-note-input" data-field="svc-notes" rows="2" placeholder="Anything the liturgist should know about the whole service">' + _lbdEsc(notes) + '</textarea>' +
-    '</section>';
+  function _lbdSecSummary(songs, items) {
+    var lit = 0, read = 0, other = 0;
+    items.forEach(function(it) {
+      if (it.itemType === 'liturgy') lit++;
+      else if (it.itemType === 'scripture') read++;
+      else other++;
+    });
+    var bits = [];
+    if (songs.length) bits.push(songs.length + ' song' + (songs.length === 1 ? '' : 's'));
+    if (lit) bits.push(lit + ' liturgy');
+    if (read) bits.push(read + ' reading' + (read === 1 ? '' : 's'));
+    if (other) bits.push(other + ' other');
+    return bits.length ? bits.join(' \u00b7 ') : 'empty';
   }
 
   function _lbdSectionHtml(sec, idx, list) {
@@ -68640,62 +69042,40 @@ var WO = (function() {
     var songs = songOrderSections.filter(function(s) { return _woSongSectionIds(s, list).indexOf(sec.id) !== -1; });
     var items = _woSectionItems(sec.id);
     var slots = _lbdSlotLabels(sec.id);
-    var hasNotes = !!(sec.notes || _lbdNotesOpen[sec.id]);
-    var empty = !songs.length && !items.length && !slots.length;
-    var count = [];
-    if (songs.length) count.push(songs.length + ' song' + (songs.length === 1 ? '' : 's'));
-    if (items.length) count.push(items.length + ' item' + (items.length === 1 ? '' : 's'));
-
-    var h = '<li class="lbd-sec' + (empty ? ' is-empty' : '') + '" data-sec="' + sid + '">' +
-      '<div class="lbd-sec-head">' +
-        '<span class="lbd-grip" draggable="true" title="Drag to move this section"><i class="fa-solid fa-grip-vertical"></i></span>' +
-        '<span class="lbd-num">' + (idx + 1) + '</span>';
-    if (_lbdRenaming === sec.id) {
-      h += '<input class="lbd-title-input" data-field="sec-title" data-sec="' + sid + '" value="' + _lbdEsc(sec.title) + '" aria-label="Section name" maxlength="80">';
-    } else {
-      h += '<button type="button" class="lbd-sec-title" data-act="rename" title="Rename this section">' +
-        '<span>' + _lbdEsc(sec.title) + '</span><i class="fa-solid fa-pen" aria-hidden="true"></i></button>';
-    }
-    h += '<span class="lbd-sec-count">' + _lbdEsc(count.join(' · ')) + '</span>' +
-        '<span class="lbd-sec-tools">' +
-          '<button type="button" class="lbd-icon" data-act="sec-up" title="Move up" aria-label="Move ' + _lbdEsc(sec.title) + ' up"' + (idx === 0 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up"></i></button>' +
-          '<button type="button" class="lbd-icon" data-act="sec-down" title="Move down" aria-label="Move ' + _lbdEsc(sec.title) + ' down"' + (idx === list.length - 1 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down"></i></button>' +
-          '<button type="button" class="lbd-icon lbd-icon--danger" data-act="sec-remove" title="Remove this section" aria-label="Remove ' + _lbdEsc(sec.title) + '"><i class="fa-solid fa-trash-can"></i></button>' +
-        '</span>' +
-      '</div>';
-    if (hasNotes) {
-      h += '<div class="lbd-sec-notes">' +
-        '<div class="lbd-note-label"><i class="fa-solid fa-feather-pointed"></i> Liturgist notes <span>never projected</span></div>' +
-        '<textarea class="lbd-note-input" data-field="sec-notes" rows="2" placeholder="e.g. Pastor leads from the font; the congregation kneels">' + _lbdEsc(sec.notes) + '</textarea>' +
-      '</div>';
-    }
-    h += '<ul class="lbd-items">';
-    songs.forEach(function(s, k) { h += _lbdSongHtml(s, sec, k, songs.length, list); });
-    h += _lbdItemsHtml(sec, items, slots, list);
-    h += '</ul>';
-    if (empty) h += '<p class="lbd-empty">Nothing here yet.</p>';
-    h += '<div class="lbd-add">' +
-      '<button type="button" class="lbd-chip" data-act="add-song"><i class="fa-solid fa-music"></i> Song</button>' +
-      '<button type="button" class="lbd-chip" data-act="add-liturgy"><i class="fa-solid fa-hands-praying"></i> Liturgy</button>' +
-      '<button type="button" class="lbd-chip" data-act="add-reading"><i class="fa-solid fa-book-bible"></i> Reading</button>' +
-      (hasNotes ? '' : '<button type="button" class="lbd-chip lbd-chip--note" data-act="sec-notes-open"><i class="fa-solid fa-feather-pointed"></i> Note</button>') +
-      '<button type="button" class="lbd-chip lbd-chip--ghost" data-act="add-section-below" title="Add a new section after this one"><i class="fa-solid fa-plus"></i> Section below</button>' +
-    '</div></li>';
-    return h;
-  }
-
-  function _lbdMoveSelect(field, currentSec, list) {
-    var h = '<label class="lbd-field lbd-field--inline"><span>Move to</span><select class="lbd-select" data-field="' + field + '">';
-    list.forEach(function(sec, i) {
-      h += '<option value="' + _lbdEsc(sec.id) + '"' + (sec.id === currentSec ? ' selected' : '') + '>' + (i + 1) + '. ' + _lbdEsc(sec.title) + '</option>';
+    var folded = !!_lbdFolded[sec.id];
+    var notes = '';
+    if (sec.notes || _lbdNotesOpen[sec.id]) notes += _lbdNoteHtml('sec-notes', 'Note', sec.notes || '', ' data-note="sec"', 'note-del');
+    songs.forEach(function(s) {
+      if (String(s.liturgistNotes || '').trim() || _lbdNotesOpen['song:' + s.id]) {
+        notes += _lbdNoteHtml('song-notes', '\u266a ' + (s.title || 'Song'), s.liturgistNotes || '',
+          ' data-note="song" data-song="' + _lbdEsc(s.id) + '"', 'song-note-del');
+      }
     });
-    return h + '</select></label>';
+    var body = '';
+    var empty = !songs.length && !items.length && !slots.length;
+    if (!folded) {
+      songs.forEach(function(s) { body += _lbdSongHtml(s, sec); });
+      body += _lbdItemsHtml(sec, items, slots);
+    }
+    return '<section class="lbw-sec' + (folded ? ' is-folded' : '') + (sec.id === _lbdCurSec ? ' is-current' : '') + '" data-sec="' + sid + '">' +
+      '<div class="lbw-h">' +
+        '<button type="button" class="lbw-fold" data-act="sec-fold" aria-expanded="' + !folded + '" title="' + (folded ? 'Show what is in this section' : 'Fold this section under its heading') + '"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>' +
+        '<span class="lbw-h-num">' + (idx + 1) + '.</span>' +
+        '<span class="lbw-h-title"' + _lbdCE('sec-title', ' role="textbox" aria-label="Section name" spellcheck="false"') + '>' + _lbdEsc(sec.title) + '</span>' +
+        (folded ? '<span class="lbw-h-sum">' + _lbdEsc(_lbdSecSummary(songs, items)) + '</span>'
+          : empty ? '<button type="button" class="lbw-h-empty" data-act="sec-insert" title="Insert a song, liturgy or reading">empty \u2014 insert\u2026</button>' : '') +
+        '<span class="lbw-tools">' +
+          '<button type="button" class="lbw-tb" data-act="sec-insert" title="Insert into this section" aria-label="Insert into ' + _lbdEsc(sec.title) + '"><i class="fa-solid fa-plus"></i></button>' +
+          '<button type="button" class="lbw-tb" data-act="sec-menu" title="Section options" aria-label="Options for ' + _lbdEsc(sec.title) + '"><i class="fa-solid fa-ellipsis"></i></button>' +
+        '</span>' +
+      '</div>' +
+      '<aside class="lbw-margin">' + notes + '</aside>' +
+      (folded ? '' : '<div class="lbw-sec-body">' + body + '</div>') +
+    '</section>';
   }
 
-  function _lbdSongHtml(s, sec, k, n, list) {
-    var key = 'song:' + s.id + ':' + sec.id;
-    var open = !!_lbdOpen[key];
-    var meta = ['Song'];
+  function _lbdSongHtml(s, sec) {
+    var meta = [];
     if (s.artist) meta.push(s.artist);
     var kt = _lbdKeyText(s);
     if (kt) meta.push(kt);
@@ -68704,168 +69084,519 @@ var WO = (function() {
     if (!(parseInt(s.transposeSteps, 10) || 0) && s.customLyrics && s.customLyrics !== s.masterLyrics) {
       meta.push('words edited for this service');
     }
-    var notes = String(s.liturgistNotes || '').trim();
-    var h = '<li class="lbd-item lbd-item--song' + (open ? ' is-open' : '') + '" data-song="' + _lbdEsc(s.id) + '">' +
-      '<div class="lbd-item-row">' +
-        '<span class="lbd-item-icon"><i class="fa-solid fa-music"></i></span>' +
-        '<button type="button" class="lbd-item-main" data-act="toggle" data-key="' + _lbdEsc(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-          '<span class="lbd-item-title">' + _lbdEsc(s.title || 'Song') + '</span>' +
-          '<span class="lbd-item-meta">' + _lbdEsc(meta.join(' · ')) + '</span>' +
-        '</button>' +
-        '<span class="lbd-item-tools">' +
-          '<button type="button" class="lbd-icon" data-act="song-up" title="Move up" aria-label="Move up"' + (k === 0 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up"></i></button>' +
-          '<button type="button" class="lbd-icon" data-act="song-down" title="Move down" aria-label="Move down"' + (k === n - 1 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down"></i></button>' +
-          '<button type="button" class="lbd-icon" data-act="song-songbook" title="Open in the Songbook: key, lyrics, markings and annotations" aria-label="Open in the Songbook"><i class="fa-solid fa-book-open"></i></button>' +
-          '<button type="button" class="lbd-icon lbd-icon--danger" data-act="song-remove" title="Take out of this section (it stays in Song Order)" aria-label="Take out of this section"><i class="fa-solid fa-xmark"></i></button>' +
-        '</span>' +
-      '</div>';
-    if (open) {
-      h += '<div class="lbd-editor">' +
-        '<label class="lbd-field"><span>Liturgist notes for this song <em>· also in the Songbook</em></span>' +
-          '<textarea class="lbd-note-input" data-field="song-notes" rows="3" placeholder="e.g. Choir sings verse 3 alone; the congregation stands">' + _lbdEsc(s.liturgistNotes || '') + '</textarea></label>' +
-        _lbdMoveSelect('song-move', sec.id, list) +
-        '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> The key, lyrics, markings and annotations for this service are set in the Songbook. ' +
-          '<button type="button" class="lbd-link" data-act="song-songbook">Open in Songbook</button> · ' +
-          '<button type="button" class="lbd-link" data-act="go-song-order">Go to Song Order</button></p>' +
-      '</div>';
-    } else if (notes) {
-      h += '<div class="lbd-item-note"><i class="fa-solid fa-feather-pointed"></i> ' + _lbdEsc(notes) + '</div>';
-    }
-    return h + '</li>';
+    var cur = _lbdCurSec === sec.id && _lbdCurEl === 'song:' + s.id;
+    return '<div class="lbw-el lbw-el--song' + (cur ? ' is-current' : '') + '" data-song="' + _lbdEsc(s.id) + '">' +
+      '<span class="lbw-ico" aria-hidden="true"><i class="fa-solid fa-music"></i></span>' +
+      '<div class="lbw-el-line">' +
+        '<span class="lbw-kind">Song</span>' +
+        '<span class="lbw-el-title">' + _lbdEsc(s.title || 'Song') + '</span>' +
+        (meta.length ? '<span class="lbw-el-meta">' + _lbdEsc(meta.join(' \u00b7 ')) + '</span>' : '') +
+      '</div>' +
+      '<span class="lbw-tools">' +
+        '<button type="button" class="lbw-tb" data-act="song-songbook" title="Open in the Songbook: key, lyrics, markings and annotations" aria-label="Open in the Songbook"><i class="fa-solid fa-book-open"></i></button>' +
+        '<button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' + _lbdEsc(s.title || 'song') + '"><i class="fa-solid fa-ellipsis"></i></button>' +
+      '</span>' +
+    '</div>';
   }
 
-  function _lbdItemsHtml(sec, items, slots, list) {
-    var used = {};
-    var h = '';
+  // The template's reading slots, in their order; the ones still empty share
+  // one line of buttons, which is all they need to say.
+  function _lbdItemsHtml(sec, items, slots) {
+    var used = {}, h = '', open = [];
     slots.forEach(function(label) {
-      var role = _roleForSlotLabel(label);
-      var hit = null;
+      var role = _roleForSlotLabel(label), hit = null;
       items.forEach(function(it) {
         if (hit || used[it.id] || it.itemType !== 'scripture') return;
         var sub = (it.content && it.content.subLabel) || '';
         if (sub === label || (role && _roleForSlotLabel(sub) === role)) hit = it;
       });
-      if (hit) {
-        used[hit.id] = true;
-        h += _lbdItemHtml(hit, sec, label, -1, 0, list);
-      } else {
-        h += '<li class="lbd-slot">' +
-          '<span class="lbd-item-icon"><i class="fa-solid fa-book-bible"></i></span>' +
-          '<span class="lbd-slot-label">' + _lbdEsc(label) + '</span>' +
-          '<button type="button" class="lbd-chip lbd-chip--small" data-act="add-reading" data-slot="' + _lbdEsc(label) + '"><i class="fa-solid fa-plus"></i> Add reading</button>' +
-        '</li>';
-      }
+      if (hit) { used[hit.id] = true; h += _lbdItemHtml(hit, sec, label); }
+      else open.push(label);
     });
-    var rest = items.filter(function(it) { return !used[it.id]; });
-    rest.forEach(function(it, k) { h += _lbdItemHtml(it, sec, '', k, rest.length, list); });
+    if (open.length) {
+      h += '<div class="lbw-el lbw-slots"><span class="lbw-ico" aria-hidden="true"><i class="fa-solid fa-book-bible"></i></span>' +
+        '<div class="lbw-el-line"><span class="lbw-kind">Readings</span>' +
+        open.map(function(label) {
+          return '<button type="button" class="lbw-slot-b" data-act="add-reading" data-slot="' + _lbdEsc(label) + '" title="Add the ' + _lbdEsc(label) + '">' +
+            '<i class="fa-solid fa-plus" aria-hidden="true"></i> ' + _lbdEsc(label) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    items.forEach(function(it) { if (!used[it.id]) h += _lbdItemHtml(it, sec, ''); });
     return h;
   }
 
-  function _lbdItemHtml(it, sec, slotLabel, k, n, list) {
-    var key = 'item:' + it.id;
-    var open = !!_lbdOpen[key];
+  function _lbdItemHtml(it, sec, slotLabel) {
     var t = it.itemType;
-    var editable = t === 'liturgy' || t === 'scripture' || t === 'content';
+    var key = 'item:' + it.id;
+    var cur = _lbdCurSec === sec.id && _lbdCurEl === key;
     var icon = t === 'liturgy' ? 'fa-hands-praying' : t === 'scripture' ? 'fa-book-bible'
-             : t === 'slides' ? 'fa-display' : t === 'video' ? 'fa-video' : 'fa-align-left';
+             : t === 'slides' ? 'fa-display' : t === 'video' ? 'fa-video' : 'fa-paragraph';
     var kind = t === 'liturgy' ? 'Liturgy'
              : t === 'scripture' ? (slotLabel || (it.content && it.content.subLabel) || 'Reading')
              : t === 'slides' ? 'Slides' : t === 'video' ? 'Video' : 'Text';
+    var open0 = '<div class="lbw-el lbw-el--' + _lbdEsc(t) + (cur ? ' is-current' : '');
+    var ico = '<span class="lbw-ico" aria-hidden="true"><i class="fa-solid ' + icon + '"></i></span>';
+    var tools = '<span class="lbw-tools"><button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' +
+      _lbdEsc(it.title || kind) + '"><i class="fa-solid fa-ellipsis"></i></button></span>';
+    if (t === 'content') {
+      return open0 + '" data-item="' + _lbdEsc(it.id) + '">' + ico +
+        '<div class="lbw-el-main"><div class="lbw-text"' + _lbdCE('content-text', ' role="textbox" aria-multiline="true" aria-label="Text slide" data-ph="Type the words for this slide"') + '>' +
+          _lbdEsc((it.content && it.content.text) || '') + '</div></div>' + tools + '</div>';
+    }
+    if (t !== 'liturgy' && t !== 'scripture') {
+      return open0 + '" data-item="' + _lbdEsc(it.id) + '">' + ico +
+        '<div class="lbw-el-line"><span class="lbw-kind">' + kind + '</span><span class="lbw-el-title">' + _lbdEsc(it.title || kind) + '</span>' +
+          '<span class="lbw-el-meta">set up in LCD Projection</span></div>' + tools + '</div>';
+    }
     var slides = Array.isArray(it.slides) ? it.slides : [];
-    var title = t === 'content' ? _lbdPeek(it.content && it.content.text, 70) : (it.title || kind);
-    var meta = [kind];
-    if ((t === 'liturgy' || t === 'scripture') && slides.length) meta.push(slides.length + ' slide' + (slides.length === 1 ? '' : 's'));
-    if (t === 'slides' || t === 'video') meta.push('managed in LCD Projection');
-    var peek = '';
-    if (t === 'liturgy') peek = _lbdPeek(slides.map(function(s) { return s && s.content; }).join(' '), 110);
-    else if (t === 'scripture') {
-      var firstPassage = slides.filter(function(s) { return s && _woScriptureSlideKind(s.content).kind === 'passage'; })[0];
-      peek = _lbdPeek(firstPassage ? String(firstPassage.content).replace(/\[\d+\]\s*/g, '') : '', 110);
-    }
-    var h = '<li class="lbd-item lbd-item--' + _lbdEsc(t) + (open ? ' is-open' : '') + '" data-item="' + _lbdEsc(it.id) + '">' +
-      '<div class="lbd-item-row">' +
-        '<span class="lbd-item-icon"><i class="fa-solid ' + icon + '"></i></span>' +
-        (editable
-          ? '<button type="button" class="lbd-item-main" data-act="toggle" data-key="' + _lbdEsc(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
-          : '<div class="lbd-item-main">') +
-          '<span class="lbd-item-title">' + _lbdEsc(title) + '</span>' +
-          '<span class="lbd-item-meta">' + _lbdEsc(meta.join(' · ')) + '</span>' +
-          (peek && !open ? '<span class="lbd-item-peek">' + _lbdEsc(peek) + '</span>' : '') +
-        (editable ? '</button>' : '</div>') +
-        '<span class="lbd-item-tools">' +
-          (k >= 0 ? '<button type="button" class="lbd-icon" data-act="item-up" title="Move up" aria-label="Move up"' + (k === 0 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up"></i></button>' +
-                    '<button type="button" class="lbd-icon" data-act="item-down" title="Move down" aria-label="Move down"' + (k === n - 1 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down"></i></button>' : '') +
-          '<button type="button" class="lbd-icon lbd-icon--danger" data-act="item-remove" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button>' +
-        '</span>' +
-      '</div>';
-    if (open && editable) h += _lbdItemEditorHtml(it, sec, list);
-    return h + '</li>';
-  }
-
-  function _lbdItemEditorHtml(it, sec, list) {
-    var h = '<div class="lbd-editor">';
-    if (it.itemType === 'content') {
-      h += '<label class="lbd-field"><span>Text</span><textarea class="lbd-slide-input" data-field="content-text" rows="3">' +
-        _lbdEsc(it.content && it.content.text) + '</textarea></label>';
+    var doc = _lbdView === 'document';
+    var open = doc || !!_lbdOpen[key];
+    var h = open0 + (open ? ' is-open' : '') + '" data-item="' + _lbdEsc(it.id) + '">' + ico + '<div class="lbw-el-main">';
+    if (!open) {
+      var peek = '';
+      if (t === 'liturgy') peek = slides.map(function(s) { return s && s.content; }).join(' ');
+      else {
+        var fp = slides.filter(function(s) { return s && _woScriptureSlideKind(s.content).kind === 'passage'; })[0];
+        peek = fp ? String(fp.content).replace(/\[\d+\]\s*/g, '') : '';
+      }
+      h += '<button type="button" class="lbw-el-line" data-act="toggle" data-key="' + _lbdEsc(key) + '" aria-expanded="false" title="Show the words">' +
+        '<span class="lbw-kind">' + _lbdEsc(kind) + '</span>' +
+        '<span class="lbw-el-title">' + _lbdEsc(it.title || kind) + '</span>' +
+        '<span class="lbw-peek">' + _lbdEsc(_lbdPeek(peek, 160)) + '</span>' +
+        '<span class="lbw-el-meta">' + slides.length + ' slide' + (slides.length === 1 ? '' : 's') + '</span>' +
+      '</button>';
     } else {
-      h += '<label class="lbd-field"><span>' + (it.itemType === 'scripture' ? 'Reference' : 'Title') + '</span>' +
-        '<input class="lbd-input" data-field="item-title" value="' + _lbdEsc(it.title) + '" maxlength="120"></label>';
-      var slides = (Array.isArray(it.slides) && it.slides.length) ? it.slides : [{ content: '' }];
-      h += '<div class="lbd-slides">';
-      slides.forEach(function(sl, i) {
-        var text = String((sl && sl.content) || '');
-        var rows = Math.min(10, Math.max(2, text.split('\n').length));
-        h += '<div class="lbd-slide" data-idx="' + i + '">' +
-          '<div class="lbd-slide-head"><span>Slide ' + (i + 1) + '</span>' +
-            (sl && sl.richHtml ? '<span class="lbd-slide-flag" title="Formatted in LCD Projection. Changing the words here clears that formatting.">formatted</span>' : '') +
-            (sl && sl.background ? '<span class="lbd-slide-flag" title="Has its own background in LCD Projection">background</span>' : '') +
-            '<button type="button" class="lbd-icon lbd-icon--small" data-act="slide-remove" title="Remove this slide" aria-label="Remove slide ' + (i + 1) + '"' + (slides.length < 2 ? ' disabled' : '') + '><i class="fa-solid fa-xmark"></i></button>' +
-          '</div>' +
-          '<textarea class="lbd-slide-input" data-field="slide" rows="' + rows + '" aria-label="Slide ' + (i + 1) + ' words">' + _lbdEsc(text) + '</textarea>' +
-        '</div>';
+      h += '<div class="lbw-el-line">' +
+        (doc ? '' : '<button type="button" class="lbw-fold lbw-fold--item" data-act="toggle" data-key="' + _lbdEsc(key) + '" aria-expanded="true" title="Show one line"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button>') +
+        '<span class="lbw-kind">' + _lbdEsc(kind) + '</span>' +
+        '<span class="lbw-el-title lbw-el-title--edit"' + _lbdCE('item-title', ' role="textbox" aria-label="' + (t === 'scripture' ? 'Reference' : 'Title') + '" spellcheck="false"') + '>' + _lbdEsc(it.title || '') + '</span>' +
+      '</div><div class="lbw-slides">';
+      (slides.length ? slides : [{ content: '' }]).forEach(function(sl, i) {
+        if (i) {
+          h += '<div class="lbw-brk" data-idx="' + i + '"><span>slide ' + (i + 1) + '</span>' +
+            '<button type="button" class="lbw-x" data-act="merge-break" title="Remove this slide break: join it to the slide above" aria-label="Remove the break before slide ' + (i + 1) + '"><i class="fa-solid fa-xmark"></i></button></div>';
+        }
+        var flags = (sl && sl.richHtml ? '<span class="lbw-flag" title="Formatted in LCD Projection. Changing the words here clears that formatting.">formatted</span>' : '') +
+                    (sl && sl.background ? '<span class="lbw-flag" title="Has its own background in LCD Projection">background</span>' : '');
+        h += '<div class="lbw-slide" data-idx="' + i + '">' + (flags ? '<span class="lbw-flags">' + flags + '</span>' : '') +
+          '<div class="lbw-text"' + _lbdCE('slide', ' role="textbox" aria-multiline="true" aria-label="Slide ' + (i + 1) + '" data-ph="Type the words for this slide"') + '>' +
+            _lbdEsc(String((sl && sl.content) || '')) + '</div></div>';
       });
-      h += '</div><button type="button" class="lbd-chip lbd-chip--small" data-act="slide-add"><i class="fa-solid fa-plus"></i> Add slide</button>';
+      h += '</div>';
     }
-    h += _lbdMoveSelect('item-move', sec.id, list);
-    return h + '</div>';
+    return h + '</div>' + tools + '</div>';
   }
 
-  function _lbdUnplacedHtml(list) {
-    var un = songOrderSections.filter(function(s) {
-      return s && s.itemType !== 'blank' && !_woSongSectionIds(s, list).length;
-    });
+  function _lbdUnplacedHtml(un, list) {
     if (!un.length) return '';
-    var opts = '<option value="">Place in…</option>' + list.map(function(sec, i) {
+    var opts = '<option value="">Place in\u2026</option>' + list.map(function(sec, i) {
       return '<option value="' + _lbdEsc(sec.id) + '">' + (i + 1) + '. ' + _lbdEsc(sec.title) + '</option>';
     }).join('');
-    var h = '<section class="lbd-unplaced">' +
-      '<div class="lbd-unplaced-head"><i class="fa-solid fa-music"></i> In Song Order, but not yet in the service <span class="lbd-badge">' + un.length + '</span></div>' +
-      '<ul>';
-    un.forEach(function(s) {
-      h += '<li data-song="' + _lbdEsc(s.id) + '">' +
-        '<span class="lbd-item-title">' + _lbdEsc(s.title || 'Song') + '</span>' +
-        '<select class="lbd-select" data-field="place-song" aria-label="Place ' + _lbdEsc(s.title || 'song') + ' in a section">' + opts + '</select>' +
-        '<button type="button" class="lbd-icon lbd-icon--danger" data-act="song-delete" title="Remove from the order" aria-label="Remove ' + _lbdEsc(s.title || 'song') + ' from the order"><i class="fa-solid fa-trash-can"></i></button>' +
-      '</li>';
+    return '<div class="lbw-unplaced" id="lbwUnplaced">' +
+      '<div class="lbw-unplaced-head"><i class="fa-solid fa-music" aria-hidden="true"></i> In Song Order, not yet in the service <span class="lbw-badge">' + un.length + '</span></div>' +
+      un.map(function(s) {
+        return '<div class="lbw-el lbw-el--song" data-song="' + _lbdEsc(s.id) + '" data-unplaced="1">' +
+          '<span class="lbw-ico" aria-hidden="true"><i class="fa-solid fa-music"></i></span>' +
+          '<div class="lbw-el-line"><span class="lbw-el-title">' + _lbdEsc(s.title || 'Song') + '</span></div>' +
+          '<select class="lbw-select" data-field="place-song" aria-label="Place ' + _lbdEsc(s.title || 'song') + ' in a section">' + opts + '</select>' +
+          '<span class="lbw-tools"><button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' + _lbdEsc(s.title || 'song') + '"><i class="fa-solid fa-ellipsis"></i></button></span>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  function _lbdStatusCurHtml() {
+    var list = _woSectionList();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === _lbdCurSec) return 'Inserting into <b>' + (i + 1) + '. ' + _lbdEsc(list[i].title) + '</b>';
+    }
+    return 'Click in a section to insert into it';
+  }
+
+  function _lbdStatusHtml(list, c, unplaced) {
+    function n(k, one, many) { return k + ' ' + (k === 1 ? one : many); }
+    return '<footer class="lbw-status">' +
+      '<span>' + n(list.length, 'section', 'sections') + '</span>' +
+      '<span>' + n(c.songs, 'song', 'songs') + '</span>' +
+      '<span>' + c.liturgy + ' liturgy</span>' +
+      '<span>' + n(c.readings, 'reading', 'readings') + '</span>' +
+      (unplaced ? '<button type="button" class="lbw-status-warn" data-act="goto-unplaced">' + n(unplaced, 'song', 'songs') + ' not placed</button>' : '') +
+      '<span class="lbw-status-cur">' + _lbdStatusCurHtml() + '</span>' +
+      '<span class="lbw-status-view">' + (_lbdView === 'document' ? 'Full text' : 'Outline') + '</span>' +
+    '</footer>';
+  }
+
+  // ── Editing the words ───────────────────────────────────────────────────
+  // Ctrl+Enter (or Shift+Enter, as in LCD Projection) starts a new slide at
+  // the cursor -- Word's page break.
+  function _lbdBreakAt(el) {
+    var c = _lbdCtx(el);
+    var it = _lbdItem(c.item);
+    var car = _lbdCaret(el);
+    if (!it || c.idx < 0 || !car) return;
+    var text = _lbdTextOf(el);
+    var before = text.slice(0, car.start).replace(/\s+$/, '');
+    var after = text.slice(car.end).replace(/^\s+/, '').replace(/\n+$/, '');
+    _lbdOpen['item:' + it.id] = true;
+    _lbdChange(function() {
+      if (!Array.isArray(it.slides)) it.slides = [];
+      _lbdSetSlide(it, c.idx, before);
+      it.slides.splice(c.idx + 1, 0, { index: c.idx + 1, content: after, background: '' });
+      _lbdRenumber(it.slides);
     });
-    return h + '</ul></section>';
+    _lbdFocusSlide(it.id, c.idx + 1, 0);
+  }
+
+  function _lbdBreakAtCaret() {
+    var ae = document.activeElement, host = $('woLiturgyBuilder');
+    if (ae && host && host.contains(ae) && ae.getAttribute('data-field') === 'slide') { _lbdBreakAt(ae); return; }
+    showToast('Click in the words of a liturgy or reading, where the new slide should start', 'info');
+  }
+
+  // Join slide idx to the one above it -- Backspace at the start of a
+  // slide, Delete at the end of the one before, or the break's own ×.
+  function _lbdMergeAt(itemId, idx, stay) {
+    var it = _lbdItem(itemId);
+    if (!it || !Array.isArray(it.slides) || idx < 1 || idx >= it.slides.length) return;
+    var prev = String(it.slides[idx - 1].content || ''), cur = String(it.slides[idx].content || '');
+    var join = stay ? prev.length : prev.length + (prev && cur ? 1 : 0);
+    _lbdOpen['item:' + itemId] = true;
+    _lbdChange(function() {
+      _lbdSetSlide(it, idx - 1, prev && cur ? prev + '\n' + cur : prev + cur);
+      it.slides.splice(idx, 1);
+      _lbdRenumber(it.slides);
+    });
+    _lbdFocusSlide(itemId, idx - 1, join);
+  }
+
+  function _lbdFocusSlide(itemId, idx, pos) {
+    var host = $('woLiturgyBuilder');
+    var el = host && host.querySelector('[data-item="' + _lbdCssId(itemId) + '"] .lbw-slide[data-idx="' + idx + '"] [data-field="slide"]');
+    if (!el) return;
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    _lbdPlaceCaret(el, pos);
+    _lbdKeepInView(el);
+  }
+
+  // Text pasted with blank lines in it can become a slide per verse: the
+  // slide is broken at the blank lines of what was pasted -- at start, in
+  // the slide's text -- and nowhere else.
+  function _lbdSplitPasted(itemId, idx, start, text) {
+    var it = _lbdItem(itemId);
+    if (!it || !Array.isArray(it.slides) || !it.slides[idx]) return;
+    var s = String(it.slides[idx].content || '');
+    var t = String(text || '').replace(/\n+$/, '');
+    if (s.substr(start, t.length) !== t) {
+      showToast('That text has changed since it was pasted. Break the slides with Ctrl+Enter instead.', 'info');
+      return;
+    }
+    var cuts = [], re = /\n[ \t]*\n\s*/g, m;
+    while ((m = re.exec(t))) cuts.push([start + m.index, start + m.index + m[0].length]);
+    if (!cuts.length) return;
+    var parts = [], from = 0;
+    cuts.forEach(function(c) { parts.push(s.slice(from, c[0])); from = c[1]; });
+    parts.push(s.slice(from));
+    parts = parts.map(function(x) { return x.replace(/\s+$/, ''); }).filter(function(x) { return x.trim(); });
+    if (parts.length < 2) return;
+    _lbdOpen['item:' + itemId] = true;
+    _lbdChange(function() {
+      _lbdSetSlide(it, idx, parts[0]);
+      var add = parts.slice(1).map(function(x) { return { index: 0, content: x, background: '' }; });
+      Array.prototype.splice.apply(it.slides, [idx + 1, 0].concat(add));
+      _lbdRenumber(it.slides);
+    });
+    showToast('Split into ' + parts.length + ' slides', 'success', { action: 'Undo', duration: 6000, onAction: lbdUndo });
+  }
+
+  // A slide emptied and left behind goes, as an empty page does. A slide
+  // with a background of its own is a picture and stays.
+  function _lbdDropEmptySlides(itemId) {
+    var it = _lbdItem(itemId);
+    if (!it || !Array.isArray(it.slides) || it.slides.length < 2) return;
+    var keep = it.slides.filter(function(s) { return s && (String(s.content || '').trim() || s.background || s.richHtml); });
+    if (keep.length === it.slides.length) return;
+    if (!keep.length) keep = [it.slides[0]];
+    _lbdChange(function() { it.slides = keep; _lbdRenumber(it.slides); });
+  }
+
+  function _lbdDropEmptyText(itemId, next) {
+    var it = _lbdItem(itemId);
+    if (!it || it.itemType !== 'content' || String((it.content && it.content.text) || '').trim()) return;
+    if (next && next.closest && next.closest('[data-item="' + _lbdCssId(itemId) + '"]')) return;
+    _lbdChange(function() {
+      currentOrderData.allItems = currentOrderData.allItems.filter(function(x) { return x && x.id !== itemId; });
+    });
+  }
+
+  function _lbdCommitTitle(secId, raw, el) {
+    var t = String(raw || '').replace(/\s+/g, ' ').trim();
+    var i = _lbdSecIndex(secId);
+    if (i < 0 || !currentOrderData) return;
+    var was = _woStripNum(currentOrderData.sectionLayout[i].title);
+    if (!t || t === was) {
+      if (el && el.isConnected && _lbdVal(el) !== was) el.textContent = was;
+      return;
+    }
+    _lbdChange(function() { currentOrderData.sectionLayout[i].title = t; });
+  }
+
+  function lbdAddText(secId, afterId) {
+    var item = {
+      id: _lbdPfx() + 'content_' + secId + '_' + _lbdUid(),
+      itemType: 'content', sectionId: secId, sourceId: '', title: '',
+      content: { text: '' }, customizations: {}, slides: []
+    };
+    if (!_lbdChange(function() { _lbdInsertItem(item, afterId); })) return;
+    _lbdSetCur(secId, 'item:' + item.id);
+    _lbdFocus('[data-item="' + _lbdCssId(item.id) + '"] [data-field="content-text"]', 'start');
+  }
+
+  // ── Notes: comments in the margin ──────────────────────────────────────
+  function _lbdOpenSecNote(secId) {
+    _lbdNotesOpen[secId] = true;
+    lbdRender();
+    _lbdFocus('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"] [data-field="sec-notes"]');
+  }
+
+  function _lbdOpenSongNote(songId) {
+    _lbdNotesOpen['song:' + songId] = true;
+    lbdRender();
+    _lbdFocus('.lbw-note[data-song="' + _lbdCssId(songId) + '"] [data-field="song-notes"]');
+  }
+
+  function _lbdDeleteNote(kind, id) {
+    var o = currentOrderData;
+    if (!o) return;
+    var had = kind === 'sec' ? ((o.sectionLayout || [])[_lbdSecIndex(id)] || {}).notes
+            : kind === 'song' ? (_lbdSong(id) || {}).liturgistNotes
+            : (o.template && o.template.serviceNotes);
+    if (kind === 'sec') delete _lbdNotesOpen[id];
+    else if (kind === 'song') delete _lbdNotesOpen['song:' + id];
+    else _lbdSvcNotesOpen = false;
+    if (!String(had || '').trim()) { lbdRender(); return; }
+    _lbdChange(function() {
+      if (kind === 'sec') o.sectionLayout[_lbdSecIndex(id)].notes = '';
+      else if (kind === 'song') _lbdSong(id).liturgistNotes = '';
+      else o.template.serviceNotes = '';
+    });
+    showToast('Note deleted', 'info', { action: 'Undo', duration: 6000, onAction: lbdUndo });
+  }
+
+  function _lbdCloseEmptyNote(f, c) {
+    if (!_lbdIsActive()) return;
+    if (f === 'sec-notes') { if (String(((currentOrderData.sectionLayout || [])[_lbdSecIndex(c.sec)] || {}).notes || '').trim()) return; delete _lbdNotesOpen[c.sec]; }
+    else if (f === 'song-notes') { if (String((_lbdSong(c.song) || {}).liturgistNotes || '').trim()) return; delete _lbdNotesOpen['song:' + c.song]; }
+    else { if (String((currentOrderData.template && currentOrderData.template.serviceNotes) || '').trim()) return; _lbdSvcNotesOpen = false; }
+    lbdRender();
+  }
+
+  // ── Menus ───────────────────────────────────────────────────────────────
+  // One small menu, from a part's … button or a right-click: Word's
+  // context menu. A sub-list ("Move to section…") opens in its place.
+  function _lbdOpenMenu(anchor, title, items) {
+    _lbdCloseMenu();
+    var el = document.createElement('div');
+    el.className = 'lbw-menu';
+    el.setAttribute('role', 'menu');
+    document.body.appendChild(el);
+    _lbdMenu = { el: el, anchor: anchor, stack: [], items: null, title: '' };
+    el.addEventListener('click', _lbdMenuClick);
+    el.addEventListener('keydown', _lbdMenuKey);
+    _lbdMenuShow(title, items);
+    setTimeout(function() {
+      if (!_lbdMenu || _lbdMenu.el !== el) return;
+      document.addEventListener('mousedown', _lbdMenuAway, true);
+      document.addEventListener('touchstart', _lbdMenuAway, true);
+      window.addEventListener('scroll', _lbdMenuAway, true);
+      window.addEventListener('resize', _lbdCloseMenu);
+    }, 0);
+  }
+
+  function _lbdMenuShow(title, items) {
+    var m = _lbdMenu;
+    if (!m) return;
+    m.items = items;
+    m.title = title;
+    m.el.innerHTML = (title ? '<div class="lbw-menu-head">' + _lbdEsc(title) + '</div>' : '') +
+      items.map(function(it, i) {
+        if (it === '-') return '<hr>';
+        return '<button type="button" role="menuitem" data-mi="' + i + '"' + (it.disabled ? ' disabled' : '') + (it.danger ? ' class="is-danger"' : '') + '>' +
+          '<i class="' + (it.icon || 'fa-solid fa-angle-right') + '" aria-hidden="true"></i><span>' + _lbdEsc(it.label) + '</span>' +
+          (it.sub ? '<i class="fa-solid fa-chevron-right lbw-menu-more" aria-hidden="true"></i>' : '') + '</button>';
+      }).join('');
+    var pt = !m.anchor.getBoundingClientRect;
+    var r = pt ? { left: m.anchor.x, right: m.anchor.x, top: m.anchor.y, bottom: m.anchor.y } : m.anchor.getBoundingClientRect();
+    var w = m.el.offsetWidth, h = m.el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    var x = pt ? r.left : r.right - w;
+    if (x + w > vw - 8) x = vw - w - 8;
+    if (x < 8) x = 8;
+    var y = r.bottom + 4;
+    if (y + h > vh - 8) y = Math.max(8, r.top - h - 4);
+    m.el.style.left = x + 'px';
+    m.el.style.top = y + 'px';
+    var first = m.el.querySelector('button:not(:disabled)');
+    if (first) { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }
+  }
+
+  function _lbdMenuClick(e) {
+    var b = e.target.closest && e.target.closest('button[data-mi]');
+    if (!b || b.disabled || !_lbdMenu) return;
+    var it = _lbdMenu.items[parseInt(b.getAttribute('data-mi'), 10)];
+    if (!it) return;
+    if (it.sub) {
+      _lbdMenu.stack.push({ title: _lbdMenu.title, items: _lbdMenu.items });
+      _lbdMenuShow(it.label.replace(/\u2026$/, ''), [{ label: 'Back', icon: 'fa-solid fa-chevron-left', back: true }, '-'].concat(it.sub));
+      return;
+    }
+    if (it.back) {
+      var prev = _lbdMenu.stack.pop();
+      if (prev) _lbdMenuShow(prev.title, prev.items);
+      return;
+    }
+    _lbdCloseMenu();
+    if (it.run) it.run();
+  }
+
+  function _lbdMenuKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); _lbdCloseMenu(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    var bs = Array.prototype.slice.call(_lbdMenu.el.querySelectorAll('button:not(:disabled)'));
+    var i = bs.indexOf(document.activeElement);
+    var n = bs[(i + (e.key === 'ArrowDown' ? 1 : -1) + bs.length) % bs.length];
+    if (n) n.focus();
+  }
+
+  function _lbdMenuAway(e) {
+    if (_lbdMenu && e && e.target && e.target.nodeType === 1 && _lbdMenu.el.contains(e.target)) return;
+    _lbdCloseMenu();
+  }
+
+  function _lbdCloseMenu() {
+    if (!_lbdMenu) return;
+    var el = _lbdMenu.el;
+    _lbdMenu = null;
+    document.removeEventListener('mousedown', _lbdMenuAway, true);
+    document.removeEventListener('touchstart', _lbdMenuAway, true);
+    window.removeEventListener('scroll', _lbdMenuAway, true);
+    window.removeEventListener('resize', _lbdCloseMenu);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function _lbdMoveSub(current, run) {
+    return _woSectionList().map(function(sec, i) {
+      return { label: (i + 1) + '. ' + sec.title, icon: sec.id === current ? 'fa-solid fa-check' : 'fa-regular fa-square',
+               disabled: sec.id === current, run: function() { run(sec.id); } };
+    });
+  }
+
+  function _lbdInsertItems(secId) {
+    return [
+      { label: 'Song', icon: 'fa-solid fa-music', run: function() { _lbdInsert('song', secId); } },
+      { label: 'Liturgy', icon: 'fa-solid fa-hands-praying', run: function() { _lbdInsert('liturgy', secId); } },
+      { label: 'Reading', icon: 'fa-solid fa-book-bible', run: function() { _lbdInsert('reading', secId); } },
+      { label: 'Text slide', icon: 'fa-solid fa-paragraph', run: function() { _lbdInsert('text', secId); } },
+      '-',
+      { label: 'Note for the liturgist', icon: 'fa-regular fa-comment', run: function() { _lbdInsert('note', secId); } },
+      { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }
+    ];
+  }
+
+  function _lbdOpenInsertMenu(anchor, secId) {
+    _lbdSetCur(secId);
+    _lbdOpenMenu(anchor, 'Insert into ' + _lbdSecTitle(secId), _lbdInsertItems(secId));
+  }
+
+  function _lbdOpenSecMenu(anchor, secId) {
+    var lay = (currentOrderData && currentOrderData.sectionLayout) || [];
+    var i = _lbdSecIndex(secId), folded = !!_lbdFolded[secId];
+    var hasNote = !!String((lay[i] || {}).notes || '').trim();
+    _lbdOpenMenu(anchor, _lbdSecTitle(secId), [
+      { label: 'Insert\u2026', icon: 'fa-solid fa-plus', sub: _lbdInsertItems(secId) },
+      { label: 'Rename', icon: 'fa-solid fa-pen', run: function() { _lbdFocus('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"] [data-field="sec-title"]', 'select'); } },
+      { label: hasNote ? 'Edit the note' : 'Add a note', icon: 'fa-regular fa-comment', run: function() { _lbdOpenSecNote(secId); } },
+      { label: folded ? 'Show what is in it' : 'Fold under its heading', icon: folded ? 'fa-solid fa-caret-down' : 'fa-solid fa-caret-right',
+        run: function() { if (folded) delete _lbdFolded[secId]; else _lbdFolded[secId] = true; lbdRender(); } },
+      '-',
+      { label: 'Move up', icon: 'fa-solid fa-arrow-up', disabled: i <= 0, run: function() { lbdMoveSection(secId, -1); } },
+      { label: 'Move down', icon: 'fa-solid fa-arrow-down', disabled: i < 0 || i >= lay.length - 1, run: function() { lbdMoveSection(secId, 1); } },
+      { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(i + 1); } },
+      '-',
+      { label: 'Remove section', icon: 'fa-solid fa-trash-can', danger: true, run: function() { lbdRemoveSection(secId); } }
+    ]);
+  }
+
+  function _lbdOpenElMenu(anchor, c) {
+    if (c.song) {
+      var s = _lbdSong(c.song);
+      if (!s) return;
+      if (!c.sec) {
+        _lbdOpenMenu(anchor, s.title || 'Song', [
+          { label: 'Place in\u2026', icon: 'fa-solid fa-arrow-right-to-bracket', sub: _lbdMoveSub('', function(to) { lbdPlaceSong(s.id, to); }) },
+          { label: 'Open in the Songbook', icon: 'fa-solid fa-book-open', run: function() { soOpenInSongbook(s.id); } },
+          '-',
+          { label: 'Remove from the order', icon: 'fa-solid fa-trash-can', danger: true, run: function() { lbdDeleteSong(s.id); } }
+        ]);
+        return;
+      }
+      var list = _woSectionList();
+      var inSec = songOrderSections.filter(function(x) { return _woSongSectionIds(x, list).indexOf(c.sec) !== -1; });
+      var k = inSec.indexOf(s);
+      var hasNote = !!String(s.liturgistNotes || '').trim();
+      _lbdOpenMenu(anchor, s.title || 'Song', [
+        { label: 'Open in the Songbook', icon: 'fa-solid fa-book-open', run: function() { soOpenInSongbook(s.id); } },
+        { label: hasNote ? 'Edit the note' : 'Add a note', icon: 'fa-regular fa-comment', run: function() { _lbdOpenSongNote(s.id); } },
+        '-',
+        { label: 'Move up', icon: 'fa-solid fa-arrow-up', disabled: k <= 0, run: function() { lbdMoveSong(s.id, c.sec, -1); } },
+        { label: 'Move down', icon: 'fa-solid fa-arrow-down', disabled: k < 0 || k >= inSec.length - 1, run: function() { lbdMoveSong(s.id, c.sec, 1); } },
+        { label: 'Move to section\u2026', icon: 'fa-solid fa-right-left', sub: _lbdMoveSub(c.sec, function(to) { lbdMoveSongToSection(s.id, c.sec, to); }) },
+        { label: 'Go to Song Order', icon: 'fa-solid fa-list-ol', run: function() { selectOrder('song'); } },
+        '-',
+        { label: 'Take out of this section', icon: 'fa-solid fa-xmark', danger: true, run: function() { lbdUnplaceSong(s.id, c.sec); } }
+      ]);
+      return;
+    }
+    var it = _lbdItem(c.item);
+    if (!it) return;
+    var sibs = _woSectionItems(it.sectionId), j = sibs.indexOf(it);
+    var words = it.itemType === 'liturgy' || it.itemType === 'scripture';
+    var key = 'item:' + it.id;
+    var items = [];
+    if (words && _lbdView !== 'document') {
+      items.push({ label: _lbdOpen[key] ? 'Show one line' : 'Show the words', icon: 'fa-solid fa-caret-down',
+                   run: function() { if (_lbdOpen[key]) delete _lbdOpen[key]; else _lbdOpen[key] = true; lbdRender(); } });
+    }
+    if (words) items.push({ label: 'Add a slide', icon: 'fa-solid fa-plus', run: function() { lbdAddSlide(it.id); } });
+    if (items.length) items.push('-');
+    items.push(
+      { label: 'Move up', icon: 'fa-solid fa-arrow-up', disabled: j <= 0, run: function() { lbdMoveItem(it.id, -1); } },
+      { label: 'Move down', icon: 'fa-solid fa-arrow-down', disabled: j < 0 || j >= sibs.length - 1, run: function() { lbdMoveItem(it.id, 1); } },
+      { label: 'Move to section\u2026', icon: 'fa-solid fa-right-left', sub: _lbdMoveSub(it.sectionId, function(to) { lbdMoveItemToSection(it.id, to); }) },
+      '-',
+      { label: 'Remove', icon: 'fa-solid fa-trash-can', danger: true, run: function() { lbdRemoveItem(it.id); } }
+    );
+    _lbdOpenMenu(anchor, it.title || (it.itemType === 'content' ? 'Text' : 'Item'), items);
   }
 
   // ── Events ──────────────────────────────────────────────────────────────
   function _lbdBind(host) {
     if (_lbdBound) return;
     _lbdBound = true;
+    host.addEventListener('mousedown', _lbdOnMouseDown);
     host.addEventListener('click', _lbdOnClick);
+    host.addEventListener('contextmenu', _lbdOnContextMenu);
     host.addEventListener('input', _lbdOnInput);
     host.addEventListener('change', _lbdOnChange);
     host.addEventListener('focusin', _lbdOnFocusIn);
     host.addEventListener('focusout', _lbdOnFocusOut);
     host.addEventListener('keydown', _lbdOnKeyDown);
+    host.addEventListener('paste', _lbdOnPaste);
     host.addEventListener('dragstart', _lbdOnDragStart);
     host.addEventListener('dragover', _lbdOnDragOver);
     host.addEventListener('dragleave', _lbdOnDragLeave);
     host.addEventListener('drop', _lbdOnDrop);
     host.addEventListener('dragend', _lbdOnDragEnd);
+    document.addEventListener('keydown', _lbdOnDocKey);
   }
 
   function _lbdCtx(el) {
@@ -68878,45 +69609,99 @@ var WO = (function() {
     };
   }
 
+  function _lbdElKey(el, c) {
+    if (c.item) return 'item:' + c.item;
+    if (c.song && !el.closest('.lbw-note')) return 'song:' + c.song;
+    return '';
+  }
+
+  // The ribbon acts where the cursor is, so pressing one of its buttons
+  // must not take the cursor out of the text.
+  function _lbdOnMouseDown(e) {
+    if (e.target.closest && e.target.closest('.lbw-rb, .lbw-seg-b')) e.preventDefault();
+  }
+
   function _lbdOnClick(e) {
-    var btn = e.target.closest && e.target.closest('[data-act]');
+    var t = e.target;
+    if (!t.closest) return;
+    var c = _lbdCtx(t);
+    if (c.sec && !t.closest('.lbw-nav')) _lbdSetCur(c.sec, _lbdElKey(t, c));
+    var btn = t.closest('[data-act]');
     if (!btn || btn.disabled) return;
-    var c = _lbdCtx(btn);
-    switch (btn.getAttribute('data-act')) {
+    var act = btn.getAttribute('data-act');
+    switch (act) {
       case 'toggle':
         var k = btn.getAttribute('data-key');
-        if (_lbdOpen[k]) delete _lbdOpen[k]; else _lbdOpen[k] = true;
+        var opening = !_lbdOpen[k];
+        if (opening) _lbdOpen[k] = true; else delete _lbdOpen[k];
+        lbdRender();
+        if (opening) _lbdFocus('[data-item="' + _lbdCssId(k.slice(5)) + '"] [data-field="slide"]', 'start');
+        break;
+      case 'sec-fold':
+        if (_lbdFolded[c.sec]) delete _lbdFolded[c.sec]; else _lbdFolded[c.sec] = true;
         lbdRender();
         break;
-      case 'rename': _lbdRenaming = c.sec; lbdRender(); break;
-      case 'sec-up': lbdMoveSection(c.sec, -1); break;
-      case 'sec-down': lbdMoveSection(c.sec, 1); break;
-      case 'sec-remove': lbdRemoveSection(c.sec); break;
-      case 'sec-notes-open':
-        _lbdNotesOpen[c.sec] = true; lbdRender();
-        _lbdFocus('[data-sec="' + _lbdCssId(c.sec) + '"] [data-field="sec-notes"]');
+      case 'fold-all':
+        var secs = _woSectionList();
+        var all = secs.length && secs.every(function(s) { return _lbdFolded[s.id]; });
+        _lbdFolded = {};
+        if (!all) secs.forEach(function(s) { _lbdFolded[s.id] = true; });
+        lbdRender();
         break;
+      case 'view-outline':
+      case 'view-document':
+        _lbdView = act === 'view-document' ? 'document' : 'outline';
+        _lbdPrefs(true);
+        lbdRender();
+        break;
+      case 'nav-toggle': _lbdNavOn = !_lbdNavOn; _lbdPrefs(true); lbdRender(); break;
+      case 'nav-go': _lbdGoTo(btn.closest('[data-sec]').getAttribute('data-sec')); break;
       case 'add-section': lbdAddSection(parseInt(btn.getAttribute('data-at'), 10)); break;
-      case 'add-section-below': lbdAddSection(_lbdSecIndex(c.sec) + 1); break;
-      case 'add-song': _lbdOpenSongSheet(c.sec); break;
-      case 'add-liturgy': _lbdOpenLiturgySheet(c.sec); break;
-      case 'add-reading': _lbdOpenReadingSheet(c.sec, btn.getAttribute('data-slot') || ''); break;
-      case 'song-up': lbdMoveSong(c.song, c.sec, -1); break;
-      case 'song-down': lbdMoveSong(c.song, c.sec, 1); break;
+      case 'ins-song': _lbdInsert('song'); break;
+      case 'ins-liturgy': _lbdInsert('liturgy'); break;
+      case 'ins-reading': _lbdInsert('reading'); break;
+      case 'ins-text': _lbdInsert('text'); break;
+      case 'ins-section': _lbdInsert('section'); break;
+      case 'ins-note': _lbdInsert('note'); break;
+      case 'ins-break': _lbdBreakAtCaret(); break;
+      case 'sec-insert': _lbdOpenInsertMenu(btn, c.sec); break;
+      case 'sec-menu': _lbdOpenSecMenu(btn, c.sec); break;
+      case 'el-menu': _lbdOpenElMenu(btn, c); break;
       case 'song-songbook': soOpenInSongbook(c.song); break;
-      case 'go-song-order': selectOrder('song'); break;
-      case 'song-remove': lbdUnplaceSong(c.song, c.sec); break;
-      case 'song-delete': lbdDeleteSong(c.song); break;
-      case 'item-up': lbdMoveItem(c.item, -1); break;
-      case 'item-down': lbdMoveItem(c.item, 1); break;
-      case 'item-remove': lbdRemoveItem(c.item); break;
-      case 'slide-add': lbdAddSlide(c.item); break;
-      case 'slide-remove': lbdRemoveSlide(c.item, c.idx); break;
+      case 'add-reading': _lbdInsert('reading', c.sec, btn.getAttribute('data-slot') || ''); break;
+      case 'merge-break': _lbdMergeAt(c.item, c.idx); break;
+      case 'note-del': _lbdDeleteNote('sec', c.sec); break;
+      case 'song-note-del': _lbdDeleteNote('song', c.song); break;
+      case 'svc-note-del': _lbdDeleteNote('svc'); break;
       case 'svc-notes-open':
-        _lbdSvcNotesOpen = true; lbdRender(); _lbdFocus('[data-field="svc-notes"]');
+        _lbdSvcNotesOpen = true;
+        lbdRender();
+        _lbdFocus('[data-field="svc-notes"]');
         break;
       case 'fill-readings': lbdFillReadings(); break;
       case 'open-book': openLiturgyBook(); break;
+      case 'import': _lbdOpenImportSheet(); break;
+      case 'goto-unplaced':
+        var u = $('lbwUnplaced');
+        if (u) u.scrollIntoView({ block: 'center' });
+        break;
+    }
+  }
+
+  // Right-click on a part or a heading opens its menu. In the words
+  // themselves the browser's own menu stays: spelling, copy and paste.
+  function _lbdOnContextMenu(e) {
+    var t = e.target;
+    if (!t.closest || t.isContentEditable || t.closest('[contenteditable]') || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+    var c = _lbdCtx(t), at = { x: e.clientX, y: e.clientY };
+    if (t.closest('.lbw-el') && (c.item || c.song) && !t.closest('.lbw-slots')) {
+      e.preventDefault();
+      if (c.sec) _lbdSetCur(c.sec, _lbdElKey(t, c));
+      _lbdOpenElMenu(at, c);
+    } else if (t.closest('.lbw-h') && c.sec) {
+      e.preventDefault();
+      _lbdSetCur(c.sec, '');
+      _lbdOpenSecMenu(at, c.sec);
     }
   }
 
@@ -68925,31 +69710,30 @@ var WO = (function() {
   function _lbdOnInput(e) {
     var el = e.target;
     var f = el.getAttribute && el.getAttribute('data-field');
-    if (!f || !currentOrderData) return;
-    var c = _lbdCtx(el);
-    var it;
+    if (!f || !currentOrderData || f === 'sec-title' || f === 'place-song') return;
+    var c = _lbdCtx(el), v = _lbdVal(el), it;
     if (f === 'svc-notes') {
       if (!currentOrderData.template) currentOrderData.template = {};
-      currentOrderData.template.serviceNotes = el.value;
+      currentOrderData.template.serviceNotes = v.replace(/\s+$/, '');
     } else if (f === 'sec-notes') {
-      lbdSetSectionNotes(c.sec, el.value);
+      lbdSetSectionNotes(c.sec, v.replace(/\s+$/, ''));
     } else if (f === 'song-notes') {
       var s = _lbdSong(c.song);
       if (!s) return;
-      s.liturgistNotes = el.value;
+      s.liturgistNotes = v.replace(/\s+$/, '');
     } else if (f === 'item-title') {
       it = _lbdItem(c.item);
       if (!it) return;
-      it.title = el.value;
-      if (it.itemType === 'scripture') it.content = Object.assign({}, it.content || {}, { reference: el.value });
+      it.title = v.replace(/\s*\n\s*/g, ' ');
+      if (it.itemType === 'scripture') it.content = Object.assign({}, it.content || {}, { reference: it.title });
     } else if (f === 'slide') {
       it = _lbdItem(c.item);
       if (!it || c.idx < 0) return;
-      _lbdSetSlide(it, c.idx, el.value);
+      _lbdSetSlide(it, c.idx, v.replace(/\n+$/, ''));
     } else if (f === 'content-text') {
       it = _lbdItem(c.item);
       if (!it) return;
-      it.content = Object.assign({}, it.content || {}, { text: el.value });
+      it.content = Object.assign({}, it.content || {}, { text: v.replace(/\n+$/, '') });
     } else {
       return;
     }
@@ -68959,82 +69743,170 @@ var WO = (function() {
 
   function _lbdOnChange(e) {
     var el = e.target;
-    var f = el.getAttribute && el.getAttribute('data-field');
-    if (!f) return;
-    var c = _lbdCtx(el);
-    if (f === 'place-song' && el.value) lbdPlaceSong(c.song, el.value);
-    else if (f === 'item-move') lbdMoveItemToSection(c.item, el.value);
-    else if (f === 'song-move') lbdMoveSongToSection(c.song, c.sec, el.value);
+    if (el.getAttribute && el.getAttribute('data-field') === 'place-song' && el.value) lbdPlaceSong(_lbdCtx(el).song, el.value);
   }
 
   function _lbdOnFocusIn(e) {
     var el = e.target;
-    var f = el.getAttribute && el.getAttribute('data-field');
-    if (!f || f === 'sec-title' || el.tagName === 'SELECT') return;
-    _lbdTyping = { el: el, snap: _lbdSnapshot(), value: el.value };
+    if (!el.closest) return;
+    var c = _lbdCtx(el);
+    if (c.sec && !el.closest('.lbw-nav')) _lbdSetCur(c.sec, _lbdElKey(el, c));
+    var f = el.getAttribute('data-field');
+    if (!f || f === 'sec-title' || f === 'place-song') return;
+    _lbdTyping = { el: el, snap: _lbdSnapshot(), value: _lbdVal(el) };
   }
 
   function _lbdOnFocusOut(e) {
     var el = e.target;
     var f = el.getAttribute && el.getAttribute('data-field');
+    if (!f) return;
+    var c = _lbdCtx(el), next = e.relatedTarget;
+    // What follows can redraw the page, so it waits for the click that took
+    // the cursor away to land first -- a redraw now would take that away too.
     if (f === 'sec-title') {
-      // Enter has already committed and cleared _lbdRenaming; only a click
-      // away from a still-open field commits here.
-      if (_lbdRenaming && _lbdRenaming === el.getAttribute('data-sec')) lbdRenameSection(_lbdRenaming, el.value);
+      var title = _lbdVal(el);
+      setTimeout(function() { _lbdCommitTitle(c.sec, title, el); }, 0);
       return;
     }
-    if (_lbdTyping && _lbdTyping.el === el) {
-      if (el.value !== _lbdTyping.value) { _lbdPushUndo(_lbdTyping.snap); _woUpdateUndoRedoButtons(); }
-      _lbdTyping = null;
+    if (_lbdTyping && _lbdTyping.el === el) { _lbdFlushTyping(); _woUpdateUndoRedoButtons(); }
+    if (f === 'slide' && !(next && next.closest && next.closest('[data-item="' + _lbdCssId(c.item) + '"]'))) {
+      setTimeout(function() { if (_lbdIsActive()) _lbdDropEmptySlides(c.item); }, 0);
+    } else if (f === 'content-text') {
+      setTimeout(function() { if (_lbdIsActive()) _lbdDropEmptyText(c.item, document.activeElement); }, 0);
+    } else if ((f === 'sec-notes' || f === 'song-notes' || f === 'svc-notes') && !_lbdVal(el).trim()) {
+      setTimeout(function() { _lbdCloseEmptyNote(f, c); }, 0);
     }
   }
 
   function _lbdOnKeyDown(e) {
     var el = e.target;
-    if (!el.getAttribute || el.getAttribute('data-field') !== 'sec-title') return;
-    if (e.key === 'Enter') { e.preventDefault(); lbdRenameSection(el.getAttribute('data-sec'), el.value); }
-    else if (e.key === 'Escape') { e.preventDefault(); _lbdRenaming = null; lbdRender(); }
+    var f = el.getAttribute && el.getAttribute('data-field');
+    if (!f || e.isComposing) return;
+    if (f === 'sec-title') {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+      else if (e.key === 'Escape') {
+        e.preventDefault();
+        var i = _lbdSecIndex(_lbdCtx(el).sec);
+        if (i >= 0) el.textContent = _woStripNum(currentOrderData.sectionLayout[i].title);
+        el.blur();
+      }
+      return;
+    }
+    if (f === 'item-title') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var first = el.closest('[data-item]').querySelector('[data-field="slide"]');
+        if (first) { first.focus(); _lbdPlaceCaret(first, 0); } else el.blur();
+      }
+      return;
+    }
+    if (f === 'sec-notes' || f === 'song-notes' || f === 'svc-notes') {
+      if (e.key === 'Escape') { e.preventDefault(); el.blur(); }
+      else if (e.key === 'Enter' && _LBD_CE !== 'plaintext-only') { e.preventDefault(); _lbdInsertText('\n'); }
+      return;
+    }
+    if (f !== 'slide' && f !== 'content-text') return;
+    if (e.key === 'Enter' && f === 'slide' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      e.preventDefault();
+      _lbdBreakAt(el);
+      return;
+    }
+    if (e.key === 'Enter' && _LBD_CE !== 'plaintext-only') { e.preventDefault(); _lbdInsertText('\n'); return; }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && f === 'slide' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      var car = _lbdCaret(el);
+      if (car && car.collapsed) {
+        var c = _lbdCtx(el);
+        if (e.key === 'Backspace' && car.start === 0 && c.idx > 0) { e.preventDefault(); _lbdMergeAt(c.item, c.idx); return; }
+        if (e.key === 'Delete' && car.start >= _lbdTextOf(el).replace(/\n+$/, '').length) {
+          var it = _lbdItem(c.item);
+          if (it && Array.isArray(it.slides) && c.idx < it.slides.length - 1) { e.preventDefault(); _lbdMergeAt(c.item, c.idx + 1, true); return; }
+        }
+      }
+    }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      var dir = e.key === 'ArrowDown' ? 1 : -1;
+      if (_lbdCaretAtEdge(el, dir) && _lbdStep(el, dir)) e.preventDefault();
+    }
   }
 
-  // Sections move by their grip on a desk; on a phone the arrows do it.
+  // Everything pasted onto the page goes in as plain text. Text with blank
+  // lines in it, pasted into a slide, can be split into a slide per verse.
+  function _lbdOnPaste(e) {
+    var el = e.target.closest && e.target.closest('[contenteditable][data-field]');
+    if (!el) return;
+    var cd = e.clipboardData || window.clipboardData;
+    if (!cd) return;
+    var text = cd.getData('text/plain');
+    if (text == null) return;
+    e.preventDefault();
+    text = String(text).replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
+    var f = el.getAttribute('data-field');
+    if (f === 'sec-title' || f === 'item-title') text = text.replace(/\s*\n\s*/g, ' ');
+    var car = _lbdCaret(el);
+    _lbdInsertText(text);
+    if (f === 'slide' && car && /\n[ \t]*\n/.test(text.replace(/^\s+|\s+$/g, ''))) {
+      var c = _lbdCtx(el), at = car.start, pasted = text;
+      showToast('Pasted text with blank lines in it', 'info', {
+        action: 'Split into slides', duration: 8000,
+        onAction: function() { _lbdSplitPasted(c.item, c.idx, at, pasted); }
+      });
+    }
+  }
+
+  function _lbdInsertText(text) {
+    var ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (err) { ok = false; }
+    if (ok) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var r = sel.getRangeAt(0);
+    r.deleteContents();
+    var tn = document.createTextNode(text);
+    r.insertNode(tn);
+    r.setStartAfter(tn);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    var host = tn.parentNode && tn.parentNode.closest ? tn.parentNode.closest('[data-field]') : null;
+    if (host) host.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Sections move by dragging their name in the navigation pane, as in
+  // Word; anywhere else, by the Move up / Move down in their menu.
   function _lbdOnDragStart(e) {
-    var grip = e.target.closest && e.target.closest('.lbd-grip');
-    if (!grip) return;
-    var sec = grip.closest('.lbd-sec');
-    _lbdDragSec = sec ? sec.getAttribute('data-sec') : null;
-    if (!_lbdDragSec) return;
+    var li = e.target.closest && e.target.closest('.lbw-nav-item');
+    if (!li) return;
+    _lbdDragSec = li.getAttribute('data-sec');
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', _lbdDragSec); } catch (err) {}
-    try { e.dataTransfer.setDragImage(sec, 24, 20); } catch (err) {}
-    setTimeout(function() { sec.classList.add('is-dragging'); }, 0);
+    setTimeout(function() { li.classList.add('is-dragging'); }, 0);
   }
 
   function _lbdOnDragOver(e) {
     if (!_lbdDragSec) return;
-    var sec = e.target.closest && e.target.closest('.lbd-sec');
-    if (!sec || sec.getAttribute('data-sec') === _lbdDragSec) return;
+    var li = e.target.closest && e.target.closest('.lbw-nav-item');
+    if (!li || li.getAttribute('data-sec') === _lbdDragSec) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    var r = sec.getBoundingClientRect();
+    var r = li.getBoundingClientRect();
     var after = e.clientY > r.top + r.height / 2;
-    sec.classList.toggle('drop-before', !after);
-    sec.classList.toggle('drop-after', after);
+    li.classList.toggle('drop-before', !after);
+    li.classList.toggle('drop-after', after);
   }
 
   function _lbdOnDragLeave(e) {
-    var sec = e.target.closest && e.target.closest('.lbd-sec');
-    if (sec && !sec.contains(e.relatedTarget)) sec.classList.remove('drop-before', 'drop-after');
+    var li = e.target.closest && e.target.closest('.lbw-nav-item');
+    if (li && !li.contains(e.relatedTarget)) li.classList.remove('drop-before', 'drop-after');
   }
 
   function _lbdOnDrop(e) {
     if (!_lbdDragSec) return;
-    var sec = e.target.closest && e.target.closest('.lbd-sec');
-    if (!sec) return;
+    var li = e.target.closest && e.target.closest('.lbw-nav-item');
+    if (!li) return;
     e.preventDefault();
-    var after = sec.classList.contains('drop-after');
-    var moving = _lbdDragSec;
+    var after = li.classList.contains('drop-after'), moving = _lbdDragSec;
     _lbdDragSec = null;
-    _lbdMoveSectionTo(moving, sec.getAttribute('data-sec'), after);
+    _lbdMoveSectionTo(moving, li.getAttribute('data-sec'), after);
   }
 
   function _lbdOnDragEnd() {
@@ -69044,6 +69916,29 @@ var WO = (function() {
     host.querySelectorAll('.is-dragging, .drop-before, .drop-after').forEach(function(el) {
       el.classList.remove('is-dragging', 'drop-before', 'drop-after');
     });
+  }
+
+  function _lbdModalOpen() {
+    var sb = $('songbookLiveModal'), lb = $('liturgyBookModal');
+    return !!((sb && sb.style.display && sb.style.display !== 'none') ||
+              (lb && lb.style.display && lb.style.display !== 'none') || _lbdSheetState || _lbdMenu);
+  }
+
+  // Ctrl+Z / Ctrl+Y anywhere in the builder that is not a field being typed
+  // in: the builder's own history, as in Word. In a field, the browser's
+  // own undo of the typing.
+  function _lbdOnDocKey(e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || !_lbdIsActive()) return;
+    var k = e.key;
+    if (k !== 'z' && k !== 'Z' && k !== 'y' && k !== 'Y') return;
+    var ae = document.activeElement;
+    if (ae && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return;
+    if (_lbdModalOpen()) return;
+    var host = $('woLiturgyBuilder');
+    if (!host || !host.offsetParent) return;
+    if (ae && ae !== document.body && !host.contains(ae)) return;
+    e.preventDefault();
+    if (k === 'y' || k === 'Y' || e.shiftKey) lbdRedo(); else lbdUndo();
   }
 
   // ── Pickers ─────────────────────────────────────────────────────────────
@@ -69058,6 +69953,7 @@ var WO = (function() {
       el.addEventListener('input', _lbdSheetInput);
       el.addEventListener('change', _lbdSheetChange);
       el.addEventListener('keydown', _lbdSheetKey);
+      el.addEventListener('paste', _lbdSheetPaste);
     }
     _lbdSheetState = state;
     el.innerHTML = '<div class="lbd-sheet" role="dialog" aria-modal="true">' +
@@ -69090,26 +69986,31 @@ var WO = (function() {
     if (!st) return;
     if (act === 'pick-song') {
       var lib = _lbdLibSong(btn.getAttribute('data-id'));
-      if (lib && _lbdAddSong(st.sectionId, lib) !== false) {
+      if (lib && _lbdAddSong(st.sectionId, lib, st.after) !== false) {
         showToast('Added “' + (lib.title || 'song') + '” to ' + _lbdSecTitle(st.sectionId), 'success');
         _lbdCloseSheet();
       }
     } else if (act === 'pick-liturgy') {
       var id = btn.getAttribute('data-id');
       var lit = (LiturgyModule.getAllItems() || []).filter(function(x) { return x && x.id === id; })[0];
-      if (lit && _lbdAddLiturgy(st.sectionId, lit) !== false) {
+      if (lit && _lbdAddLiturgy(st.sectionId, lit, st.after) !== false) {
         showToast('Added “' + (lit.title || 'liturgy') + '” to ' + _lbdSecTitle(st.sectionId), 'success');
         _lbdCloseSheet();
       }
     } else if (act === 'write-own') {
-      var secId = st.sectionId;
+      var secId = st.sectionId, after = st.after;
       _lbdCloseSheet();
-      lbdNewLiturgy(secId);
+      lbdNewLiturgy(secId, after);
     } else if (act === 'roster') {
       _lbdSheetSetReading(btn.getAttribute('data-slot'), btn.getAttribute('data-ref'));
       _lbdLookupPassage();
     } else if (act === 'lookup') {
       _lbdLookupPassage();
+    } else if (act === 'imp-pick') {
+      var fi = $('lbdSheet').querySelector('[data-sfield="imp-file"]');
+      if (fi) fi.click();
+    } else if (act === 'imp-go') {
+      _lbdImportGo();
     } else if (act === 'add-reading') {
       var sheet = $('lbdSheet');
       var title = String((sheet.querySelector('[data-sfield="title"]') || {}).value || '').trim();
@@ -69119,7 +70020,7 @@ var WO = (function() {
       if (_lbdAddReading(st.sectionId, {
         title: title || st.passage.reference || 'Scripture', subLabel: slot, text: st.passage.text,
         singAlleluia: !!(alle && alle.checked && /gospel/i.test(slot))
-      }) !== false) {
+      }, st.after) !== false) {
         showToast('Added ' + (title || 'the reading') + ' to ' + _lbdSecTitle(st.sectionId), 'success');
         _lbdCloseSheet();
       }
@@ -69137,14 +70038,40 @@ var WO = (function() {
       _lbdSheetState.passage = null;
       var add = $('lbdSheet').querySelector('[data-sact="add-reading"]');
       if (add) add.disabled = true;
+    } else if (f === 'imp-paste') {
+      // Typed, or edited after pasting: read as plain text.
+      var txt = _lbdTextOf(e.target);
+      if (txt !== _lbdSheetState.pasted) {
+        _lbdSheetState.pasted = txt;
+        _lbdImportLoaded(_lbdTextParas(txt), 'Pasted text');
+      }
+    } else if (f === 'imp-title') {
+      _lbdSheetState.oneTitle = e.target.value;
+      _lbdImportSum();
     }
   }
 
   function _lbdSheetChange(e) {
     var f = e.target.getAttribute && e.target.getAttribute('data-sfield');
     if (!_lbdSheetState) return;
-    if (f === 'type') { _lbdSheetState.type = e.target.value; _lbdRenderLiturgyResults(); }
+    var st = _lbdSheetState;
+    if (f === 'type') { st.type = e.target.value; _lbdRenderLiturgyResults(); }
     else if (f === 'slot') _lbdSyncAlleluia();
+    else if (f === 'imp-file') {
+      var file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      _lbdImportFile(file);
+    }
+    else if (f === 'imp-mode') { st.mode = e.target.value; _lbdImportRender(); }
+    else if (f === 'imp-split') { st.split = e.target.value; _lbdImportRender(); }
+    else if (f === 'imp-sec') { st.sectionId = e.target.value; _lbdImportSum(); }
+    else if (f === 'imp-map' || f === 'imp-inc') {
+      var i = parseInt(e.target.getAttribute('data-i'), 10);
+      var ch = st.choices || (st.choices = {});
+      ch[i] = ch[i] || {};
+      if (f === 'imp-map') ch[i].target = e.target.value; else ch[i].include = e.target.checked;
+      _lbdImportRender();
+    }
   }
 
   function _lbdSheetKey(e) {
@@ -69153,10 +70080,10 @@ var WO = (function() {
     if (e.key === 'Enter' && f === 'ref') { e.preventDefault(); _lbdLookupPassage(); }
   }
 
-  function _lbdOpenSongSheet(secId) {
+  function _lbdOpenSongSheet(secId, after) {
     _lbdSheet('Add a song to <b>' + _lbdEsc(_lbdSecTitle(secId)) + '</b>',
       '<input type="search" class="lbd-input lbd-search" data-sfield="q" data-autofocus placeholder="Search songs by title, artist or theme" autocomplete="off">' +
-      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'song', sectionId: secId, q: '' });
+      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'song', sectionId: secId, q: '', after: after || '' });
     _lbdRenderSongResults();
   }
 
@@ -69191,7 +70118,7 @@ var WO = (function() {
     }).join('') || '<p class="lbd-empty">No songs match “' + _lbdEsc(st.q) + '”.</p>';
   }
 
-  function _lbdOpenLiturgySheet(secId) {
+  function _lbdOpenLiturgySheet(secId, after) {
     var all = (typeof LiturgyModule !== 'undefined' && LiturgyModule.getAllItems) ? (LiturgyModule.getAllItems() || []) : [];
     var types = {};
     all.forEach(function(x) { if (x && x.type && x.projectable) types[x.type] = true; });
@@ -69204,7 +70131,7 @@ var WO = (function() {
         '<select class="lbd-select" data-sfield="type" aria-label="Kind"><option value="">All kinds</option>' + typeOpts + '</select>' +
       '</div>' +
       '<button type="button" class="lbd-write" data-sact="write-own"><i class="fa-solid fa-pen-nib"></i><span><b>Write your own</b><small>A recitation, prayer or response just for this service</small></span></button>' +
-      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'liturgy', sectionId: secId, q: '', type: '' });
+      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'liturgy', sectionId: secId, q: '', type: '', after: after || '' });
     _lbdRenderLiturgyResults();
   }
 
@@ -69252,7 +70179,7 @@ var WO = (function() {
     }).join('') || '<p class="lbd-empty">Nothing in the library matches.</p>';
   }
 
-  function _lbdOpenReadingSheet(secId, slotLabel) {
+  function _lbdOpenReadingSheet(secId, slotLabel, after) {
     var slots = _lbdSlotLabels(secId);
     var labels = slots.length ? slots : ['First Reading', 'Psalm', 'Second Reading', 'Gospel', 'Reading'];
     var pick = slotLabel;
@@ -69280,7 +70207,7 @@ var WO = (function() {
       '<div class="lbd-sheet-foot">' +
         '<label class="lbd-field lbd-field--grow"><span>Shown on the slides as</span><input class="lbd-input" data-sfield="title" placeholder="Filled in when you look the passage up"></label>' +
         '<button type="button" class="lbd-btn lbd-btn--primary" data-sact="add-reading" disabled><i class="fa-solid fa-plus"></i> Add reading</button>' +
-      '</div>', { kind: 'reading', sectionId: secId, passage: null });
+      '</div>', { kind: 'reading', sectionId: secId, passage: null, after: after || '' });
     _lbdSyncAlleluia(true);
     if (date) {
       var owner = _lbdSheetState;
@@ -69360,6 +70287,382 @@ var WO = (function() {
       if (_lbdSheetState !== st) return;
       if (out) out.innerHTML = '<p class="lbd-error">Could not look that up: ' + _lbdEsc(String((err && err.message) || err)) + '</p>';
     });
+  }
+
+  // ── Import: a Word document, or text pasted from one ───────────────────
+  //
+  // A liturgist's order of worship usually exists already as a Word
+  // document. Its headings become sections -- matched by name to the ones
+  // this order has, or added after them -- and the words under each heading
+  // become a liturgy of their own in that section, split into slides, to be
+  // edited like any other. Text pasted from Word keeps its headings when
+  // the clipboard carries them; a .docx is read here with JSZip, which the
+  // page already loads for PowerPoint files.
+  var _LBD_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+  function _lbdOpenImportSheet() {
+    _lbdSheet('Import into the order of worship',
+      '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> Choose a Word document (.docx), or copy the text in Word and paste it into the box. ' +
+        'Headings become sections; the words under each heading become liturgy you can edit, split into slides.</p>' +
+      '<div class="lbd-sheet-row">' +
+        '<button type="button" class="lbd-btn" data-sact="imp-pick"><i class="fa-solid fa-file-word"></i> Choose a Word file…</button>' +
+        '<input type="file" accept=".docx,.txt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-sfield="imp-file" hidden>' +
+        '<span class="lbd-hint" id="lbdImpName"></span>' +
+      '</div>' +
+      '<div class="lbd-imp-paste" contenteditable="true" data-sfield="imp-paste" data-ph="…or paste here (Ctrl+V)" role="textbox" aria-multiline="true" aria-label="Text to import"></div>' +
+      '<div id="lbdImpOpts"></div>' +
+      '<div class="lbd-sheet-foot"><span class="lbd-hint" id="lbdImpSum"></span>' +
+        '<button type="button" class="lbd-btn lbd-btn--primary" data-sact="imp-go" disabled><i class="fa-solid fa-file-import"></i> Import</button></div>',
+      { kind: 'import', sectionId: _lbdTargetSec(), paras: null, name: '', mode: 'one', split: 'blank', choices: {}, oneTitle: null, pasted: null });
+  }
+
+  function _lbdWAttr(el, name) { return (el && (el.getAttributeNS(_LBD_W, name) || el.getAttribute('w:' + name))) || ''; }
+
+  function _lbdWChild(el, name) {
+    for (var c = el && el.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 1 && c.localName === name) return c;
+    }
+    return null;
+  }
+
+  // A heading level from Word's outline level: 0 is Heading 1; 9 is body text.
+  function _lbdOutline(v) {
+    var n = parseInt(v, 10);
+    return n >= 0 && n < 9 ? n + 1 : 0;
+  }
+
+  // A paragraph's words. Deleted text (tracked changes), field codes and text
+  // boxes (read as paragraphs of their own) are left out.
+  function _lbdWText(p) {
+    var out = '';
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType !== 1) continue;
+        var ln = c.localName;
+        if (/^(del|delText|instrText|txbxContent|pPr|rPr|fldChar|footnoteReference|endnoteReference)$/.test(ln)) continue;
+        if (ln === 't') out += c.textContent;
+        else if (ln === 'tab') out += ' ';
+        else if (ln === 'br' || ln === 'cr') out += '\n';
+        else if (ln === 'noBreakHyphen') out += '-';
+        else walk(c);
+      }
+    })(p);
+    return out.replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '');
+  }
+
+  function _lbdDocxParas(buf) {
+    if (typeof JSZip === 'undefined') return Promise.reject(new Error('Word files cannot be read just now. Copy the text in Word and paste it instead.'));
+    return JSZip.loadAsync(buf).then(function(zip) {
+      var doc = zip.file('word/document.xml');
+      if (!doc) throw new Error('That file is not a Word document (.docx).');
+      var sty = zip.file('word/styles.xml');
+      return Promise.all([doc.async('string'), sty ? sty.async('string') : '']);
+    }).then(function(r) {
+      var P = new DOMParser(), levels = {};
+      if (r[1]) {
+        var sd = P.parseFromString(r[1], 'application/xml');
+        Array.prototype.forEach.call(sd.getElementsByTagNameNS(_LBD_W, 'style'), function(s) {
+          var id = _lbdWAttr(s, 'styleId');
+          var name = String(_lbdWAttr(_lbdWChild(s, 'name'), 'val')).toLowerCase();
+          var ppr = _lbdWChild(s, 'pPr'), ol = ppr && _lbdWChild(ppr, 'outlineLvl');
+          var m = /^heading\s*(\d)$/.exec(name);
+          if (name === 'title') levels[id] = 't';
+          else if (m) levels[id] = +m[1];
+          else if (ol) levels[id] = _lbdOutline(_lbdWAttr(ol, 'val'));
+        });
+      }
+      var dx = P.parseFromString(r[0], 'application/xml');
+      if (dx.getElementsByTagName('parsererror').length) throw new Error('That Word document could not be read.');
+      var out = [];
+      Array.prototype.forEach.call(dx.getElementsByTagNameNS(_LBD_W, 'p'), function(p) {
+        var ppr = _lbdWChild(p, 'pPr'), lvl = 0;
+        if (ppr) {
+          var ps = _lbdWChild(ppr, 'pStyle'), ol = _lbdWChild(ppr, 'outlineLvl');
+          var sid = ps ? _lbdWAttr(ps, 'val') : '';
+          if (sid && levels[sid] != null) lvl = levels[sid];
+          else if (/^heading\s*\d$/i.test(sid)) lvl = +sid.replace(/\D/g, '');
+          else if (/^title$/i.test(sid)) lvl = 't';
+          if (ol) lvl = _lbdOutline(_lbdWAttr(ol, 'val'));
+        }
+        out.push({ text: _lbdWText(p), h: lvl === 't' ? 0 : lvl, title: lvl === 't' });
+      });
+      return out;
+    });
+  }
+
+  // Word puts headings on the clipboard as <h1>..<h6>; Google Docs too.
+  function _lbdHtmlParas(html) {
+    var d;
+    try { d = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return null; }
+    if (!d || !d.body) return null;
+    var out = [];
+    var BLOCK = /^(P|DIV|LI|H[1-6]|PRE|BLOCKQUOTE|TD|TH|DT|DD)$/;
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType !== 1 || /^(SCRIPT|STYLE|HEAD|META|TITLE|TEMPLATE)$/.test(c.tagName)) continue;
+        if (BLOCK.test(c.tagName) && !c.querySelector('p,div,li,h1,h2,h3,h4,h5,h6,pre,blockquote,table')) {
+          var h = /^H([1-6])$/.exec(c.tagName);
+          var cls = String(c.getAttribute('class') || '');
+          out.push({ text: _lbdHtmlText(c), h: h ? +h[1] : 0, title: /MsoTitle|^title$/i.test(cls) });
+        } else walk(c);
+      }
+    })(d.body);
+    return out;
+  }
+
+  function _lbdHtmlText(el) {
+    var out = '';
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.data.replace(/[\r\n]+/g, ' ');
+        else if (c.nodeType === 1) {
+          if (c.tagName === 'BR') out += '\n';
+          // Word's list bullets and numbers, drawn as text the reader never typed.
+          else if (!/^(SCRIPT|STYLE)$/.test(c.tagName) && !/mso-list:\s*Ignore/i.test(c.getAttribute('style') || '')) walk(c);
+        }
+      }
+    })(el);
+    return out.replace(/ /g, ' ').replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').trim();
+  }
+
+  function _lbdTextParas(text) {
+    return String(text || '').replace(/\r\n?/g, '\n').split('\n').map(function(l) { return { text: l.replace(/\s+$/, ''), h: 0 }; });
+  }
+
+  // Paragraph texts ('' for a blank line) into slides by one of four rules.
+  function _lbdSplitSlides(lines, rule) {
+    var slides = [];
+    if (rule === 'para') {
+      lines.forEach(function(t) { if (String(t).trim()) slides.push(t); });
+    } else if (rule === 'lines2' || rule === 'lines4') {
+      var n = rule === 'lines4' ? 4 : 2, all = [];
+      lines.forEach(function(t) { String(t).split('\n').forEach(function(l) { if (l.trim()) all.push(l); }); });
+      for (var i = 0; i < all.length; i += n) slides.push(all.slice(i, i + n).join('\n'));
+    } else {
+      var cur = [];
+      lines.forEach(function(t) {
+        if (!String(t).trim()) { if (cur.length) { slides.push(cur.join('\n')); cur = []; } }
+        else cur.push(t);
+      });
+      if (cur.length) slides.push(cur.join('\n'));
+    }
+    return slides.map(function(s) { return String(s).replace(/\s+$/, ''); }).filter(Boolean);
+  }
+
+  // Titles compared as words: "3. Prayer of the Day" is "prayer of the day",
+  // "Confession & Absolution" is "confession and absolution".
+  function _lbdNormTitle(t) {
+    return String(t || '').toLowerCase()
+      .replace(/^\s*(\d+|[ivxlc]+)[.):]\s+/, '')
+      .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function _lbdImportLoaded(paras, name) {
+    var st = _lbdSheetState;
+    if (!st || st.kind !== 'import') return;
+    paras = (paras || []).filter(function(p) { return !p.title; });
+    while (paras.length && !paras[0].text.trim()) paras.shift();
+    while (paras.length && !paras[paras.length - 1].text.trim()) paras.pop();
+    st.paras = paras;
+    st.name = name || 'Imported';
+    st.choices = {};
+    st.oneTitle = null;
+    st.mode = paras.some(function(p) { return p.h > 0 && p.text.trim(); }) ? 'heads' : 'one';
+    st.split = paras.some(function(p) { return !p.text.trim(); }) ? 'blank' : 'para';
+    _lbdImportRender();
+  }
+
+  // Each heading and the words under it, with what to do about it.
+  function _lbdImportRows(st) {
+    var list = _woSectionList(), blocks = [], cur = { title: '', body: [], head: false };
+    (st.paras || []).forEach(function(p) {
+      if (p.h > 0 && p.text.trim()) { blocks.push(cur); cur = { title: p.text.replace(/\s+/g, ' ').trim(), body: [], head: true }; }
+      else cur.body.push(p.text);
+    });
+    blocks.push(cur);
+    var used = {};
+    return blocks.filter(function(b) { return b.head || b.body.some(function(t) { return t.trim(); }); }).map(function(b, i) {
+      var slides = _lbdSplitSlides(b.body, st.split), target = '';
+      if (b.head) {
+        var key = _lbdNormTitle(b.title);
+        for (var k = 0; k < list.length && !target; k++) {
+          if (!used[list[k].id] && _lbdNormTitle(list[k].title) === key) target = list[k].id;
+        }
+        if (target) used[target] = true;
+      }
+      var row = b.head
+        ? { title: b.title, slides: slides, target: target, include: !!(slides.length || !target), pre: false }
+        // Words before the first heading -- often the document's own title
+        // block -- are left out unless asked for.
+        : { title: st.name, slides: slides, target: st.sectionId, include: false, pre: true };
+      var ch = (st.choices || {})[i];
+      if (ch) {
+        if (ch.target !== undefined) row.target = ch.target;
+        if (ch.include !== undefined) row.include = ch.include;
+      }
+      return row;
+    });
+  }
+
+  function _lbdImportRender() {
+    var st = _lbdSheetState, box = $('lbdImpOpts');
+    if (!st || !box) return;
+    var paras = st.paras || [];
+    if (!paras.some(function(p) { return p.text.trim(); })) {
+      box.innerHTML = st.paras ? '<p class="lbd-empty">There are no words in that to import.</p>' : '';
+      _lbdImportSum();
+      return;
+    }
+    var list = _woSectionList();
+    var hasHeads = paras.some(function(p) { return p.h > 0 && p.text.trim(); });
+    function secOpts(sel, allowNew) {
+      return (allowNew ? '<option value=""' + (!sel ? ' selected' : '') + '>New section</option>' : '') +
+        list.map(function(s, i) {
+          return '<option value="' + _lbdEsc(s.id) + '"' + (s.id === sel ? ' selected' : '') + '>' + (i + 1) + '. ' + _lbdEsc(s.title) + '</option>';
+        }).join('');
+    }
+    var h = '';
+    if (hasHeads) {
+      h += '<div class="lbd-sheet-row" role="radiogroup" aria-label="How to import">' +
+        '<label class="lbd-check"><input type="radio" name="lbdImpMode" data-sfield="imp-mode" value="heads"' + (st.mode === 'heads' ? ' checked' : '') + '> Headings become sections</label>' +
+        '<label class="lbd-check"><input type="radio" name="lbdImpMode" data-sfield="imp-mode" value="one"' + (st.mode === 'one' ? ' checked' : '') + '> All of it into one section</label></div>';
+    }
+    h += '<div class="lbd-sheet-row"><label class="lbd-field lbd-field--inline"><span>Slides</span><select class="lbd-select" data-sfield="imp-split">' +
+      [['blank', 'A new slide at each blank line'], ['para', 'One slide for each paragraph'], ['lines2', 'Every 2 lines'], ['lines4', 'Every 4 lines']].map(function(o) {
+        return '<option value="' + o[0] + '"' + (st.split === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('') + '</select></label></div>';
+    if (st.mode === 'one') {
+      var slides = _lbdSplitSlides(paras.map(function(p) { return p.text; }), st.split);
+      h += '<div class="lbd-sheet-row">' +
+          '<label class="lbd-field lbd-field--inline"><span>Into</span><select class="lbd-select" data-sfield="imp-sec">' + secOpts(st.sectionId, false) + '</select></label>' +
+          '<label class="lbd-field lbd-field--grow"><span>Title</span><input class="lbd-input" data-sfield="imp-title" maxlength="120" value="' + _lbdEsc(st.oneTitle != null ? st.oneTitle : st.name) + '"></label>' +
+        '</div>' +
+        '<div class="lbd-imp-preview"><div class="lbd-imp-row"><b>' + slides.length + ' slide' + (slides.length === 1 ? '' : 's') + '</b>' +
+          (slides[0] ? '<span class="lbd-imp-meta">' + _lbdEsc(_lbdPeek(slides[0], 110)) + '</span>' : '') + '</div></div>';
+    } else {
+      h += '<div class="lbd-imp-preview">' + _lbdImportRows(st).map(function(r, i) {
+        return '<div class="lbd-imp-row' + (r.include ? '' : ' is-off') + '">' +
+          '<label class="lbd-check"><input type="checkbox" data-sfield="imp-inc" data-i="' + i + '"' + (r.include ? ' checked' : '') + '>' +
+            '<b>' + _lbdEsc(r.pre ? 'Before the first heading' : r.title) + '</b></label>' +
+          '<span class="lbd-imp-meta">' + (r.slides.length ? r.slides.length + ' slide' + (r.slides.length === 1 ? '' : 's') : 'heading only') + '</span>' +
+          '<select class="lbd-select lbd-select--sm" data-sfield="imp-map" data-i="' + i + '" aria-label="Section for ' + _lbdEsc(r.title) + '">' + secOpts(r.target, !r.pre) + '</select>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+    box.innerHTML = h;
+    _lbdImportSum();
+  }
+
+  function _lbdImportPlan(st) {
+    var plan = [];
+    if (!st || !st.paras) return plan;
+    if (st.mode === 'one') {
+      var slides = _lbdSplitSlides(st.paras.map(function(p) { return p.text; }), st.split);
+      var title = String(st.oneTitle != null ? st.oneTitle : st.name).trim() || 'Imported';
+      if (slides.length) plan.push({ title: title, target: st.sectionId, slides: slides });
+    } else {
+      _lbdImportRows(st).forEach(function(r) { if (r.include) plan.push({ title: r.title, target: r.target, slides: r.slides }); });
+    }
+    return plan;
+  }
+
+  function _lbdImportSum() {
+    var st = _lbdSheetState, sum = $('lbdImpSum'), sheet = $('lbdSheet');
+    var go = sheet && sheet.querySelector('[data-sact="imp-go"]');
+    if (!st || !sum) return;
+    var items = 0, slides = 0, secs = 0;
+    _lbdImportPlan(st).forEach(function(p) {
+      if (!p.target) secs++;
+      if (p.slides.length) { items++; slides += p.slides.length; }
+    });
+    var bits = [];
+    if (items) bits.push(items + ' liturgy item' + (items === 1 ? '' : 's') + ', ' + slides + ' slide' + (slides === 1 ? '' : 's'));
+    if (secs) bits.push(secs + ' new section' + (secs === 1 ? '' : 's'));
+    sum.textContent = bits.join(' · ');
+    if (go) go.disabled = !(items || secs);
+  }
+
+  function _lbdImportGo() {
+    var st = _lbdSheetState;
+    var plan = _lbdImportPlan(st);
+    if (!plan.length) return;
+    var made = 0, secs = 0, firstSec = '', firstItem = '', t0 = Date.now();
+    _lbdChange(function() {
+      var lay = currentOrderData.sectionLayout, lastAt = -1;
+      plan.forEach(function(p, k) {
+        var secId = p.target && _lbdSecIndex(p.target) >= 0 ? p.target : '';
+        if (!secId) {
+          // A new section goes after the last one the document has reached,
+          // so the order of the document is kept.
+          secId = 'wo-section-' + (t0 + k);
+          lay.splice(lastAt >= 0 ? lastAt + 1 : lay.length, 0, { id: secId, title: p.title, serviceSectionId: '' });
+          secs++;
+        }
+        lastAt = _lbdSecIndex(secId);
+        if (!firstSec) firstSec = secId;
+        if (!p.slides.length) return;
+        var item = _lbdLiturgyItem(secId, 'lbd_' + _lbdUid(), { title: p.title, type: 'liturgy', content: '' });
+        item.slides = p.slides.map(function(text, i) { return { index: i, content: text, background: '' }; });
+        currentOrderData.allItems.push(item);
+        _lbdClearClearedFor(secId);
+        if (!firstItem) firstItem = item.id;
+        made++;
+      });
+    });
+    _lbdCloseSheet();
+    showToast('Imported ' + made + ' liturgy item' + (made === 1 ? '' : 's') + (secs ? ' and ' + secs + ' new section' + (secs === 1 ? '' : 's') : ''),
+      'success', { action: 'Undo', duration: 7000, onAction: lbdUndo });
+    if (firstSec) {
+      _lbdSetCur(firstSec, firstItem ? 'item:' + firstItem : '');
+      _lbdReveal('.lbw-sec[data-sec="' + _lbdCssId(firstSec) + '"]');
+    }
+  }
+
+  function _lbdImportFile(file) {
+    var st = _lbdSheetState;
+    if (!file || !st) return;
+    var nameEl = $('lbdImpName');
+    var docx = /\.docx$/i.test(file.name) || /wordprocessingml/.test(file.type || '');
+    if (!docx && /\.doc$/i.test(file.name)) {
+      showToast('Save it from Word as a .docx first, or copy the text and paste it', 'info');
+      return;
+    }
+    if (nameEl) nameEl.textContent = 'Reading ' + file.name + '…';
+    var reader = new FileReader();
+    reader.onload = function() {
+      if (_lbdSheetState !== st) return;
+      var got = docx ? _lbdDocxParas(reader.result) : Promise.resolve(_lbdTextParas(String(reader.result || '')));
+      got.then(function(paras) {
+        if (_lbdSheetState !== st) return;
+        if (nameEl) nameEl.textContent = file.name;
+        _lbdImportLoaded(paras, file.name.replace(/\.[^.]+$/, ''));
+      }).catch(function(err) {
+        if (nameEl) nameEl.textContent = '';
+        showToast((err && err.message) || 'That file could not be read', 'error');
+      });
+    };
+    reader.onerror = function() {
+      if (nameEl) nameEl.textContent = '';
+      showToast('That file could not be read', 'error');
+    };
+    if (docx) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+  }
+
+  function _lbdSheetPaste(e) {
+    var box = e.target.closest && e.target.closest('[data-sfield="imp-paste"]');
+    var st = _lbdSheetState;
+    if (!box || !st || st.kind !== 'import') return;
+    var cd = e.clipboardData;
+    if (!cd) return;
+    e.preventDefault();
+    var html = cd.getData('text/html'), text = cd.getData('text/plain');
+    var paras = html ? _lbdHtmlParas(html) : null;
+    if (!paras || !paras.some(function(p) { return p.text.trim(); })) paras = _lbdTextParas(text);
+    box.textContent = paras.map(function(p) { return p.text; }).join('\n');
+    st.pasted = _lbdTextOf(box);
+    var nameEl = $('lbdImpName');
+    if (nameEl) nameEl.textContent = '';
+    _lbdImportLoaded(paras, 'Pasted text');
   }
 
   // ============================================================
@@ -99042,28 +100345,304 @@ function filterLiturgyItems() {
 }
 
 /* ==========================================================================
-   LITURGY BUILDER — the order of worship, section by section
+   LITURGY BUILDER — the order of worship, as a document
+   Laid out like a Word document: a one-row ribbon pinned at the top, the
+   sections as numbered headings on a white page, the liturgist's notes as
+   comments in the page's margin, the headings in a navigation pane on the
+   left and a status bar along the bottom. Spacing is kept tight so a whole
+   service fits on a screen or so.
    ========================================================================== */
-.wo-main-content.wo-lbd-mode { display: block; background: #f3f8f4; }
+.wo-main-content.wo-lbd-mode { display: block; background: #e8edea; }
 .wo-main-content.wo-lbd-mode > :not(#woLiturgyBuilder) { display: none !important; }
 /* The phone's floating LCD "Preview" button belongs to the projection views. */
 body.wo-lbd-on .wo-preview-fab { display: none !important; }
+/* The page scrolls on <html>. <body> carries overflow-x: hidden as well,
+   which makes it a scroll container of its own that never scrolls -- and a
+   sticky element sticks to its nearest scroll container, so the ribbon and
+   the status bar would scroll away with the page. clip hides what spills
+   sideways just the same without being a scroll container. A dialog that
+   locks the page sets overflow on <body> inline, and that still wins. */
+body.wo-lbd-on { overflow-x: clip; overflow-y: visible; }
+/* The app's top bar is sticky in name only -- the same <body> has always
+   kept it from sticking, on a phone too, where its rule is !important --
+   and here it would now cover the ribbon. It scrolls away, as it does
+   everywhere else. */
+body.wo-lbd-on #topNavBar { position: relative !important; }
 /* Sized from its own width, which the app sidebar makes smaller than the
    window's, so its narrow layout is chosen by the room it actually has. */
-.wo-liturgy-builder { padding: 20px 20px 32px; container: lbd / inline-size; }
-.lbd { max-width: 980px; margin: 0 auto; font-family: 'Poppins', sans-serif; color: #1f2933; }
+.wo-liturgy-builder { padding: 0; container: lbd / inline-size; }
 
-.lbd-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
-.lbd-top-text { min-width: 0; flex: 1 1 420px; }
-.lbd-eyebrow { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #188e44; }
-.lbd-step { background: #188e44; color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; }
-.lbd-title { margin: 4px 0 4px; font-family: 'Cinzel', Georgia, serif; font-size: 1.6rem; font-weight: 700; color: #0c3a21; line-height: 1.15; }
-.lbd-lede { margin: 0 0 10px; max-width: 600px; font-size: 0.84rem; line-height: 1.55; color: #4b5563; }
-.lbd-stats { display: flex; flex-wrap: wrap; gap: 6px; }
-.lbd-stats span { background: #fff; border: 1px solid #d7ebdd; border-radius: 999px; padding: 3px 10px; font-size: 0.72rem; color: #14532d; }
-.lbd-stats b { font-weight: 700; }
-.lbd-top-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lbw {
+  --lbw-font: Aptos, Calibri, 'Segoe UI', Carlito, Lato, system-ui, sans-serif;
+  --lbw-ink: #1d2a22; --lbw-head: #14532d; --lbw-accent: #188e44; --lbw-muted: #66756b; --lbw-hover: #f2f8f4;
+  font: 14px/1.42 var(--lbw-font); color: var(--lbw-ink);
+}
+.lbw button, .lbw select { font-family: var(--lbw-font); }
 
+/* The ribbon: Word's simplified ribbon, one row. */
+.lbw-ribbon {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; min-height: 38px; padding: 3px 8px;
+  background: #fbfcfb; border-bottom: 1px solid #d6dfd9; box-shadow: 0 1px 2px rgba(16,40,26,0.06);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.lbw-ribbon::-webkit-scrollbar { display: none; }
+.lbw-rgroup { flex: 0 0 auto; display: flex; align-items: center; gap: 1px; padding: 0 6px; border-right: 1px solid #e0e7e2; }
+.lbw-rgroup:first-child { padding-left: 0; }
+.lbw-rgroup--end { margin-left: auto; padding-right: 0; border-right: 0; }
+.lbw-rb {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
+  border: 1px solid transparent; border-radius: 4px; background: none; color: #253129;
+  font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+.lbw-rb i { font-size: 13px; color: var(--lbw-accent); }
+.lbw-rb:hover { background: #e8f3ec; border-color: #d2e6d9; }
+.lbw-rb:active { background: #dcefe3; }
+.lbw-rb[aria-pressed="true"] { background: #e1f1e7; border-color: #bcdcc8; }
+.lbw-seg { display: inline-flex; margin-right: 4px; border: 1px solid #cddbd2; border-radius: 4px; overflow: hidden; }
+.lbw-seg-b { height: 28px; padding: 0 10px; border: 0; background: #fff; color: #33433a; font-size: 12px; font-weight: 600; cursor: pointer; }
+.lbw-seg-b + .lbw-seg-b { border-left: 1px solid #cddbd2; }
+.lbw-seg-b[aria-pressed="true"] { background: var(--lbw-accent); color: #fff; }
+.lbw-seg-b:hover:not([aria-pressed="true"]) { background: #eef7f1; }
+.lbw-rb:focus-visible, .lbw-seg-b:focus-visible, .lbw-tb:focus-visible, .lbw-fold:focus-visible, .lbw-x:focus-visible,
+.lbw-nav-b:focus-visible, .lbw-el-line:focus-visible, .lbw-slot-b:focus-visible, .lbw-h-empty:focus-visible,
+.lbw-add-sec:focus-visible, .lbw-note-add:focus-visible, .lbw-status-warn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
+
+/* The navigation pane beside the page. */
+.lbw-body { display: flex; align-items: flex-start; }
+.lbw-nav {
+  display: none; flex: 0 0 214px; position: sticky; top: 38px; align-self: flex-start;
+  max-height: calc(100vh - 64px); overflow-y: auto;
+  padding: 8px 6px 10px 8px; background: #f6f8f7; border-right: 1px solid #d6dfd9;
+}
+.lbw--nav .lbw-nav { display: block; }
+.lbw-nav-head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6b7d71; }
+.lbw-nav-list { list-style: none; margin: 0; padding: 0; }
+.lbw-nav-item { position: relative; }
+.lbw-nav-b {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding: 3px 6px;
+  border: 0; border-left: 3px solid transparent; border-radius: 0 4px 4px 0; background: none;
+  color: #2b3a31; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.lbw-nav-b:hover { background: #e9f2ec; }
+.lbw-nav-item.is-current .lbw-nav-b { background: #ddefe4; border-left-color: var(--lbw-accent); font-weight: 600; color: var(--lbw-head); }
+.lbw-nav-b .n { flex: 0 0 18px; color: #7d9586; font-size: 11.5px; text-align: right; }
+.lbw-nav-b .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbw-nav-b .c { flex: 0 0 auto; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #e3ebe6; color: #4e6556; font-size: 10.5px; text-align: center; }
+.lbw-nav-note { color: #d19a22; font-size: 10px; }
+.lbw-nav-item.is-dragging { opacity: .4; }
+.lbw-nav-item.drop-before::before, .lbw-nav-item.drop-after::after { content: ''; position: absolute; left: 4px; right: 4px; height: 2px; background: var(--lbw-accent); }
+.lbw-nav-item.drop-before::before { top: -1px; }
+.lbw-nav-item.drop-after::after { bottom: -1px; }
+.lbw-nav-add { margin: 6px 0 0 6px; padding: 3px 8px; border: 1px dashed #b9d3c2; border-radius: 4px; background: none; color: var(--lbw-accent); font-size: 12px; cursor: pointer; }
+.lbw-nav-add:hover { background: #eaf5ee; }
+
+/* The page. */
+.lbw-canvas { flex: 1 1 auto; min-width: 0; padding: 12px 14px 22px; }
+.lbw-page {
+  max-width: 1060px; margin: 0 auto; padding: 16px 24px 20px;
+  background: #fff; border: 1px solid #dfe5e1; box-shadow: 0 1px 4px rgba(16,40,26,.08);
+}
+
+/* A section, and the head of the page: the words on the left, the margin
+   with its notes on the right. The margin spans the heading and the body,
+   and grows the body's row, never the heading's. */
+.lbw-dochead, .lbw-sec {
+  display: grid; grid-template-columns: minmax(0, 1fr) 220px; column-gap: 20px; align-items: start;
+}
+.lbw-dochead { grid-template-areas: "h m"; padding-bottom: 7px; margin-bottom: 3px; border-bottom: 2px solid #e2ece6; }
+.lbw-dochead-main { grid-area: h; min-width: 0; }
+.lbw-dochead > .lbw-margin { grid-area: m; }
+.lbw-doc-title { margin: 0; font-size: 21px; font-weight: 600; line-height: 1.2; color: var(--lbw-head); letter-spacing: .01em; }
+.lbw-doc-sub { margin-top: 1px; font-size: 12.5px; color: var(--lbw-muted); }
+
+.lbw-sec {
+  grid-template-areas: "h m" "b m"; grid-template-rows: auto 1fr;
+  padding: 4px 0 3px; border-bottom: 1px solid #f0f3f1; scroll-margin-top: 46px;
+}
+.lbw-sec:last-of-type { border-bottom: 0; }
+.lbw-sec.is-flash, .lbw-el.is-flash { animation: lbwFlash 1.2s ease-out; }
+@keyframes lbwFlash { 0% { background: #fff4c2; } 100% { background: transparent; } }
+.lbw-h { grid-area: h; display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 26px; }
+.lbw-sec > .lbw-margin { grid-area: m; }
+.lbw-sec-body { grid-area: b; min-width: 0; padding: 0 0 2px 22px; }
+.lbw-fold {
+  flex: 0 0 auto; width: 18px; height: 22px; padding: 0; border: 0; background: none;
+  color: #93ab9b; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .12s;
+}
+.lbw-fold i { transition: transform .15s; }
+.lbw-sec:hover .lbw-fold, .lbw-sec.is-folded .lbw-h .lbw-fold, .lbw-fold:focus-visible, .lbw-fold--item { opacity: 1; }
+.lbw-sec.is-folded .lbw-h .lbw-fold i { transform: rotate(-90deg); }
+.lbw-h-num { flex: 0 0 auto; min-width: 20px; font-size: 15px; font-weight: 600; color: var(--lbw-accent); }
+.lbw-h-title {
+  flex: 0 1 auto; min-width: 3ch; padding: 0 3px; border-radius: 3px; outline: none; cursor: text;
+  font-size: 15.5px; font-weight: 600; line-height: 1.35; color: var(--lbw-head); overflow-wrap: anywhere;
+}
+.lbw-h-title:hover { background: var(--lbw-hover); }
+.lbw-h-title:focus { background: #eaf6ee; box-shadow: inset 0 -2px 0 var(--lbw-accent); }
+.lbw-h-sum { min-width: 0; margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--lbw-muted); }
+.lbw-sec.is-current > .lbw-h .lbw-h-num { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.lbw-tools { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 1px; margin-left: auto; padding-left: 6px; opacity: 0; transition: opacity .12s; }
+.lbw-h:hover .lbw-tools, .lbw-h:focus-within .lbw-tools,
+.lbw-el:hover > .lbw-tools, .lbw-el:focus-within > .lbw-tools, .lbw-el.is-current > .lbw-tools { opacity: 1; }
+.lbw-tb {
+  width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 4px; background: none; color: #5d7a67; font-size: 12px; cursor: pointer;
+}
+.lbw-tb:hover { background: #e6f2ea; color: var(--lbw-head); }
+.lbw-x {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  padding: 0; border: 0; border-radius: 3px; background: none; color: #9a8a5a; font-size: 11px; cursor: pointer;
+}
+.lbw-x:hover { background: rgba(0,0,0,.06); color: #6b4f0e; }
+
+/* The parts of the service: content controls on the page, outlined only
+   while pointed at or worked in. */
+.lbw-el {
+  position: relative; display: flex; align-items: flex-start; gap: 6px;
+  margin: 0 -5px; padding: 1px 4px; border: 1px solid transparent; border-radius: 4px;
+}
+.lbw-el:hover { border-color: #e3ece6; }
+.lbw-el.is-current { border-color: #cfe5d6; background: #fafdfb; }
+.lbw-el.is-open { padding-bottom: 4px; }
+.lbw-ico { flex: 0 0 16px; padding-top: 3px; text-align: center; font-size: 11.5px; line-height: 1; color: #7c9a86; }
+.lbw-el--song .lbw-ico { color: #0b74b5; }
+.lbw-el--liturgy .lbw-ico { color: #16803c; }
+.lbw-el--scripture .lbw-ico, .lbw-slot .lbw-ico { color: #b7791f; }
+.lbw-el--slides .lbw-ico { color: #a3346d; }
+.lbw-el--video .lbw-ico { color: #b42318; }
+.lbw-el-main { flex: 1 1 auto; min-width: 0; }
+.lbw-el-line {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; min-height: 21px;
+  padding: 0; border: 0; background: none; color: inherit; text-align: left; font-size: 14px; line-height: 1.5;
+}
+.lbw-el > .lbw-el-line { flex: 1 1 auto; }
+button.lbw-el-line { cursor: pointer; }
+button.lbw-el-line:hover .lbw-el-title { text-decoration: underline; text-decoration-color: #b9d3c2; text-underline-offset: 2px; }
+.lbw-kind { flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #8aa092; }
+.lbw-el--song .lbw-kind { color: #5b8fb0; }
+.lbw-el--scripture .lbw-kind, .lbw-slot .lbw-kind { color: #b4883a; }
+.lbw-el-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #17251c; }
+.lbw-el-title--edit { flex: 1 1 auto; white-space: normal; overflow: visible; overflow-wrap: anywhere; padding: 0 2px; border-radius: 3px; outline: none; cursor: text; }
+.lbw-el-title--edit:hover { background: var(--lbw-hover); }
+.lbw-el-title--edit:focus { background: #eef7f1; }
+.lbw-el-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--lbw-muted); }
+/* The name gets its room first; the preview of the words takes what is left. */
+.lbw-peek { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d7c72; }
+.lbw-fold--item { width: 14px; margin-left: -2px; align-self: center; }
+
+/* The words, typed straight onto the page. A dashed rule between two slides
+   is Word's page break; its × joins them again. */
+.lbw-slides { margin-top: 1px; }
+.lbw-slide { position: relative; }
+.lbw-text {
+  min-height: 1.42em; margin: 0 -3px; padding: 0 3px; border-radius: 3px; outline: none; cursor: text;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: #1b2820;
+}
+.lbw-text:hover { background: var(--lbw-hover); }
+.lbw-text:focus { background: #f0f8f3; box-shadow: inset 2px 0 0 #8fd0a6; }
+.lbw-text:empty::before, .lbw-note-text:empty::before { content: attr(data-ph); color: #a9b5ad; pointer-events: none; }
+.lbw-brk { display: flex; align-items: center; gap: 6px; height: 13px; margin: 1px 0; color: #a7bbae; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; user-select: none; }
+.lbw-brk::before, .lbw-brk::after { content: ''; flex: 1 1 auto; border-top: 1px dashed #d3e2d8; }
+.lbw-brk::before { flex: 0 0 18px; }
+.lbw-brk .lbw-x { order: 3; width: 15px; height: 13px; font-size: 9px; color: #a7bbae; opacity: 0; }
+.lbw-brk:hover .lbw-x, .lbw-brk .lbw-x:focus-visible { opacity: 1; }
+.lbw-flags { position: absolute; top: -14px; right: 0; display: flex; gap: 3px; pointer-events: auto; }
+.lbw-slide:first-child .lbw-flags { position: static; justify-content: flex-end; }
+.lbw-flag { padding: 0 5px; border-radius: 3px; background: #eef1ff; color: #4a43c9; font-size: 9.5px; line-height: 13px; }
+
+/* Reading slots still to fill, and an empty section: Word's placeholder text. */
+.lbw-slots .lbw-ico { color: #b7791f; }
+.lbw-slots .lbw-kind { color: #b4883a; }
+.lbw-slots .lbw-el-line { flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.lbw-slot-b {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px;
+  border: 1px dashed #e2cc95; border-radius: 10px; background: #fffaf0; color: #94661c; font-size: 12px; cursor: pointer;
+}
+.lbw-slot-b i { font-size: 9px; }
+.lbw-slot-b:hover { background: #fff1d6; border-color: #d8a94a; }
+.lbw-h-empty { flex: 0 0 auto; margin-left: 8px; padding: 0 4px; border: 0; border-radius: 3px; background: none; color: #a3b0a7; font-size: 12px; font-style: italic; cursor: pointer; }
+.lbw-h-empty:hover { color: var(--lbw-accent); background: var(--lbw-hover); }
+.lbw-sec-body:empty { display: none; }
+
+/* Notes: comments in the margin, amber, never projected. */
+.lbw-margin { min-width: 0; display: flex; flex-direction: column; gap: 5px; padding-top: 1px; }
+.lbw-note {
+  padding: 3px 6px 4px 7px; background: #fff8dc; border: 1px solid #f0dfa2; border-left: 3px solid #e2a92b;
+  border-radius: 3px; font-size: 12.5px; box-shadow: 0 1px 1px rgba(120,90,10,.05);
+}
+.lbw-note-head { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #8a5d14; }
+.lbw-note-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbw-note-text { min-height: 1.35em; margin-top: 1px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; color: #5a3d0c; outline: none; cursor: text; }
+.lbw-note-text:focus { background: #fffdf3; }
+.lbw-note-add { align-self: flex-start; padding: 2px 8px; border: 1px dashed #ead79f; border-radius: 3px; background: none; color: #a17824; font-size: 12px; cursor: pointer; }
+.lbw-note-add:hover { background: #fff8dc; border-color: #e2a92b; }
+
+/* Adding a section; songs not yet placed. */
+.lbw-add-sec { display: block; width: 100%; margin-top: 8px; padding: 5px; border: 1px dashed #c4dccb; border-radius: 4px; background: none; color: var(--lbw-accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+.lbw-add-sec:hover { background: #f1f8f3; }
+.lbw-unplaced { margin-top: 10px; padding: 5px 8px; border: 1px solid #dde6f2; border-radius: 4px; background: #f8fbff; }
+.lbw-unplaced-head { margin-bottom: 2px; font-size: 12px; font-weight: 700; color: #36506b; }
+.lbw-unplaced .lbw-el { margin: 0; align-items: center; }
+.lbw-select { height: 26px; max-width: 200px; padding: 0 6px; border: 1px solid #cfdcd3; border-radius: 4px; background: #fff; color: #24302a; font-size: 12.5px; }
+.lbw-badge { padding: 0 6px; border-radius: 8px; background: #dbeafe; color: #1e40af; font-size: 11px; }
+
+/* The status bar. */
+.lbw-status {
+  position: sticky; bottom: 0; z-index: 35; display: flex; align-items: center; gap: 14px;
+  height: 26px; padding: 0 12px; background: #f3f6f4; border-top: 1px solid #d6dfd9;
+  font-size: 11.5px; color: #4d5f53; white-space: nowrap; overflow: hidden;
+}
+.lbw-status b { font-weight: 600; color: var(--lbw-head); }
+.lbw-status-cur { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.lbw-status-warn { padding: 0 6px; border: 0; border-radius: 3px; background: #fde68a; color: #7c4a03; font-size: 11.5px; cursor: pointer; }
+
+/* The menu. */
+.lbw-menu {
+  position: fixed; z-index: 3600; min-width: 210px; max-width: 290px; max-height: 70vh; overflow-y: auto; padding: 4px;
+  background: #fff; border: 1px solid #d5dfd8; border-radius: 6px; box-shadow: 0 12px 30px rgba(10,30,18,.18);
+  font: 13px/1.3 Aptos, Calibri, 'Segoe UI', Carlito, Lato, system-ui, sans-serif;
+}
+.lbw-menu-head { padding: 5px 10px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; color: #6b7d71; }
+.lbw-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 10px; border: 0; border-radius: 4px;
+  background: none; color: #1f2a23; text-align: left; font: inherit; cursor: pointer;
+}
+.lbw-menu button span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbw-menu button i { width: 15px; text-align: center; font-size: 12px; color: #188e44; }
+.lbw-menu button:hover:not(:disabled), .lbw-menu button:focus-visible { background: #eaf5ee; outline: none; }
+.lbw-menu button:disabled { opacity: .4; cursor: default; }
+.lbw-menu button.is-danger, .lbw-menu button.is-danger i { color: #b42318; }
+.lbw-menu button .lbw-menu-more { width: auto; font-size: 10px; color: #9aa79f; }
+.lbw-menu hr { margin: 3px 4px; border: 0; border-top: 1px solid #edf1ee; }
+
+/* Narrower: the navigation pane goes first, then the margin's notes move
+   under their headings, then the page loses its frame. */
+@container lbd (max-width: 1100px) {
+  .lbw--nav .lbw-nav, .lbw-rb[data-act="nav-toggle"] { display: none; }
+}
+@container lbd (max-width: 900px) {
+  .lbw-dochead, .lbw-sec { grid-template-columns: minmax(0, 1fr); }
+  .lbw-dochead { grid-template-areas: "h" "m"; }
+  .lbw-sec { grid-template-areas: "h" "m" "b"; grid-template-rows: auto; }
+  .lbw-margin:empty { display: none; }
+  .lbw-sec > .lbw-margin { padding: 1px 0 2px 22px; }
+  .lbw-dochead > .lbw-margin { padding-top: 5px; }
+}
+@container lbd (max-width: 640px) {
+  .lbw-canvas { padding: 6px 0 14px; }
+  .lbw-page { padding: 10px 10px 14px; border-left: 0; border-right: 0; }
+  .lbw-sec-body, .lbw-sec > .lbw-margin { padding-left: 12px; }
+  .lbw-peek { display: none; }
+  .lbw-status { display: none; }
+  .lbw-tools { opacity: 1; }
+  .lbw-rb { padding: 0 7px; }
+}
+@media (hover: none) {
+  .lbw-tools, .lbw-fold { opacity: 1; }
+}
+
+/* Shared by the builder's dialogs. */
 .lbd-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px;
   padding: 8px 14px; border-radius: 10px; border: 1px solid #bfe3cb; background: #fff; color: #14532d;
@@ -99071,106 +100650,16 @@ body.wo-lbd-on .wo-preview-fab { display: none !important; }
 }
 .lbd-btn:hover:not(:disabled) { background: #f0faf3; border-color: #22a957; }
 .lbd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.lbd-btn--book { background: linear-gradient(135deg, #14532d, #16a34a); color: #fff; border-color: transparent; }
-.lbd-btn--book:hover:not(:disabled) { background: linear-gradient(135deg, #186438, #1bb553); border-color: transparent; }
 .lbd-btn--primary { background: #188e44; color: #fff; border-color: #188e44; }
 .lbd-btn--primary:hover:not(:disabled) { background: #14773a; border-color: #14773a; }
-.lbd-btn:focus-visible, .lbd-chip:focus-visible, .lbd-icon:focus-visible, .lbd-sec-title:focus-visible,
-.lbd-item-main:focus-visible, .lbd-result:focus-visible, .lbd-add-section:focus-visible,
-.lbd-svcnotes-add:focus-visible, .lbd-write:focus-visible, .lbd-link:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
-
-/* Notes are amber everywhere they appear -- here, in the Liturgy Book, the
-   Songbook and the LCD schedule -- and never projected. */
-.lbd-svcnotes-add {
-  display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 7px 14px;
-  border: 1.5px dashed #f5c76b; border-radius: 999px; background: #fffbeb; color: #92400e;
-  font: 600 0.78rem 'Poppins', sans-serif; cursor: pointer;
-}
-.lbd-svcnotes-add:hover { background: #fef3c7; border-color: #f59e0b; }
-.lbd-svcnotes { margin-bottom: 14px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 12px; }
-.lbd-note-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #92400e; }
-.lbd-note-label span { font-weight: 500; letter-spacing: 0; text-transform: none; color: #b45309; opacity: 0.85; }
-.lbd-note-input {
-  width: 100%; box-sizing: border-box; min-height: 44px; resize: vertical;
-  padding: 8px 10px; border: 1px solid #fcd34d; border-radius: 8px; background: #fffdf5;
-  font: italic 0.88rem/1.55 Georgia, 'Times New Roman', serif; color: #78350f;
-}
-.lbd-note-input:focus { outline: none; border-color: #f59e0b; background: #fff; box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
-
-.lbd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.lbd-sec {
-  background: #fff; border: 1px solid #dcefe3; border-radius: 14px; overflow: hidden;
-  box-shadow: 0 1px 2px rgba(16,64,36,0.05); transition: border-color .15s, box-shadow .15s, opacity .15s;
-}
-.lbd-sec:hover { border-color: #c4e6d0; box-shadow: 0 4px 14px rgba(16,64,36,0.07); }
-.lbd-sec.is-empty { background: #fbfdfb; }
-.lbd-sec.is-dragging { opacity: 0.45; }
-.lbd-sec.drop-before { box-shadow: 0 -3px 0 0 #188e44, 0 4px 14px rgba(16,64,36,0.07); }
-.lbd-sec.drop-after { box-shadow: 0 3px 0 0 #188e44, 0 4px 14px rgba(16,64,36,0.07); }
-.lbd-sec-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 8px; background: linear-gradient(180deg, #f6fbf8, #fff); border-bottom: 1px solid #eef6f1; }
-.lbd-grip { color: #a5cfb4; cursor: grab; padding: 6px 4px; font-size: 0.85rem; }
-.lbd-grip:active { cursor: grabbing; }
-.lbd-num {
-  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: #188e44; color: #fff; font-size: 0.72rem; font-weight: 700;
-}
-.lbd-sec-title {
-  flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px;
-  padding: 4px 6px; border: 0; border-radius: 8px; background: none; cursor: text; text-align: left;
-  font: 700 0.98rem 'Poppins', sans-serif; color: #0c3a21;
-}
-.lbd-sec-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lbd-sec-title i { font-size: 0.68rem; color: #94c7a7; opacity: 0; transition: opacity .15s; }
-.lbd-sec-title:hover { background: #f0faf3; }
-.lbd-sec-title:hover i, .lbd-sec-title:focus-visible i { opacity: 1; }
-.lbd-title-input {
-  flex: 1 1 auto; min-width: 0; padding: 5px 8px; border: 1.5px solid #22a957; border-radius: 8px;
-  font: 700 0.98rem 'Poppins', sans-serif; color: #0c3a21; outline: none; box-shadow: 0 0 0 3px rgba(34,169,87,0.15);
-}
-.lbd-sec-count { margin-left: auto; padding-left: 6px; font-size: 0.72rem; color: #6b7280; white-space: nowrap; }
-.lbd-sec-tools, .lbd-item-tools { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.lbd-btn:focus-visible, .lbd-chip:focus-visible, .lbd-icon:focus-visible, .lbd-result:focus-visible,
+.lbd-write:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
 .lbd-icon {
   width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 8px; background: transparent; color: #4b7a5e; font-size: 0.82rem; cursor: pointer;
 }
 .lbd-icon:hover:not(:disabled) { background: #eaf6ee; color: #14532d; }
-.lbd-icon:disabled { opacity: 0.28; cursor: default; }
-.lbd-icon--danger:hover:not(:disabled) { background: #fdecec; color: #b91c1c; }
-.lbd-icon--small { width: 26px; height: 26px; font-size: 0.72rem; }
-.lbd-sec-notes { margin: 10px 12px 2px; }
-
-.lbd-items { list-style: none; margin: 0; padding: 8px 12px 2px; display: flex; flex-direction: column; gap: 6px; }
-.lbd-items:empty { display: none; }
-.lbd-item { border: 1px solid #edf3ef; border-radius: 10px; background: #fff; transition: border-color .15s, box-shadow .15s; }
-.lbd-item.is-open { border-color: #bfe3cb; box-shadow: 0 2px 12px rgba(16,64,36,0.08); }
-.lbd-item-row { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 8px; }
-.lbd-item-icon {
-  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 0.84rem;
-  background: #f1f5f9; color: #475569;
-}
-.lbd-item--song .lbd-item-icon { background: #e0f2fe; color: #0369a1; }
-.lbd-item--liturgy .lbd-item-icon { background: #dcfce7; color: #15803d; }
-.lbd-item--scripture .lbd-item-icon, .lbd-slot .lbd-item-icon { background: #fef3c7; color: #b45309; }
-.lbd-item--slides .lbd-item-icon { background: #fce7f3; color: #9d174d; }
-.lbd-item--video .lbd-item-icon { background: #fee2e2; color: #991b1b; }
-.lbd-item-main {
-  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-  padding: 2px 0; border: 0; background: none; text-align: left; cursor: pointer; font-family: 'Poppins', sans-serif; color: inherit;
-}
-div.lbd-item-main { cursor: default; }
-.lbd-item-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88rem; font-weight: 600; color: #1f2933; }
-.lbd-item-meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; color: #6b7280; }
-.lbd-item-peek { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: italic 0.76rem/1.45 Georgia, serif; color: #6b7280; }
-.lbd-item-note {
-  margin: 0 10px 8px 50px; padding: 5px 9px; border-left: 3px solid #f59e0b; border-radius: 6px; background: #fffbeb;
-  font: italic 0.8rem/1.45 Georgia, serif; color: #92400e; white-space: pre-wrap;
-}
-.lbd-item-note i { font-size: 0.7rem; margin-right: 3px; }
-.lbd-editor { display: flex; flex-direction: column; gap: 10px; padding: 4px 12px 12px 50px; }
 .lbd-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: #4b5563; }
-.lbd-field em { font-style: normal; font-weight: 400; color: #9ca3af; }
 .lbd-field--inline { flex-direction: row; align-items: center; gap: 8px; }
 .lbd-field--grow { flex: 1 1 220px; }
 .lbd-input, .lbd-select {
@@ -99179,23 +100668,11 @@ div.lbd-item-main { cursor: default; }
 }
 .lbd-input { width: 100%; }
 .lbd-select { max-width: 100%; }
-.lbd-input:focus, .lbd-select:focus, .lbd-slide-input:focus { outline: none; border-color: #22a957; box-shadow: 0 0 0 3px rgba(34,169,87,0.15); }
-.lbd-slides { display: flex; flex-direction: column; gap: 8px; }
-.lbd-slide-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #16a34a; }
-.lbd-slide-head .lbd-icon { margin-left: auto; }
-.lbd-slide-flag { padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 0.6rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
-.lbd-slide-input {
-  width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 8px 10px;
-  border: 1px solid #d7ebdd; border-radius: 8px; background: #f7fcf9;
-  font: 0.92rem/1.6 Georgia, 'Times New Roman', serif; color: #1e2d3d;
-}
+.lbd-select--sm { min-height: 30px; max-width: 200px; padding: 4px 6px; font-size: 0.76rem; }
+.lbd-input:focus, .lbd-select:focus { outline: none; border-color: #22a957; box-shadow: 0 0 0 3px rgba(34,169,87,0.15); }
 .lbd-hint { margin: 0; font-size: 0.74rem; line-height: 1.5; color: #6b7280; }
 .lbd-hint i { color: #22a957; margin-right: 3px; }
-.lbd-link { padding: 0; border: 0; background: none; color: #188e44; font: 600 0.74rem 'Poppins', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.lbd-slot { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 8px; border: 1px dashed #ead9ad; border-radius: 10px; background: #fffdf7; }
-.lbd-slot-label { flex: 1; min-width: 0; font-size: 0.84rem; font-weight: 600; color: #92400e; }
-.lbd-empty { margin: 8px 12px 0; font-size: 0.8rem; font-style: italic; color: #9ca3af; }
-.lbd-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px 12px; }
+.lbd-empty { margin: 4px 0 0; font-size: 0.8rem; font-style: italic; color: #9ca3af; }
 .lbd-chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 12px;
   border: 1px solid #cfe9d8; border-radius: 999px; background: #f6fbf8; color: #14532d;
@@ -99203,22 +100680,7 @@ div.lbd-item-main { cursor: default; }
 }
 .lbd-chip:hover { background: #e8f7ee; border-color: #22a957; }
 .lbd-chip b { font-weight: 700; margin-right: 2px; }
-.lbd-chip--note { border-color: #fde68a; background: #fffbeb; color: #92400e; }
-.lbd-chip--note:hover { border-color: #f59e0b; background: #fef3c7; }
-.lbd-chip--ghost { margin-left: auto; border-style: dashed; background: transparent; color: #4b7a5e; }
 .lbd-chip--small { min-height: 28px; padding: 4px 10px; font-size: 0.72rem; }
-.lbd-add-section {
-  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 12px; padding: 14px;
-  border: 2px dashed #bfe3cb; border-radius: 14px; background: #fff; color: #188e44;
-  font: 700 0.86rem 'Poppins', sans-serif; cursor: pointer;
-}
-.lbd-add-section:hover { background: #f0faf3; border-color: #22a957; }
-.lbd-unplaced { margin-top: 16px; padding: 10px 12px; background: #fff; border: 1px solid #dbe4f3; border-radius: 14px; }
-.lbd-unplaced-head { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: #334155; }
-.lbd-unplaced-head i { color: #0369a1; }
-.lbd-unplaced ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.lbd-unplaced li { display: flex; align-items: center; gap: 8px; }
-.lbd-unplaced .lbd-item-title { flex: 1 1 auto; }
 .lbd-badge { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #15803d; font: 600 0.64rem 'Poppins', sans-serif; white-space: nowrap; }
 .lbd-badge--soft { background: #f1f5f9; color: #475569; }
 .lbd-badge--gold { background: #fef3c7; color: #92400e; }
@@ -99265,36 +100727,27 @@ div.lbd-item-main { cursor: default; }
 .lbd-passage-text sup { margin-right: 2px; font-size: 0.65em; color: #16a34a; }
 .lbd-error { margin: 0; font-size: 0.8rem; color: #b91c1c; }
 .lbd-sheet-foot { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.lbd-sheet-foot .lbd-hint { flex: 1 1 auto; align-self: center; }
 
-@media (hover: none) {
-  .lbd-grip { display: none; }
-  .lbd-sec-title i { opacity: 0.6; }
+/* Import: the paste box and the plan of what comes in where. */
+.lbd-imp-paste {
+  min-height: 60px; max-height: 140px; overflow-y: auto; padding: 8px 10px;
+  border: 1.5px dashed #bfd9c8; border-radius: 10px; background: #f8fcf9; outline: none;
+  font: 0.82rem/1.45 'Poppins', sans-serif; color: #374151; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.lbd-imp-paste:empty::before { content: attr(data-ph); color: #9ca3af; }
+.lbd-imp-paste:focus { border-color: #22a957; background: #fff; }
+.lbd-imp-preview { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.lbd-imp-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid #eef3ef; border-radius: 8px; font-size: 0.8rem; }
+.lbd-imp-row.is-off { opacity: 0.55; }
+.lbd-imp-row .lbd-check { flex: 1 1 auto; min-width: 0; }
+.lbd-imp-row .lbd-check b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbd-imp-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b7280; font-size: 0.72rem; }
+
 @media (max-width: 600px) {
-  .wo-liturgy-builder { padding: 12px 8px 24px; }
   .lbd-sheet-backdrop { align-items: flex-end; padding: 0; }
   .lbd-sheet { width: 100%; max-height: 90vh; border-radius: 18px 18px 0 0; }
-}
-@container lbd (max-width: 620px) {
-  .lbd-title { font-size: 1.3rem; }
-  .lbd-top-actions { width: 100%; }
-  .lbd-top-actions .lbd-btn { flex: 1 1 auto; }
-  /* One row: the name gives way (ellipsis) before the controls do; the
-     item count is left out, as the card under it shows its items anyway. */
-  .lbd-sec-head { flex-wrap: nowrap; gap: 6px; padding: 8px 4px 8px 8px; }
-  .lbd-sec-title { flex: 1 1 auto; font-size: 0.92rem; }
-  .lbd-title-input { font-size: 0.92rem; }
-  .lbd-sec-count { display: none; }
-  .lbd-icon { width: 30px; height: 30px; }
-  /* The song's own editor links to the Songbook; the row keeps the room for its name. */
-  .lbd-item-tools [data-act="song-songbook"] { display: none; }
-  .lbd-items { padding: 8px 8px 2px; }
-  .lbd-item-row { align-items: flex-start; gap: 8px; }
-  .lbd-item-icon { width: 28px; height: 28px; }
-  .lbd-editor { padding: 2px 10px 12px 10px; }
-  .lbd-item-note { margin-left: 10px; }
-  .lbd-add { padding: 10px 8px 12px; }
-  .lbd-chip--ghost { margin-left: 0; }
+  .lbd-imp-row { flex-wrap: wrap; }
 }
 
 /* Section and service notes in the Liturgy Book, the Songbook and the LCD

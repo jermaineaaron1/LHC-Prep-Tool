@@ -1376,6 +1376,8 @@ const CASES = [
   ['liturgy-builder-harness.js', 'capturing the schedule drops the liturgist notes',
     s => s.replace('      _layout.push(Object.assign({}, _prevEntries[sec.id] || {}, {',
                    '      _layout.push(Object.assign({}, {}, {')],
+  ['liturgy-builder-harness.js', 'an item listed twice is collected twice again',
+    s => s.replace('    return _woUniqueItems(items);', '    return items;')],
 ];
 
 let caught = 0, missed = 0, stale = 0;
