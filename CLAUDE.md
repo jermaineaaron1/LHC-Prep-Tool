@@ -720,6 +720,13 @@ the anon key -- verify as `postgres`, not as the app.
     name gone, one name new); two renamed in the same save cannot be told
     apart and stay under the old name, listed in Practice Tracks but on no
     badge. Until the column exists the carry is a write that fails quietly.
+    A section sung twice under one name SHARES its takes -- deliberately,
+    it is the same music: both badges list them and both show STOP while
+    one is recorded (`_setSecBtn` marks every matching mic on the page as
+    it is now, and a badge redrawn mid-take reads `lhcVoiceRec._recSec`).
+    Line takes are by line id and do not share; the cutter marks a second
+    run's lines "(2nd time)". The reading view's held takes (`_sbmRecs`)
+    are reread on `lhc:lines-changed`, because a save re-points them.
 
 31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
     keeps each stroke (tool `w`) as offsets from its anchor's origin in
@@ -750,7 +757,9 @@ the anon key -- verify as `postgres`, not as the app.
     desk's row has to the right of its words -- are shrunk about their
     anchor until they fit, all of one drawing's strokes by one scale
     (`_sbmMarkFit`), never below 0.3. A section sung twice under one name
-    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). The moment a
+    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). A key is read
+    by its SHAPE (`_sbmKeyParts`), never split on a character: a section's
+    name is the song writer's and may hold '/', '>' or '@'. The moment a
     stroke lands, what it is attached to GLOWS for about two seconds with
     a caption ("On the chord F", "From “story” · 2nd Part to the chord F"),
     drawn on the canvas from the same frame every screen places it by
@@ -792,8 +801,13 @@ the anon key -- verify as `postgres`, not as the app.
     reloaded quietly in place; lines, words, settings and the book raise
     the pulsing banner, whose Refresh refetches the songs' rows and lines
     and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
-    adopted, not announced to itself; a change undone before the refresh
-    takes the banner away with it; Not now adopts the state as seen.
+    adopted, not announced to itself -- so every write path the fingerprint
+    covers must call `_sbmLiveSend()` (or, for lines, dispatch
+    `lhc:lines-changed`), or the writer banners itself 30s later; a change
+    undone before the refresh takes the banner away with it; Not now adopts
+    the state as seen. The live layer runs only while the songbook modal is
+    open (`_sbmBookOpen`). Refresh forgets `_sbVoiceWanted` along with
+    `_sbVoiceLines`, or the prefetch never asks for the parts again.
 
 33. **The Phone view is a SECOND COPY of the whole app, on production
     data, and the head of the page makes it read-only.** In Draw mode on

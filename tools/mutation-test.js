@@ -494,6 +494,25 @@ const CASES = [
   // What a stroke is attached to has to be shown long enough to see, and
   // named right; and the phone view must find the desk's song in a book
   // built from an order, whose item ids differ from load to load.
+  // The phone re-measured every row and repainted the canvas ~11 times a
+  // second because this took a class off and put it back on every pass.
+  // A section's name is the song writer's: a '/' or '>' in it must not cut
+  // the key apart and lose every mark on that section.
+  ['songbook-marks-harness.js', 'a slash in a section\'s name cuts its marks\' keys apart',
+    s => s.replace("      var b = /^(s:[\\s\\S]*?\\|\\d+|l:\\d+)(?:\\/([\\s\\S]*))?$/.exec(x);",
+                   "      var b = /^([^\\/]*)(?:\\/([\\s\\S]*))?$/.exec(x);")],
+  ['songbook-marks-harness.js', 'a > in a section\'s name is taken for a link',
+    s => s.replace("    var ends = k.split(/>(?=[sl]:)/).map(function(x) {", "    var ends = k.split('>').map(function(x) {")],
+  // Undo on one song deleted the last stroke of another, in the database,
+  // with nothing on the screen to show for it.
+  ['songbook-marks-harness.js', 'undo deletes the last stroke of any song',
+    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;",
+                   "    i = D.undo.length - 1;")],
+  ['songbook-marks-harness.js', 'undo skips a stroke that is still saving',
+    s => s.replace("    if (String(u.local.id).indexOf('tmp_') === 0) {", "    if (false) {")],
+  ['songbook-marks-harness.js', 'keeping rows alike churns the class and the canvas loops on it',
+    s => s.replace("      if (stack !== had) sys.classList.toggle('vl-sys--stack', stack);",
+                   "      if (had) sys.classList.remove('vl-sys--stack');\r\n      if (stack) sys.classList.add('vl-sys--stack');")],
   ['songbook-marks-harness.js', 'an arrow ending just under a chord is pinned to a word of that row',
     s => s.replace("    var pool = (at.rowHit && !anyRow) ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;",
                    "    var pool = at.rowHit ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;")],
@@ -512,6 +531,14 @@ const CASES = [
     s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
   // A rewritten line must raise the banner; a part that could not be read
   // must not, or every hiccup of the network would nag.
+  // The songbook poll read the whole order every 2 seconds on every open
+  // device; it asks for the last-edited time first, and must not skip a
+  // change, or one device's edit never reaches the others.
+  ['songbook-live-harness.js', 'the poll reads the whole order every time again',
+    s => s.replace("    if (!_sbPollFullRead[oid]) { _sbPollFullRead[oid] = true; return Promise.resolve(true); }",
+                   "    return Promise.resolve(true);")],
+  ['songbook-live-harness.js', 'the poll skips an order that has changed',
+    s => s.replace("      return !(t > 0) || t > _sbLastPollTs;", "      return false;")],
   ['songbook-live-harness.js', 'rewritten lines no longer ask for a refresh',
     s => s.replace("structural: differs('lines') || differs('songs') || differs('book') };", "structural: differs('songs') || differs('book') };")],
   ['songbook-live-harness.js', 'a part that could not be read counts as a change',
@@ -1268,8 +1295,13 @@ const CASES = [
     s => s.replace("      var mine = wanted ? moment.find(function(r) { return !unison(r) && _sbmRecSlug(key(r)) === wanted; }) : null;",
                    "      var mine = null;")],
   ['songbook-cut-harness.js', 'the next target hands the picker to whoever sings next',
-    s => s.replace("      if (!wanted) return moment[0].id;",
-                   "      return moment[0].id;")],
+    s => s.replace("      if (mine || all) return (mine || all).id;",
+                   "      if (mine || all) return (mine || all).id;\r\n      return moment[0].id;")],
+  ['songbook-cut-harness.js', 'a take on a line everyone sings comes loose when it moves',
+    s => s.replace("    if (!hit) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });", "")],
+  ['songbook-cut-harness.js', 'cutting for everyone files the next span under one part',
+    s => s.replace("      if (mine || all) return (mine || all).id;",
+                   "      if (mine || all) return (mine || all).id;\r\n      if (!wanted) return moment[0].id;")],
   ['songbook-cut-harness.js', 'a move renames a take a person named',
     s => s.replace("    return !s || /^(?:.+ take \\d+|Run-through \\d+|Recording)$/i.test(s);",
                    "    return true;")],
