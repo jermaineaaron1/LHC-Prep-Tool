@@ -128,7 +128,7 @@
       var q = new URLSearchParams(window.location.search);
       if (q.get('sbmPreview') && window.self !== window.top) {
         void window.parent.location.href;   // throws unless the parent is this same app
-        pv = { key: q.get('sbmPreview') || '', sid: q.get('sbmSong') || '', base: q.get('sbmBase') || '', nth: parseInt(q.get('sbmNth'), 10) || 0 };
+        pv = { key: q.get('sbmPreview') || '', sid: q.get('sbmSong') || '', base: q.get('sbmBase') || '', nth: parseInt(q.get('sbmNth'), 10) || 0, t: q.get('sbmT') || '' };
       }
     } catch (e) { pv = null; }
     if (!pv) return;
@@ -48474,6 +48474,22 @@ var WO = (function() {
   }
   // The box an anchor has on this screen, relative to the card; null when
   // it is not on the screen (a part filtered out, a card folded away).
+  // A mark's anchor key, taken apart. A section is named by whoever wrote
+  // the song, so its name can hold '/', '>' or '@', and splitting on any of
+  // them lost every mark on that section: the key is read by its shape.
+  // "@g<id>" at the very end names the drawing; a link's second end begins
+  // at a '>' followed by "s:" or "l:"; each end is "s:<section>|<n>" or
+  // "l:<i>", then optionally '/' and its token ("c:2", "w:<part>:4", ...).
+  // Pure, for the harness.
+  function _sbmKeyParts(key) {
+    var k = String(key || ''), tag = '', g = /@g[0-9a-z]+$/.exec(k);
+    if (g) { tag = g[0].slice(1); k = k.slice(0, g.index); }
+    var ends = k.split(/>(?=[sl]:)/).map(function(x) {
+      var b = /^(s:[\s\S]*?\|\d+|l:\d+)(?:\/([\s\S]*))?$/.exec(x);
+      return b ? { key: x, base: b[1], sub: b[2] || '' } : { key: x, base: x, sub: '' };
+    });
+    return { ends: ends, tag: tag };
+  }
   function _sbmMarkBox(card, key) {
     var cr = card.getBoundingClientRect();
     // kind 'token' is a chord or a word -- its origin is its centre; kind
@@ -48484,7 +48500,7 @@ var WO = (function() {
       var em = el ? parseFloat(getComputedStyle(el).fontSize) : 0;
       return { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height, em: em > 0 ? em : 16, kind: kind };
     };
-    var parts = String(key || '').split('@')[0].split('/'), base = _sbmMarkBaseEl(card, parts[0]), sub = parts[1] || '';
+    var kp = _sbmKeyParts(key).ends[0], base = _sbmMarkBaseEl(card, kp.base), sub = kp.sub;
     if (!base) return null;
     var m = /^(c|w|t|r):(.*)$/.exec(sub);
     if (!m) return rel(base.getBoundingClientRect(), base, 'box');
@@ -48510,9 +48526,9 @@ var WO = (function() {
   // of a key names the drawing the stroke belongs to, and says nothing
   // about where.
   function _sbmMarkFrame(card, key) {
-    var k = String(key || '').split('@')[0], ends = k.split('>');
-    if (ends.length < 2) return _sbmMarkBox(card, k);
-    var A = _sbmMarkBox(card, ends[0]), B = _sbmMarkBox(card, ends[1]);
+    var ends = _sbmKeyParts(key).ends;
+    if (ends.length < 2) return _sbmMarkBox(card, ends[0].key);
+    var A = _sbmMarkBox(card, ends[0].key), B = _sbmMarkBox(card, ends[1].key);
     return (A && B) ? _sbmLinkFrame(A, B, key) : null;
   }
   // A stroke is kept in its anchor's own unit, from its origin. Tool 'w'
@@ -48701,7 +48717,7 @@ var WO = (function() {
     }
     var link = (!closed && span >= 3 * em) ? _sbmMarkLinkEnds(card, pts, 1.5 * em) : null;
     if (G && G.card === card && now - G.at < 8000 && _sbmBoxesNear(G.bbox, bb, 40)) {
-      var frame = _sbmMarkFrame(card, G.key), ends = G.key.split('@')[0].split('>'), tag = '@' + (G.key.split('@')[1] || gid.slice(1));
+      var gp = _sbmKeyParts(G.key), frame = _sbmMarkFrame(card, G.key), ends = gp.ends.map(function(x) { return x.key; }), tag = '@' + (gp.tag || gid.slice(1));
       if (frame && frame.kind === 'link') {
         if (_sbmMarkAlong(pts, frame.P, frame.Q, 2 * em)) return same(G.key);
         // beside the arrow rather than on it: it belongs to the nearer end
@@ -48767,12 +48783,17 @@ var WO = (function() {
   // columns. If any row of a moment has to stack, every row of it stacks.
   // Decided from the live layout, so it is redone whenever the layout
   // can change: render, resize, the font control, rows filtered in or
-  // out, chips arriving. Idempotent: a second pass changes nothing.
+  // out, chips arriving. Idempotent: a second pass changes nothing --
+  // not even for a moment. It used to take the class off to measure and
+  // put it back, and a class taken off and put back is two changes: the
+  // canvas over the card repaints on every change and runs this again,
+  // so a phone re-measured every row and repainted ~11 times a second for
+  // as long as the song was open. Since the phone sets every line's words
+  // under its chip, measuring with the class on gives the same answer.
   function _sbmEvenRows() {
     var root = document.getElementById('sbmRoot'); if (!root || !_sbFoldPhone()) return;
     Array.prototype.forEach.call(root.querySelectorAll('.sbm-score .vl-sys'), function(sys) {
       var had = sys.classList.contains('vl-sys--stack');
-      if (had) sys.classList.remove('vl-sys--stack');
       var rows = sys.querySelectorAll('.vl-ln'), stack = false;
       for (var i = 0; i < rows.length && !stack; i++) {
         var who = rows[i].querySelector('.vl-who'), body = rows[i].querySelector('.vl-body');
@@ -48780,7 +48801,7 @@ var WO = (function() {
         var wr = who.getBoundingClientRect(), br = body.getBoundingClientRect();
         if (br.height > 0 && br.top >= wr.bottom - 1) stack = true;
       }
-      if (stack) sys.classList.add('vl-sys--stack');
+      if (stack !== had) sys.classList.toggle('vl-sys--stack', stack);
     });
   }
   function _sbmLoadMarks(song, force) {
@@ -48877,7 +48898,7 @@ var WO = (function() {
   // What an anchor is, in words: { kind: chord|word|row|moment|line, text,
   // part, section, n }, read off the screen.
   function _sbmMarkDescribe(card, key) {
-    var parts = String(key || '').split('@')[0].split('/'), baseKey = parts[0], sub = parts[1] || '';
+    var kp = _sbmKeyParts(key).ends[0], baseKey = kp.base, sub = kp.sub;
     var d = { kind: 'moment', text: '', part: '', section: '', n: 0 };
     var sm = /^s:(.*)\|(\d+)$/.exec(baseKey), lm = /^l:(\d+)$/.exec(baseKey);
     if (sm) { d.section = sm[1].replace(/#\d+$/, ''); d.n = parseInt(sm[2], 10); }
@@ -48933,7 +48954,7 @@ var WO = (function() {
       g.fillStyle = 'rgba(250, 204, 21, 0.35)'; g.fill();
       g.lineWidth = 2; g.strokeStyle = '#d97706'; g.stroke();
     });
-    var text = _sbmMarkCaption(String(G.key).split('@')[0].split('>').map(function(k) { return _sbmMarkDescribe(card, k); }));
+    var text = _sbmMarkCaption(_sbmKeyParts(G.key).ends.map(function(x) { return _sbmMarkDescribe(card, x.key); }));
     if (text) {
       g.font = '600 12px Poppins, system-ui, sans-serif';
       var tw = Math.ceil(g.measureText(text).width) + 16, th = 22;
@@ -49010,10 +49031,22 @@ var WO = (function() {
     _sbmDrawBar();
   }
   function sbmDrawUndo() { if (!_sbmDraw || !_sbmDraw.undo.length) return; _sbmMarkDelete(_sbmDraw.undo.pop()); }
+  // A drawing whose strokes have all gone -- undone, rubbed out, refused by
+  // the database -- is over: the next stroke finds its own anchor. Without
+  // this, a stroke that glowed on the wrong word, undone and redrawn closer
+  // within a few seconds, joined the empty drawing and took the same wrong
+  // word again. A drawing with strokes left is kept, so a letter undone and
+  // rewritten stays with the rest of its word.
+  function _sbmGroupStillDrawn(base) {
+    var D = _sbmDraw; if (!D || !D.group) return;
+    var tag = _sbmKeyParts(D.group.key).tag;
+    if (!tag || !(_sbmMarks[base] || []).some(function(m) { return _sbmKeyParts(m.anchor).tag === tag; })) D.group = null;
+  }
   function _sbmMarkDelete(id) {
     var sup = window._supabase; if (!sup) return;
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
     _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return String(m.id) !== String(id); });
+    _sbmGroupStillDrawn(base);
     _sbmMarksPaintAll();
     _sbmPhoneMarks(null);
     _sbmLiveSend();
@@ -49105,6 +49138,7 @@ var WO = (function() {
       _sbmLiveSend();
     }).catch(function(err) {
       _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== local; });
+      _sbmGroupStillDrawn(base);
       _sbmMarksPaintAll();
       _sbmPhoneMarks(null);
       showToast('Could not save the mark: ' + err.message, 'error');
@@ -49198,7 +49232,16 @@ var WO = (function() {
       if (!el.getAttribute('data-mk')) { el.setAttribute('data-mk', 'mk' + (++_sbMarkIdSeq)); el.setAttribute('data-mk-o', el.classList.contains('sb-mark-tok') ? 'c' : 'tl'); }
       return el.getAttribute('data-mk');
     };
-    host.insertAdjacentHTML('beforeend', _sbMarkLinkSvg(m, name(elA), name(elB)));
+    // The page is measured on screen and printed on paper, and a page break
+    // exists only on paper: the drawing goes in the smallest block holding
+    // both its ends -- for an arrow within one moment, the moment, which
+    // never breaks across a page -- so no break can come between them.
+    var anc = [], at = host;
+    for (var x = elA; x && x !== host; x = x.parentNode) anc.push(x);
+    for (var y = elB; y && y !== host; y = y.parentNode) if (anc.indexOf(y) > -1) { at = y; break; }
+    while (at !== host && at.parentNode && /^(SPAN|I|B|EM|STRONG|SMALL)$/.test(at.tagName)) at = at.parentNode;
+    at.classList.add('sb-mark-host');
+    at.insertAdjacentHTML('beforeend', _sbMarkLinkSvg(m, name(elA), name(elB)));
   }
   // The k-th token of a container's text, wrapped in a span the SVG can
   // fill. Nothing is laid out yet, so this is text, not boxes.
@@ -49249,8 +49292,7 @@ var WO = (function() {
     if (!marks.length) return html;
     var box = document.createElement('div'); box.innerHTML = html;
     marks.forEach(function(m) {
-      var ends = String(m.anchor).split('@')[0].split('>');
-      var els = ends.map(function(k) { var parts = k.split('/'), sys = _sbmMarkBaseEl(box, parts[0]); return sys ? _sbMarkPrintScoreEl(sys, parts[1] || '') : null; });
+      var els = _sbmKeyParts(m.anchor).ends.map(function(x) { var sys = _sbmMarkBaseEl(box, x.base); return sys ? _sbMarkPrintScoreEl(sys, x.sub) : null; });
       if (els.some(function(e) { return !e; })) return;
       if (els.length > 1) { _sbMarkPrintLink(box, els[0], els[1], m); return; }
       var el = els[0];
@@ -49293,8 +49335,7 @@ var WO = (function() {
     var marks = (_sbmMarks[base] || []).filter(function(m) { return /^l:\d+/.test(m.anchor || ''); });
     if (!marks.length) return;
     marks.forEach(function(m) {
-      var ends = String(m.anchor).split('@')[0].split('>');
-      var hits = ends.map(function(k) { var parts = k.split('/'), i = parseInt(parts[0].slice(2), 10); return _sbMarkPrintLineEl(songDiv, i, parts[1] || '') || _sbMarkPrintOldBlock(songDiv, i); });
+      var hits = _sbmKeyParts(m.anchor).ends.map(function(x) { var i = parseInt(x.base.slice(2), 10); return _sbMarkPrintLineEl(songDiv, i, x.sub) || _sbMarkPrintOldBlock(songDiv, i); });
       if (hits.some(function(h) { return !h; })) return;
       if (hits.length > 1) { var wrap = songDiv.querySelector('.sp-lyrics-wrap'); if (wrap) _sbMarkPrintLink(wrap, hits[0].el, hits[1].el, m); return; }
       var hit = hits[0];
@@ -49530,13 +49571,17 @@ var WO = (function() {
     var nth = Math.max(0, _sbmSongs().filter(function(x) { return _sbBaseSongId(x) === base; }).indexOf(song));
     P.ready = false; P.reloadAt = Date.now(); clearInterval(P.poll);
     P.el.classList.add('is-waiting'); P.el.classList.remove('is-failed');
+    // Each load carries its own token, and only a page that answers with it
+    // is ready: until the new page starts to arrive, the frame still holds
+    // the old one, already ready, which took the desk's state and was gone.
+    P.token = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     P.frame.src = location.origin + location.pathname + '?sbmPreview=' + encodeURIComponent(key) + '&sbmSong=' + encodeURIComponent(song.id) +
-      '&sbmBase=' + encodeURIComponent(base) + '&sbmNth=' + nth;
+      '&sbmBase=' + encodeURIComponent(base) + '&sbmNth=' + nth + '&sbmT=' + P.token;
     var t0 = Date.now();
     P.poll = setInterval(function() {
       if (_sbmPhone !== P) { clearInterval(P.poll); return; }
       var fw = null; try { fw = P.frame.contentWindow; } catch (e) {}
-      if (fw && fw.__sbmPreviewReady) {
+      if (fw && fw.__sbmPreviewReady && fw.__SBM_PREVIEW && fw.__SBM_PREVIEW.t === P.token) {
         clearInterval(P.poll);
         P.ready = true; P.el.classList.remove('is-waiting');
         var pl = _sbmPhonePayload(true);
@@ -50221,6 +50266,9 @@ var WO = (function() {
     sbOpenLyricsEditor(song.id);
   }
   function sbmPageView(on) {
+    // The printed pages have no drawing canvas: drawing ends, and the
+    // Phone view panel with it, rather than staying up over the pages.
+    if (on && _sbmDraw) _sbmDrawEnd();
     _sbmPageView = !!on;
     // On a desk the choice sticks: someone who works on the printed pages
     // is not put back on the reading surface every time the book opens.
@@ -64995,6 +65043,10 @@ var WO = (function() {
              matches the live 210mm wide card exactly. */
           '@page{size:A4;margin:0;}' +
           'html,body{font-family:Lato,Georgia,serif;margin:0;padding:0;color:#1e293b;background:white;}' +
+          // On screen too a song is as wide as the paper, so what the page's
+          // own script measures -- where a drawn arrow's ends are -- wraps
+          // and falls into columns exactly as it will print.
+          '@media screen{.sp-song{width:210mm;box-sizing:border-box;}}' +
           // Index page — matches live sb-index-page format
           '.sp-index-page{page-break-after:always;break-after:page;width:210mm;box-sizing:border-box;background:white;transform-origin:top left;overflow:hidden;}' +
           '.sp-idx-header{background:linear-gradient(135deg,#1e3a8a 0%,#188e44 100%);color:white;padding:24px 32px 20px;text-align:center;}' +
@@ -97991,6 +98043,17 @@ html.sbm-preview::-webkit-scrollbar, html.sbm-preview #sbmRoot::-webkit-scrollba
 html.sbm-preview body { overflow: hidden !important; }
 html.sbm-preview #sbmRoot * { pointer-events: none !important; }
 html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-preview .sbm-drawbar { display: none !important; }
+
+/* ---- A blank lyric line on the reading surface is a breath, not a gap ----
+   The songbook's printed-page view sets a blank line at 2.2em so its pages
+   break where the print does, and the reading surface inherited it: a
+   heading followed by a blank line, and two before the next, left up to
+   150px of nothing between verses. Here only -- Page view and print keep
+   theirs. A blank line straight after a heading or another blank line
+   keeps a sliver of height, so a remark drawn on it still has a box. */
+#sbmRoot #sbmLyrics .wo-lyrics-empty-line { height: 0.6em; }
+#sbmRoot #sbmLyrics .wo-lyrics-section-header + .wo-lyrics-empty-line,
+#sbmRoot #sbmLyrics .wo-lyrics-empty-line + .wo-lyrics-empty-line { height: 0.15em; }
 
 /* ==================== THE PHONE: SMALLER CONTROLS, THE SONG FIRST ====================
    The controls were sized for a thumb and took the whole first screen,

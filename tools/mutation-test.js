@@ -494,6 +494,18 @@ const CASES = [
   // What a stroke is attached to has to be shown long enough to see, and
   // named right; and the phone view must find the desk's song in a book
   // built from an order, whose item ids differ from load to load.
+  // The phone re-measured every row and repainted the canvas ~11 times a
+  // second because this took a class off and put it back on every pass.
+  // A section's name is the song writer's: a '/' or '>' in it must not cut
+  // the key apart and lose every mark on that section.
+  ['songbook-marks-harness.js', 'a slash in a section\'s name cuts its marks\' keys apart',
+    s => s.replace("      var b = /^(s:[\\s\\S]*?\\|\\d+|l:\\d+)(?:\\/([\\s\\S]*))?$/.exec(x);",
+                   "      var b = /^([^\\/]*)(?:\\/([\\s\\S]*))?$/.exec(x);")],
+  ['songbook-marks-harness.js', 'a > in a section\'s name is taken for a link',
+    s => s.replace("    var ends = k.split(/>(?=[sl]:)/).map(function(x) {", "    var ends = k.split('>').map(function(x) {")],
+  ['songbook-marks-harness.js', 'keeping rows alike churns the class and the canvas loops on it',
+    s => s.replace("      if (stack !== had) sys.classList.toggle('vl-sys--stack', stack);",
+                   "      if (had) sys.classList.remove('vl-sys--stack');\r\n      if (stack) sys.classList.add('vl-sys--stack');")],
   ['songbook-marks-harness.js', 'an arrow ending just under a chord is pinned to a word of that row',
     s => s.replace("    var pool = (at.rowHit && !anyRow) ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;",
                    "    var pool = at.rowHit ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;")],

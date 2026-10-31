@@ -77,13 +77,14 @@ const WANTED = [
   [/^  function _sbmMarkCaption\(/, '_sbmMarkCaption'],
   [/^  function _sbmPhoneFind\(/, '_sbmPhoneFind'],
   [/^  function _sbmMarkGap\(/, '_sbmMarkGap'],
-  [/^  function _sbmMarkTokenNear\(/, '_sbmMarkTokenNear']
+  [/^  function _sbmMarkTokenNear\(/, '_sbmMarkTokenNear'],
+  [/^  function _sbmKeyParts\(/, '_sbmKeyParts']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg, glow: _sbmGlowAlpha, caption: _sbmMarkCaption, phoneFind: _sbmPhoneFind, tokenNear: _sbmMarkTokenNear };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg, glow: _sbmGlowAlpha, caption: _sbmMarkCaption, phoneFind: _sbmPhoneFind, tokenNear: _sbmMarkTokenNear, keyParts: _sbmKeyParts };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -206,6 +207,41 @@ const at = { X: 486, Y: 1193, rowHit: rowM, tokens: [
 check('handwriting in a row is kept beside that row\'s words', S.tokenNear(at, null).key, 'w:melody:5');
 check('  an arrow\'s tip there is about the chord just above', S.tokenNear(at, 27, true).key, 'c:2');
 check('  and a tip further than reach from anything is about nothing', S.tokenNear(Object.assign({}, at, { X: 700 }), 27, true), null);
+
+console.log('\na mark\'s key is read by its shape, whatever the section is called');
+const kp = k => { const r = S.keyParts(k); return [r.ends.map(x => [x.base, x.sub]), r.tag]; };
+check('a word of a part, in a drawing', kp('s:Verse 1|3/w:men:4@gab12'), [[['s:Verse 1|3', 'w:men:4']], 'gab12']);
+check('  a moment on its own, from before drawings had names', kp('s:Verse 1|3'), [[['s:Verse 1|3', '']], '']);
+check('  a link between a word and a chord', kp('s:CHORUS|4/w:2nd part:5>s:CHORUS|4/c:2@gx9'), [[['s:CHORUS|4', 'w:2nd part:5'], ['s:CHORUS|4', 'c:2']], 'gx9']);
+check('  a section with a slash in its name', kp('s:Chorus / Tag|2/c:0'), [[['s:Chorus / Tag|2', 'c:0']], '']);
+check('  with a > in its name', kp('s:Echo (Women > Men)|1/w:women:0@gq'), [[['s:Echo (Women > Men)|1', 'w:women:0']], 'gq']);
+check('  with an @ in its name', kp('s:Tag @ end|1/r:all'), [[['s:Tag @ end|1', 'r:all']], '']);
+check('  a part with a slash in its name', kp('s:V|1/w:Soprano/Alto:3'), [[['s:V|1', 'w:Soprano/Alto:3']], '']);
+check('  a line of the lyrics, and a word of it', [kp('l:12'), kp('l:12/w:4@gz')], [[[['l:12', '']], ''], [[['l:12', 'w:4']], 'gz']]);
+check('  a sung-twice section keeps its #2', kp('s:2nd CHORUS#2|3/c:1'), [[['s:2nd CHORUS#2|3', 'c:1']], '']);
+
+console.log('\nkeeping a moment\'s rows alike changes nothing the second time');
+// A class taken off and put back is two changes, and the canvas over the
+// card repaints on every change and runs this again: a loop, ~11 a second.
+const evenSrc = extract(/^  function _sbmEvenRows\(/, '_sbmEvenRows');
+let classOps = 0;
+function fakeSys(stacked) {
+  const cls = new Set(stacked ? ['vl-sys', 'vl-sys--stack'] : ['vl-sys']);
+  const rect = r => ({ getBoundingClientRect: () => r });
+  const row = { offsetParent: {}, querySelector: q => q === '.vl-who' ? rect({ top: 0, bottom: 18, height: 18 }) : rect({ top: 24, bottom: 60, height: 36 }) };
+  return { cls: cls, querySelectorAll: () => [row], classList: {
+    contains: c => cls.has(c),
+    add: c => { classOps++; cls.add(c); },
+    remove: c => { classOps++; cls.delete(c); },
+    toggle: (c, on) => { classOps++; if (on) cls.add(c); else cls.delete(c); }
+  } };
+}
+const systems = [fakeSys(false), fakeSys(true)];
+const evenRows = new Function('document', '_sbFoldPhone', evenSrc + '\nreturn _sbmEvenRows;')({ getElementById: () => ({ querySelectorAll: () => systems }) }, () => true);
+evenRows();
+check('a moment whose words sit under its chips is marked stacked', systems.map(x => x.cls.has('vl-sys--stack')), [true, true]);
+classOps = 0; evenRows();
+check('  and a second pass touches no class at all', classOps, 0);
 
 console.log('\nthe phone view finds the desk\'s song in its own copy of the book');
 const book = [{ id: 'sbsong_a_0', songId: 'a' }, { id: 'sbsong_b_1', songId: 'b' }, { id: 'sbsong_a_2', songId: 'a' }];
