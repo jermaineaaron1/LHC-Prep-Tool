@@ -865,6 +865,53 @@
       box-shadow: 0 12px 30px rgba(31, 105, 58, 0.34);
     }
 
+    /* ── Sidebar navigation list ──
+       One destination to a row, under the logo at the top of the panel. This
+       panel IS navigation on a phone -- the bottom bar's "More" button opens
+       it and nothing else does -- so each row is a full-width target with an
+       icon big enough to read at a glance, rather than one of six small pills
+       wrapped onto two lines.
+
+       The rows keep .lhc-pill-button-active for the current page, so the one
+       place that sets it (setActiveView's navMap) needs no changes at all. */
+    .lhc-navlist { display: flex; flex-direction: column; gap: 6px; }
+    .lhc-navlist-btn {
+      display: flex; align-items: center; gap: 12px; width: 100%;
+      padding: 8px 12px;
+      border: 1px solid rgba(15,23,42,0.08);
+      border-radius: 12px;
+      background: #ffffff;
+      color: #374151;
+      font-family: inherit; font-size: 0.85rem; font-weight: 600;
+      text-align: left; cursor: pointer; user-select: none;
+      transition: all 170ms ease-out;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .lhc-navlist-btn:hover { background: #f9fafb; box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12); }
+    .lhc-navlist-icon {
+      flex: 0 0 auto; width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 10px;
+      background: rgba(24,142,68,0.12); color: var(--brand);
+      font-size: 1.05rem;
+    }
+    .lhc-navlist-label { flex: 1 1 auto; min-width: 0; }
+    /* Restated rather than left to .lhc-pill-button-active: that rule is a
+       single class and is declared earlier, so .lhc-navlist-btn's own white
+       background beat it and the current page looked like every other row. */
+    .lhc-navlist-btn.lhc-pill-button-active {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      border-color: rgba(255,255,255,0.7);
+      color: #ffffff;
+      box-shadow: 0 12px 30px rgba(31, 105, 58, 0.34);
+    }
+    .lhc-navlist-btn.lhc-pill-button-active:hover {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    }
+    .lhc-navlist-btn.lhc-pill-button-active .lhc-navlist-icon {
+      background: rgba(255,255,255,0.22); color: #ffffff;
+    }
+
     /* ==================== TOP NAV BAR (per screenshot 297) ==================== */
     .lhc-topnav {
       display: flex;
@@ -972,13 +1019,22 @@
       .lhc-root.sidebar-collapsed { grid-template-columns: 68px minmax(0, 1fr) !important; }
       /* font-size:0 collapses the bare text node beside each icon; the icon
          gets its size back explicitly. */
-      .sidebar-collapsed #playlistSidebar .lhc-pill-button {
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button,
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-btn {
         font-size: 0; width: 44px; height: 44px; padding: 0;
         display: flex; align-items: center; justify-content: center;
         border-radius: 12px; position: relative;
       }
-      .sidebar-collapsed #playlistSidebar .lhc-pill-button i { font-size: 1rem; margin: 0 !important; }
-      .sidebar-collapsed #playlistSidebar .flex.gap-2.flex-wrap { flex-direction: column; align-items: center; gap: 8px; }
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button i,
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-btn i { font-size: 1rem; margin: 0 !important; }
+      /* The row's own icon chip and label would otherwise keep their widths
+         and push the 44px rail button open. */
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-icon {
+        width: auto; height: auto; background: none; border-radius: 0;
+      }
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-label { display: none; }
+      .sidebar-collapsed #playlistSidebar .flex.gap-2.flex-wrap,
+      .sidebar-collapsed #playlistSidebar .lhc-navlist { flex-direction: column; align-items: center; gap: 8px; }
       .sidebar-collapsed #playlistSidebar .px-4 { padding-left: 10px !important; padding-right: 10px !important; }
       /* Everything that is prose rather than navigation goes away in rail mode */
       .sidebar-collapsed #playlistSidebar > *:not(.relative),
@@ -991,14 +1047,16 @@
       .sidebar-collapsed #playlistSidebar #rosterUpdatesSection { display: none !important; }
       .sidebar-collapsed #playlistSidebar .relative.px-4.pt-4 { display: block !important; }
       /* Tooltip from the title attribute we add in markup */
-      .sidebar-collapsed #playlistSidebar .lhc-pill-button::after {
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button::after,
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-btn::after {
         content: attr(title);
         position: absolute; left: 52px; top: 50%; transform: translateY(-50%);
         background: #1f2937; color: #fff; font-size: 0.72rem; font-weight: 600;
         padding: 5px 9px; border-radius: 6px; white-space: nowrap;
         opacity: 0; pointer-events: none; transition: opacity 150ms ease; z-index: 60;
       }
-      .sidebar-collapsed #playlistSidebar .lhc-pill-button:hover::after { opacity: 1; }
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button:hover::after,
+      .sidebar-collapsed #playlistSidebar .lhc-navlist-btn:hover::after { opacity: 1; }
     }
 
     /* ==================== SCROLLBARS ==================== */
@@ -1028,25 +1086,10 @@
     /* ==================== HOME DASHBOARD ==================== */
 
     /* Message Banner */
-    .home-message-banner {
-      position: relative;
-      overflow: hidden;
-      padding: 32px 32px 22px;
-      margin-bottom: 16px;
-      background: linear-gradient(135deg, #188e44 0%, #2fb563 50%, #0b2a14 100%);
-      color: white;
-      text-align: center;
-      min-height: 130px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
     /* ── 55th Jubilee strip ──
-       Sits between the verse banner and the tools. Deliberately a LIGHT
-       surface: the banner above it is already a green wash, and two stacked
-       green bands read as one heavy block. Light here also lets the original
-       dark-ink artwork be used, rather than the reversed copy the splash needs.
+       Opens the page, above the tools. Deliberately a LIGHT surface: it lets
+       the original dark-ink artwork be used, rather than the reversed copy the
+       splash needs.
 
        The slogan and the two references are the church's vision, so they are
        the content of the strip and not decoration on it. */
@@ -1076,64 +1119,11 @@
       border-radius: 99px; padding: 3px 10px; white-space: nowrap;
     }
     @media (max-width: 640px) {
-      .home-jubilee { flex-direction: column; text-align: center; gap: 10px; padding: 16px 14px; }
+      /* Fifteen pixels shorter than it was: 16px of padding top and bottom
+         became 9 and 8. The room goes to the tools below. */
+      .home-jubilee { flex-direction: column; text-align: center; gap: 10px; padding: 9px 14px 8px; }
       .home-jubilee-refs { flex-direction: row; justify-content: center; }
       .home-jubilee-words { text-align: center; }
-    }
-
-    .home-message-cross {
-      position: absolute;
-      top: 14px;
-      right: 20px;
-      font-size: 1.4rem;
-      opacity: 0.2;
-      color: white;
-    }
-    .home-banner-text {
-      font-size: 1.3rem;
-      font-weight: 500;
-      line-height: 1.65;
-      max-width: 620px;
-      margin: 0 auto;
-      animation: homeBannerFadeIn 0.8s ease-out;
-      font-style: italic;
-    }
-    .home-banner-source {
-      font-size: 0.72rem;
-      opacity: 0.65;
-      margin-top: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      font-style: normal;
-    }
-    @keyframes homeBannerFadeIn {
-      0% { opacity: 0; transform: translateY(12px); }
-      100% { opacity: 1; transform: translateY(0); }
-    }
-    .home-banner-text.transitioning {
-      animation: homeBannerFadeOut 0.5s ease-in forwards;
-    }
-    @keyframes homeBannerFadeOut {
-      0% { opacity: 1; transform: translateY(0); }
-      100% { opacity: 0; transform: translateY(-12px); }
-    }
-    .home-message-dots {
-      display: flex;
-      gap: 7px;
-      margin-top: 16px;
-    }
-    .home-message-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.3);
-      transition: all 0.3s ease;
-      cursor: pointer;
-    }
-    .home-message-dot:hover { background: rgba(255,255,255,0.6); }
-    .home-message-dot.active {
-      background: rgba(255,255,255,0.9);
-      transform: scale(1.35);
     }
 
     /* Navigation Cards Grid */
@@ -1624,8 +1614,6 @@
     }
     @media (max-width: 500px) {
       .home-nav-grid { grid-template-columns: 1fr; }
-      .home-banner-text { font-size: 1.05rem; }
-      .home-message-banner { padding: 24px 20px 18px; min-height: 100px; }
     }
 
     /* ==================== PRACTICE GAME VIEW ==================== */
@@ -2152,6 +2140,17 @@
     .sb-col-header.songs-col { border-color: #fbbf24; color: #b45309; }
     .sb-col-header.orders-col { border-color: #7fd9b8; color: #0b7a53; }
     .sb-col-empty { font-size: 0.8rem; color: #94a3b8; text-align: center; padding: 14px 8px; background: #f8fafc; border-radius: 8px; border: 1px dashed #e2e8f0; }
+    /* Each column shows its three most recently modified books. The rest are
+       rendered but folded away rather than dropped: a standalone songbook is
+       reachable from nowhere else in the app, so a hard cap at three would
+       strand the fourth one the moment it was made. */
+    .sb-col-more {
+      display: block; width: 100%; margin-top: 8px; padding: 7px 10px;
+      font-size: 0.74rem; font-weight: 600; color: #475569;
+      background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;
+      cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+    }
+    .sb-col-more:hover { background: #eef2f7; color: #1e293b; }
     @media (max-width: 640px) { .sb-two-col { grid-template-columns: 1fr; } }
 
     /* ==================== SONGS-PAGE SONGBOOK VIEWER ==================== */
@@ -2964,45 +2963,6 @@
       font-size: 8px;
       color: #0e7490;
     }
-    /* The line joining one person's duties in a service. Two aqua cells in a
-       long column still leave a PIC hunting for the other one, and on a month
-       where several people double up, which cell pairs with which is guesswork.
-       Faint on purpose: it is an answer to a question already asked by the
-       colour, not a thing to look at. Never interactive -- it sits over the
-       cells so the line is not hidden by the opaque rows it crosses, and would
-       otherwise swallow the clicks that open a cell for editing. */
-    .roster-duty-links {
-      position: absolute;
-      top: 0;
-      left: 0;
-      pointer-events: none;
-      overflow: visible;
-      /* Above ordinary cells so the line is visible across them, below the
-         sticky first column (z-index 5) so duty names stay readable. */
-      z-index: 4;
-    }
-    .roster-duty-links line {
-      stroke: rgba(8, 145, 178, 0.34);
-      stroke-width: 3.5;
-      stroke-linecap: round;
-    }
-    /* The column a line crosses is not all one colour -- the section bands
-       (WORSHIP ENABLERS, HOLY COMMUNION and the rest) are dark and full width,
-       and a faint aqua stroke vanishes against them, breaking the line exactly
-       where it needs to be followed. A paler, wider stroke underneath is
-       invisible on the white rows and gives the aqua one something to sit on
-       as it crosses a band. */
-    .roster-duty-links line.roster-duty-link-halo {
-      stroke: rgba(255, 255, 255, 0.5);
-      stroke-width: 6.5;
-    }
-    .roster-duty-links circle {
-      fill: rgba(8, 145, 178, 0.5);
-    }
-    .roster-duty-links polygon {
-      fill: rgba(8, 145, 178, 0.62);
-    }
-
     /* ==================== ROSTER - GLASS COMMAND SKIN ==================== */
     #worshipRosterView {
       background:
@@ -4010,9 +3970,7 @@
       }
 
       /* ---- HOME VIEW ---- */
-      .home-banner-text { font-size: 0.9rem; }
-      .home-message-banner { padding: 16px 12px; min-height: 70px; border-radius: 12px; }
-      .home-nav-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .home-nav-grid { grid-template-columns: 1fr; gap: 8px; }
       .home-nav-card { padding: 14px 8px; border-radius: 10px; }
       .home-nav-card i { font-size: 1.3rem; }
       .home-nav-card span { font-size: 0.7rem; }
@@ -4454,18 +4412,6 @@
         background: #ecfeff; box-shadow: 0 0 0 1px #a5edf7; border-radius: 4px; padding: 0 3px;
       }
       .rmp-person-name.rmp-clash { color: #991b1b; text-decoration: underline wavy #ef4444; }
-      /* Only on cards that actually have trails, so an ordinary Sunday keeps
-         its full width for names. */
-      .rmp-service-ledger.has-duty-links .rmp-person,
-      .rmp-service-ledger.has-duty-links .rmp-shared-team { padding-left: 32px; }
-      .rmp-service-ledger { position: relative; }
-      .rmp-duty-links {
-        position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 2;
-      }
-      .rmp-duty-links line { stroke: rgba(8,145,178,0.4); stroke-width: 3.5; stroke-linecap: round; }
-      .rmp-duty-links line.rmp-duty-link-halo { stroke: rgba(255,255,255,0.55); stroke-width: 6; }
-      .rmp-duty-links circle { fill: rgba(8,145,178,0.55); }
-      .rmp-duty-links polygon { fill: rgba(8,145,178,0.65); }
 
       /* ---- WORSHIP ORDERS ---- */
       .wo-container { min-height: 400px; }
@@ -4890,35 +4836,34 @@
        at every phone width rather than only above 400px.
        ------------------------------------------------------------------ */
     @media (max-width: 768px) {
-      .home-nav-grid { gap: 7px; margin-bottom: 10px; }
-      .home-nav-card { padding: 9px 7px; gap: 2px; border-radius: 14px; }
+      /* One card to a row, the full width of the screen. Two-up fitted five
+         cards on a phone but gave each a 185px sliver to say its name in; a
+         whole row is a far easier thing to hit. They lie down to pay for it --
+         icon beside the words rather than above them -- so five full-width
+         rows cost about what three two-up rows did.
+
+         A grid rather than a flex row, because the card's four children are
+         flat siblings: the areas are what stack the label over the
+         description while the icon spans both and the stat pill holds the
+         right-hand end. In a flex row the long pairs ("Worship Roster" /
+         "Service duties & assignments") had nowhere to go. */
+      .home-nav-grid { grid-template-columns: 1fr; gap: 7px; margin-bottom: 10px; }
+      .home-nav-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas: "icon label stat" "icon desc stat";
+        align-items: center;
+        column-gap: 12px; row-gap: 1px;
+        padding: 9px 14px; border-radius: 14px; text-align: left;
+      }
       .home-nav-icon {
-        width: 38px; height: 38px; margin-bottom: 1px; font-size: 1.05rem;
+        grid-area: icon;
+        width: 38px; height: 38px; margin-bottom: 0; font-size: 1.05rem;
       }
       .home-nav-card i { font-size: 1.05rem; }
-      .home-nav-label { font-size: 0.78rem; letter-spacing: 0.02em; line-height: 1.2; }
-      .home-nav-desc { font-size: 0.63rem; line-height: 1.25; }
-      .home-nav-stat { margin-top: 2px; padding: 1px 8px; font-size: 0.58rem; }
-
-      /* Five cards in a two-column grid leave the fifth alone beside a hole.
-         Given the whole row to itself it can lie down -- icon beside the
-         words instead of above them -- which fills the gap and costs half
-         the height of the row it used to need. */
-      .home-nav-grid .home-nav-practice {
-        grid-column: 1 / -1;
-        flex-direction: row;
-        align-items: center;
-        justify-content: flex-start;
-        gap: 10px;
-        padding: 7px 12px;
-        text-align: left;
-      }
-      .home-nav-grid .home-nav-practice .home-nav-icon { margin-bottom: 0; flex: 0 0 auto; }
-      /* The label and the description share the middle; the stat pill is
-         pushed to the far end so the row reads left to right. */
-      .home-nav-grid .home-nav-practice .home-nav-label { flex: 0 0 auto; }
-      .home-nav-grid .home-nav-practice .home-nav-desc { flex: 1 1 auto; }
-      .home-nav-grid .home-nav-practice .home-nav-stat { margin-top: 0; flex: 0 0 auto; }
+      .home-nav-label { grid-area: label; font-size: 0.78rem; letter-spacing: 0.02em; line-height: 1.2; }
+      .home-nav-desc { grid-area: desc; font-size: 0.63rem; line-height: 1.25; }
+      .home-nav-stat { grid-area: stat; margin-top: 0; padding: 1px 8px; font-size: 0.58rem; }
     }
 
     /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
@@ -5232,15 +5177,6 @@
     }
     #playlistSidebar .h-11 {
       animation: logoPulse 3s ease-in-out infinite;
-    }
-
-    /* ==================== PHASE 2: HOME BANNER CROSSFADE ==================== */
-    #homeBannerText, #homeBannerSource {
-      transition: opacity 0.5s ease, transform 0.5s ease;
-    }
-    #homeBannerText.banner-fade, #homeBannerSource.banner-fade {
-      opacity: 0;
-      transform: translateY(-6px);
     }
 
     /* ==================== PHASE 1: BOTTOM NAV BAR ==================== */
@@ -6184,28 +6120,37 @@
         <p id="backendStatus" class="text-[0.7rem] text-slate-200/70 mt-2">Backend: checking…</p>
       </div>
 
-      <!-- Navigation Buttons -->
+      <!-- Navigation. One destination to a row; see .lhc-navlist. The ids and
+           the active class are the ones setActiveView already drives, and the
+           title attributes are what the collapsed desktop rail shows as
+           tooltips, so both are carried over unchanged. -->
       <div class="relative px-4 pt-4">
-        <div class="flex gap-2 flex-wrap">
-          <button class="lhc-pill-button lhc-pill-button-active" id="navHomeBtn" title="Home">
-            <i class="fa-solid fa-house mr-1"></i> Home
+        <nav class="lhc-navlist">
+          <button class="lhc-navlist-btn lhc-pill-button-active" id="navHomeBtn" title="Home">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-house"></i></span>
+            <span class="lhc-navlist-label">Home</span>
           </button>
-          <button class="lhc-pill-button" id="navSongFinderBtn" title="Songs">
-            <i class="fa-solid fa-magnifying-glass mr-1"></i> Songs
+          <button class="lhc-navlist-btn" id="navSongFinderBtn" title="Songs">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <span class="lhc-navlist-label">Songs</span>
           </button>
-          <button class="lhc-pill-button" id="navRosterBtn" title="Roster">
-            <i class="fa-solid fa-table mr-1"></i> Roster
+          <button class="lhc-navlist-btn" id="navRosterBtn" title="Roster">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-table"></i></span>
+            <span class="lhc-navlist-label">Roster</span>
           </button>
-          <button class="lhc-pill-button" id="navOrdersBtn" title="Orders">
-            <i class="fa-solid fa-calendar-days mr-1"></i> Orders
+          <button class="lhc-navlist-btn" id="navOrdersBtn" title="Orders">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-calendar-days"></i></span>
+            <span class="lhc-navlist-label">Orders</span>
           </button>
-          <button class="lhc-pill-button" id="navLiturgyBtn" title="Liturgy">
-            <i class="fa-solid fa-book-bible mr-1"></i> Liturgy
+          <button class="lhc-navlist-btn" id="navLiturgyBtn" title="Liturgy">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-book-bible"></i></span>
+            <span class="lhc-navlist-label">Liturgy</span>
           </button>
-          <button class="lhc-pill-button" id="navPracticeBtn" title="Practice">
-            <i class="fa-solid fa-microphone mr-1"></i> Practice
+          <button class="lhc-navlist-btn" id="navPracticeBtn" title="Practice">
+            <span class="lhc-navlist-icon"><i class="fa-solid fa-microphone"></i></span>
+            <span class="lhc-navlist-label">Practice</span>
           </button>
-        </div>
+        </nav>
       </div>
 
       <hr class="relative mx-4 my-4 border-none border-t border-white/20" style="border-top: 1px solid rgba(255,255,255,0.18);">
@@ -6367,15 +6312,6 @@
             <i class="fa-solid fa-bell"></i>
             <span class="lhc-notif-badge" id="notifBadge"></span>
           </button>
-          <button class="lhc-pill-button" id="refreshDataBtn">
-            <i class="fa-solid fa-rotate-right mr-1"></i> <span class="hide-mobile">Refresh</span>
-          </button>
-          <button class="lhc-pill-button" id="openShareModalBtn">
-            <i class="fa-solid fa-share-nodes mr-1"></i> <span class="hide-mobile">Share</span>
-          </button>
-          <button class="lhc-pill-button" id="openHelpBtn">
-            <i class="fa-solid fa-circle-question mr-1"></i> <span class="hide-mobile">Help</span>
-          </button>
         </div>
       </header>
 
@@ -6385,20 +6321,6 @@
 
       <!-- ==================== VIEW: HOME DASHBOARD ==================== -->
       <section id="homeView">
-
-        <!-- Inspirational Message Banner -->
-        <div class="home-message-banner lhc-card">
-          <div class="home-message-cross"><i class="fa-solid fa-cross"></i></div>
-          <div class="home-message-content">
-            <div id="homeBannerText" class="home-banner-text font-playfair">
-              "The Lord is my strength and my song."
-            </div>
-            <div id="homeBannerSource" class="home-banner-source font-poppins">
-              Exodus 15:2
-            </div>
-          </div>
-          <div class="home-message-dots" id="homeBannerDots"></div>
-        </div>
 
         <!-- 55th Jubilee -->
         <div class="home-jubilee lhc-card">
@@ -6943,11 +6865,11 @@
           <div class="sf-sb-ribbon">
             <h4 class="sf-sb-ribbon-title"><i class="fa-solid fa-book-open"></i>Songbooks</h4>
             <div class="sf-sb-ribbon-jumps">
-              <button type="button" class="sf-sb-chip" onclick="sfJumpSongbookCol('songs')">
-                <i class="fa-solid fa-music"></i> My Songbooks<span id="sfSbCountBooks" class="sf-sb-chip-n"></span>
-              </button>
               <button type="button" class="sf-sb-chip" onclick="sfJumpSongbookCol('orders')">
-                <i class="fa-solid fa-calendar-days"></i> Service Orders<span id="sfSbCountOrders" class="sf-sb-chip-n"></span>
+                <i class="fa-solid fa-calendar-days"></i> Service Songbooks<span id="sfSbCountOrders" class="sf-sb-chip-n"></span>
+              </button>
+              <button type="button" class="sf-sb-chip" onclick="sfJumpSongbookCol('songs')">
+                <i class="fa-solid fa-music"></i> My Songbooks (Events)<span id="sfSbCountBooks" class="sf-sb-chip-n"></span>
               </button>
             </div>
             <button class="lhc-pill-button sf-sb-new" onclick="openCreateSongbookModal()"><i class="fa-solid fa-plus mr-1"></i>New Songbook</button>
@@ -21925,12 +21847,6 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     // Close sidebar on mobile when switching views
     closeSidebarOnMobile();
 
-    // Stop banner timer when leaving home
-    if (HOME_STATE.bannerTimer) {
-      clearInterval(HOME_STATE.bannerTimer);
-      HOME_STATE.bannerTimer = null;
-    }
-
     ['homeView', 'songFinderView', 'worshipRosterView', 'worshipOrderView', 'liturgyView', 'practiceGameView'].forEach(function(id) {
       var el = $(id);
       if (el) el.style.display = 'none';
@@ -22767,6 +22683,15 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   window.sfGoToSongbooks = sfGoToSongbooks;
   window.sfJumpSongbookCol = sfJumpSongbookCol;
 
+  // Unfolds one column past its three. Nothing is refetched -- the extras are
+  // already in the page, hidden.
+  function sfShowAllSongbooks(which, btn) {
+    var extra = document.getElementById('sbColExtra-' + which);
+    if (extra) extra.style.display = '';
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+  }
+  window.sfShowAllSongbooks = sfShowAllSongbooks;
+
   // The counts on the pill and the two chips. Written from the lists that
   // were actually rendered, so they cannot drift from what is on screen.
   function _sfSetSongbookCounts(books, orders) {
@@ -22866,25 +22791,39 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       }
 
       _sfSetSongbookCounts(songItems.length, orderItems.length);
+
+      // Newest first. An order carries its own last-edited stamp (the item
+      // built above takes lastEdited before createdDate); the songbooks table
+      // has only created_date, so for a standalone book that date stands in
+      // for "modified" -- it is the only timestamp the row has.
+      var _byNewest = function(a, b) {
+        return (Date.parse(b.createdDate || '') || 0) - (Date.parse(a.createdDate || '') || 0);
+      };
+      songItems.sort(_byNewest);
+      orderItems.sort(_byNewest);
+
+      // Three shown, the rest folded behind "Show all". Rendered either way,
+      // so opening the fold is a style change rather than another round trip.
+      var SB_COL_CAP = 3;
+      function _renderCol(items, key, headerClass, headerIcon, headerText, emptyHtml) {
+        var out = '<div><div class="sb-col-header ' + headerClass + '"><i class="' + headerIcon + '"></i>' + headerText + '</div>';
+        if (!items.length) return out + emptyHtml + '</div>';
+        items.slice(0, SB_COL_CAP).forEach(function(item) { out += _renderItem(item); });
+        if (items.length > SB_COL_CAP) {
+          out += '<div id="sbColExtra-' + key + '" style="display:none;">';
+          items.slice(SB_COL_CAP).forEach(function(item) { out += _renderItem(item); });
+          out += '</div><button type="button" class="sb-col-more" onclick="sfShowAllSongbooks(&quot;' + key + '&quot;,this)">' +
+            '<i class="fa-solid fa-chevron-down mr-1"></i>Show all ' + items.length + '</button>';
+        }
+        return out + '</div>';
+      }
+
+      // Service books lead: they are the ones with a date this Sunday.
       var html = '<div class="sb-two-col">';
-      html += '<div>';
-      html += '<div class="sb-col-header songs-col"><i class="fa-solid fa-music"></i>My Songbooks</div>';
-      if (songItems.length) {
-        songItems.forEach(function(item) { html += _renderItem(item); });
-      } else {
-        html += '<div class="sb-col-empty">No songbooks created yet.<br><small>Use &ldquo;New Songbook&rdquo; above.</small></div>';
-      }
-      html += '</div>';
-
-      html += '<div>';
-      html += '<div class="sb-col-header orders-col"><i class="fa-solid fa-calendar-days"></i>Service Orders</div>';
-      if (orderItems.length) {
-        orderItems.forEach(function(item) { html += _renderItem(item); });
-      } else {
-        html += '<div class="sb-col-empty">No service orders yet.<br><small>Create one on the Orders page.</small></div>';
-      }
-      html += '</div>';
-
+      html += _renderCol(orderItems, 'orders', 'orders-col', 'fa-solid fa-calendar-days', 'Service Songbooks',
+        '<div class="sb-col-empty">No service songbooks yet.<br><small>Create one on the Orders page.</small></div>');
+      html += _renderCol(songItems, 'songs', 'songs-col', 'fa-solid fa-music', 'My Songbooks (Events)',
+        '<div class="sb-col-empty">No songbooks created yet.<br><small>Use &ldquo;New Songbook&rdquo; above.</small></div>');
       html += '</div>';
       container.innerHTML = html;
     } // end _renderWithStandalone
@@ -26924,19 +26863,15 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // ============================================================
 
   var HOME_STATE = {
-    messages: [],
     announcements: [],
     rosterCurrent: [],
     rosterNext: [],
-    currentMessageIdx: 0,
-    bannerTimer: null,
     dashboardLoaded: false
   };
 
   function loadDashboardData() {
     callGAS('getDashboardData', []).then(function(data) {
       if (!data) return;
-      HOME_STATE.messages = data.messages || [];
       HOME_STATE.announcements = data.announcements || [];
       HOME_STATE.rosterCurrent = data.rosterCurrent || [];
       HOME_STATE.rosterNext = data.rosterNext || [];
@@ -26949,7 +26884,6 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   }
 
   function renderDashboard() {
-    renderHomeBanner();
     renderHomeNavStats();
     renderHomeUpcomingServices();
     renderHomeTrendingSongs();
@@ -26970,94 +26904,6 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       }, 200);
     });
   })();
-
-  // --- Animated Message Banner ---
-
-  // The church's own vision comes first. Colossians 1:6 and 2:6 are what the
-  // 55th-anniversary slogan -- Rooting, Growing and Fruiting -- is drawn from,
-  // so they lead the rotation rather than sitting at the end of it.
-  var FALLBACK_MESSAGES = [
-    { message: '“In the whole world the gospel is bearing fruit and growing.”', source: 'Colossians 1:6' },
-    { message: '“As you received Christ Jesus the Lord, so walk in him.”', source: 'Colossians 2:6' },
-    { message: '\u201CThe Lord is my strength and my song.\u201D', source: 'Exodus 15:2' },
-    { message: '\u201CMake a joyful noise to the Lord, all the earth!\u201D', source: 'Psalm 100:1' },
-    { message: '\u201CSing to the Lord a new song; sing to the Lord, all the earth.\u201D', source: 'Psalm 96:1' },
-    { message: '\u201CLet everything that has breath praise the Lord.\u201D', source: 'Psalm 150:6' },
-    { message: '\u201CWhere two or three gather in my name, there am I with them.\u201D', source: 'Matthew 18:20' }
-  ];
-
-  function getHomeMessages() {
-    return HOME_STATE.messages.length ? HOME_STATE.messages : FALLBACK_MESSAGES;
-  }
-
-  function renderHomeBanner() {
-    var textEl = $('homeBannerText');
-    var sourceEl = $('homeBannerSource');
-    var dotsEl = $('homeBannerDots');
-    if (!textEl) return;
-
-    var messages = getHomeMessages();
-
-    // Render dots
-    var dotsHtml = '';
-    for (var i = 0; i < messages.length; i++) {
-      dotsHtml += '<span class="home-message-dot' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '"></span>';
-    }
-    dotsEl.innerHTML = dotsHtml;
-
-    // Bind dot clicks
-    dotsEl.querySelectorAll('.home-message-dot').forEach(function(dot) {
-      dot.onclick = function() {
-        HOME_STATE.currentMessageIdx = parseInt(dot.dataset.idx);
-        showBannerMessage(HOME_STATE.currentMessageIdx);
-        restartBannerTimer();
-      };
-    });
-
-    // Show first message immediately (no animation)
-    textEl.textContent = messages[0].message;
-    if (sourceEl) sourceEl.textContent = messages[0].source || '';
-    HOME_STATE.currentMessageIdx = 0;
-
-    restartBannerTimer();
-  }
-
-  function showBannerMessage(idx) {
-    var textEl = $('homeBannerText');
-    var sourceEl = $('homeBannerSource');
-    if (!textEl) return;
-
-    var messages = getHomeMessages();
-    if (idx >= messages.length) idx = 0;
-    HOME_STATE.currentMessageIdx = idx;
-
-    // Animate out
-    textEl.classList.add('transitioning');
-
-    setTimeout(function() {
-      textEl.textContent = messages[idx].message;
-      if (sourceEl) sourceEl.textContent = messages[idx].source || '';
-      textEl.classList.remove('transitioning');
-      textEl.style.animation = 'none';
-      void textEl.offsetWidth; // trigger reflow
-      textEl.style.animation = '';
-
-      // Update dots
-      var dots = document.querySelectorAll('.home-message-dot');
-      dots.forEach(function(d, i) {
-        d.classList.toggle('active', i === idx);
-      });
-    }, 500);
-  }
-
-  function restartBannerTimer() {
-    if (HOME_STATE.bannerTimer) clearInterval(HOME_STATE.bannerTimer);
-    HOME_STATE.bannerTimer = setInterval(function() {
-      var messages = getHomeMessages();
-      var nextIdx = (HOME_STATE.currentMessageIdx + 1) % messages.length;
-      showBannerMessage(nextIdx);
-    }, 8000);
-  }
 
   // --- Nav Card Stats ---
 
@@ -27974,7 +27820,6 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     });
 
     // Refresh button
-    var rdb = $('refreshDataBtn'); if (rdb) rdb.onclick = loadAllData;
 
     // Search input
     var si = $('searchInput');
@@ -28080,14 +27925,6 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     if (ls) ls.onclick = saveLyricsEdit;
     if (lc) lc.onclick = function() { STATE.lyricsEditMode = false; updateLyricsDisplay(); };
 
-    var smb = $('openShareModalBtn'); if (smb) smb.onclick = function() {
-      var link = window.location.href;
-      window._shareLinkValue = link;
-      window._shareContext = 'LHC Worship Prep';
-      var disp = $('shareLinkDisplay'); if (disp) disp.textContent = link;
-      openModal('shareModal');
-    };
-    var hb = $('openHelpBtn'); if (hb) hb.onclick = function() { openModal('helpModal'); };
     var cob = $('createOrderBtn'), nofv = $('newOrderFromViewBtn');
     var openCreateOrderModal = function() {
       // Set default date to today
@@ -89024,8 +88861,8 @@ function filterLiturgyItems() {
   .roster-table-wrapper {
     touch-action: pan-x pan-y;
     transform-origin: top left;
-    /* Anchors .roster-duty-links. An absolutely positioned child of a scroll
-       container scrolls with its content, so the lines need no scroll handler. */
+    /* The containing block for the sticky-header clone and anything else
+       placed against the scrolled content. */
     position: relative;
   }
 
@@ -101250,10 +101087,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         // have been worse than adding neither: a PIC would learn that aqua
         // means "checked, and fine" and read its absence as the same.
         var overlaps = self._serviceOverlaps(dateKeySuffix);
-        var groupOf = {};
-        overlaps.groups.forEach(function(g, gi) {
-          g.forEach(function(roleId) { groupOf[roleId] = gi; });
-        });
         // Mark, and say what the other duty is -- the mark alone only poses
         // the question it is meant to answer.
         var markFor = function(roleId) {
@@ -101267,9 +101100,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
           if (hit.kind === 'ok') anyDoubles = true;
           return {
             cls: hit.kind === 'clash' ? ' rmp-clash' : ' rmp-double-ok',
-            attrs: ' title="' + self.escapeHtml(title) + '"' +
-              (hit.kind === 'ok' && groupOf[roleId] !== undefined
-                ? ' data-dlink="' + groupOf[roleId] + '"' : '')
+            attrs: ' title="' + self.escapeHtml(title) + '"'
           };
         };
         var svcKey = 'service_type__' + dateKeySuffix;
@@ -101406,7 +101237,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         (anyDoubles ? '<span>Aqua = two duties, no clash</span>' : '') +
         '<span>Tap a slot to edit</span></div>';
       ledgersEl.innerHTML = ledgersHtml;
-      this._drawMobileDutyLinks();
 
       jumpEl.querySelectorAll('button[data-jump-idx]').forEach(function(btn) {
         btn.onclick = function() {
@@ -101566,11 +101396,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         // Sync horizontal scroll — scrollLeft is in layout px, translateX is in clone's
         // unzoomed coordinate space, so divide by scale to get the right visual shift
         cloneTable.style.transform = 'translateX(-' + (wrapper.scrollLeft / scale) + 'px)';
-
-        // The duty lines are drawn from cell geometry, which this function exists
-        // to react to: it already runs on zoom and on resize, so it is the one
-        // place that knows the cells have moved.
-        self.redrawDutyLinks();
       }
 
       // Expose so setupPinchZoom can call it when zoom changes
@@ -104641,212 +104466,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       overlay.querySelector('#rosterClashChangeBtn').onclick = function() { close(); if (opts.onChange) opts.onChange(); };
     },
 
-    // Join one person's duties in a service with a faint line, so which cell
-    // pairs with which is readable rather than deduced.
-    //
-    // Geometry is taken from getBoundingClientRect against the scroll
-    // container's content origin rather than offsetTop/offsetLeft: the table
-    // carries a pinch-zoom via style.zoom, which rects report and offsets do
-    // not, so offsets would drift apart from the cells as soon as anyone zoomed.
-    _drawDutyLinks: function(groups) {
-      var wrapper = document.querySelector('.roster-table-wrapper');
-      var table = document.getElementById('rosterTable');
-      var svg = wrapper ? wrapper.querySelector('.roster-duty-links') : null;
-      if (!wrapper || !table) return;
-      // Remember the last set so a resize or a zoom can redraw without asking
-      // the whole clash pass to run again.
-      this._dutyLinkGroups = groups || [];
-      if (!this._dutyLinkGroups.length) { if (svg) svg.innerHTML = ''; return; }
-
-      if (!svg) {
-        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('class', 'roster-duty-links');
-        svg.setAttribute('aria-hidden', 'true');
-        wrapper.appendChild(svg);
-      }
-      this._ensureDutyLinkObserver();
-      var wrapRect = wrapper.getBoundingClientRect();
-      var originX = wrapRect.left - wrapper.scrollLeft;
-      var originY = wrapRect.top - wrapper.scrollTop;
-      var tableRect = table.getBoundingClientRect();
-      svg.setAttribute('width', Math.max(1, Math.round(tableRect.width)));
-      svg.setAttribute('height', Math.max(1, Math.round(tableRect.height)));
-
-      // Several people can double up on one date, and their lines share a
-      // column. Stagger them so two pairs do not read as one.
-      // How many lines share each column? Needed before any of them is placed,
-      // because they are spread as a set rather than each nudged along from the
-      // last -- see the note above.
-      var countPerDate = {};
-      this._dutyLinkGroups.forEach(function(g) {
-        countPerDate[g.date] = (countPerDate[g.date] || 0) + 1;
-      });
-
-      var INSET = 11;     // clear of the cell edge, still well left of the name
-      var GAP = 15;       // far enough apart to follow one without catching the other
-      var perDate = {};
-      var parts = [];
-      this._dutyLinkGroups.forEach(function(g) {
-        var rects = g.tds.map(function(td) { return td.getBoundingClientRect(); })
-          .filter(function(r) { return r.width && r.height; });
-        if (rects.length < 2) return;
-        rects.sort(function(a, b) { return a.top - b.top; });
-        var idx = perDate[g.date] = (perDate[g.date] === undefined ? 0 : perDate[g.date] + 1);
-        var n = countPerDate[g.date] || 1;
-        var first = rects[0];
-        // Half the cell is the most these may take, so the lines stay off the
-        // name even when a Sunday has several people doubling up. Within that,
-        // the full gap unless the count will not allow it.
-        var room = Math.max(0, first.width * 0.5 - INSET);
-        var gap = n > 1 ? Math.min(GAP, room / (n - 1)) : 0;
-        var x = Math.round(first.left - originX + INSET + idx * gap);
-        var ys = rects.map(function(r) { return Math.round(r.top - originY + r.height / 2); });
-        var y1 = ys[0], y2 = ys[ys.length - 1];
-        // Halo first: SVG paints in document order, so it has to precede the
-        // line it sits behind.
-        parts.push('<line class="roster-duty-link-halo" x1="' + x + '" y1="' + y1 +
-                   '" x2="' + x + '" y2="' + y2 + '"/>');
-        parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '"/>');
-        var AW = 5, AH = 9;   // half-width, and length from tip to base
-        ys.forEach(function(y, i) {
-          if (i === 0) {
-            parts.push('<polygon points="' + x + ',' + y + ' ' + (x - AW) + ',' + (y + AH) +
-                       ' ' + (x + AW) + ',' + (y + AH) + '"/>');
-          } else if (i === ys.length - 1) {
-            parts.push('<polygon points="' + x + ',' + y + ' ' + (x - AW) + ',' + (y - AH) +
-                       ' ' + (x + AW) + ',' + (y - AH) + '"/>');
-          } else {
-            parts.push('<circle cx="' + x + '" cy="' + y + '" r="4"/>');
-          }
-        });
-      });
-      svg.innerHTML = parts.join('');
-    },
-
-    // The same line as the table draws, inside a card. Each service is its own
-    // card, and a person's two duties are two rows of it, so the line lives in
-    // the card and needs no knowledge of the page scroll -- an absolutely
-    // positioned child of the card moves with it.
-    _drawMobileDutyLinks: function() {
-      var ledgers = document.querySelectorAll('#rmpServiceLedgers .rmp-service-ledger');
-      if (!ledgers.length) return;
-      this._ensureMobileDutyLinkObserver();
-      Array.prototype.forEach.call(ledgers, function(card) {
-        var svg = card.querySelector('.rmp-duty-links');
-        var marked = card.querySelectorAll('[data-dlink]');
-        // Toggled BEFORE anything is measured: it changes the row padding, and
-        // measuring first would place the trails against the old layout.
-        card.classList.toggle('has-duty-links', marked.length > 0);
-        if (!marked.length) { if (svg) svg.remove(); return; }
-        if (!svg) {
-          svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          svg.setAttribute('class', 'rmp-duty-links');
-          svg.setAttribute('aria-hidden', 'true');
-          card.appendChild(svg);
-        }
-        var cardRect = card.getBoundingClientRect();
-        if (!cardRect.width || !cardRect.height) { svg.innerHTML = ''; return; }
-        svg.setAttribute('width', Math.round(cardRect.width));
-        svg.setAttribute('height', Math.round(cardRect.height));
-
-        var byGroup = {};
-        Array.prototype.forEach.call(marked, function(el) {
-          var g = el.getAttribute('data-dlink');
-          // Vertical position from the marked name, horizontal from the column
-          // it sits in. A name in a shared duty ("Foo Ming Soon, Evon
-          // Nathaniel") starts partway along its row, and anchoring the line
-          // there ran it straight down through the names underneath.
-          var col = el.closest('.rmp-person, .rmp-shared-team') || el;
-          var r = el.getBoundingClientRect();
-          (byGroup[g] = byGroup[g] || []).push({
-            top: r.top, height: r.height, width: r.width,
-            left: col.getBoundingClientRect().left
-          });
-        });
-        // Counted before any is placed, so they can be spread as a set.
-        var drawable = Object.keys(byGroup).filter(function(g) {
-          return byGroup[g].filter(function(r) { return r.width && r.height; }).length > 1;
-        });
-        var M_INSET = 7, M_GAP = 13;
-        var parts = [], idx = 0;
-        Object.keys(byGroup).forEach(function(g) {
-          var rects = byGroup[g].filter(function(r) { return r.width && r.height; });
-          if (rects.length < 2) return;
-          rects.sort(function(a, b) { return a.top - b.top; });
-          // Just inside the name column, clear of the duty label to its left,
-          // and spread so two people doubling up on one Sunday read as two
-          // trails rather than one thick one.
-          var mRoom = Math.max(0, (cardRect.width - (rects[0].left - cardRect.left)) * 0.4 - M_INSET);
-          var mGap = drawable.length > 1 ? Math.min(M_GAP, mRoom / (drawable.length - 1)) : 0;
-          var x = Math.round(rects[0].left - cardRect.left + M_INSET + idx * mGap);
-          var ys = rects.map(function(r) { return Math.round(r.top - cardRect.top + r.height / 2); });
-          parts.push('<line class="rmp-duty-link-halo" x1="' + x + '" y1="' + ys[0] +
-                     '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
-          parts.push('<line x1="' + x + '" y1="' + ys[0] + '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
-          var mAW = 4.5, mAH = 8;
-          ys.forEach(function(y, i) {
-            if (i === 0) {
-              parts.push('<polygon points="' + x + ',' + y + ' ' + (x - mAW) + ',' + (y + mAH) +
-                         ' ' + (x + mAW) + ',' + (y + mAH) + '"/>');
-            } else if (i === ys.length - 1) {
-              parts.push('<polygon points="' + x + ',' + y + ' ' + (x - mAW) + ',' + (y - mAH) +
-                         ' ' + (x + mAW) + ',' + (y - mAH) + '"/>');
-            } else {
-              parts.push('<circle cx="' + x + '" cy="' + y + '" r="3.5"/>');
-            }
-          });
-          idx++;
-        });
-        svg.innerHTML = parts.join('');
-      });
-    },
-
-    // The month view is built while it may still be display:none, and the cards
-    // reflow as the phone rotates, so the same watch the table gets.
-    _ensureMobileDutyLinkObserver: function() {
-      if (this._mobileDutyLinkObserver || typeof ResizeObserver === 'undefined') return;
-      var host = document.getElementById('rmpServiceLedgers');
-      if (!host) return;
-      var self = this, queued = false;
-      this._mobileDutyLinkObserver = new ResizeObserver(function() {
-        if (queued) return;
-        queued = true;
-        requestAnimationFrame(function() { queued = false; self._drawMobileDutyLinks(); });
-      });
-      this._mobileDutyLinkObserver.observe(host);
-    },
-
-    // render() runs whenever the month or the data changes, including while the
-    // roster view is hidden -- and a hidden table measures zero, so there is
-    // nothing to draw at that moment and the lines would simply be missing when
-    // the PIC opened the page. Watching the table catches the moment it gains a
-    // size, and every other reflow too (a column widening, a font arriving),
-    // without having to find a hook for each one.
-    _ensureDutyLinkObserver: function() {
-      if (this._dutyLinkObserver || typeof ResizeObserver === 'undefined') return;
-      var table = document.getElementById('rosterTable');
-      if (!table) return;
-      var self = this, queued = false;
-      this._dutyLinkObserver = new ResizeObserver(function() {
-        // Coalesce: a reflow reports many entries, and redrawing per entry would
-        // rebuild the same lines several times for one layout change.
-        if (queued) return;
-        queued = true;
-        requestAnimationFrame(function() { queued = false; self.redrawDutyLinks(); });
-      });
-      this._dutyLinkObserver.observe(table);
-    },
-
-    // Cell geometry moves with the window and with pinch zoom, and neither
-    // changes who is on duty, so redraw from the remembered groups rather than
-    // re-running the clash pass. The observer above covers this too where it
-    // exists; this stays for the sticky-header path and for browsers without it.
-    redrawDutyLinks: function() {
-      if (this._dutyLinkGroups && this._dutyLinkGroups.length) {
-        this._drawDutyLinks(this._dutyLinkGroups);
-      }
-    },
-
     // Who is on more than one duty in this service, and may they be?
     // Keyed by duty, because that is what both views draw; a duty cell holding
     // a mentor and a trainee can have two people doubling up, so each duty
@@ -104939,7 +104558,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       });
 
       // 3. Detect duplicates within each service date
-      var linkGroups = [];   // {date, tds} -- one person's allowed double duties
       var clashFound = false;
       var clashName = '';
       var clashDate = '';
@@ -104973,7 +104591,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
             // Doubling up where it is allowed is not a problem, but it is
             // still worth seeing without reading every row and remembering
             // names -- which was the only way to notice it before.
-            var linked = [];
             allEntries.forEach(function(entry, i) {
               if (isClash[i]) return;
               var others = allEntries.filter(function(o, j) { return j !== i; })
@@ -104981,13 +104598,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
               entry.td.classList.add('roster-multi-duty-ok-cell');
               entry.td.title = entry.name + ' is also on ' + others +
                 ' this service. One person can hold both.';
-              // One cell may carry two names ("A / B"), so the same <td> can be
-              // reached twice for one person only if their name is in it twice.
-              if (linked.indexOf(entry.td) === -1) linked.push(entry.td);
             });
-            // A line is only meaningful between two cells, and a mentor/trainee
-            // cell counted once is one cell.
-            if (linked.length > 1) linkGroups.push({ date: dateStr, tds: linked });
 
             if (!otherEntries.length) return;   // everyone doubling up is allowed to
             var refusalText = refusals.filter(function(r, i) { return refusals.indexOf(r) === i; }).join('; ');
@@ -105038,8 +104649,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
           });
         }
       });
-
-      self._drawDutyLinks(linkGroups);
 
       // 5. Sternly warn (blocking modal) for newly-introduced clashes that aren't excepted
       if (clashFound && changedTd) {
