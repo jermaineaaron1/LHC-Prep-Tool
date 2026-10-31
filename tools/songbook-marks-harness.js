@@ -78,13 +78,14 @@ const WANTED = [
   [/^  function _sbmPhoneFind\(/, '_sbmPhoneFind'],
   [/^  function _sbmMarkGap\(/, '_sbmMarkGap'],
   [/^  function _sbmMarkTokenNear\(/, '_sbmMarkTokenNear'],
-  [/^  function _sbmKeyParts\(/, '_sbmKeyParts']
+  [/^  function _sbmKeyParts\(/, '_sbmKeyParts'],
+  [/^  function _sbmFitFactor\(/, '_sbmFitFactor']
 ];
 
 let S;
 try {
   const src = WANTED.map(([re, name]) => extract(re, name)).join('\n');
-  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg, glow: _sbmGlowAlpha, caption: _sbmMarkCaption, phoneFind: _sbmPhoneFind, tokenNear: _sbmMarkTokenNear, keyParts: _sbmKeyParts };')();
+  S = new Function(src + '\nreturn { frac: _sbmMarkFrac, point: _sbmMarkPoint, nearest: _sbmMarkNearest, hit: _sbmMarkHit, thin: _sbmMarkThin, svg: _sbMarkSvg, origin: _sbmMarkOrigin, toLocal: _sbmMarkToLocal, fromLocal: _sbmMarkFromLocal, fit: _sbmMarkFit, scale: _sbmMarkScale, link: _sbmLinkFrame, bbox: _sbmMarkBBox, closed: _sbmMarkClosed, along: _sbmMarkAlong, near: _sbmBoxesNear, union: _sbmBoxUnion, linkSvg: _sbMarkLinkSvg, glow: _sbmGlowAlpha, caption: _sbmMarkCaption, phoneFind: _sbmPhoneFind, tokenNear: _sbmMarkTokenNear, keyParts: _sbmKeyParts, fit2: _sbmFitFactor };')();
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -246,6 +247,13 @@ const saving = U.add('tmp_1', 'A'); U.add('a0', 'A');
 U._sbmDraw.undo.reverse();   // the stroke still saving is the newest
 U.undo();
 check('a stroke still being saved is taken back, not the one before it', [U.deleted, saving.undone, U._sbmMarks.A.map(m => m.id)], [[], true, ['a0']]);
+
+console.log('\na chord line and its words share one row');
+// 40 characters of a 9.6px-wide monospace, on a phone card 339px wide.
+check('a pair that fits is left at full size', S.fit2(30, 9.6, 339, 16, 11), 1);
+check('  one too long is set smaller until the longer line fits', r4(S.fit2(40, 9.6, 339, 16, 11)), r4(337 / 384));
+check('  never below the floor: past that it wraps as before', S.fit2(200, 9.6, 339, 16, 11), 11 / 16);
+check('  nothing to measure, nothing changed', [S.fit2(0, 9.6, 339, 16, 11), S.fit2(40, 0, 339, 16, 11), S.fit2(40, 9.6, 0, 16, 11)], [1, 1, 1]);
 
 console.log('\nkeeping a moment\'s rows alike changes nothing the second time');
 // A class taken off and put back is two changes, and the canvas over the
