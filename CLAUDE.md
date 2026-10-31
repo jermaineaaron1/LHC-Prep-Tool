@@ -63,7 +63,7 @@ lyrics and slides with nothing on them.
 
 ```
 /
-|-- Index.html       # The entire app in one file (~96,000 lines)
+|-- Index.html       # The entire app in one file (~113,000 lines)
 |                    # Edit THIS one, then copy it to dist/
 |-- dist/index.html  # What Vercel serves. Must stay byte-identical
 |-- app/api/*        # Next.js routes: render-roster-pdf, bible-passage,
@@ -103,10 +103,20 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - WhatsApp sharing per service date
 - CSV export
 
-### 3. Worship Orders (Partial)
-- Create orders from roster dates
-- Template selection
-- Full-screen presentation mode (planned)
+### 3. Worship Orders
+- Create orders from roster dates, from a template (Traditional, Contemporary, Special)
+- One order, three numbered steps, as tabs under the editor header:
+  1. **Liturgy Builder** (order of worship) -- the sections, and in each the
+     songs, liturgy, readings and the liturgist's notes. Edits the order's
+     data directly; see gotchas 34-37.
+  2. **Song Order** -- the music team's list: keys, lyrics, markings, media.
+  3. **LCD Projection** -- the slides, drawn from the same data.
+- The **Liturgy Book** (More menu, or the builder's button) is the builder's
+  printable form and edits the same order. The **Songbook** lists songs by
+  section in service order.
+- Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
+  and for the whole service (`template.serviceNotes`). Never projected; shown
+  in the builder, the Liturgy Book, the Songbook index and the LCD rail.
 
 ## Known Issues (Fixed)
 
@@ -185,6 +195,26 @@ showToast(message, type, opts)     // opts carries the action button:
                                    // argument -- one that did not silently
                                    // swallowed every Undo button it was given.
 showLoader(show)                   // Show/hide loading indicator
+
+// Worship Orders (inside the WO module; a few are exported on WO)
+WO.selectOrder(mode)               // 'liturgy' | 'song' | 'service' -- the
+                                   // three steps. 'liturgy' takes the LCD
+                                   // schedule's DOM down (gotcha 35)
+_woSectionList()                   // THE order's sections: [{id, title,
+                                   // serviceSectionId, notes}], titles
+                                   // without "4. " ordinals
+_woSongSectionIds(song, list)      // which of those sections a song is in
+_woSectionItems(sectionId)         // a section's non-song items, deduped
+_woEnsureLayout()                  // make sectionLayout real before editing it
+_lbdChange(fn)                     // one undoable Liturgy Builder edit:
+                                   // snapshot, fn(), then _lbdCommit (dedupe,
+                                   // rebuild serviceSectionItems, redraw, save)
+WO.lbdFillReadings()               // the roster's readings into the order's
+                                   // data, no LCD schedule needed
+_woScriptureSlides(sub, title, text, alleluia)
+                                   // a NEW reading's slides (psalm L:/C:,
+                                   // two lines a slide, Alleluia, response)
+_woScriptureFromSaved(slides)      // a SAVED reading's slides, verbatim
 ```
 
 ### Data layer (Supabase, in Index.html)
@@ -816,10 +846,53 @@ the anon key -- verify as `postgres`, not as the app.
     early. Anything new that WRITES must be reachable only through
     `_supabase`/`fetch`, or it must check `window.__SBM_PREVIEW` itself.
 
+34. **An order's sections are `currentOrderData.sectionLayout`, read one
+    way.** Until something touches them they are the order TYPE's template
+    (`orderStructures`); after that, the layout -- with sections added,
+    renamed, moved or removed. Every view reads them through
+    `_woSectionList()` and places songs through `_woSongSectionIds()`: an
+    exact section id wins; a bare KIND (`'preparation'`, from before songs
+    were kept against ids) goes to the first section of that kind; an id for
+    a section that is gone places the song nowhere, which is what the LCD
+    does. Song Order, the Songbook and the Liturgy Book each used to resolve
+    against the template by kind, four slightly different ways, and listed a
+    song under BOTH sections of a kind that appears twice. Anything new that
+    groups songs by section goes through these two. A section's notes are a
+    `notes` key on its layout entry; `_captureCurrentLayout` carries extra
+    keys over from the entry it replaces, or every capture would drop them.
+
+35. **The Liturgy Builder edits data with the LCD schedule taken down, and
+    must.** A save serialises the schedule's DOM whenever a
+    `.wo-worship-section` is on the page, so an edit to the order's data made
+    with the schedule present is written over by the schedule as it was.
+    `_lbdSetActive(true)` empties `#woWorshipOrder`, and the LCD redraws from
+    the data when its step is chosen. Away from the schedule a save collects
+    `serviceSectionItems` plus a safety net that re-adds any `allItems` entry
+    it did not see -- so the two copies must agree after every change
+    (`_lbdSyncSSI`), or a removed item comes back or an edited one is doubled.
+    The Liturgy Book opens over the builder for the same reason.
+
+36. **A saved reading is redrawn from its saved slides, verbatim.** The
+    LCD used to rebuild a reading from its joined text with
+    `insertScriptureIntoBox`, which re-split it and appended the response
+    again -- one more per rebuild. A stored Gospel had collected 26.
+    `_woScriptureFromSaved` draws the slides as stored and drops a response
+    repeated word for word, so a damaged order heals the next time it is
+    opened in LCD Projection and saved. `_woScriptureSlides` is only for a
+    reading being added; the LCD's insert and the builder's both use it, so
+    a reading lands identical either way.
+
+37. **The LCD draws a liturgy once per ORDER and a reading once per SECTION
+    per title.** A second copy of either is dropped from the schedule and so
+    from the next save. The builder therefore turns a library liturgy placed
+    in a second section into a copy with its own source id (`lbd_<uid>`),
+    and refuses a reading twice in one section. Removing a liturgy records
+    `clearedSections`, or the template's gap-fill puts the default back.
+
 ## Quick Commands for Claude Code
 
 ```bash
-# Find a function (never cat the whole file -- it is ~96,000 lines)
+# Find a function (never cat the whole file -- it is ~113,000 lines)
 grep -n "function renderSongs" Index.html
 sed -n '1200,1260p' Index.html
 

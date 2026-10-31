@@ -1,0 +1,453 @@
+'use strict';
+// Harness for the order of worship as data: the Liturgy Builder and what it
+// shares with the other views.
+//
+// WHY THIS EXISTS
+// The Liturgy Builder edits an order without the LCD schedule on screen, and
+// everything it writes reaches the projection only by surviving a save made
+// from outside that schedule and a rebuild of it afterwards. Three things
+// along that road were quietly wrong before the builder existed:
+//
+//   * a reading was rebuilt from its own joined text every time the LCD
+//     schedule was drawn, so it gained a response slide per load -- one
+//     stored Gospel had twenty-six;
+//   * a text box saved from outside the schedule got an id from its position,
+//     so the next save wrote it twice;
+//   * every view decided for itself which section a song belonged to, and
+//     two of them listed one song under two sections of the same kind.
+//
+// Each is checked here against the shipped functions, sliced out of
+// Index.html by brace balance and run with their dependencies stubbed.
+//
+// USAGE
+//   node tools/liturgy-builder-harness.js
+//   node tools/liturgy-builder-harness.js path/to/file.html
+//   node tools/liturgy-builder-harness.js <file> --expect-broken
+//
+// --expect-broken is the negative control, for source from before the fix.
+// Exit code 0 = all checks passed, 1 = something failed.
+
+const fs = require('fs');
+const path = require('path');
+const { makeDocument } = require('./minidom.js');
+
+const args = process.argv.slice(2);
+const EXPECT_BROKEN = args.includes('--expect-broken');
+const INDEX = args.find(a => !a.startsWith('--')) || path.join(__dirname, '..', 'Index.html');
+
+if (!fs.existsSync(INDEX)) {
+  console.error('No such file: ' + INDEX);
+  process.exit(1);
+}
+
+const SRC = fs.readFileSync(INDEX, 'utf8');
+const lines = SRC.split('\n');
+
+function extractFn(name, optional) {
+  const startIdx = lines.findIndex(l => new RegExp('^  function ' + name + '\\s*\\(').test(l));
+  if (startIdx < 0) {
+    if (optional) return null;
+    throw new Error('function not found in ' + path.basename(INDEX) + ': ' + name);
+  }
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return out.join('\n');
+  }
+  throw new Error('unbalanced braces while extracting: ' + name);
+}
+
+// A one-line `var NAME = ...;` inside the module.
+function extractVar(name, optional) {
+  const l = lines.find(x => new RegExp('^  var ' + name + '\\s*=').test(x));
+  if (!l) {
+    if (optional) return null;
+    throw new Error('var not found in ' + path.basename(INDEX) + ': ' + name);
+  }
+  return l;
+}
+
+let pass = 0, fail = 0;
+function check(label, ok, detail) {
+  if (ok) { pass++; console.log('  PASS  ' + label); }
+  else { fail++; console.log('  FAIL  ' + label + (detail ? '\n        ' + detail : '')); }
+}
+
+function escapeHtml(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---------------------------------------------------------------------------
+// The helpers under test, evaluated together in one scope. `exportsExtra`
+// names more of that scope to hand back -- a setter for module state.
+// ---------------------------------------------------------------------------
+function buildModule(fnTexts, prelude, exportsExtra) {
+  const names = fnTexts.map(t => (/function\s+([A-Za-z0-9_$]+)/.exec(t) || [])[1]).filter(Boolean)
+    .concat(exportsExtra || []);
+  return (prelude || '') + '\n' + fnTexts.join('\n') + '\n' +
+    'return {' + names.map(n => n + ':' + n).join(',') + '};';
+}
+
+const ORDER_STRUCTURES = {
+  traditional: [
+    { title: '1. Invocation', serviceSectionId: 'welcome' },
+    { title: '2. Confession', serviceSectionId: 'opening-prayer' },
+    { title: '3. Entrance Hymn', serviceSectionId: 'preparation' },
+    { title: '4. Prayer of the Day', serviceSectionId: 'opening-prayer' },
+    { title: '5. Scripture Readings', type: 'group', subsections: ['First Reading', 'Psalm Reading', 'Second Reading', 'Gospel Reading'], serviceSectionId: 'scripture' }
+  ]
+};
+
+let sectionTools = null;
+try {
+  const fns = ['_woStripNum', '_woSectionList', '_woSongSectionIds', '_woSectionItems', '_woDedupeItems', '_woSSIFromItems']
+    .map(n => extractFn(n));
+  const fnText = buildModule(fns,
+    'var orderStructures = ctx.orderStructures; var currentOrderType = "traditional";' +
+    'var currentOrderData = null; function __set(o) { currentOrderData = o; }', ['__set']);
+  sectionTools = new Function('ctx', fnText)({ orderStructures: ORDER_STRUCTURES });
+} catch (e) {
+  sectionTools = null;
+  console.log('  (section helpers not present: ' + e.message.split('\n')[0] + ')');
+}
+
+console.log('\nSections and songs');
+if (!sectionTools) {
+  check('the shared section helpers exist', false, 'no _woSectionList / _woSongSectionIds in this source');
+} else {
+  const T = sectionTools;
+  // Template order, no layout yet.
+  T.__set({ sectionLayout: [] });
+  const tplList = T._woSectionList();
+  check('with no layout the template supplies the sections, ordinals stripped',
+    tplList.length === 5 && tplList[0].id === 'wo-section-0' && tplList[0].title === 'Invocation',
+    JSON.stringify(tplList[0]));
+
+  // A layout that renamed, moved, removed and added sections.
+  T.__set({ sectionLayout: [
+    { id: 'wo-section-0', title: '1. Invocation', serviceSectionId: 'welcome' },
+    { id: 'wo-section-3', title: 'Prayer of the Day', serviceSectionId: 'opening-prayer' },
+    { id: 'wo-section-1', title: 'Confession', serviceSectionId: 'opening-prayer', notes: 'Kneel' },
+    { id: 'wo-section-1790000000000', title: 'Baptism', serviceSectionId: '' }
+  ] });
+  const list = T._woSectionList();
+  check('the layout is the section list, in its own order',
+    list.map(s => s.id).join(',') === 'wo-section-0,wo-section-3,wo-section-1,wo-section-1790000000000');
+  check('a section keeps its notes', list[2].notes === 'Kneel');
+
+  const ids = (song) => T._woSongSectionIds(song, list).join(',');
+  check('a song stored against a section id is in exactly that section',
+    ids({ serviceSections: ['wo-section-1'] }) === 'wo-section-1');
+  check('two sections of one kind do not both claim a song placed in one of them',
+    ids({ serviceSections: ['wo-section-3'] }) === 'wo-section-3');
+  check('a bare section kind goes to the FIRST section of that kind (as the LCD places it)',
+    ids({ serviceSections: ['opening-prayer'] }) === 'wo-section-3');
+  check('an id for a section no longer in the order places the song nowhere',
+    ids({ serviceSections: ['wo-section-2'] }) === '');
+  check('a song with no list falls back to its sectionId',
+    ids({ serviceSections: [], sectionId: 'wo-section-1790000000000' }) === 'wo-section-1790000000000');
+  check('a song in two sections is in both, in its own order',
+    ids({ serviceSections: ['wo-section-1790000000000', 'wo-section-0'] }) === 'wo-section-1790000000000,wo-section-0');
+  check('a blank page is in no section', ids({ itemType: 'blank', sectionId: 'wo-section-0' }) === '');
+
+  // Items: each once, liturgy once per source.
+  T.__set({ sectionLayout: [], allItems: [
+    { id: 'a', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'b', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'a', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'c', itemType: 'scripture', sectionId: 's1' },
+    { id: 'd', itemType: 'song', sectionId: 's1' },
+    { id: 'e', itemType: 'liturgy', sectionId: 's2', sourceId: 'L1' }
+  ] });
+  check('a section lists each item once and no songs',
+    T._woSectionItems('s1').map(i => i.id).join(',') === 'a,c');
+  const ord = { allItems: [
+    { id: 'a', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'b', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'a', itemType: 'liturgy', sectionId: 's1', sourceId: 'L1' },
+    { id: 'e', itemType: 'liturgy', sectionId: 's2', sourceId: 'L1' }
+  ] };
+  T.__set(ord);
+  T._woDedupeItems();
+  check('deduplication keeps the first of each, as the save does',
+    ord.allItems.map(i => i.id).join(',') === 'a,e');
+
+  const ssi = T._woSSIFromItems([
+    { id: 'x', itemType: 'scripture', sectionId: 's9', title: 'John 3:16', content: { subLabel: 'Gospel' }, slides: [{ content: 'For God so loved' }] },
+    { id: 'y', itemType: 'content', sectionId: 's9', content: { text: 'Please stand' } }
+  ]);
+  check('serviceSectionItems carries a reading with its slot',
+    ssi.s9 && ssi.s9[0].type === 'scripture' && ssi.s9[0].subLabel === 'Gospel');
+  check('serviceSectionItems carries a text box under its own id',
+    ssi.s9 && ssi.s9[1].type === 'content' && ssi.s9[1].id === 'y');
+}
+
+// ---------------------------------------------------------------------------
+// A text box saved from outside the LCD schedule keeps its id
+// ---------------------------------------------------------------------------
+console.log('\nSaving away from the schedule');
+(function() {
+  const collectSrc = extractFn('collectOrderItems');
+  const doc = makeDocument();
+  const ctx = {
+    document: doc,
+    window: { serviceSectionItems: { 's1': [{ id: 'o1__content_s1_7', type: 'content', sectionId: 's1', text: 'Please be seated' }] } },
+    currentOrderData: { id: 'o1', allItems: [{ id: 'o1__content_s1_7', itemType: 'content', sectionId: 's1', content: { text: 'Please be seated' } }] }
+  };
+  const fn = new Function('document', 'window', 'currentOrderData',
+    'var songOrderSections = []; var console = { log: function() {} };' +
+    'function $(id) { return document.getElementById(id); }' +
+    'var _woSongsTakenOutOfSections = {}; var songOriginalLyrics = {}; var songTransposeSemitones = {};' +
+    'var sbTextAnnots = {}; var songOriginalRichLyrics = {}; var currentSermonSlides = {};' +
+    collectSrc + '\nreturn collectOrderItems();');
+  const items = fn(ctx.document, ctx.window, ctx.currentOrderData);
+  const content = items.filter(i => i.itemType === 'content');
+  check('one text box in, one text box out', content.length === 1,
+    'collected ' + content.length + ': ' + content.map(c => c.id).join(', '));
+  check('and it keeps the id it was stored under', content[0] && content[0].id === 'o1__content_s1_7');
+})();
+
+// ---------------------------------------------------------------------------
+// Readings: the LCD's insert is unchanged, and a restore draws what was saved
+// ---------------------------------------------------------------------------
+console.log('\nReadings');
+function scriptureModule(src) {
+  const L = src.split('\n');
+  const get = (name) => {
+    const i = L.findIndex(l => new RegExp('^  function ' + name + '\\s*\\(').test(l));
+    if (i < 0) return null;
+    let depth = 0, started = false, out = [];
+    for (let k = i; k < L.length; k++) {
+      out.push(L[k]);
+      for (const ch of L[k]) { if (ch === '{') { depth++; started = true; } else if (ch === '}') depth--; }
+      if (started && depth === 0) return out.join('\n');
+    }
+    return null;
+  };
+  const getVar = (name) => L.find(x => new RegExp('^  var ' + name + '\\s*=').test(x)) || '';
+  const parts = ['insertScriptureIntoBox', 'addScriptureToSection', '_buildSlideBoxHeader', '_slideLineHtml',
+    '_woScriptureSlides', '_woScriptureSlideKind', '_woScriptureFromSaved', '_woScriptureGroupHtml', '_woScripturePlanHasBg']
+    .map(get).filter(Boolean);
+  const vars = ['_BLANK_SLIDE_LINE', '_SCR_ALLELUIA', '_SCR_GOSPEL_RESPONSE', '_SCR_READING_RESPONSE'].map(getVar).join('\n');
+  const body =
+    'var escapeHtml = ctx.escapeHtml; var document = ctx.document;' +
+    'function updatePreview() {} function autoSaveOrder() {} function updateSlideBgIndicators() {}' +
+    vars + '\n' + parts.join('\n') +
+    '\nreturn { insert: insertScriptureIntoBox, add: addScriptureToSection };';
+  return new Function('ctx', body)({ escapeHtml: escapeHtml, document: { getElementById: function(id) { return ctx2.byId[id] || null; } } });
+}
+// A box and a container that record what is put next to or into them.
+const ctx2 = { byId: {} };
+function slot(subLabel, section) {
+  const box = { html: '', removed: false, dataset: { subLabel: subLabel || '', section: section || 'wo-section-4' } };
+  box.insertAdjacentHTML = function(pos, h) { box.html += h; };
+  box.remove = function() { box.removed = true; };
+  return box;
+}
+function container(id) {
+  const c = { html: '', querySelector: function() { return null; } };
+  c.insertAdjacentHTML = function(pos, h) { c.html += h; };
+  ctx2.byId[id + '-boxes'] = c;
+  return c;
+}
+
+const PASSAGE = '[16] But Jesus said, "They need not go away."\n[17] They said to him, "We have only five loaves."\n[18] And he said, "Bring them here to me."';
+const PSALM = '[1] Vindicate me, O LORD,\n[2] Prove me, O LORD, and try me;\n[3] For your steadfast love is before my eyes';
+
+const NEW = scriptureModule(SRC);
+const cases = [
+  ['Gospel with the Alleluia', 'Gospel Reading', 'Matthew 14:16-18', PASSAGE, true],
+  ['Gospel without it', 'Gospel', 'Matthew 14:16-18', PASSAGE, false],
+  ['First Reading', 'First Reading', 'Isaiah 5:1-7', PASSAGE, false],
+  ['Psalm Reading', 'Psalm Reading', 'Psalm 26:1-3', PSALM, false],
+  ['Psalm', 'Psalm', 'Psalm 26:1-3', PSALM, false],
+  ['an unlabelled slot', '', 'Romans 12:9', PASSAGE, false]
+];
+
+// What the LCD's insert drew for each case BEFORE the slide plan was shared
+// with the Liturgy Builder (commit 77235e3), as sha256 prefixes. A new
+// reading must still draw byte for byte the same; only the restore changed.
+const GOLDEN = {
+  'Gospel with the Alleluia': '8e1941e43b4bd9ff',
+  'Gospel without it': 'f015d9d0f903dd1a',
+  'First Reading': '133f323a480a63d8',
+  'Psalm Reading': 'a1563a8d90a9bcfc',
+  'Psalm': '491099acd87148a9',
+  'an unlabelled slot': '4a8ecb8d96e369c5',
+  'from a section header': '137e18bd91195eb0'
+};
+const sha = (s) => require('crypto').createHash('sha256').update(s).digest('hex').slice(0, 16);
+cases.forEach(function(c) {
+  const b = slot(c[1]);
+  b.dataset.section = 'wo-section-4';
+  NEW.insert(b, { title: c[2], content: c[3], singAlleluia: c[4] });
+  check('a new reading draws exactly as before: ' + c[0], sha(b.html) === GOLDEN[c[0]], 'got ' + sha(b.html));
+});
+(function() {
+  const c = container('sec');
+  NEW.add('sec', { title: 'Romans 12:9', content: PASSAGE });
+  check('a reading added from a section header draws exactly as before',
+    sha(c.html) === GOLDEN['from a section header'], 'got ' + sha(c.html));
+})();
+
+// Slide texts as the DOM collector would read them back: one per box, the
+// heading and footnote excluded.
+function readBack(html) {
+  const boxes = html.split('<div class="wo-slide-box"').slice(1);
+  return boxes.map(function(b) {
+    const ls = [];
+    const re = /<div class="wo-slide-line"[^>]*>([^<]*)<\/div>/g;
+    let m;
+    while ((m = re.exec(b))) ls.push(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+    return { content: ls.join('\n') };
+  });
+}
+
+(function() {
+  const first = slot('Gospel Reading');
+  NEW.insert(first, { title: 'Matthew 14:16-18', content: PASSAGE, singAlleluia: true });
+  const saved1 = readBack(first.html);
+  const again = slot('Gospel Reading');
+  NEW.insert(again, { title: 'Matthew 14:16-18', content: saved1.map(s => s.content).join('\n'), savedSlides: saved1 });
+  const saved2 = readBack(again.html);
+  const third = slot('Gospel Reading');
+  NEW.insert(third, { title: 'Matthew 14:16-18', content: saved2.map(s => s.content).join('\n'), savedSlides: saved2 });
+  const saved3 = readBack(third.html);
+  const responses = (s) => s.filter(x => /^P: This is the Gospel of our Lord/.test(x.content)).length;
+  check('a reading drawn back from its saved slides gains nothing (3 loads)',
+    JSON.stringify(saved1) === JSON.stringify(saved3) && responses(saved3) === 1,
+    'slides ' + saved1.length + ' -> ' + saved2.length + ' -> ' + saved3.length + ', responses ' + responses(saved3));
+  check('and keeps its Alleluia, passage and response in order',
+    /^Alleluia Lord/.test(saved3[0].content) && /^P: The Gospel is according to/.test(saved3[1].content) &&
+    /^P: This is the Gospel/.test(saved3[saved3.length - 1].content));
+
+  const psalm1 = slot('Psalm Reading');
+  NEW.insert(psalm1, { title: 'Psalm 26:1-3', content: PSALM });
+  const ps1 = readBack(psalm1.html);
+  const psalm2 = slot('Psalm Reading');
+  NEW.insert(psalm2, { title: 'Psalm 26:1-3', content: ps1.map(s => s.content).join('\n'), savedSlides: ps1 });
+  const ps2 = readBack(psalm2.html);
+  check('a Psalm drawn back is not prefixed L:/C: a second time',
+    JSON.stringify(ps1) === JSON.stringify(ps2) && !/L: L: |C: C: |L: C: |C: L: /.test(JSON.stringify(ps2)),
+    JSON.stringify(ps2).slice(0, 200));
+
+  // The order damaged in the wild: a Gospel stored with 26 responses.
+  const damaged = [{ content: '[16] But Jesus said' }, { content: '[18] And he said' }];
+  for (let i = 0; i < 26; i++) damaged.push({ content: 'P: This is the Gospel of our Lord\nC: Praise to You, O Christ' });
+  const healed = slot('Gospel');
+  NEW.insert(healed, { title: 'Matthew 14:16-19', content: '', savedSlides: damaged });
+  const hs = readBack(healed.html);
+  check('a reading stored with twenty-six responses comes back with one',
+    hs.length === 3 && /^P: This is the Gospel/.test(hs[2].content), 'slides: ' + hs.length);
+  check('the response keeps its own heading, not the reference',
+    /data-scripture-title="Gospel Response"/.test(healed.html) && /<div class="wo-slide-scripture-title">Gospel Response<\/div>/.test(healed.html));
+
+  const bg = slot('First Reading');
+  NEW.insert(bg, { title: 'Isaiah 5:1', content: '', savedSlides: [{ content: 'One\nTwo', background: 'https://x/bg.jpg' }, { content: 'P: The Word of the Lord\nC: Thanks be to God' }] });
+  check('a saved background comes back on its own slide', /data-background="https:\/\/x\/bg.jpg"/.test(bg.html));
+})();
+
+// ---------------------------------------------------------------------------
+// The builder's model: what it writes is what the other views read
+// ---------------------------------------------------------------------------
+console.log('\nThe Liturgy Builder');
+(function() {
+  let B;
+  try {
+    const fns = ['_captureCurrentLayout', '_woStripNum', '_woSectionList', '_woTemplateFor', '_woEnsureLayout',
+      '_woSongSectionIds', '_woScriptureSlides', '_lbdSortSongsByService', '_lbdLiturgyItem', '_lbdReadingItem',
+      '_lbdPfx', '_lbdUid'].map(n => extractFn(n));
+    const vars = ['_LBD_SLIDE_BREAK', '_SCR_ALLELUIA', '_SCR_GOSPEL_RESPONSE', '_SCR_READING_RESPONSE'].map(n => extractVar(n));
+    const text = buildModule(fns,
+      vars.join('\n') +
+      '\nvar orderStructures = ctx.orderStructures; var currentOrderType = "traditional";' +
+      'var currentOrderData = null; var songOrderSections = []; var document = ctx.document;' +
+      'function __set(o, songs) { currentOrderData = o; if (songs) songOrderSections = songs; }' +
+      'function __songs() { return songOrderSections; }', ['__set', '__songs']);
+    B = (ctx) => new Function('ctx', text)(ctx);
+  } catch (e) {
+    check('the builder\'s model functions exist', false, e.message.split('\n')[0]);
+    return;
+  }
+
+  // A schedule on screen, as the LCD draws it: two sections, one renamed.
+  const doc = makeDocument();
+  [['wo-section-0', '1. Invocation', 'welcome'], ['wo-section-1790000000000', 'Welcome', '']].forEach(function(d) {
+    const sec = new (require('./minidom.js').El)('div', 'wo-worship-section', { id: d[0], 'data-service-section-id': d[2] });
+    const t = new (require('./minidom.js').El)('div', 'wo-section-title');
+    t.textContent = d[1];
+    sec.appendChild(t);
+    doc.root.appendChild(sec);
+  });
+  const docWithSchedule = {
+    querySelectorAll: function(sel) { return doc.querySelectorAll(sel); },
+    querySelector: function(sel) { return sel === '#woWorshipOrder .wo-worship-section' ? doc.querySelector('.wo-worship-section') : doc.querySelector(sel); }
+  };
+  const M = B({ orderStructures: ORDER_STRUCTURES, document: docWithSchedule });
+  const order = { sectionLayout: [
+    { id: 'wo-section-0', title: 'Invocation', serviceSectionId: 'welcome', notes: 'Pastor at the font' },
+    { id: 'wo-section-9', title: 'Gone', serviceSectionId: '', notes: 'never mind' }
+  ] };
+  M.__set(order);
+  M._captureCurrentLayout();
+  check('capturing the schedule keeps a section\'s notes',
+    order.sectionLayout[0].notes === 'Pastor at the font', JSON.stringify(order.sectionLayout[0]));
+  check('and drops a section no longer on screen, notes and all',
+    order.sectionLayout.length === 2 && !order.sectionLayout.some(l => l.id === 'wo-section-9'));
+
+  // No schedule on screen: the template is the truth, ordinals stripped.
+  const empty = { querySelectorAll: () => [], querySelector: () => null };
+  const M2 = B({ orderStructures: ORDER_STRUCTURES, document: empty });
+  const fresh = { sectionLayout: [] };
+  M2.__set(fresh);
+  M2._woEnsureLayout();
+  check('a fresh order\'s layout is made from its template',
+    fresh.sectionLayout.length === 5 && fresh.sectionLayout[4].id === 'wo-section-4' && fresh.sectionLayout[4].serviceSectionId === 'scripture');
+  check('without the template\'s "5. " ordinals', fresh.sectionLayout[4].title === 'Scripture Readings', fresh.sectionLayout[4].title);
+
+  // The running order of songs follows the service, stably.
+  const songs = [
+    { id: 'a', title: 'A', serviceSections: ['wo-section-3'] },
+    { id: 'b', title: 'B', serviceSections: ['wo-section-1'] },
+    { id: 'c', title: 'C', serviceSections: [] },
+    { id: 'd', title: 'D', serviceSections: ['wo-section-1'] },
+    { id: 'e', title: 'E', serviceSections: ['wo-section-3', 'wo-section-0'] }
+  ];
+  M2.__set({ sectionLayout: [] }, songs);
+  M2._lbdSortSongsByService();
+  check('songs run in service order, section by section, stably, unplaced last',
+    M2.__songs().map(s => s.id).join('') === 'ebdac', M2.__songs().map(s => s.id).join(''));
+  check('the running order is sorted in place (other views hold the same array)', M2.__songs() === songs);
+
+  // A liturgy from the library becomes one item with the collector's id.
+  M2.__set({ id: 'order_1', sectionLayout: [] }, []);
+  const BREAK = new Array(36).join('═');
+  const lit = M2._lbdLiturgyItem('wo-section-0', 'lit-9', { title: 'Kyrie', type: 'liturgy', content: 'L: Lord, have mercy\n' + BREAK + '\nC: Christ, have mercy' });
+  check('a library liturgy keeps the id both collectors give it',
+    lit.id === 'order_1__liturgy_lit-9_wo-section-0' && lit.sourceId === 'lit-9');
+  check('and its slides split where the library splits them',
+    lit.slides.length === 2 && lit.slides[1].content === 'C: Christ, have mercy');
+  const blank = M2._lbdLiturgyItem('wo-section-0', 'lbd_x', { title: 'New liturgy', content: '' });
+  check('a liturgy written from nothing starts with one empty slide', blank.slides.length === 1 && blank.slides[0].content === '');
+
+  // A reading is planned exactly as the LCD's own insert plans it.
+  const r = M2._lbdReadingItem('wo-section-4', { title: 'Matthew 14:16-18', subLabel: 'Gospel Reading', text: PASSAGE, singAlleluia: true });
+  const plan = M2._woScriptureSlides('Gospel Reading', 'Matthew 14:16-18', PASSAGE, true);
+  check('a reading added in the builder carries the LCD\'s own slide plan',
+    JSON.stringify(r.slides.map(s => s.content)) === JSON.stringify(plan.map(s => s.text)) && r.content.subLabel === 'Gospel Reading');
+})();
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+if (EXPECT_BROKEN) {
+  if (fail === 0) {
+    console.log('--expect-broken: nothing failed, so this source already has the fix (or the harness has no teeth)');
+    process.exit(1);
+  }
+  console.log('--expect-broken: failures above are the expected ones');
+  process.exit(0);
+}
+process.exit(fail ? 1 : 0);
