@@ -1,5 +1,6 @@
 'use strict';
-// Regression harness for the way into the songbooks.
+// Regression harness for the Songs page's layout: the way into the
+// songbooks, and the shape of the catalogue above them.
 //
 // WHY THIS EXISTS
 // The songbooks and service orders live at the FOOT of the Songs page,
@@ -192,6 +193,30 @@ check('an empty count badge is not drawn as a grey zero',
 check('the arrival flash respects prefers-reduced-motion',
   /@media \(prefers-reduced-motion: reduce\) \{\s*#sfSongbooksCard\.sf-sb-landed \{ animation: none; \}/
     .test(css), true);
+
+console.log('\nthe catalogue in two columns');
+// Asked of the LIST's width, not the window's -- and that is the whole
+// point, not a style preference. The window is the wrong question twice
+// over: the sidebar takes 340px of it, and when a song is opened the
+// catalogue becomes a 400px rail beside the workspace. A viewport rule
+// would still say "wide" there and split a rail down the middle.
+const CQ = /@container sfcatalogue \(min-width: (\d+)px\) \{([\s\S]{0,900}?)\n  \}/.exec(css);
+check('the split is a container query', !!CQ, true);
+check('  and the catalogue card is the container it asks about',
+  /#songFinderView #sfSongListCard \{ container-type:inline-size;container-name:sfcatalogue; \}/.test(css), true);
+check('  no viewport rule splits the list behind its back',
+  /@media[^@]{0,400}#songListContainer \{[^}]*grid-template-columns/.test(css), false);
+check('two columns, evenly',
+  /grid-template-columns:1fr 1fr/.test(CQ ? CQ[2] : ''), true);
+// The A-Z letters are wayfinding for the whole list, not for one column.
+check('the A-Z letters span both',
+  /#songListContainer > \.song-atlas-section-header \{ grid-column:1 \/ -1; \}/.test(CQ ? CQ[2] : ''), true);
+// 307px of every item goes on the monogram, the row of actions, the gaps
+// and the padding whatever the width. Below ~1120 the title is the part
+// that gives, and an ellipsis where the song's name should be is worse
+// than a long page.
+check('the threshold leaves a title room to be read',
+  CQ && parseInt(CQ[1], 10) >= 1100, true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

@@ -352,8 +352,8 @@ const CASES = [
                    "if (out.length) out += ' ';")],
   // The musicians read the choir page, so it has to move with the key.
   ['voice-lines-harness.js', 'the choir page ignores the transpose buttons again',
-    s => s.replace("var chord = (steps && raw && typeof o.transposeFn === 'function')",
-                   "var chord = (false && raw && typeof o.transposeFn === 'function')")],
+    s => s.replace("return (steps && raw && typeof o.transposeFn === 'function')",
+                   "return (false && raw && typeof o.transposeFn === 'function')")],
   // Transposing the display must never move what is stored, and editing
   // while transposed would write a chord back through a transposer that
   // respells every flat as a sharp.
@@ -374,7 +374,7 @@ const CASES = [
   // rules from it and every chord slides to the left margin while the
   // part chips stack above their words -- on the page the carolers hold.
   ['voice-lines-harness.js', 'the print document loses the score stylesheet',
-    s => s.replace("return '<style>' + _sbChoirScoreCss() +", "return '<style>' +")],
+    s => s.replace("'<style>' + _sbChoirScoreCss() +", "'<style>' +")],
   ['voice-lines-harness.js', 'the lifted stylesheet stops being deduplicated',
     s => s.replace("if (txt.indexOf('.vl-') > -1 && !seen[txt]) { seen[txt] = 1; out.push(txt); }",
                    "if (txt.indexOf('.vl-') > -1) { out.push(txt); }")],
@@ -408,7 +408,7 @@ const CASES = [
   // banners were struck off the design, so there is no annotate() left to
   // break. What replaced them guards the label and the blank.
   ['voice-lines-harness.js', 'a unison line is labelled BOTH again',
-    s => s.replace("V._line('both', 'All', g.both, o)", "V._line('both', 'Both', g.both, o)")],
+    s => s.replace("V._line('both', 'All', g.both, o, inl)", "V._line('both', 'Both', g.both, o, inl)")],
   // Bars left the editor with the gutter, and the blank line took over the
   // job their absence used to do. It is now the whole of the grouping
   // syntax, so both ends of it are worth breaking.
@@ -435,6 +435,118 @@ const CASES = [
     s => s.replace("if (oldLoose[k].length !== 1) return;", "return;")],
   ['voice-lines-harness.js', 'repeated words are guessed at instead of left alone',
     s => s.replace("if (!cand || cand.length !== 1) return;", "if (!cand) return;")],
+  // Two sections renamed in one save cannot be told apart; guessing moves
+  // a verse's takes onto the chorus.
+  ['voice-lines-harness.js', 'two sections renamed at once are guessed at',
+    s => s.replace("    if (gone.length !== 1 || fresh.length !== 1) return null;",
+                   "    if (gone.length < 1 || fresh.length < 1) return null;")],
+  ['voice-lines-harness.js', 'a section deleted and another written is taken for a rename',
+    s => s.replace("      if (kept * 2 < was.length) return null;",
+                   "")],
+  // A drawn remark lands on the words it was drawn round because its
+  // anchor is the box its first point is in, or the nearest one above or
+  // below; and the eraser asks the distance to a SEGMENT, clamped to it.
+  ['songbook-marks-harness.js', 'a stroke in the gap is anchored sideways rather than to the nearer line',
+    s => s.replace("      var d = dy * 4 + dx;", "      var d = dx;")],
+  ['songbook-marks-harness.js', 'the eraser reaches past the end of a stroke',
+    s => s.replace("      var t = L ? Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / L)) : 0;",
+                   "      var t = L ? ((x - ax) * vx + (y - ay) * vy) / L : 0;")],
+  // On paper the box is stretched to the block; a pen that stretched with it
+  // would be twice as thick across and hairline down, and a mark on the words
+  // under a chord line would be drawn over the chords.
+  ['songbook-marks-harness.js', 'the printed pen stretches with the box',
+    s => s.replace(' vector-effect="non-scaling-stroke"', '')],
+  ['songbook-marks-harness.js', 'a mark on the second line of a block is printed on the first',
+    s => s.replace("return r4(f[0]) + ',' + r4((f[1] + line) / span);", "return r4(f[0]) + ',' + r4(f[1] / span);")],
+  // A stroke kept in ems must scale both axes by the same font size, from
+  // the word's centre; stretching one axis by the box is what scribbled
+  // the handwriting on the phone.
+  ['songbook-marks-harness.js', 'a stroke is kept from the word\'s corner, not its centre',
+    s => s.replace("  function _sbmMarkOrigin(box) { return box.kind === 'token' ? [box.x + box.w / 2, box.y + box.h / 2] : [box.x, box.y]; }",
+                   "  function _sbmMarkOrigin(box) { return [box.x, box.y]; }")],
+  // Handwriting that runs off a phone's card must come back in, together
+  // with the arrow beside it, and about the word -- not off into nothing.
+  ['songbook-marks-harness.js', 'a stroke off the card is left to be cut off',
+    s => s.replace("        if (q[0] > right && q[0] > ox && ox < right) k = Math.min(k, (right - ox) / (q[0] - ox));", "")],
+  ['songbook-marks-harness.js', 'a shrunk stroke drifts from its word',
+    s => s.replace("    return pts.map(function(q) { return [origin[0] + (q[0] - origin[0]) * k, origin[1] + (q[1] - origin[1]) * k]; });",
+                   "    return pts.map(function(q) { return [q[0] * k, q[1] * k]; });")],
+  ['songbook-marks-harness.js', 'a stroke no longer follows the width of its word',
+    s => s.replace("    return tool === 'em' ? [w, em] : [w, w];", "    return tool === 'em' ? [w, em] : [em, em];")],
+  // A drawing is scaled as a whole, or a ring comes out an egg; an arrow
+  // between two words is turned to the line between them, or it points at
+  // nothing; and its strokes are told apart by their shape.
+  ['songbook-marks-harness.js', 'a ring is drawn as an egg again',
+    s => s.replace("    return tool === 'em' ? [w, em] : [w, w];", "    return [w, em];")],
+  ['songbook-marks-harness.js', 'an arrow between two words forgets the turn between them',
+    s => s.replace("    if (box.kind === 'link') return [box.P[0] + (f[0] * box.cos - f[1] * box.sin) * box.L, box.P[1] + (f[0] * box.sin + f[1] * box.cos) * box.L];",
+                   "    if (box.kind === 'link') return [box.P[0] + f[0] * box.L, box.P[1] + f[1] * box.L];")],
+  ['songbook-marks-harness.js', 'an underline is taken for a ring',
+    s => s.replace("    return Math.hypot(a[0] - z[0], a[1] - z[1]) <= 0.35 * Math.hypot(b[2] - b[0], b[3] - b[1]) + 4;", "    return true;")],
+  ['songbook-marks-harness.js', 'an arrowhead no longer lies along its shaft',
+    s => s.replace("      if (Math.hypot(P[0] + t * vx - q[0], P[1] + t * vy - q[1]) > tol) return false;", "      if (Math.hypot(P[0] + t * vx - q[0], P[1] + t * vy - q[1]) > 0) return false;")],
+  ['songbook-marks-harness.js', 'a stroke drawn beside the last one starts a drawing of its own',
+    s => s.replace("  function _sbmBoxesNear(a, b, pad) { return !(b[0] > a[2] + pad || b[2] < a[0] - pad || b[1] > a[3] + pad || b[3] < a[1] - pad); }",
+                   "  function _sbmBoxesNear(a, b, pad) { return !(b[0] > a[2] || b[2] < a[0] || b[1] > a[3] || b[3] < a[1]); }")],
+  // The phone view is a second copy of the app on production data: every
+  // way it could write must stay shut, or opening a panel to LOOK at a
+  // song could save over it, announce a phantom user, or post as one.
+  ['songbook-phone-harness.js', 'the phone view can delete rows',
+    s => s.replace("        ['insert', 'upsert', 'update', 'delete'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });",
+                   "        ['insert', 'upsert', 'update'].forEach(function(m) { if (b && b[m]) b[m] = _lhcDenied; });")],
+  ['songbook-phone-harness.js', 'the phone view can call a database function',
+    s => s.replace("      if (c.rpc) c.rpc = _lhcDenied;", "")],
+  ['songbook-phone-harness.js', 'the phone view uploads through a fresh storage client',
+    s => s.replace("      if (desc && desc.get) Object.defineProperty(c, 'storage', { configurable: true, get: function() { return fixStorage(desc.get.call(c)); } });",
+                   "      if (desc && desc.get) fixStorage(desc.get.call(c));")],
+  ['songbook-phone-harness.js', 'the phone view broadcasts to the songbook\'s channel',
+    s => s.replace("          ch.send = function() { return Promise.resolve('ok'); };", "")],
+  ['songbook-phone-harness.js', 'the phone view lets a PATCH onto the network',
+    s => s.replace("        if (m === 'GET' || m === 'HEAD' || /\\/storage\\/v1\\/object\\/(list|sign)\\//.test(u)) return f.apply(this, arguments);",
+                   "        if (m !== 'POST') return f.apply(this, arguments);")],
+  ['songbook-phone-harness.js', 'the phone view saves its settings over the desk\'s',
+    s => s.replace("      P.setItem = function(k, v) { bag(this)[String(k)] = String(v); };", "")],
+  // What a stroke is attached to has to be shown long enough to see, and
+  // named right; and the phone view must find the desk's song in a book
+  // built from an order, whose item ids differ from load to load.
+  ['songbook-marks-harness.js', 'an arrow ending just under a chord is pinned to a word of that row',
+    s => s.replace("    var pool = (at.rowHit && !anyRow) ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;",
+                   "    var pool = at.rowHit ? at.tokens.filter(function(t) { return t.row === at.rowHit; }) : at.tokens;")],
+  ['songbook-marks-harness.js', 'the glow is gone before it is seen',
+    s => s.replace("    var hold = 1100, fade = 800;", "    var hold = 0, fade = 1;")],
+  ['songbook-marks-harness.js', 'an arrow is captioned by its tail alone',
+    s => s.replace("    if (ends.length > 1) return 'From ' + one(ends[0]) + ' to ' + one(ends[1]);", "")],
+  ['songbook-marks-harness.js', 'the phone view loses the song in a book built from an order',
+    s => s.replace("    return same[nth || 0] || same[0] || null;", "    return null;")],
+  ['songbook-marks-harness.js', 'a printed stroke between two words loses its ends',
+    s => s.replace(`class="sb-mark-svg sb-mark-link" data-a="' + a + '" data-b="' + b + '">`, `class="sb-mark-svg sb-mark-link">`)],
+  ['voice-lines-harness.js', 'a chorus sung twice is one anchor',
+    s => s.replace("        sectionKey = runs[section] > 1 ? section + '#' + runs[section] : section;",
+                   "        sectionKey = section;")],
+  ['songbook-marks-harness.js', 'a box with no height takes a stroke',
+    s => s.replace("      var b = boxes[i]; if (!b || !(b.h > 0)) continue;", "      var b = boxes[i]; if (!b) continue;")],
+  // A rewritten line must raise the banner; a part that could not be read
+  // must not, or every hiccup of the network would nag.
+  ['songbook-live-harness.js', 'rewritten lines no longer ask for a refresh',
+    s => s.replace("structural: differs('lines') || differs('songs') || differs('book') };", "structural: differs('songs') || differs('book') };")],
+  ['songbook-live-harness.js', 'a part that could not be read counts as a change',
+    s => s.replace("    var differs = function(k) { return seen[k] !== cur[k] && cur[k] !== 'na' && seen[k] !== 'na'; };",
+                   "    var differs = function(k) { return seen[k] !== cur[k]; };")],
+  ['songbook-overview-harness.js', 'every extra part gets the same brown again',
+    s => s.replace("      out[k] = _SB_PART_PALETTE[i % _SB_PART_PALETTE.length]; i++;",
+                   "      out[k] = _SB_PART_PALETTE[0]; i++;")],
+  ['voice-lines-harness.js', 'the margin counts on its own, not from lineNumbers',
+    s => s.replace("      var at = numbered[gi] || { n: gi + 1, overall: gi + 1, sectionKey: section || '' };",
+                   "      var at = { n: gi + 1, overall: gi + 1, sectionKey: section || '' };")],
+  // A line's number is its place in its section; forgetting to restart
+  // the count at a header numbers the second verse from where the first
+  // left off.
+  ['voice-lines-harness.js', 'line numbers run on across sections',
+    s => s.replace("        section = g.section; n = 0;",
+                   "        section = g.section;")],
+  ['recordings-harness.js', 'the stamp loses its year',
+    s => s.replace("return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear();",
+                   "return p(d.getHours()) + ':' + p(d.getMinutes()) + ', ' + d.getDate() + ' ' + M[d.getMonth()];")],
   ['voice-lines-harness.js', 'a part change no longer detaches the take',
     s => s.replace("var loose = function(r) { return r.part + '|' + norm(r.text); };",
                    "var loose = function(r) { return norm(r.text); };")],
@@ -447,10 +559,18 @@ const CASES = [
     s => s.replace("return listEl ? listEl.querySelectorAll('.sb-rec-item:not([data-line-take])').length : 0;",
                    "return listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;")],
   ['recordings-harness.js', 'a line take is no longer marked as one',
-    s => s.replace("var lineMark = r.line_id != null ? ' data-line-take=\"1\"' : '';",
+    s => s.replace("var lineMark = (r.line_id != null || r.section) ? ' data-line-take=\"1\"' : '';",
                    "var lineMark = '';")],
+  // A section take has no line_id either. Counted as the panel's, ten of
+  // them would stop it recording; unmarked, the cap would count them.
+  ['recordings-harness.js', 'a section take counts against the panel limit',
+    s => s.replace("return r.line_id == null && !r.section; }).length;",
+                   "return r.line_id == null; }).length;")],
+  ['recordings-harness.js', 'a section take is no longer marked as the choir view',
+    s => s.replace("(r.line_id != null || r.section) ? ' data-line-take=",
+                   "(r.line_id != null) ? ' data-line-take=")],
   ['recordings-harness.js', 'the counter goes back to counting everything',
-    s => s.replace("var ownCount = recs.filter(function(r) { return r.line_id == null; }).length;",
+    s => s.replace("var ownCount = recs.filter(function(r) { return r.line_id == null && !r.section; }).length;",
                    "var ownCount = recs.length;")],
   // forget() is what stops a deleted take leaving a chip behind that plays
   // nothing. It has to sweep both stores, across every song.
@@ -596,6 +716,62 @@ const CASES = [
   ['songbooks-ribbon-harness.js', 'the band guesses the card its padding again',
     s => s.replace('      margin: 0 0 14px; padding: 11px 16px;',
                    '      margin: -18px -18px 14px; padding: 11px 18px;')],
+
+  // Two columns, asked of the LIST's width. A viewport rule would still
+  // say "wide" when the catalogue has become a 400px rail beside an open
+  // song, and split the rail down the middle.
+  ['songbooks-ribbon-harness.js', 'the split asks the window instead of the list',
+    s => s.replace('  @container sfcatalogue (min-width: 1120px) {', '  @media (min-width: 1520px) {')],
+  ['songbooks-ribbon-harness.js', 'the card stops being a container to ask',
+    s => s.replace('  #songFinderView #sfSongListCard { container-type:inline-size;container-name:sfcatalogue; }\r\n', '')],
+  ['songbooks-ribbon-harness.js', 'the two columns stop being even',
+    s => s.replace('display:grid;grid-template-columns:1fr 1fr;column-gap:8px;align-items:start;',
+                   'display:grid;grid-template-columns:1.4fr 1fr;column-gap:8px;align-items:start;')],
+  ['songbooks-ribbon-harness.js', 'an A-Z letter is trapped in one column',
+    s => s.replace('    #songFinderView #songListContainer > .song-atlas-section-header { grid-column:1 / -1; }\r\n', '')],
+  // 307px of every item is monogram, actions, gaps and padding whatever
+  // the width, so below ~1120 the song's name is what gives.
+  ['songbooks-ribbon-harness.js', 'the columns split before a title fits in one',
+    s => s.replace('@container sfcatalogue (min-width: 1120px)', '@container sfcatalogue (min-width: 820px)')],
+
+  // Opening a roster cell on a phone. A PIC signed in on an iPhone and
+  // found that nothing he did to a Live Streaming cell had any effect:
+  // the cells answered dblclick alone, which iOS does not dependably
+  // send, and the touch shim that existed was wired to scripture cells
+  // only. Silent and total -- no error, no toast, and the PIC concludes
+  // the system has locked them out.
+  ['roster-touch-edit-harness.js', 'the touch shim goes back to scripture cells only',
+    s => s.replace('        self._bindDoubleTap(td, onDouble);',
+                   "        if (td.hasAttribute('data-ref')) self._bindDoubleTap(td, onDouble);")],
+  ['roster-touch-edit-harness.js', 'nothing binds the second tap at all',
+    s => s.replace('        self._bindDoubleTap(td, onDouble);', '')],
+  ['roster-touch-edit-harness.js', 'two taps are never close enough together',
+    s => s.replace('(now - self._tapTime) < 400', '(now - self._tapTime) < 0')],
+  // Without this the second tap is a zoom and the editor opens under a
+  // page that has just jumped.
+  ['roster-touch-edit-harness.js', 'the zoom is left to happen over the editor',
+    s => s.replace('          e.preventDefault();\r\n          self._tapCell = null;',
+                   '          self._tapCell = null;')],
+  // A PIC login does not re-render this table, so an action that
+  // captured the mode would keep acting on whichever was in force at the
+  // last render -- signing in would appear to do nothing.
+  ['roster-touch-edit-harness.js', 'the cell captures PIC mode at bind time',
+    s => s.replace('          : function() { if (STATE.picMode) self.editCell(td); };',
+                   '          : (function(pm) { return function() { if (pm) self.editCell(td); }; })(STATE.picMode);')],
+  ['roster-touch-edit-harness.js', 'the options button swallows the cell edit',
+    s => s.replace("        if (e.target && e.target.closest && e.target.closest('.roster-cell-dropdown-icon')) return;\r\n", '')],
+  // The toggle buttons are the whole interaction surface on that row;
+  // a text editor behind them is a second, conflicting answer.
+  ['roster-touch-edit-harness.js', 'the service-type row gets a text editor behind its toggles',
+    s => s.replace('        if (isServiceTypeCell) return;', '        if (false) return;')],
+  // 7px at 35% opacity is a smudge, not a control -- and it is the route
+  // a PIC finds when the gesture does not occur to them.
+  ['roster-touch-edit-harness.js', 'the cell menu shrinks back to a smudge',
+    s => s.replace('        opacity: 0.55 !important; font-size: 10px !important;\r\n        padding: 5px 6px !important;',
+                   '        opacity: 0.35 !important; font-size: 7px !important;')],
+  ['roster-touch-edit-harness.js', 'nobody tells a PIC on a phone what the gesture is',
+    s => s.replace('<div class="rmp-edit-hint pic-only" id="rmpEditHint">',
+                   '<div class="rmp-edit-hint-gone pic-only" id="rmpEditHint">')],
 
   // Showing one part at a time. Each of these leaves a page that still
   // looks like a score, which is the whole reason the checks exist.
@@ -1057,7 +1233,100 @@ const CASES = [
   // satisfied ONCE. Without that, a strict rule demands the same person in
   // every singer row -- she fills Singer 2, and Singer 3 is still required.
   ['duty-group-pairing-harness.js', 'a group rule is never satisfied, so it keeps firing',
-    s => s.replace(PAIRING_ANSWERED, '      if (false) return;')]
+    s => s.replace(PAIRING_ANSWERED, '      if (false) return;')],
+  // The phone's choir-parts editor. It saves by writing the desktop
+  // editor's grammar out and handing it to the same parser, so every one
+  // of these produces rows that save cleanly and a page that still looks
+  // like a song: a line filed to the wrong part, two moments sung as one,
+  // a held vowel printed as a lyric, a second line for a part quietly
+  // overwritten by the first.
+  ['songbook-editparts-harness.js', "a women's line is saved as everyone's",
+    s => s.replace("? 'W: ' : (k === 'men') ? 'M: ' : '[' + l.part + '] '", "? '' : (k === 'men') ? 'M: ' : '[' + l.part + '] '")],
+  ['songbook-editparts-harness.js', 'the blank line between moments is dropped, so they merge',
+    s => s.replace("out.push(body.join('\\n\\n'));", "out.push(body.join('\\n'));")],
+  ['songbook-editparts-harness.js', 'a held note loses its ~',
+    s => s.replace("return pre + (l.sustained ? '~' : '') +", "return pre +")],
+  ['songbook-editparts-harness.js', 'a second line for the same part is let into the moment',
+    s => s.replace("return lk === k || lk === 'both' || k === 'both'; });", "return false; });")],
+  ['songbook-editparts-harness.js', 'an empty arrangement is written anyway',
+    s => s.replace("if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); return; }",
+                   "if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); }")],
+  ['songbook-editparts-harness.js', 'the rows are not re-read after the write, so the cache keeps invented ids',
+    s => s.replace("return window.SBQ_VOICE_LINES.forSong(ed.base);", "return parsed;")],
+  ['songbook-editparts-harness.js', 'a failed write closes the editor and loses the edits',
+    s => s.replace(/(_sbVoiceLines\[ed\.base\] = fresh \|\| \[\];[\s\S]*?)showToast\('Could not save the choir parts', 'error'\);/,
+                   "$1_sbmEdClose(); showToast('Could not save the choir parts', 'error');")],
+  // The library's Choir parts tab hands the dialog its rows and takes the
+  // text back; the dialog must write nothing of its own in that case.
+  ['songbook-editparts-harness.js', "another screen's save is written from here anyway",
+    s => s.replace("    if (ed.onSave) {", "    if (false && ed.onSave) {")],
+  ['songbook-editparts-harness.js', '"Edit as text" hands over an empty page',
+    s => s.replace("    var text = _sbmEdToText(ed), take = ed.onText;", "    var text = '', take = ed.onText;")],
+  // What a take is called: after the chip on its line, never "Take take".
+  ['recordings-harness.js', "a named part's take is called Take again",
+    s => s.replace("var who = String(partName || '').trim() || (part === 'men'", "var who = (part === 'men'")],
+  ['recordings-harness.js', 'an imported file loses its name',
+    s => s.replace("    if (label) return String(label).replace(/", "    if (false) return String(label).replace(/")],
+
+  // Overview Edit: the arrangement as a pad. Every one of these saves
+  // cleanly -- a chord line sung by everyone, a section that took the next
+  // section's chords, a section put back without the others, a colour
+  // drawn for every song on the screen.
+  ['songbook-overview-harness.js', 'a chord line is left in the parts text, sung by everyone',
+    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\]\), chord: l\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
+  ['songbook-overview-harness.js', "a section edited on its own takes the next section's chords",
+    s => s.replace("      var hit = V.chordFor(index, g, cursor);\r\n      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;",
+                   "      if (want !== null && String(g.section || '').trim().toLowerCase() !== want) return;\r\n      var hit = V.chordFor(index, g, cursor);")],
+  ['songbook-overview-harness.js', 'putting one section back drops the others',
+    s => s.replace("      if (inTarget) continue;\r\n      out.push(lines[i]);", "      if (inTarget) continue;")],
+  ['songbook-overview-harness.js', "a part's colour is drawn for every song on the screen",
+    s => s.replace("    var scope = '[data-choir-song=\"' + String(base).replace(/[\"\\\\]/g, '') + '\"] ';", "    var scope = '';")],
+  ['songbook-overview-harness.js', 'an unchanged colour map is written on every save',
+    s => s.replace("    if (JSON.stringify(_sbPartColours(base)) === JSON.stringify(colours)) return Promise.resolve();", "")],
+  // Chords riding on their words, on a phone.
+  ['voice-lines-harness.js', "the phone's chords leave their words",
+    s => s.replace("          inl = hit ? V._chordShown(hit, o) : '';", "          inl = '';")],
+  ['voice-lines-harness.js', 'a chord in the gap before a word lands on the word that has ended',
+    s => s.replace("      for (var i = 0; i < words.length; i++) { if (words[i].e > col) { hit = words[i]; break; } }",
+                   "      for (var i = 0; i < words.length; i++) { if (words[i].e >= col) { hit = words[i]; break; } }")],
+  // Cutting a run-through into line takes. A wav with the wrong byte rate
+  // is a file some players refuse; a take numbered as the one before it
+  // reads as the same take twice; a flat waveform hides the choir.
+  ['songbook-cut-harness.js', 'the wav claims the wrong byte rate',
+    s => s.replace("v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);", "v.setUint32(24, rate, true); v.setUint32(28, rate, true);")],
+  ['songbook-cut-harness.js', 'a new take takes the number of the one before it',
+    s => s.replace("    return label + ' take ' + (Math.max(n, (names || []).length) + 1);", "    return label + ' take ' + Math.max(n, (names || []).length, 1);")],
+  ['songbook-cut-harness.js', 'a column of the waveform shows its last sample, not its loudest',
+    s => s.replace("      for (var i = a; i < b; i++) { var v = Math.abs(samples[i]); if (v > m) m = v; }", "      for (var i = a; i < b; i++) { m = Math.abs(samples[i]); }")],
+  ['songbook-cut-harness.js', 'the clamp flings a span of exactly a breath to the end',
+    s => s.replace("function _sbmCutShort(start, end) { return end - start < 0.3 - 1e-9; }",
+                   "function _sbmCutShort(start, end) { return end - start < 0.3; }")],
+  ['songbook-cut-harness.js', 'the readout reads 0:60.0 at a minute',
+    s => s.replace("    var tenths = Math.round(Math.max(0, Number(t) || 0) * 10);",
+                   "    var tenths = Math.max(0, Number(t) || 0) * 10;")],
+  // The line offered after a save: the next <option> is the other part of
+  // the same words, and a melody cut lands the next seconds on it.
+  ['songbook-cut-harness.js', 'the next target is the other part of the same moment',
+    s => s.replace("    var j = i + 1; while (j < rows.length && same(rows[j], cur)) j++;",
+                   "    var j = i + 1;")],
+  ['songbook-cut-harness.js', 'the next target forgets which part was being cut',
+    s => s.replace("      var mine = wanted ? moment.find(function(r) { return !unison(r) && _sbmRecSlug(key(r)) === wanted; }) : null;",
+                   "      var mine = null;")],
+  ['songbook-cut-harness.js', 'the next target hands the picker to whoever sings next',
+    s => s.replace("      if (!wanted) return moment[0].id;",
+                   "      return moment[0].id;")],
+  ['songbook-cut-harness.js', 'a move renames a take a person named',
+    s => s.replace("    return !s || /^(?:.+ take \\d+|Run-through \\d+|Recording)$/i.test(s);",
+                   "    return true;")],
+  // A moved take is numbered after the takes it will sit among. Counting a
+  // run-through among a section's takes, or a line take among a slot's,
+  // gives it a number that reads as the same take twice.
+  ['songbook-cut-harness.js', 'a moved section take is numbered across every section in the slot',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return x.line_id == null && _sbmRecTok(x.storage_path) === cat;")],
+  ['songbook-cut-harness.js', 'a moved take counts line takes among the slot takes',
+    s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
+                   "return _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

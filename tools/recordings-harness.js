@@ -125,6 +125,50 @@ if (recStart < 0) {
   }
 }
 
+// window.lhcVoiceRec._takeName, the same way.
+let takeNameSrc = null;
+{
+  const tStart = lines.findIndex((l, i) => i > recStart && /^  _takeName: function\(/.test(l));
+  if (tStart < 0) {
+    if (EXPECT_BROKEN) {
+      console.log('--expect-broken: lhcVoiceRec._takeName is absent, as expected.');
+      process.exit(0);
+    }
+    throw new Error('not found: lhcVoiceRec._takeName');
+  }
+  let depth = 0, started = false, out = [];
+  for (let i = tStart; i < lines.length; i++) {
+    out.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) { takeNameSrc = out.join('\n').replace(/,\s*$/, ''); break; }
+  }
+}
+
+// window.lhcVoiceRec._when, the stamp on every take, the same way.
+let whenSrc = null;
+{
+  const wStart = lines.findIndex((l, i) => i > recStart && /^  _when: function\(/.test(l));
+  if (wStart < 0) {
+    if (EXPECT_BROKEN) {
+      console.log('--expect-broken: lhcVoiceRec._when is absent, as expected.');
+      process.exit(0);
+    }
+    throw new Error('not found: lhcVoiceRec._when');
+  }
+  let depth = 0, started = false, out = [];
+  for (let i = wStart; i < lines.length; i++) {
+    out.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) { whenSrc = out.join('\n').replace(/,\s*$/, ''); break; }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // A document, and the few globals the sliced code reaches for.
 // ---------------------------------------------------------------------------
@@ -150,7 +194,7 @@ const body =
   catsLine.replace(/\r$/, '').trim() + '\n' +
   'function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || "General"; }\n' +
   catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
-  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ' };\n' +
+  'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ', ' + takeNameSrc + ', ' + whenSrc + ' };\n' +
   'window.lhcVoiceRec = lhcVoiceRec;\n' +
   'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec, baseId: _sbBaseSongId };';
 
@@ -168,6 +212,13 @@ const lineTake = (i) => ({
   name: 'Women take ' + i, duration_sec: 3,
   storage_path: 'practice-recordings/s1/women__' + (2000 + i) + '.webm'
 });
+// A take of a whole SECTION has no line_id either, but it is the choir's,
+// not a run-through: the panel lists it, marks it, and does not count it.
+const sectionTake = (i) => ({
+  id: 'sec' + i, song_id: 's1', line_id: null, section: 'Verse ' + i,
+  name: 'Women take ' + i, duration_sec: 12,
+  storage_path: 'practice-recordings/s1/women__' + (3000 + i) + '.webm'
+});
 
 console.log('\nthe panel lists both recorders, and counts only its own');
 
@@ -184,6 +235,18 @@ check('  of which two are the panel own', S._sbOwnRecCount(), 2);
 check('  and the counter counts those', cntEl.textContent, '(2/10)');
 check('  the line takes carry the marker',
   listEl.querySelectorAll('.sb-rec-item[data-line-take="1"]').length, 3);
+
+S.sbRenderRecordings('s1', [own(1), own(2), sectionTake(1), lineTake(1)]);
+check('a take of a whole section is listed with the rest',
+  listEl.querySelectorAll('.sb-rec-item').length, 4);
+check('  but it is the choir view too, so it carries the marker',
+  listEl.querySelectorAll('.sb-rec-item[data-line-take="1"]').length, 2);
+check('  and does not count against the panel limit', S._sbOwnRecCount(), 2);
+check('  nor in the counter', cntEl.textContent, '(2/10)');
+check('  and its name says which section',
+  (/<span class="sb-rec-item-sec">([^<]*)<\/span>/.exec(listEl.innerHTML) || [])[1], 'Verse 1');
+check('a take is stamped with the time, then the date with its year',
+  S.rec._when(new Date(2026, 9, 28, 22, 19).toISOString()), '22:19, 28 Oct 2026');
 
 S.sbRenderRecordings('s1', Array.from({ length: 10 }, (_, i) => own(i)));
 check('ten of the panel own DO reach the limit', S._sbOwnRecCount(), 10);
@@ -240,6 +303,21 @@ check('  chopping one would have filed it under a song that does not exist',
 check('songId beats anything parsed out of the id',
   S.baseId({ id: 'song_999--x', songId: 'song_123' }), 'song_123');
 check('nothing in, empty string out', S.baseId(null), '');
+
+// ---------------------------------------------------------------------------
+// What a take is called. Every take on a line of a named part -- Melody,
+// 1st Part, 2nd Part -- was "Take take 1", because the name knew only the
+// two lanes. The chip on the line is what the singer reads, so it is what
+// the take is named after.
+// ---------------------------------------------------------------------------
+const nm = S.rec._takeName;
+check('a line of a named part is named after the part', nm(false, 'general', '2nd Part', 1), '2nd Part take 1');
+check('a women\'s line, after its chip', nm(false, 'women', 'Women', 2), 'Women take 2');
+check('a chip that cannot be read falls back to the lane', nm(false, 'men', '', 3), 'Men take 3');
+check('and never to "Take take"', nm(false, 'general', '', 1), 'Line take 1');
+check('a whole-song take is a run-through', nm(true, 'general', '', 3), 'Run-through 3');
+check('an imported file keeps its own name, without the extension',
+  nm(false, 'general', '2nd Part', 1, 'chorus-alto-take3.mp3'), 'chorus-alto-take3');
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

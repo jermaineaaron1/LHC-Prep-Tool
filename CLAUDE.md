@@ -50,7 +50,8 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; null means a take for the whole song. Written by TWO recorders -- see gotcha 21 |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
+| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -659,6 +660,136 @@ the anon key -- verify as `postgres`, not as the app.
     transform is its containing block, which put the media badge's menu
     at y=1150 for a pill at y=609. Anchor to the bar, which the phone
     sheet keeps `position: relative`.
+
+28. **`dblclick` is not a gesture a phone has.** The page declares
+    `user-scalable=yes, maximum-scale=4`, so on iOS a double tap is a
+    zoom and Safari keeps it — `ondblclick` never fires. Every roster
+    cell opened its editor from `ondblclick` alone while the touch shim
+    that existed (`_bindDoubleTap`, once `_bindScriptureTap`) was wired
+    to the four scripture cells only, so a PIC on an iPhone could sign
+    in, see the roster, and find that no duty cell answered. It failed
+    silently and totally: no error, no toast, and the PIC concludes they
+    have been locked out. Anything reachable only by `dblclick`,
+    `:hover`, right-click or a <10px control is unreachable on the
+    phones this app is mostly used on. `tools/roster-touch-edit-harness.js`
+    guards the binding — and the check that matters is "is there a cell
+    a double tap cannot reach", not "does this cell work".
+
+29. **`window.STATE` is NOT the roster module's `STATE`.** The module
+    closed over its own. Setting `window.STATE.picMode` from the console
+    changes nothing the roster reads, so a console probe of anything
+    behind that gate silently proves nothing. `RosterEngine.updatePicUI()`
+    is the accessor that settles it: it reads the module's `STATE` and
+    stamps `body.pic-mode`.
+
+30. **A section take is keyed by its section's NAME.** `song_recordings.section`
+    holds the text of the badge it was recorded under, and nothing re-points
+    it when the lines are rewritten -- `rematch` follows LINE takes by their
+    words, and a section has no words of its own. `replaceAll` carries the
+    takes of ONE renamed section along (`lhcVoiceLines.sectionRename`: one
+    name gone, one name new); two renamed in the same save cannot be told
+    apart and stay under the old name, listed in Practice Tracks but on no
+    badge. Until the column exists the carry is a write that fails quietly.
+
+31. **A drawn remark is anchored to WORDS, not to a page.** `song_marks`
+    keeps each stroke (tool `w`) as offsets from its anchor's origin in
+    widths of the word or chord, BOTH ways, so the drawing scales as a
+    whole and its shape is exact (the desk sets the choir's words in a
+    monospace face and the phone in a proportional one, so the word is
+    narrower there and the drawing shrinks with it). Tool `em`, the round
+    before, was widths across and ems down and drew rings as eggs; it is
+    still read that way, as `pen` (fractions of the box) is read as that.
+    Strokes drawn within eight seconds and 40px of each other are ONE
+    DRAWING (`_sbmMarkAnchorFor`): they share the first stroke's anchor,
+    with `@g<id>` on the end of the key naming the drawing, so a word's
+    letters stay a word and are fitted by one scale. A closed stroke is
+    anchored to the token it RINGS, not to whatever lies nearest its
+    centre. An open stroke of three ems or more whose ends each reach a
+    token -- the nearest chord or word to that end in ANY row, because an
+    arrow's tip stops short of what it points at, often just inside the
+    top of the row under a chord -- the two in different rows, is kept
+    BETWEEN them
+    (`keyA>keyB@g..`): along the line between their centres, in lengths
+    of it, so an arrow from a word to a chord runs from that word to that
+    chord on every screen, at whatever angle and distance they sit there;
+    its head, drawn next and lying along the shaft, joins it, while
+    handwriting beside the shaft goes to the nearer end. On paper a link
+    is an SVG over the whole block that the printed page's own script
+    (`_sbMarkLinkPrintJs`) lays between its two named ends. Strokes that
+    would still run off the card -- handwriting in the empty room a
+    desk's row has to the right of its words -- are shrunk about their
+    anchor until they fit, all of one drawing's strokes by one scale
+    (`_sbmMarkFit`), never below 0.3. A section sung twice under one name
+    gets `#2` on its second run's key (`s:2nd CHORUS#2|3`). The moment a
+    stroke lands, what it is attached to GLOWS for about two seconds with
+    a caption ("On the chord F", "From “story” · 2nd Part to the chord F"),
+    drawn on the canvas from the same frame every screen places it by
+    (`_sbmGlowDraw`); a repaint during a stroke redraws the stroke being
+    drawn, or the fading glow would wipe it.
+    The anchor is the NEAREST chord or word to the stroke's centre, among
+    the words of the row the centre is in: a chord (`s:Verse 1|3/c:2`, the
+    third chord token of that moment), a word of one part's row
+    (`/w:men:4`); failing any word, the row (`/r:men`) or the moment itself
+    (`s:<section>|<n>`, the margin's count); on a lyrics card a word of a
+    line (`l:12/w:4`) or the line (`l:<index>`, a block child of
+    `#sbmLyrics`). A token's origin is its centre, a row's or block's its
+    top left. Strokes from before (tool `pen`) are read as fractions of
+    their box and look stretched on a phone; redraw them. Chords and words are counted as tokens
+    of the TEXT, so a desk's chord row and a phone's chords riding on the
+    words count the same, and a word found by Range on either. A moment's
+    box was tried first and is wrong: on a desk it runs past the words to
+    the buttons, on a phone the words wrap, so fractions of it put a ring
+    round one chord over somebody else's words. The canvas over each card
+    is repainted from the live boxes (`_sbmMarkBox`); a stroke centred in
+    a gap belongs to the nearest line above or below; the table is probed
+    once per page -- without it there is no Draw chip at all; and the A4
+    Page view keeps its own, older, page-coordinate annotations. PRINT
+    carries the drawn remarks when the print dialog's box is ticked: as
+    SVG stretched over the block or moment that holds their words
+    (`_sbMarkSvg`, a 1x1 viewBox with `non-scaling-stroke`). A printed
+    lyrics block may hold several source lines, so a mark is squeezed into
+    its line's share of the block; a song shown as rich lyrics has no
+    source lines to match and its lyric marks stay on the screen.
+
+32. **The reading view learns of other devices' changes by nudge and by
+    poll.** `sbm-live-<songbook>` is a Supabase BROADCAST channel (no
+    publication to set up, like the songbook's `sb-<orderId>` channel):
+    a device that writes a mark, a take or the lines sends `changed`, and
+    every 30s while shown -- and the moment the tab is shown again -- each
+    device compares a fingerprint (count + newest of `song_marks`,
+    `song_recordings`, `song_voice_lines`; a hash of the songs' rows and
+    of the songbook row) with the one it last drew. Marks and takes are
+    reloaded quietly in place; lines, words, settings and the book raise
+    the pulsing banner, whose Refresh refetches the songs' rows and lines
+    and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
+    adopted, not announced to itself; a change undone before the refresh
+    takes the banner away with it; Not now adopts the state as seen.
+
+33. **The Phone view is a SECOND COPY of the whole app, on production
+    data, and the head of the page makes it read-only.** In Draw mode on
+    a desk, "Phone view" opens `?sbmPreview=<songbook key>&sbmSong=...` in
+    a panel beside the song (`_sbmPhone*`), drawn at a phone's or tablet's
+    true width and scaled to fit, so the phone's layout is the phone's
+    layout, not an imitation. That copy runs everything -- its boot, its
+    autosaves, `WO.saveImmediately` on pagehide (fired when the panel
+    closes), presence on `sb-presence-*`, edit locks -- so before any of
+    the app runs, the script after the supabase-js tag
+    (`window.__SBM_PREVIEW`) wraps `createClient`: insert / upsert /
+    update / delete / rpc / storage writes return a chainable error that
+    sends nothing, channels listen but `send`/`track`/`untrack` do
+    nothing; `fetch` lets only GET and HEAD out (plus storage list/sign);
+    `BroadcastChannel.postMessage` and `sendBeacon` are dead; and
+    `localStorage`/`sessionStorage` writes go to memory, so the copy reads
+    the desk's settings and never changes them. `tools/songbook-phone-harness.js`
+    proves each. The desk pushes what to show (`WO.sbmPhoneApply`, as
+    JSON): the song (matched by id, else by which copy of which song --
+    an order's item ids are its own), its fields, lines, marks and the
+    part chosen, and each new stroke's anchor, which it scrolls to and
+    glows. Inside, `#sbmRoot *` takes no pointer events (the wheel falls
+    through to the scroller) and no scrollbar is drawn, because a desk
+    scrollbar steals width a phone's does not and every line would wrap
+    early. Anything new that WRITES must be reachable only through
+    `_supabase`/`fetch`, or it must check `window.__SBM_PREVIEW` itself.
 
 ## Quick Commands for Claude Code
 
