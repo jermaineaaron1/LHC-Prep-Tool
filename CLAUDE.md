@@ -889,6 +889,21 @@ the anon key -- verify as `postgres`, not as the app.
     and refuses a reading twice in one section. Removing a liturgy records
     `clearedSections`, or the template's gap-fill puts the default back.
 
+34. **A lyrics card's chords are placed by COLUMN, so chords and words share
+    one monospaced grid.** A chord line sits over the lyric line under it
+    by character column -- the editor's grid -- so in the reading view the
+    two share one monospaced face at one size and keep their spaces
+    (`white-space: break-spaces`), on every screen; the phone held upright
+    keeps its own 1rem rule. A proportional face, or collapsed spaces,
+    bunched every chord at the left of its line. A pair too long for the
+    row is set smaller, both lines by the same factor (`--sbm-fit`,
+    `_sbmFitChordPairs`, floor 11px), because wrapped words and an unwrapped
+    chord line put the chords over the wrong row. The Lyrics view, which
+    shows no chords, keeps its proportional face. The card stays one block
+    per source line, which the drawn remarks' `l:<i>` anchors depend on --
+    the inline chord-pair renderer would merge a chord line and its words
+    into one block and move every remark on the card.
+
 ## Quick Commands for Claude Code
 
 ```bash
