@@ -107,8 +107,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
 - One order, three numbered steps, as tabs under the editor header:
   1. **Liturgy Builder** (order of worship) -- the sections, and in each the
-     songs, liturgy, readings and the liturgist's notes. Edits the order's
-     data directly; see gotchas 34-37.
+     songs, liturgy, readings and the liturgist's notes, laid out like a Word
+     document: a one-row ribbon (Insert, Note, Import, View), numbered
+     headings typed on in place, the liturgy's and readings' words typed on
+     the page with a dashed rule between slides (Ctrl/Shift+Enter breaks a
+     slide, Backspace at its start joins it back), notes as comments in the
+     margin, a navigation pane of the headings (click to go, drag to
+     reorder), right-click menus and a status bar. Outline view shows one
+     line per part; Full text shows every word. Import takes a Word .docx or
+     text pasted from Word: headings become sections, the words under them
+     liturgy. Edits the order's data directly; see gotchas 34-37 and 39-41.
   2. **Song Order** -- the music team's list: keys, lyrics, markings, media.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - The **Liturgy Book** (More menu, or the builder's button) is the builder's
@@ -206,9 +214,13 @@ _woSectionList()                   // THE order's sections: [{id, title,
 _woSongSectionIds(song, list)      // which of those sections a song is in
 _woSectionItems(sectionId)         // a section's non-song items, deduped
 _woEnsureLayout()                  // make sectionLayout real before editing it
+_woUniqueItems(list)               // one entry per id, one liturgy per
+                                   // section: the save's own rule (gotcha 40)
 _lbdChange(fn)                     // one undoable Liturgy Builder edit:
                                    // snapshot, fn(), then _lbdCommit (dedupe,
                                    // rebuild serviceSectionItems, redraw, save)
+_lbdInsert(kind, secId)            // the ribbon's Insert: into the section the
+                                   // cursor is in, after the part it is on
 WO.lbdFillReadings()               // the roster's readings into the order's
                                    // data, no LCD schedule needed
 _woScriptureSlides(sub, title, text, alleluia)
@@ -889,7 +901,7 @@ the anon key -- verify as `postgres`, not as the app.
     and refuses a reading twice in one section. Removing a liturgy records
     `clearedSections`, or the template's gap-fill puts the default back.
 
-34. **A lyrics card's chords are placed by COLUMN, so chords and words share
+38. **A lyrics card's chords are placed by COLUMN, so chords and words share
     one monospaced grid.** A chord line sits over the lyric line under it
     by character column -- the editor's grid -- so in the reading view the
     two share one monospaced face at one size and keep their spaces
@@ -903,6 +915,43 @@ the anon key -- verify as `postgres`, not as the app.
     per source line, which the drawn remarks' `l:<i>` anchors depend on --
     the inline chord-pair renderer would merge a chord line and its words
     into one block and move every remark on the card.
+
+39. **`position: sticky` does not stick under the app's `<body>`.** `html`
+    and `body` both carry `overflow-x: hidden` (lines ~785), which makes
+    `<body>` a scroll container of its own that never scrolls -- `<html>`
+    does -- and a sticky element sticks to its nearest scroll container. So
+    `#topNavBar`'s `sticky` (even the phone's `!important` one) has never
+    stuck. The builder's ribbon and status bar need it to, so while the
+    builder is on screen `body.wo-lbd-on` switches `<body>` to
+    `overflow-x: clip` (it clips the same but is no scroll container) and
+    keeps `#topNavBar` `relative`, scrolling away as everywhere else.
+    `wo-lbd-on` is set by `_lbdSetActive` and kept in step by
+    `setActiveView`: the builder stays open behind other views, and the
+    class must not follow the user there. A dialog that locks the page sets
+    `body.style.overflow`, which still wins.
+
+40. **A save made away from the LCD schedule used to list every item
+    twice.** With no schedule on screen, `collectOrderItems()` returns the
+    songs AND the non-song items (from `serviceSectionItems`), and
+    `saveCurrentOrder` added the snapshot's non-song items to that -- so
+    after every autosave from the builder or Song Order, `allItems` and
+    `serviceSectionItems` held two of everything. The database kept one
+    (`SBQ.saveOrder` de-duplicates by id), and the LCD hid the repeat for
+    liturgy and readings, but drew a text box twice and then saved both.
+    Both lists now go through `_woUniqueItems`, and the LCD draws a text
+    box once per id. Build any new item list the same way.
+
+41. **The builder's words are plain-text editables; read them with
+    `_lbdVal`.** Every field on the page is `contenteditable=
+    "plaintext-only"` (plain `true` plus paste and Enter handling where a
+    browser lacks it), read through `_lbdTextOf` -- text, `<br>` and block
+    elements to `'\n'` -- never `innerHTML`. Typing writes the data as it
+    goes and never redraws; anything that does redraw (`lbdRender`) hands
+    the cursor back where it was (`_lbdFocusKey` / `_lbdRestoreFocus`), and
+    a run of typing is one undo step, pushed by `_lbdFlushTyping` before any
+    other change. Work that redraws after a field loses focus waits a tick
+    (`setTimeout 0`), or the redraw swallows the click that moved the
+    cursor.
 
 ## Quick Commands for Claude Code
 

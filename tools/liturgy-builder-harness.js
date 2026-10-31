@@ -104,7 +104,7 @@ const ORDER_STRUCTURES = {
 
 let sectionTools = null;
 try {
-  const fns = ['_woStripNum', '_woSectionList', '_woSongSectionIds', '_woSectionItems', '_woDedupeItems', '_woSSIFromItems']
+  const fns = ['_woStripNum', '_woSectionList', '_woSongSectionIds', '_woSectionItems', '_woUniqueItems', '_woDedupeItems', '_woSSIFromItems']
     .map(n => extractFn(n));
   const fnText = buildModule(fns,
     'var orderStructures = ctx.orderStructures; var currentOrderType = "traditional";' +
@@ -192,23 +192,32 @@ if (!sectionTools) {
 console.log('\nSaving away from the schedule');
 (function() {
   const collectSrc = extractFn('collectOrderItems');
-  const doc = makeDocument();
-  const ctx = {
-    document: doc,
-    window: { serviceSectionItems: { 's1': [{ id: 'o1__content_s1_7', type: 'content', sectionId: 's1', text: 'Please be seated' }] } },
-    currentOrderData: { id: 'o1', allItems: [{ id: 'o1__content_s1_7', itemType: 'content', sectionId: 's1', content: { text: 'Please be seated' } }] }
-  };
-  const fn = new Function('document', 'window', 'currentOrderData',
-    'var songOrderSections = []; var console = { log: function() {} };' +
-    'function $(id) { return document.getElementById(id); }' +
-    'var _woSongsTakenOutOfSections = {}; var songOriginalLyrics = {}; var songTransposeSemitones = {};' +
-    'var sbTextAnnots = {}; var songOriginalRichLyrics = {}; var currentSermonSlides = {};' +
-    collectSrc + '\nreturn collectOrderItems();');
-  const items = fn(ctx.document, ctx.window, ctx.currentOrderData);
-  const content = items.filter(i => i.itemType === 'content');
+  let uniqueSrc = '';
+  try { uniqueSrc = extractFn('_woUniqueItems'); } catch (e) { uniqueSrc = 'function _woUniqueItems(l) { return l; }'; }
+  const box = { id: 'o1__content_s1_7', type: 'content', sectionId: 's1', text: 'Please be seated' };
+  function collect(ssiList) {
+    const ctx = {
+      document: makeDocument(),
+      window: { serviceSectionItems: { 's1': ssiList } },
+      currentOrderData: { id: 'o1', allItems: [{ id: 'o1__content_s1_7', itemType: 'content', sectionId: 's1', content: { text: 'Please be seated' } }] }
+    };
+    const fn = new Function('document', 'window', 'currentOrderData',
+      'var songOrderSections = []; var console = { log: function() {} };' +
+      'function $(id) { return document.getElementById(id); }' +
+      'var _woSongsTakenOutOfSections = {}; var songOriginalLyrics = {}; var songTransposeSemitones = {};' +
+      'var sbTextAnnots = {}; var songOriginalRichLyrics = {}; var currentSermonSlides = {};' +
+      uniqueSrc + '\n' + collectSrc + '\nreturn collectOrderItems();');
+    return fn(ctx.document, ctx.window, ctx.currentOrderData).filter(i => i.itemType === 'content');
+  }
+  const content = collect([box]);
   check('one text box in, one text box out', content.length === 1,
     'collected ' + content.length + ': ' + content.map(c => c.id).join(', '));
   check('and it keeps the id it was stored under', content[0] && content[0].id === 'o1__content_s1_7');
+  // After a save made away from the schedule, every item used to come back
+  // listed twice; the LCD then drew each text box twice and saved both.
+  const twice = collect([box, Object.assign({}, box)]);
+  check('a text box listed twice is collected once', twice.length === 1,
+    'collected ' + twice.length);
 })();
 
 // ---------------------------------------------------------------------------
