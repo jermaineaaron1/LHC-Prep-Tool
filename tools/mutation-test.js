@@ -1378,6 +1378,40 @@ const CASES = [
                    '      _layout.push(Object.assign({}, {}, {')],
   ['liturgy-builder-harness.js', 'an item listed twice is collected twice again',
     s => s.replace('    return _woUniqueItems(items);', '    return items;')],
+
+  // The Songbook as step 2: medleys, the inbox, the shared song list. Each
+  // of these leaves a page that looks right until the second medley, the
+  // second copy of a shared link, or the first move past a medley.
+  //
+  // A song held by two medleys at once: which one it is sung in depends on
+  // which the reader happens to look at.
+  ['songbook-step-harness.js', 'a song is in two medleys at once',
+    s => s.replace('if (byId[id] && !used[id] && ids.indexOf(id) === -1) ids.push(id);',
+                   'if (byId[id] && ids.indexOf(id) === -1) ids.push(id);')],
+  ['songbook-step-harness.js', "a medley's songs are listed apart",
+    s => s.replace('      if (!m) { out.push(s); if (s.id) done[s.id] = true; return; }',
+                   '      if (true) { out.push(s); if (s.id) done[s.id] = true; return; }')],
+  ['songbook-step-harness.js', 'a song cannot change places inside its medley',
+    s => s.replace('    if (u.md && u.items[ii + delta]) {', '    if (false) {')],
+  ['songbook-step-harness.js', 'a dropped song splits the medley it lands in',
+    s => s.replace('    var units = _woUnits(seq, medleys);\r\n    var loc = function(id) {',
+                   '    var units = _woUnits(seq, []);\r\n    var loc = function(id) {')],
+  // The localStorage copy of a share carries the address as it was typed;
+  // untrimmed, the link a phone shared arrives in the inbox twice.
+  ['songbook-step-harness.js', 'a shared link and its stored copy are two items',
+    s => s.replace("    if (it.url) return 'u:' + String(it.url).trim();", "    if (it.url) return 'u:' + String(it.url);")],
+  ['songbook-step-harness.js', "moving a link takes the song's own copy with it",
+    s => s.replace('return !(d && d.url === url && d.inboxId === item.id);',
+                   'return !(d && d.url === url && (!d.inboxId || d.inboxId === item.id));')],
+  ['songbook-step-harness.js', 'the shared list loses its section headings',
+    s => s.replace("        if (r.section) lines.push('*' + r.section + '*');", '')],
+  // close() clears the pending share; set before it, the link never arrived.
+  ['songbook-step-harness.js', "the share picker's Send drops the link it sends",
+    s => s.replace(/(close\(\);\r?\n(?:\s*\/\/.*\r?\n)*)\s*window\._pendingShareItem = item;\r?\n/, '$1')],
+  ['songbook-step-harness.js', 'the Songbook lists a medley apart',
+    s => s.replace('    return _woRunWithMedleys(sorted, _woMedleys());', '    return sorted;')],
+  ['songbook-step-harness.js', "the builder's undo forgets medleys",
+    s => s.replace('      medleys: JSON.stringify((o.template && o.template.medleys) || []),\r\n', '')],
 ];
 
 let caught = 0, missed = 0, stale = 0;

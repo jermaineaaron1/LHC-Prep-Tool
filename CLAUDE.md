@@ -117,11 +117,19 @@ than a bash heredoc, which quietly eats a level of backslashes.
      line per part; Full text shows every word. Import takes a Word .docx or
      text pasted from Word: headings become sections, the words under them
      liturgy. Edits the order's data directly; see gotchas 34-37 and 39-41.
-  2. **Song Order** -- the music team's list: keys, lyrics, markings, media.
+  2. **Songbook** (music team) -- every song as the service runs: key, words
+     and chords, markings, recordings, links. It opens over whichever step
+     is showing and closes back to it. It also has the order's **inbox**
+     (links and files shared to the service from a phone's share sheet, the
+     share picker, or pasted -- put each on a song), **Add a song** (into a
+     section), each song's links hidden for this service or removed, and
+     **medleys** (gotchas 42-44).
   3. **LCD Projection** -- the slides, drawn from the same data.
+- **Song Order**, step 2 until November 2026, is retired: it is under More
+  as "Song Order (old view)" with a note pointing to the Songbook, and its
+  code is to be deleted once nobody has missed it for a few services.
 - The **Liturgy Book** (More menu, or the builder's button) is the builder's
-  printable form and edits the same order. The **Songbook** lists songs by
-  section in service order.
+  printable form and edits the same order.
 - Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
@@ -198,16 +206,37 @@ RosterEngine.saveChanges(silent)   // Save; silent suppresses the toast
 
 // Utilities
 showToast(message, type, opts)     // opts carries the action button:
-                                   // { actionLabel, onAction }. Any wrapper
+                                   // { action, onAction, duration }. Any wrapper
                                    // around showToast MUST forward the third
                                    // argument -- one that did not silently
                                    // swallowed every Undo button it was given.
 showLoader(show)                   // Show/hide loading indicator
 
 // Worship Orders (inside the WO module; a few are exported on WO)
-WO.selectOrder(mode)               // 'liturgy' | 'song' | 'service' -- the
-                                   // three steps. 'liturgy' takes the LCD
-                                   // schedule's DOM down (gotcha 35)
+WO.selectOrder(mode)               // 'liturgy' | 'service' -- steps 1 and 3.
+                                   // 'liturgy' takes the LCD schedule's DOM
+                                   // down (gotcha 35). 'songbook' opens step
+                                   // 2 (WO.openSongbook) over the step showing;
+                                   // 'song' is the retired Song Order list
+WO.openSongbookInbox()             // where a shared link lands: takes
+                                   // window._pendingShareItem into the order's
+                                   // inbox and opens the Songbook on it (gotcha 43)
+_woInboxAdd(ps)                    // into currentOrderData.mediaLinks ONCE
+                                   // (_woInboxKey), saved at once
+_woAttachInboxItem(item, song)     // an inbox link onto a song's customYoutube /
+                                   // customDocs, marked with item.id. Caller saves
+_woMedleys()                       // the order's medleys, checked against the
+                                   // order and in sung order (gotcha 42)
+_woSaveMedley(id, ids)             // make, change or (ids < 2) break up one
+_woRunWithMedleys(list, medleys)   // a song list with each medley together
+_woStepInSeq / _woDropInSeq        // moving songs a place / by drag, a medley
+                                   // as one; _woWriteSeq puts a section's new
+                                   // order back into the whole list
+_woAddSongToSection(secId, lib)    // a library song into a section from outside
+                                   // the builder, with or without the LCD
+_woSongsChange(fn)                 // a change to the songs from outside the
+                                   // builder: _lbdChange, or straight onto the
+                                   // data when the LCD is in the page (gotcha 44)
 _woSectionList()                   // THE order's sections: [{id, title,
                                    // serviceSectionId, notes}], titles
                                    // without "4. " ordinals
@@ -952,6 +981,50 @@ the anon key -- verify as `postgres`, not as the app.
     other change. Work that redraws after a field loses focus waits a tick
     (`setTimeout 0`), or the redraw swallows the click that moved the
     cursor.
+
+42. **A medley is a SET; the running order says how it is sung.**
+    `currentOrderData.template.medleys = [{ id, songs: [entry id] }]` is saved
+    with the template. Read it only through `_woMedleys()`
+    (`_woMedleyList`): a song that left the order leaves its medley, a song
+    is in one medley only, members share the section most of them are in (a
+    member moved elsewhere drops out), a medley of one is none, and the songs
+    come back in their `songOrderSections` order -- the stored list's order
+    means nothing. `_woSaveMedley` writes that order: it moves the songs into
+    the section the FIRST is sung in and stands them together there. Every
+    list a person reads goes through `_woRunWithMedleys` (`_sbmSongs` does),
+    every move through `_woStepInSeq` / `_woDropInSeq`, which carry a medley
+    as one unit -- a plain splice drops a song into the middle of a medley
+    and the list shows it split. Each song keeps its own key, words and
+    marks; the medley only groups them (Songbook list and ribbon, the
+    builder's chip, the shared list's one line, the playlist's order).
+
+43. **A shared link reaches an order through `window._pendingShareItem`.**
+    Every route sets it and then loads the order -- the share picker's Send,
+    the inbox overlay, the orders list's confirm sheet, the older share
+    modal -- except a share arriving with the order already open, which calls
+    `openSongbookInbox` directly. Otherwise the end of `openOrderInEditor`
+    hands it to `openSongbookInbox`, which takes it into the inbox and opens
+    the Songbook on it. Several
+    routes ALSO write the localStorage copy (`ShareInbox.addToOrder`) that
+    the load reads into `mediaLinks`, so `_woInboxAdd` matches by
+    `_woInboxKey` (address, or a file's name, size and type) or the link
+    arrives twice. `SharePickerModal.close()` clears the pending item, as a
+    cancel should: the picker's Send used to set it BEFORE closing, so a
+    link sent from the picker never arrived at all.
+
+44. **The Songbook may be open over LCD Projection, so changes it makes to
+    the order's SONGS have two paths.** `_lbdChange` rebuilds
+    `serviceSectionItems` from `allItems`, which the schedule has moved past,
+    so it must not run while a `.wo-worship-section` is on the page
+    (`_woLcdInPage`). `_woSongsChange` uses it otherwise, and with the
+    schedule present edits the data and saves; songs are always collected
+    from `songOrderSections`, so that is safe. The schedule is kept in step
+    by hand: `addSongToServiceSection` for a song added, `_woLcdDropSong`
+    (`removeSongFromSection(..., {remote:true})`) for one removed, and a
+    medley needing a song from another section is refused until the LCD is
+    closed. Do NOT redraw the schedule with `selectOrder('service')` to
+    catch up: its init calls `_clearPreviewToBlank`, which sends an empty
+    slide to the projector -- mid-service, a blank screen.
 
 ## Quick Commands for Claude Code
 
