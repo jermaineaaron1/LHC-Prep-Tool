@@ -510,6 +510,10 @@ const CASES = [
                    "    i = D.undo.length - 1;")],
   ['songbook-marks-harness.js', 'undo skips a stroke that is still saving',
     s => s.replace("    if (String(u.local.id).indexOf('tmp_') === 0) {", "    if (false) {")],
+  // A chord line too long for a phone's row: set smaller with its words,
+  // or the words wrap where the chords do not and the chords float.
+  ['songbook-marks-harness.js', 'a chord line too long for the row is left to wrap apart from its words',
+    s => s.replace("    var k = Math.min(1, (avail - 2) / (chars * charPx));", "    var k = 1;")],
   ['songbook-marks-harness.js', 'keeping rows alike churns the class and the canvas loops on it',
     s => s.replace("      if (stack !== had) sys.classList.toggle('vl-sys--stack', stack);",
                    "      if (had) sys.classList.remove('vl-sys--stack');\r\n      if (stack) sys.classList.add('vl-sys--stack');")],
@@ -831,6 +835,9 @@ const CASES = [
     s => s.replace(/(:has\(\.wo-lyrics-chord-line\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')
           .replace(/(\.wo-lyrics-chord-line,\s*#songbookLiveModal\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
+                   '$1.wo-lyrics-NOPE$2')
+          // the reading view's own grid, on every screen but the upright phone
+          .replace(/(\.wo-lyrics-chord-line,\s*#sbmRoot #sbmLyrics:not\(\.sbm-lyrics--nochords\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')],
 
   ['blank-slide-harness.js', 'the write boundary stops pruning',

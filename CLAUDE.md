@@ -116,7 +116,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      reorder), right-click menus and a status bar. Outline view shows one
      line per part; Full text shows every word. Import takes a Word .docx or
      text pasted from Word: headings become sections, the words under them
-     liturgy. Edits the order's data directly; see gotchas 34-40.
+     liturgy. Edits the order's data directly; see gotchas 34-37 and 39-41.
   2. **Song Order** -- the music team's list: keys, lyrics, markings, media.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - The **Liturgy Book** (More menu, or the builder's button) is the builder's
@@ -215,7 +215,7 @@ _woSongSectionIds(song, list)      // which of those sections a song is in
 _woSectionItems(sectionId)         // a section's non-song items, deduped
 _woEnsureLayout()                  // make sectionLayout real before editing it
 _woUniqueItems(list)               // one entry per id, one liturgy per
-                                   // section: the save's own rule (gotcha 39)
+                                   // section: the save's own rule (gotcha 40)
 _lbdChange(fn)                     // one undoable Liturgy Builder edit:
                                    // snapshot, fn(), then _lbdCommit (dedupe,
                                    // rebuild serviceSectionItems, redraw, save)
@@ -901,7 +901,22 @@ the anon key -- verify as `postgres`, not as the app.
     and refuses a reading twice in one section. Removing a liturgy records
     `clearedSections`, or the template's gap-fill puts the default back.
 
-38. **`position: sticky` does not stick under the app's `<body>`.** `html`
+38. **A lyrics card's chords are placed by COLUMN, so chords and words share
+    one monospaced grid.** A chord line sits over the lyric line under it
+    by character column -- the editor's grid -- so in the reading view the
+    two share one monospaced face at one size and keep their spaces
+    (`white-space: break-spaces`), on every screen; the phone held upright
+    keeps its own 1rem rule. A proportional face, or collapsed spaces,
+    bunched every chord at the left of its line. A pair too long for the
+    row is set smaller, both lines by the same factor (`--sbm-fit`,
+    `_sbmFitChordPairs`, floor 11px), because wrapped words and an unwrapped
+    chord line put the chords over the wrong row. The Lyrics view, which
+    shows no chords, keeps its proportional face. The card stays one block
+    per source line, which the drawn remarks' `l:<i>` anchors depend on --
+    the inline chord-pair renderer would merge a chord line and its words
+    into one block and move every remark on the card.
+
+39. **`position: sticky` does not stick under the app's `<body>`.** `html`
     and `body` both carry `overflow-x: hidden` (lines ~785), which makes
     `<body>` a scroll container of its own that never scrolls -- `<html>`
     does -- and a sticky element sticks to its nearest scroll container. So
@@ -915,7 +930,7 @@ the anon key -- verify as `postgres`, not as the app.
     class must not follow the user there. A dialog that locks the page sets
     `body.style.overflow`, which still wins.
 
-39. **A save made away from the LCD schedule used to list every item
+40. **A save made away from the LCD schedule used to list every item
     twice.** With no schedule on screen, `collectOrderItems()` returns the
     songs AND the non-song items (from `serviceSectionItems`), and
     `saveCurrentOrder` added the snapshot's non-song items to that -- so
@@ -926,7 +941,7 @@ the anon key -- verify as `postgres`, not as the app.
     Both lists now go through `_woUniqueItems`, and the LCD draws a text
     box once per id. Build any new item list the same way.
 
-40. **The builder's words are plain-text editables; read them with
+41. **The builder's words are plain-text editables; read them with
     `_lbdVal`.** Every field on the page is `contenteditable=
     "plaintext-only"` (plain `true` plus paste and Enter handling where a
     browser lacks it), read through `_lbdTextOf` -- text, `<br>` and block
