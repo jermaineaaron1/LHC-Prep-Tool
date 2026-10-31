@@ -1282,6 +1282,27 @@ const CASES = [
   ['songbook-cut-harness.js', 'a moved take counts line takes among the slot takes',
     s => s.replace("return x.line_id == null && _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);",
                    "return _sbmRecTok(x.storage_path) === cat && _sbmSecNorm(x.section) === _sbmSecNorm(rec.section);")],
+
+  // The order of worship as data. Each of these is a way an edit made in
+  // the Liturgy Builder, or a reading put in anywhere, would stop reaching
+  // the projection intact -- and every one of them leaves a screen that
+  // looks fine until the next time the schedule is drawn.
+  //
+  // A restored reading planned again from its own joined text: the response
+  // is appended once more on every load (one Gospel reached twenty-six).
+  ['liturgy-builder-harness.js', 'a restored reading is planned again instead of drawn as saved',
+    s => s.replace('      ? _woScriptureFromSaved(scriptureItem.savedSlides)',
+                   '      ? _woScriptureSlides(subLabel, title, content, scriptureItem.singAlleluia)')],
+  ['liturgy-builder-harness.js', 'a damaged reading keeps all twenty-six of its responses',
+    s => s.replace('        if (seen[key]) return;', '        if (false) return;')],
+  ['liturgy-builder-harness.js', 'a text box saved away from the schedule is written twice again',
+    s => s.replace("              id: item.id || (_oidPfx + 'content_' + sectionId + '_' + sortOrder),",
+                   "              id: _oidPfx + 'content_' + sectionId + '_' + sortOrder,")],
+  ['liturgy-builder-harness.js', 'a song is placed by its section kind, not by its section',
+    s => s.replace('      for (i = 0; i < list.length && !hit; i++) { if (list[i].id === ref) hit = list[i]; }', '')],
+  ['liturgy-builder-harness.js', 'capturing the schedule drops the liturgist notes',
+    s => s.replace('      _layout.push(Object.assign({}, _prevEntries[sec.id] || {}, {',
+                   '      _layout.push(Object.assign({}, {}, {')],
 ];
 
 let caught = 0, missed = 0, stale = 0;
