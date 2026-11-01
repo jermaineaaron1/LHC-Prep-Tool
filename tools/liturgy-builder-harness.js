@@ -450,6 +450,35 @@ console.log('\nThe Liturgy Builder');
     JSON.stringify(r.slides.map(s => s.content)) === JSON.stringify(plan.map(s => s.text)) && r.content.subLabel === 'Gospel Reading');
 })();
 
+// ---------------------------------------------------------------------------
+// Names written into attributes are escaped, quotes included
+// ---------------------------------------------------------------------------
+// The WO module's own escapeHtml goes through textContent / innerHTML, which
+// escapes & < > and leaves quotes alone. The builder writes song, liturgy and
+// section names into title=, aria-label= and value=, so _lbdEsc must escape
+// the quotes itself: a name with a double quote in it otherwise ends the
+// attribute and starts one of its own.
+console.log('[escaping]');
+(function() {
+  let esc;
+  try {
+    const fn = extractFn('_lbdEsc');
+    // As the WO module's escapeHtml behaves: & < > only.
+    const woEscape = 'function escapeHtml(t) { if (!t) return ""; return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }';
+    esc = new Function(woEscape + fn + ' return _lbdEsc;')();
+  } catch (e) {
+    check('the builder has its own escaper', false, e.message.split('\n')[0]);
+    return;
+  }
+  const hostile = 'Hymn" onmouseover="alert(1)" x=\'';
+  const out = esc(hostile);
+  check('a double quote in a name cannot end an attribute', out.indexOf('"') === -1, out);
+  check('nor can a single quote', out.indexOf("'") === -1, out);
+  check('and the name still reads the same once parsed',
+    out.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&') === hostile, out);
+  check('nothing at all comes out as nothing', esc(null) === '' && esc(undefined) === '');
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {

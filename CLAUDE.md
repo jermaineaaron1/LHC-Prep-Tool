@@ -1105,6 +1105,17 @@ the anon key -- verify as `postgres`, not as the app.
     against Standard only the key is. A new version COPIES the remarks of
     the one the service sang, so that one stays as it was.
 
+47. **The WO module's `escapeHtml` is not safe inside an attribute.** The
+    module defines its own (~line 82,500), going through `textContent` /
+    `innerHTML`, which escapes `&`, `<` and `>` and leaves `"` and `'`
+    alone -- unlike the global one, which escapes all five. Text content is
+    fine; `title="' + escapeHtml(name) + '"'` is not: a song or liturgy name
+    with a double quote in it ends the attribute and starts one of its own,
+    and anyone with the app can edit those names. The Liturgy Builder goes
+    through `_lbdEsc`, which escapes the quotes as well
+    (`tools/liturgy-builder-harness.js` checks it). Other WO code that puts
+    names into attributes has not been audited for this.
+
 ## Quick Commands for Claude Code
 
 ```bash
