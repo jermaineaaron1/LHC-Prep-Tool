@@ -479,6 +479,66 @@ console.log('[escaping]');
   check('nothing at all comes out as nothing', esc(null) === '' && esc(undefined) === '');
 })();
 
+// ---------------------------------------------------------------------------
+// This date's readings, put in by themselves when an upcoming order opens.
+// A reading on the roster and not in the order goes in; one the order has
+// had from the roster, and somebody took out, stays out -- unless the roster
+// now names a different passage. A past order is never touched.
+// ---------------------------------------------------------------------------
+console.log('\n[readings put in by themselves]');
+(function() {
+  let R;
+  try {
+    R = new Function(buildModule([
+      extractFn('_monthFromDateStr'), extractFn('_yearForOrder'), extractFn('_woReadingsNoted'),
+      extractFn('_woReadingsTodo'), extractFn('_woNoteReadings'), extractFn('_woOrderIsUpcoming')
+    ], "var _RFR_MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']; var STATE = { rosterYear: 2026 };"))();
+  } catch (e) {
+    check('the automatic readings helpers exist', false, e.message.split('\n')[0]);
+    return;
+  }
+  const W = ['reading1', 'psalm', 'reading2', 'gospel'].map(r => ({ role: r, label: r }));
+  const roster = { reading1: 'Revelation 7:9-17', psalm: 'Psalm 34:1-10, 22', reading2: '1 John 3:1-3', gospel: 'Matthew 5:1-12' };
+  const roles = l => l.map(w => w.role).join(',');
+  check('an order with none gets all four', roles(R._woReadingsTodo(W, roster, {}, {})) === 'reading1,psalm,reading2,gospel');
+  check('an order missing one gets that one', roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, {})) === 'reading2');
+  check('one the roster does not have is not asked for', roles(R._woReadingsTodo(W, { gospel: 'John 1:1-5' }, {}, {})) === 'gospel');
+  check('one the order had from the roster and somebody took out stays out',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: '1 John 3:1-3' })) === '');
+  check('the same reference however it is spaced or cased is the same reading',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: ' 1 john  3:1-3 ' })) === '');
+  check('but a different passage on the roster is a new reading, and goes in',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: '1 John 4:7-12' })) === 'reading2');
+  const o = { template: { rosterReadings: { psalm: 'Psalm 1' } } };
+  R._woNoteReadings(o, [{ role: 'reading1' }, { role: 'gospel' }], roster);
+  check('what an order had is noted on it, by role, with the roster\'s reference, keeping what was noted before',
+    JSON.stringify(o.template.rosterReadings) === JSON.stringify({ psalm: 'Psalm 1', reading1: 'Revelation 7:9-17', gospel: 'Matthew 5:1-12' }),
+    JSON.stringify(o.template.rosterReadings));
+  const bare = {}; R._woNoteReadings(bare, [{ role: 'psalm' }], roster);
+  check('an order with no template yet gets one', bare.template && bare.template.rosterReadings.psalm === 'Psalm 34:1-10, 22');
+  const now = new Date(2026, 10, 1, 15, 30);
+  check('a service today is upcoming, all day', R._woOrderIsUpcoming({ serviceDate: 'Nov 1', title: 'Service - Nov 1' }, now) === true);
+  check('next week is upcoming', R._woOrderIsUpcoming({ serviceDate: 'Nov 8', title: 'Service - 8 Nov 2026' }, now) === true);
+  check('last week is a record, not touched', R._woOrderIsUpcoming({ serviceDate: 'Oct 25', title: 'Service - 25 Oct 2026' }, now) === false);
+  check('the year in the title wins over the roster\'s', R._woOrderIsUpcoming({ serviceDate: 'Nov 8', title: 'Service - 8 Nov 2025' }, now) === false);
+  check('an order with no service date is left alone', R._woOrderIsUpcoming({ serviceDate: '', title: 'Christmas' }, now) === false &&
+    R._woOrderIsUpcoming({ serviceDate: 'TBC' }, now) === false);
+})();
+
+(function() {
+  const has = re => re.test(SRC);
+  check('opening the builder or LCD Projection puts them in',
+    has(/lbdRender\(\);\r?\n\s*_woAutoReadings\('liturgy'\);/) && has(/_lcdUpdateProgramBarrier\(\);\r?\n\s*_woAutoReadings\('service'\);/));
+  check('the builder\'s fill never edits the data under the LCD schedule (gotcha 35)',
+    has(/if \(_woLcdInPage\(\)\) return 0;\r?\n\s*var added = 0, labels = \[\];/));
+  check('and puts them in by itself only where the order has a place for readings',
+    has(/if \(opts\.auto && !secId\) return 0;/) && has(/var sid = _lbdScriptureSection\(!opts\.auto\);/));
+  check('the LCD\'s fill leaves out what was taken out, and notes what it dealt with',
+    has(/wanted = _woReadingsTodo\(wanted, byRole, null, _woReadingsNoted\(currentOrderData\)\);/) &&
+    has(/_woNoteReadings\(currentOrderData, dealt, byRole\);/));
+  check('a standalone songbook is never given readings', has(/if \(!o \|\| !o\.id \|\| _sbStandaloneId \|\| String\(o\.id\)\.indexOf\('standalone_'\) === 0\) return;/));
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {

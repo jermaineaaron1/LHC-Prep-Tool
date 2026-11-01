@@ -130,10 +130,15 @@ than a bash heredoc, which quietly eats a level of backslashes.
      (links and files shared to the service from a phone's share sheet, the
      share picker, or pasted -- put each on a song), **Add a song** (into a
      section), each song's links hidden for this service or removed,
-     **medleys** (gotchas 42-44), and **versions** of a song -- a key, words
-     and drawings a later service can sing it with -- and Share › This
-     song, a link that opens the book at that song (gotcha 46).
+     **medleys** (gotchas 42-44; a standalone songbook has them too), and
+     **versions** of a song -- a key, words and drawings a later service can
+     sing it with, listed as "Saved versions", and "Make this the song's main
+     version", which writes the service's way into the song library -- and
+     Share › This song, a link that opens the book at that song (gotcha 46).
   3. **LCD Projection** -- the slides, drawn from the same data.
+- An upcoming order fills in the roster's readings it is missing when it is
+  opened in the builder or LCD Projection, and remembers what it had, so a
+  reading taken out stays out (gotcha 48).
 - **Song Order**, step 2 until November 2026, is retired: it is under More
   as "Song Order (old view)" with a note pointing to the Songbook, and its
   code is to be deleted once nobody has missed it for a few services.
@@ -1028,6 +1033,13 @@ the anon key -- verify as `postgres`, not as the app.
     and the list shows it split. Each song keeps its own key, words and
     marks; the medley only groups them (Songbook list and ribbon, the
     builder's chip, the shared list's one line, the playlist's order).
+    A STANDALONE songbook has medleys too, kept in its pseudo-order's
+    template (`_sbPersistStandaloneTemplate` counts them as worth keeping).
+    Its entries are numbered by place (`sbsong_<songId>_<n>`, gotcha 20) and
+    renumbered on the next open after any reorder, so each medley there also
+    keeps `songIds`, the library ids, and `_woMedleys` reads it back through
+    `_woMedleysByLibId`. With no builder and no sections, `_woSongsChange`
+    changes its songs directly and keeps its own undo (`_woSbUndo`).
 
 43. **A shared link reaches an order through `window._pendingShareItem`.**
     Every route sets it and then loads the order -- the share picker's Send,
@@ -1103,7 +1115,23 @@ the anon key -- verify as `postgres`, not as the app.
     library song nearly every transposed copy looks re-worded. "Changed
     since" (`_sbVerDrift`) is therefore asked only against a named version;
     against Standard only the key is. A new version COPIES the remarks of
-    the one the service sang, so that one stays as it was.
+    the one the service sang, so that one stays as it was. A save is READ
+    BACK before it is reported (`sbVerCreate`): a row the next service cannot
+    read has not been kept.
+    **Making a service's way the song's MAIN version** (`sbVerMakeMain`)
+    writes the library song's `lyrics` and `key` only (`updateFields`, then
+    read back, then `_announceSongChange`), in the key it is SUNG in: the
+    chord lines are moved by the copy's steps (`_sbVerMainOf`, over
+    `_transposeChordLinesOnly`), so nothing is left to transpose. What the
+    song was is kept first, as a version named "Before <date>", and every
+    other version is written again from the new key (`_sbVerRebase`: steps
+    down by as much as the key went up, chords up by as much), because a
+    version's steps are counted from the song's key. They sound as they
+    did, and `_sbVerDrift` compares the SOUND when the steps differ
+    (`_sbVerSung`), or every service already on one would be told it had
+    changed. Drawn remarks stay where they are; services already planned
+    keep their own copies; the toast's Undo puts back the song, the
+    versions and the copy, and deletes the kept one.
 
 47. **In the WO module, text and attributes take `escapeHtml`; a value in
     an inline handler's JS string takes `escapeJsArg`.** WO has its own
@@ -1128,6 +1156,38 @@ the anon key -- verify as `postgres`, not as the app.
     are safe in double-quoted attributes and not in a JS string; the
     notifications drawer's `_esc` (`LHC_Notif`) escapes neither, and its
     only attribute is a notification's generated id.
+
+48. **An upcoming order fills in the roster's readings by itself, and
+    remembers what it had.** New orders were always given the date's
+    readings when they were made; one made before the roster had them, or
+    while the passage service was down, kept four empty slots for good.
+    Now opening an order in the builder or LCD Projection
+    (`_woAutoReadings`, once per order and step a session) fills what is
+    missing, each step by its own path: the builder's `_lbdFillReadings`
+    on the data, the LCD's `fillReadingsFromRoster` on its schedule, once
+    the schedule is in the page (gotcha 35; the data path also gives up if
+    the LCD appears while it fetches). Only an order whose service is today
+    or later (`_woOrderIsUpcoming`), only into a section it already has for
+    readings. `template.rosterReadings = { role: reference }` notes every
+    role an order has had or already held, and `_woReadingsTodo` leaves a
+    noted role out -- so a reading somebody took out stays out -- unless the
+    roster now names a different passage. The ribbon's Roster readings
+    button still fills everything missing.
+
+49. **A standalone songbook must take the editor over from the order before
+    it.** `saveCurrentOrder` refuses any save while `#woWorshipOrder` is
+    stamped (`data-order-id`) for an order other than the one saving --
+    the guard that stops one service's slides being saved into another.
+    Opening a standalone songbook after any order had been in the builder
+    or the LCD left that stamp behind, so every save the songbook made --
+    its song order, medleys, settings -- was refused, silently.
+    `openSongbookStandalone` now saves the outgoing order if an autosave is
+    waiting (`_autoSaveTimer`, nulled when it fires), then takes the
+    builder down and clears the editor and its stamp. Also: "New Songbook"
+    with a service's name ("Service 1 Nov 2026") is refused with a toast
+    that opens that service's songbook (`_sbServiceOrderNamed`) -- every
+    order is already a songbook, and the hand-made copy sat empty under
+    My Songbooks beside it.
 
 ## Quick Commands for Claude Code
 
