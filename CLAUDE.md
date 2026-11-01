@@ -56,6 +56,7 @@ The ones worth knowing; there are around 29 in all.
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
+| `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
@@ -1060,6 +1061,18 @@ the anon key -- verify as `postgres`, not as the app.
     target `:is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics)` -- one id
     alone left the following songs in a proportional face with their chords
     bunched -- and the chord fit runs over every `.sbm-lyrics`.
+    Every medley saved in the editor is also KEPT in `saved_medleys`
+    (`_mdsKeep`, an upsert on `song_key`, so the same songs in the same
+    order are one row that comes back to the top). The editor lists the
+    latest five and See more the rest, filtered in place (`mdsFind`, never
+    a redraw, which would take the cursor out of the box). Use
+    (`mdsUse`) matches each saved song to a copy the book already has
+    (`_mdsMatch`, a song twice taking two copies), adds the rest as Add a
+    song does -- into the section the medley is sung in, or onto a
+    standalone book's list -- and leaves them in the editor; Save medley
+    then makes it, and puts each song in its saved key if the box says so
+    (`_mdsApplyKeys`). Removing a saved medley leaves every book's medley
+    as it is.
 
 43. **A shared link reaches an order through `window._pendingShareItem`.**
     Every route sets it and then loads the order -- the share picker's Send,
