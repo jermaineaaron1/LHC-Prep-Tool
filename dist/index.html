@@ -14394,6 +14394,32 @@ function _sfFormatWhen(iso) {
     ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
+// The song's earlier main versions -- what the library song was each time
+// its words and key were replaced from a service's Songbook (gotcha 46) --
+// each with a Restore.
+function _sfKeptMainHtml(kept) {
+  if (!kept || !kept.length) return '';
+  return '<div class="sf-hist-kept"><div class="sf-hist-kept__h"><i class="fa-solid fa-crown" aria-hidden="true"></i>Earlier main versions</div>' +
+    kept.slice().reverse().map(function(v) {
+      return '<div class="sf-hist-kept__row"><span class="sf-hist-kept__t"><b>' + escapeHtml(v.name) + '</b>' +
+        (v.original ? '<em>Original</em>' : '') + (v.key ? '<small>Key ' + escapeHtml(v.key) + '</small>' : '') + '</span>' +
+        '<button type="button" class="sf-hist-kept__btn" data-restore-vid="' + escapeHtml(v.id) + '">' +
+          '<i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Restore</button></div>';
+    }).join('') + '</div>';
+}
+function _sfBindKeptMain(song, container) {
+  container.querySelectorAll('[data-restore-vid]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (!window.WO || !WO.sbVerRestoreMain) return;
+      btn.disabled = true;
+      WO.sbVerRestoreMain(song.id, btn.getAttribute('data-restore-vid')).then(function(done) {
+        btn.disabled = false;
+        if (done && currentLyricsPreviewSong === song && currentLyricsPreviewMode === 'history') _sfRenderHistoryPanel(song, container);
+      });
+    });
+  });
+}
+
 function _sfRenderHistoryPanel(song, container) {
   if (!song || !container) return;
   container.innerHTML = '<div class="sf-hist-wrap"><p class="sf-hist-loading">' +
@@ -14409,7 +14435,13 @@ function _sfRenderHistoryPanel(song, container) {
     ? SBQ.getSongUsage(song.id)
     : Promise.resolve({ orders: [], songbooks: [] });
 
-  usagePromise.then(function(u) {
+  var keptPromise = (window.WO && WO.sbVerKept) ? WO.sbVerKept(song.id) : Promise.resolve([]);
+
+  Promise.all([usagePromise, keptPromise.catch(function() { return []; })]).then(function(res) {
+    var u = res[0] || {}, kept = res[1] || [];
+    kept.forEach(function(v) {
+      events.push({ at: v.created_at, icon: 'fa-crown', kind: 'Main version replaced', detail: 'The song as it was is kept as “' + v.name + '”' });
+    });
     (u.orders || []).forEach(function(o) {
       events.push({
         at: o.at, icon: 'fa-calendar-days', kind: 'Added to order',
@@ -14437,7 +14469,7 @@ function _sfRenderHistoryPanel(song, container) {
       return;
     }
 
-    var html = '<div class="sf-hist-wrap"><ol class="sf-hist-list">';
+    var html = '<div class="sf-hist-wrap">' + _sfKeptMainHtml(kept) + '<ol class="sf-hist-list">';
     events.forEach(function(e) {
       html += '<li class="sf-hist-item">' +
         '<span class="sf-hist-icon"><i class="fa-solid ' + e.icon + '" aria-hidden="true"></i></span>' +
@@ -14449,6 +14481,7 @@ function _sfRenderHistoryPanel(song, container) {
       'This is an activity timeline drawn from orders, songbooks and the song\'s own edit stamps. ' +
       'Field-by-field change history is not recorded.</p></div>';
     container.innerHTML = html;
+    _sfBindKeptMain(song, container);
   }).catch(function() {
     container.innerHTML = '<div class="sf-hist-wrap">' + _sfState({
       tone: 'error', icon: 'fa-triangle-exclamation', title: 'Could not load activity',
@@ -49108,9 +49141,63 @@ var WO = (function() {
     if (_sbmMarksOk !== null) return Promise.resolve(_sbmMarksOk);
     if (_sbmMarksProbe) return _sbmMarksProbe;
     var sup = window._supabase; if (!sup) return Promise.resolve(false);
-    _sbmMarksProbe = sup.from('song_marks').select('id').limit(1).then(function(r) { _sbmMarksOk = !r.error; return _sbmMarksOk; }).catch(function() { _sbmMarksOk = false; return false; });
+    _sbmMarksProbe = sup.from('song_marks').select('id').limit(1).then(function(r) {
+      _sbmMarksOk = !r.error;
+      if (!_sbmMarksOk) return false;
+      // ...and whether drawings know whose they are (_sbmLayerKeep).
+      return sup.from('song_marks').select('owner, owner_name, part, shared').limit(1).then(
+        function(r2) { _sbmLayersOk = !r2.error; return true; },
+        function() { _sbmLayersOk = false; return true; });
+    }).catch(function() { _sbmMarksOk = false; return false; });
     return _sbmMarksProbe;
   }
+
+  // ---- whose drawings: layers ----
+  //
+  // A drawing is its drawer's own until they share it
+  // (migrations/2026-11-01_song_marks_layers.sql: owner, owner_name, part,
+  // shared). Nobody signs in to this app, so "who" is a name and a part kept
+  // on the device (lhc_sbm_me), and owner is that name folded to one
+  // spelling -- the same name on another phone is the same person. "Only
+  // me" is therefore about what is SHOWN, not a lock: every row can be read
+  // through the page's key, like everything else here. Drawings from before
+  // layers have no owner and stay everybody's ("Earlier drawings"). Until
+  // the columns exist every drawing is everybody's, as it always was.
+  var _sbmLayersOk = null;
+  var _SBM_PARTS = [['leader', 'Leader'], ['vocals', 'Singer'], ['guitar', 'Guitar'], ['bass', 'Bass'], ['keys', 'Piano / Keys'], ['drums', 'Drums'], ['other', 'Other']];
+  function _sbmPartLabel(p) {
+    for (var i = 0; i < _SBM_PARTS.length; i++) if (_SBM_PARTS[i][0] === p) return _SBM_PARTS[i][1];
+    return '';
+  }
+  // A name folded to one spelling: what owner holds (pure).
+  function _sbmMeKey(name) { return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+  function _sbmMe() {
+    var me = null; try { me = JSON.parse(localStorage.getItem('lhc_sbm_me') || 'null'); } catch (e) {}
+    if (!me || !_sbmMeKey(me.name)) return null;
+    return { name: String(me.name).trim().replace(/\s+/g, ' '), part: me.part || '', key: _sbmMeKey(me.name) };
+  }
+  // The drawers this reader has hidden: { owner: true }, '' for the earlier drawings.
+  function _sbmLayersHidden() {
+    var h = {}; try { h = JSON.parse(localStorage.getItem('lhc_sbm_layers_hidden') || '{}') || {}; } catch (e) {}
+    return (h && typeof h === 'object') ? h : {};
+  }
+  // Is one drawing shown to this reader? (pure) Their own, unless they hid
+  // them; anybody else's only once it is shared, and unless they hid that
+  // person; an earlier drawing, which has no owner, unless they hid those.
+  function _sbmLayerKeep(m, meKey, hidden) {
+    if (!m) return false;
+    hidden = hidden || {};
+    var owner = m.owner || '';
+    if (owner && meKey && owner === meKey) return !hidden[owner];
+    if (owner && m.shared === false) return false;
+    return !hidden[owner];
+  }
+  function _sbmLayerFilter(marks) {
+    if (_sbmLayersOk !== true) return marks || [];
+    var me = _sbmMe(), hidden = _sbmLayersHidden();
+    return (marks || []).filter(function(m) { return _sbmLayerKeep(m, me && me.key, hidden); });
+  }
+  function _sbmMarkMine(m) { var me = _sbmMe(); return !!(m && me && m.owner && m.owner === me.key); }
   // ---- the geometry, kept pure for tools/songbook-marks-harness.js ----
   // A point of the card as fractions of an anchor's box, and back.
   function _sbmMarkFrac(box, x, y) { return [box.w ? (x - box.x) / box.w : 0, box.h ? (y - box.y) / box.h : 0]; }
@@ -49628,7 +49715,7 @@ var WO = (function() {
     });
     laid.forEach(function(it) {
       var pts = it.fixed ? it.pts : _sbmMarkScale(it.pts, _sbmMarkOrigin(it.box), fitK[it.m.anchor] || 1);
-      cv.__laid.push({ id: it.m.id, pts: pts, width: Number(it.m.width) || 4 });
+      cv.__laid.push({ id: it.m.id, pts: pts, width: Number(it.m.width) || 4, owner: it.m.owner || '', ownerName: it.m.owner_name || '', mine: _sbmMarkMine(it.m) });
       _sbmMarkStroke(g, pts, it.m.colour, Number(it.m.width) || 4);
     });
     // A repaint while a stroke is being drawn -- the glow fading, a chip
@@ -49757,18 +49844,21 @@ var WO = (function() {
   }
   function _sbmDrawChip() {
     if (_sbmMarksOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. Everyone sees it."><i class="fa-solid fa-pen-nib"></i>Draw</button>';
+    return '<button class="sbm-chip sbm-chip--draw' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. ' +
+      (_sbmLayersOk === true ? 'Only you see it, until you share it.' : 'Everyone sees it.') + '"><i class="fa-solid fa-pen-nib"></i>Draw</button>';
   }
 
   // ---- drawing ----
   function sbmDraw(on) {
     if (on === false || (on == null && _sbmDraw)) { _sbmDrawEnd(); _sbmRender(); return; }
     if (_sbmMarksOk !== true) { showToast('Drawing is not set up on this database yet', 'error'); return; }
+    if (_sbmLayersOk === true && !_sbmMe()) { sbmWho(true); return; }
     var saved = {}; try { saved = JSON.parse(localStorage.getItem('lhc_sb_pen') || '{}') || {}; } catch (e) {}
     _sbmDraw = {
       tool: 'pen',
       colour: _SBM_PENS.some(function(q) { return q[0] === saved.colour; }) ? saved.colour : _SBM_PENS[0][0],
       width: _SBM_WEIGHTS.indexOf(Number(saved.width)) > -1 ? Number(saved.width) : 4,
+      share: saved.share === true,   // yours alone until you share
       scroll: false, undo: [], live: null
     };
     document.body.classList.add('sbm-drawing');
@@ -49788,7 +49878,7 @@ var WO = (function() {
     var bar = document.getElementById('sbmDrawBar');
     if (!bar) { bar = document.createElement('div'); bar.id = 'sbmDrawBar'; bar.className = 'sbm sbm-drawbar'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Drawing tools'); document.body.appendChild(bar); }
     var D = _sbmDraw; if (!D) return;
-    bar.innerHTML = '<div class="sbm-drawbar__row">' +
+    bar.innerHTML = '<div class="sbm-drawbar__row">' + _sbmDrawWho(D) +
       _SBM_PENS.map(function(q) { return '<button type="button" class="sbm-drawbar__pen' + (D.tool === 'pen' && D.colour === q[0] ? ' is-on' : '') + '" style="--c:' + q[0] + '" onclick="WO.sbmDrawColour(\'' + q[0] + '\')" aria-label="' + q[1] + ' pen" title="' + q[1] + '"></button>'; }).join('') +
       '<span class="sbm-drawbar__gap"></span>' +
       _SBM_WEIGHTS.map(function(w) { return '<button type="button" class="sbm-drawbar__w' + (D.tool === 'pen' && D.width === w ? ' is-on' : '') + '" onclick="WO.sbmDrawWeight(' + w + ')" aria-label="' + w + ' pixel pen" title="' + w + 'px"><i style="width:' + Math.min(18, w + 3) + 'px;height:' + Math.min(18, w + 3) + 'px"></i></button>'; }).join('') +
@@ -49799,7 +49889,7 @@ var WO = (function() {
       (_sbmPhoneFits() ? '<button type="button" class="sbm-drawbar__phone' + (_sbmPhone ? ' is-on' : '') + '" onclick="WO.sbmPhone()" aria-pressed="' + (_sbmPhone ? 'true' : 'false') + '" title="Phone view: the song as a phone shows it, beside this one"><i class="fa-solid fa-mobile-screen"></i>Phone view</button>' : '') +
       '<button type="button" class="sbm-btn sbm-btn--primary sbm-drawbar__done" onclick="WO.sbmDraw(false)">Done</button></div>';
   }
-  function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width })); } catch (e) {} }
+  function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width, share: !!_sbmDraw.share })); } catch (e) {} }
   function sbmDrawColour(c) { if (!_sbmDraw) return; _sbmDraw.colour = c; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
   function sbmDrawWeight(w) { if (!_sbmDraw) return; _sbmDraw.width = Number(w) || 4; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
   function sbmDrawTool(t) { if (!_sbmDraw) return; _sbmDraw.tool = t === 'eraser' ? 'eraser' : 'pen'; _sbmDrawBar(); }
@@ -49809,6 +49899,200 @@ var WO = (function() {
     _sbmMarkCards().forEach(function(c) { c.classList.toggle('is-scrolling', _sbmDraw.scroll); });
     _sbmDrawBar();
   }
+  // New strokes yours alone, or everybody's. Yours alone until you say.
+  function sbmDrawShare() {
+    if (!_sbmDraw) return;
+    _sbmDraw.share = !_sbmDraw.share;
+    _sbmDrawRemember();
+    _sbmDrawBar();
+    showToast(_sbmDraw.share ? 'What you draw now is shared: everyone sees it' : 'What you draw now is yours: only you see it', 'info');
+  }
+
+  // ---- who is drawing ----
+  var _sbmWhoPick = '';
+  function sbmWho(thenDraw) {
+    var me = _sbmMe(), pic = null;
+    try { pic = JSON.parse(sessionStorage.getItem('lhc_pic_session') || 'null'); } catch (e) {}
+    var name = me ? me.name : ((pic && pic.name) || '');
+    _sbmWhoPick = me ? me.part : '';
+    var parts = _SBM_PARTS.map(function(p) {
+      return '<button type="button" class="who-part' + (_sbmWhoPick === p[0] ? ' is-on' : '') + '" data-part="' + p[0] + '" onclick="WO.sbmWhoPart(\'' + p[0] + '\')">' + escapeHtml(p[1]) + '</button>';
+    }).join('');
+    var html = '<div class="who">' +
+      '<label class="sbm-label" for="sbmWhoName"><i class="fa-solid fa-user"></i>Your name</label>' +
+      '<input class="sbm-input" id="sbmWhoName" list="sbmWhoNames" maxlength="40" autocomplete="name" placeholder="Your name" value="' + escapeHtml(name) + '">' +
+      '<datalist id="sbmWhoNames"></datalist>' +
+      '<div class="sbm-label who-h2"><i class="fa-solid fa-guitar"></i>What you play or sing</div>' +
+      '<div class="who-parts">' + parts + '</div>' +
+      '<p class="who-note"><i class="fa-solid fa-lock"></i>Only you see what you draw, until you share it.</p>' +
+      '<div class="who-foot"><button class="sbm-btn" onclick="WO.sbmCloseSheet()">Cancel</button>' +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWhoSave(' + (thenDraw ? 'true' : 'false') + ')">' + (thenDraw ? '<i class="fa-solid fa-pen-nib"></i>Start drawing' : 'Save') + '</button></div></div>';
+    _sbmSheet(me ? 'Who’s drawing' : 'Who’s drawing?', html);
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'who');
+    setTimeout(function() { var i = document.getElementById('sbmWhoName'); if (i && !i.value) i.focus(); }, 30);
+    // The names already drawing in this book first, then the roster's
+    // people: on another device the same name finds the same drawings.
+    var drawers = [], roster = [], fill = function() {
+      var dl = document.getElementById('sbmWhoNames'); if (!dl) return;
+      var seen = {}, names = [];
+      drawers.concat(roster.slice().sort(function(a, b) { return a.localeCompare(b); })).forEach(function(n) {
+        var t = String(n || '').trim(); if (t && !seen[_sbmMeKey(t)]) { seen[_sbmMeKey(t)] = true; names.push(t); }
+      });
+      dl.innerHTML = names.map(function(n) { return '<option value="' + escapeHtml(n) + '"></option>'; }).join('');
+    };
+    _sbmBookDrawers().then(function(rows) { drawers = _sbmDrawerNames(rows); fill(); });
+    if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.getNames) {
+      SBQ_ROSTER.getNames().then(function(byCat) {
+        Object.keys(byCat || {}).forEach(function(k) { (byCat[k] || []).forEach(function(n) { roster.push(n); }); });
+        fill();
+      }).catch(function() {});
+    }
+  }
+  // Who has drawn on the songs of this book: [{ owner, owner_name }], one
+  // row per drawing, read from the database rather than from what this
+  // device happens to have loaded.
+  function _sbmBookDrawers() {
+    var sup = window._supabase, bases = [];
+    _sbmSongs().forEach(function(x) { var b = _sbBaseSongId(x); if (b && bases.indexOf(b) === -1) bases.push(b); });
+    if (!sup || !bases.length || _sbmLayersOk !== true) return Promise.resolve([]);
+    return sup.from('song_marks').select('owner, owner_name').in('song_id', bases).then(function(r) {
+      return (r && !r.error && r.data) ? r.data.filter(function(m) { return m && m.owner; }) : [];
+    }, function() { return []; });
+  }
+  // Their names as they wrote them, A to Z, once each (pure).
+  function _sbmDrawerNames(rows) {
+    var seen = {}, out = [];
+    (rows || []).forEach(function(m) { if (m && m.owner && m.owner_name && !seen[m.owner]) { seen[m.owner] = true; out.push(m.owner_name); } });
+    return out.sort(function(a, b) { return a.localeCompare(b); });
+  }
+  function sbmWhoPart(p) {
+    _sbmWhoPick = (_sbmWhoPick === p) ? '' : p;
+    document.querySelectorAll('#sbmSheet .who-part').forEach(function(b) { b.classList.toggle('is-on', b.getAttribute('data-part') === _sbmWhoPick); });
+  }
+  function sbmWhoSave(thenDraw) {
+    var inp = document.getElementById('sbmWhoName');
+    var name = String((inp && inp.value) || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (!name) { showToast('Put your name in first', 'info'); if (inp) inp.focus(); return; }
+    var was = _sbmMe();
+    try { localStorage.setItem('lhc_sbm_me', JSON.stringify({ name: name, part: _sbmWhoPick || '' })); } catch (e) {}
+    _sbmCloseSheet();
+    // A name that has drawn here before -- on this device or another -- has its drawings back.
+    if (!was || was.key !== _sbmMeKey(name)) {
+      _sbmBookDrawers().then(function(rows) {
+        var mine = rows.filter(function(m) { return m.owner === _sbmMeKey(name); }), had = mine.length;
+        var as = (mine[0] && mine[0].owner_name) || name;   // as they first wrote it
+        if (had) showToast('Welcome back, ' + as.split(' ')[0] + ': your ' + had + ' drawing' + (had === 1 ? '' : 's') + ' in this songbook ' + (had === 1 ? 'is' : 'are') + ' showing', 'success');
+      });
+    }
+    if (was && was.key !== _sbmMeKey(name) && _sbmDraw) { _sbmDraw.undo = []; _sbmDraw.group = null; }
+    if (thenDraw && !_sbmDraw) { sbmDraw(true); return; }
+    if (_sbmDraw) _sbmDrawBar();
+    _sbmMarksPaintAll();
+    _sbmPhoneMarks(null);
+  }
+
+  // ---- whose drawings you see ----
+  function _sbmLayersChip() {
+    if (_sbmMarksOk !== true || _sbmLayersOk !== true) return '';
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--layers" onclick="WO.sbmLayers()" title="Whose drawings you see, and sharing your own"><i class="fa-solid fa-users"></i>Layers</button>';
+  }
+  // The drawers of one song's drawings as a reader may list them (pure):
+  // themselves first, then everybody who has shared one, by part and name,
+  // and the earlier drawings last. Somebody's unshared drawings are not
+  // theirs to list.
+  function _sbmLayerPeople(marks, meKey) {
+    var rank = {}; _SBM_PARTS.forEach(function(p, i) { rank[p[0]] = i; });
+    var me = { key: meKey || '', mine: true, n: 0, shared: 0 }, by = {};
+    (marks || []).forEach(function(m) {
+      if (!m) return;
+      var o = m.owner || '';
+      if (o && meKey && o === meKey) { me.n++; if (m.shared !== false) me.shared++; return; }
+      if (o && m.shared === false) return;
+      var p = by[o] = by[o] || { key: o, name: o ? (m.owner_name || o) : '', part: o ? (m.part || '') : '', n: 0 };
+      p.n++;
+    });
+    var others = Object.keys(by).map(function(k) { return by[k]; }).sort(function(a, b) {
+      if (!a.key !== !b.key) return a.key ? -1 : 1;
+      var ra = rank[a.part] != null ? rank[a.part] : 99, rb = rank[b.part] != null ? rank[b.part] : 99;
+      return ra !== rb ? ra - rb : String(a.name).localeCompare(String(b.name));
+    });
+    return { me: me, others: others };
+  }
+  function sbmLayers() {
+    var song = _sbmSong(); if (!song) return;
+    var base = _sbBaseSongId(song), me = _sbmMe(), hidden = _sbmLayersHidden();
+    var L = _sbmLayerPeople(_sbVerMarks(_sbmMarks[base], song.versionId), me && me.key);
+    var eye = function(key, label) {
+      var on = !hidden[key];
+      return '<button class="sbm-btn lay-eye' + (on ? ' is-on' : '') + '" onclick="WO.sbmLayerToggle(\'' + escapeJsArg(key) + '\')" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + (on ? 'Hide ' : 'Show ') + escapeHtml(label) + '">' +
+        '<i class="fa-solid ' + (on ? 'fa-eye' : 'fa-eye-slash') + '"></i>' + (on ? 'Showing' : 'Hidden') + '</button>';
+    };
+    var count = function(n) { return n + ' drawing' + (n === 1 ? '' : 's'); };
+    var html = '<div class="lay">';
+    if (me) {
+      var priv = L.me.n - L.me.shared;
+      html += '<div class="ver-head"><span>Yours</span></div>' +
+        '<div class="lay-row lay-row--me"><div class="lay-row__main"><b>' + escapeHtml(me.name) + '</b>' +
+          (me.part ? '<span class="lay-part">' + escapeHtml(_sbmPartLabel(me.part)) + '</span>' : '') +
+          '<small>' + (L.me.n ? escapeHtml(count(L.me.n) + ' on this song: ' + priv + ' only you see, ' + L.me.shared + ' shared') : 'Nothing drawn on this song yet') + '</small></div>' +
+          (L.me.n ? eye(me.key, 'your drawings') : '') + '</div>' +
+        '<div class="lay-acts">' +
+          (priv ? '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmLayersShare(true)"><i class="fa-solid fa-users"></i>Share mine with everyone</button>' : '') +
+          (L.me.shared ? '<button class="sbm-btn" onclick="WO.sbmLayersShare(false)"><i class="fa-solid fa-lock"></i>Make mine private</button>' : '') +
+          '<button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '?</button></div>';
+    } else {
+      html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>';
+    }
+    html += '<div class="ver-head lay-h2"><span>Shared by others</span><span class="ver-head__n">' + L.others.length + '</span></div>';
+    html += L.others.length ? '<div class="lay-list">' + L.others.map(function(p) {
+      var label = p.key ? p.name : 'Earlier drawings';
+      return '<div class="lay-row' + (hidden[p.key] ? ' is-hidden' : '') + '"><div class="lay-row__main"><b>' + escapeHtml(label) + '</b>' +
+        (p.part ? '<span class="lay-part">' + escapeHtml(_sbmPartLabel(p.part)) + '</span>' : '') +
+        '<small>' + escapeHtml(count(p.n) + (p.key ? '' : ', from before drawings had names')) + '</small></div>' + eye(p.key, label) + '</div>';
+    }).join('') + '</div>' : '<div class="ver-empty">Nobody else has shared a drawing on this song.</div>';
+    html += '</div>';
+    _sbmSheet('Layers — ' + _sbmClip(song.title || 'this song', 30), html);
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
+  }
+  function sbmLayerToggle(key) {
+    var h = _sbmLayersHidden();
+    if (h[key]) delete h[key]; else h[key] = true;
+    try { localStorage.setItem('lhc_sbm_layers_hidden', JSON.stringify(h)); } catch (e) {}
+    _sbmMarksPaintAll();
+    _sbmPhoneMarks(null);
+    var sh = document.getElementById('sbmSheet');
+    if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
+  }
+  // Every drawing of yours on this song (its version) shared, or made yours alone again.
+  function sbmLayersShare(on) {
+    var song = _sbmSong(), me = _sbmMe(), sup = window._supabase;
+    if (!song || !me || !sup || _sbmLayersOk !== true) return;
+    var base = _sbBaseSongId(song), vid = song.versionId || '';
+    var q = sup.from('song_marks').update({ shared: !!on }).eq('song_id', base).eq('owner', me.key);
+    if (_sbVerOk === true) q = vid ? q.eq('version_id', vid) : q.is('version_id', null);
+    q.select('id').then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var ids = {}; (r.data || []).forEach(function(x) { ids[String(x.id)] = true; });
+      (_sbmMarks[base] || []).forEach(function(m) { if (ids[String(m.id)]) m.shared = !!on; });
+      _sbmMarksPaintAll();
+      _sbmPhoneMarks(null);
+      _sbmLiveSend();
+      var n = (r.data || []).length;
+      showToast(on ? 'Shared: everyone sees your ' + n + ' drawing' + (n === 1 ? '' : 's') + ' on this song now'
+                   : 'Private: only you see your ' + n + ' drawing' + (n === 1 ? '' : 's') + ' on this song now', 'success');
+      var sh = document.getElementById('sbmSheet');
+      if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
+    }).catch(function(err) { showToast('Could not change who sees them: ' + (err && err.message || 'no answer'), 'error'); });
+  }
+
+  function _sbmDrawWho(D) {
+    if (_sbmLayersOk !== true) return '';
+    var me = _sbmMe(); if (!me) return '';
+    return '<button type="button" class="sbm-drawbar__who" onclick="WO.sbmWho(false)" title="Drawing as ' + escapeHtml(me.name) + (me.part ? ', ' + escapeHtml(_sbmPartLabel(me.part)) : '') + ' \u2014 tap to change"><i class="fa-solid fa-user"></i>' + escapeHtml(_sbmClip(me.name.split(' ')[0], 12)) + '</button>' +
+      '<button type="button" class="sbm-drawbar__share' + (D.share ? ' is-on' : '') + '" onclick="WO.sbmDrawShare()" aria-pressed="' + (D.share ? 'true' : 'false') + '" title="' + (D.share ? 'Shared: everyone sees what you draw now' : 'Only you see what you draw now') + '"><i class="fa-solid ' + (D.share ? 'fa-users' : 'fa-lock') + '"></i>' + (D.share ? 'Everyone' : 'Only me') + '</button>' +
+      '<span class="sbm-drawbar__gap"></span>';
+  }
+
   // Undo takes back the last stroke drawn on the song in front of you. The
   // list holds every stroke of the session with its song, so a stroke on
   // another song -- one the reader cannot see -- is never what goes; it used
@@ -49940,6 +50224,11 @@ var WO = (function() {
     // On the version this copy of the song sings (null: Standard) -- only
     // once the column is there, or the insert would be refused whole.
     if (_sbVerOk === true) mark.version_id = song.versionId || null;
+    // Whose it is, and whether anybody else sees it (_sbmLayerKeep).
+    if (_sbmLayersOk === true) {
+      var me = _sbmMe();
+      if (me) { mark.owner = me.key; mark.owner_name = me.name; mark.part = me.part || null; mark.shared = !!D.share; }
+    }
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
     (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
@@ -49961,9 +50250,19 @@ var WO = (function() {
       showToast('Could not save the mark: ' + err.message, 'error');
     });
   }
+  var _sbmEraseWarnAt = 0;
   function _sbmDrawErase(cv, q) {
+    var theirs = '';
     (cv.__laid || []).filter(function(l) { return _sbmMarkHit(l.pts, q[0], q[1], Math.max(10, l.width / 2 + 6)); })
-      .forEach(function(l) { if (String(l.id).indexOf('tmp_') !== 0) _sbmMarkDelete(l.id); });
+      .forEach(function(l) {
+        if (String(l.id).indexOf('tmp_') === 0) return;
+        if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }
+        _sbmMarkDelete(l.id);
+      });
+    if (theirs && Date.now() - _sbmEraseWarnAt > 4000) {
+      _sbmEraseWarnAt = Date.now();
+      showToast('That is ' + theirs + '’s drawing: only they can rub it out. Hide it under Layers.', 'info');
+    }
   }
 
   // ---- the marks on a printed page ----
@@ -52055,14 +52354,14 @@ var WO = (function() {
         : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + '</div>' +
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' +
-          '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button>' + _sbmDrawChip() + '</div>' +
+          '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
         '<div class="sbm-score sb-song-page--choir' + (_sbmMics ? ' sbm-score--mics' : '') + '" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
@@ -54085,7 +54384,8 @@ var WO = (function() {
     var v = versionId || '';
     return (marks || []).filter(function(m) { return m && (m.version_id || '') === v; });
   }
-  function _sbmMarksOf(base, versionId) { return _sbVerMarks(_sbmMarks[base], versionId); }
+  // ...of the drawings this reader is shown (_sbmLayerKeep).
+  function _sbmMarksOf(base, versionId) { return _sbmLayerFilter(_sbVerMarks(_sbmMarks[base], versionId)); }
 
   // Words as a comparison sees them: the same text however it is spaced.
   function _sbVerNorm(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim(); }
@@ -54262,9 +54562,9 @@ var WO = (function() {
     });
   }
 
-  function _sbVerKeyText(song, steps) {
+  function _sbVerKeyText(song, steps, baseKey) {
     var lib = _lbdLibSong(song.songId);
-    var own = String(song.key || (lib && lib.key) || '').trim();
+    var own = String(baseKey || song.key || (lib && lib.key) || '').trim();
     var mv = steps ? ' (' + (steps > 0 ? '+' : '') + steps + ')' : '';
     if (!own) return steps ? 'Moved ' + (steps > 0 ? 'up ' : 'down ') + Math.abs(steps) + ' semitone' + (Math.abs(steps) === 1 ? '' : 's') : 'The song’s own key';
     if (!steps || typeof transposeChord !== 'function') return 'Key ' + own + (steps ? mv : ' (its own)');
@@ -54287,16 +54587,18 @@ var WO = (function() {
       var o = (savedOrders || []).filter(function(x) { return x && x.id === id; })[0];
       return o ? (o.title || 'a service') : '';
     };
-    var card = function(v) {
+    var card = function(v, isKept) {
       var vid = v ? v.id : '', on = vid === (curV ? cur : '');
       var n = _sbmMarksOf(base, vid).length;
+      // Counted from the song's own key: that is what a version's steps are from.
       var chips = [
-        ['fa-key', _sbVerKeyText(song, v ? (parseInt(v.transpose_steps, 10) || 0) : 0)],
+        ['fa-key', _sbVerKeyText(song, v ? (parseInt(v.transpose_steps, 10) || 0) : 0, (_lbdLibSong(base) || {}).key)],
         ['fa-align-left', v ? 'Its own words' : 'The song’s own words'],
         ['fa-pen-nib', n ? n + ' drawing' + (n === 1 ? '' : 's') : 'No drawings yet']
       ];
-      var made = v ? [when(v.created_at) ? 'Saved ' + when(v.created_at) : 'Saved', fromName(v.made_from) ? 'from ' + fromName(v.made_from) : ''].join(' ').trim()
-                   : 'The song as it is in the library';
+      var made = isKept ? (v.id === origId ? 'The song as it first was' : 'Kept from the song library') + (when(v.created_at) ? ', ' + when(v.created_at) : '')
+               : v ? [when(v.created_at) ? 'Saved ' + when(v.created_at) : 'Saved', fromName(v.made_from) ? 'from ' + fromName(v.made_from) : ''].join(' ').trim()
+               : 'The song as it is in the library';
       var foot = [made, _sbVerUseText(base, vid)].filter(Boolean).join(' · ');
       var name = '<span class="ver-card__t">' + (v ? escapeHtml(v.name) : 'Standard') + '</span>';
       if (v && _sbVerRenaming === v.id) {
@@ -54305,10 +54607,12 @@ var WO = (function() {
           '<button class="sbm-btn" onclick="WO.sbVerRename(\'\')">Cancel</button></span>';
       }
       return '<div class="ver-card' + (on ? ' is-on' : '') + '">' +
-        '<div class="ver-card__top"><div class="ver-card__name"><i class="fa-solid ' + (v ? 'fa-code-branch' : 'fa-music') + '" aria-hidden="true"></i>' + name +
+        '<div class="ver-card__top"><div class="ver-card__name"><i class="fa-solid ' + (isKept ? 'fa-crown' : (v ? 'fa-code-branch' : 'fa-music')) + '" aria-hidden="true"></i>' + name +
+          (isKept && v.id === origId ? '<span class="ver-pill ver-pill--orig">Original</span>' : '') +
           (on ? '<span class="ver-pill">This service</span>' : '') + '</div>' +
           '<div class="ver-card__acts">' +
-            (on ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerUse(\'' + escapeJsArg(vid) + '\')">Sing this</button>') +
+            (isKept ? '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerRestoreMain(\'' + escapeJsArg(base) + '\',\'' + escapeJsArg(vid) + '\')" title="Make this the song’s main version again"><i class="fa-solid fa-clock-rotate-left"></i>Restore</button>' : '') +
+            (on ? '' : '<button class="sbm-btn' + (isKept ? '' : ' sbm-btn--primary') + '" onclick="WO.sbVerUse(\'' + escapeJsArg(vid) + '\')">Sing this</button>') +
             (v && _sbVerRenaming !== v.id ? '<button class="sbm-btn" onclick="WO.sbVerRename(\'' + escapeJsArg(v.id) + '\')" aria-label="Rename" title="Rename"><i class="fa-solid fa-pen"></i></button>' +
               '<button class="sbm-btn sbm-btn--danger" onclick="WO.sbVerDelete(\'' + escapeJsArg(v.id) + '\')" aria-label="Delete this version" title="Delete"><i class="fa-solid fa-trash"></i></button>' : '') +
           '</div></div>' +
@@ -54334,11 +54638,14 @@ var WO = (function() {
       if (_sbVerNorm(m.lyrics) !== _sbVerNorm(lib.lyrics) || m.key !== String(lib.key || '').trim()) main = m;
     }
     var orderName = (currentOrderData && (currentOrderData.title || currentOrderData.orderName)) || '';
-    var newest = list.slice().reverse();
+    var kept = list.filter(_sbVerIsKept), origId = kept.length ? kept[0].id : '';
+    var newest = list.filter(function(v) { return !_sbVerIsKept(v); }).reverse();
     var html = '<div class="ver">' +
       '<div class="ver-head"><span>Saved versions</span><span class="ver-head__n">' + newest.length + '</span></div>' +
-      '<div class="ver-list">' + card(null) + newest.map(card).join('') +
+      '<div class="ver-list">' + card(null) + newest.map(function(v) { return card(v, false); }).join('') +
         (newest.length ? '' : '<div class="ver-empty">No saved versions of this song yet.</div>') + '</div>' +
+      (kept.length ? '<div class="ver-head ver-head--kept"><span>Earlier main versions</span><span class="ver-head__n">' + kept.length + '</span></div>' +
+        '<div class="ver-list">' + kept.slice().reverse().map(function(v) { return card(v, true); }).join('') + '</div>' : '') +
       note +
       '<div class="ver-new"><div class="sbm-label"><i class="fa-solid fa-plus"></i>Save this service’s way as a new version</div>' +
         '<div class="ver-new__row"><input class="sbm-input" id="sbVerName" maxlength="60" placeholder="A name, e.g. Jubilee, key of A" value="' + escapeHtml(_sbmClip(orderName, 60)) + '">' +
@@ -54400,8 +54707,10 @@ var WO = (function() {
       (_sbVers[base] = _sbVers[base] || []).push(v);
       // Its drawings: a copy of the ones on the version this service sang,
       // so that one stays exactly as it was.
-      var copies = _sbmMarksOf(base, from).map(function(m) {
-        return { song_id: base, anchor: m.anchor, tool: m.tool, colour: m.colour, width: m.width, points: m.points, version_id: v.id };
+      var copies = _sbVerMarks(_sbmMarks[base], from).map(function(m) {
+        var c = { song_id: base, anchor: m.anchor, tool: m.tool, colour: m.colour, width: m.width, points: m.points, version_id: v.id };
+        if (_sbmLayersOk === true) { c.owner = m.owner || null; c.owner_name = m.owner_name || null; c.part = m.part || null; c.shared = m.shared !== false; }
+        return c;
       });
       var done = copies.length ? sup.from('song_marks').insert(copies).select() : Promise.resolve({ data: [] });
       return done.then(function(r2) {
@@ -54418,12 +54727,103 @@ var WO = (function() {
     });
   }
 
-  // This service's way of the song made the song's own: the library song
-  // takes its words and chords, in the key it is sung in. What the song was
-  // is kept first, as a version, so it can be sung -- or made the main
-  // version -- again. Its other versions are written again from the new key
-  // (they sound as they did), drawn remarks stay where they are, and
-  // services already planned keep their own copies of the song.
+  // ---- the song's main version: replaced, kept, restored ----
+  //
+  // Whatever replaces the library song's words and key -- this service's
+  // way (sbVerMakeMain) or an earlier main version (sbVerRestoreMain) --
+  // keeps what the song was first, as a version made from the library
+  // (made_from 'library'), listed as an earlier main version: it can be
+  // sung, or restored as the main version, again. The oldest is the song's
+  // original. Its other versions are written again from the new key (they
+  // sound as they did), drawn remarks stay where they are, and services
+  // already planned keep their own copies of the song.
+  function _sbVerIsKept(v) {
+    return !!v && (v.made_from === 'library' || (!v.made_from && /^Before \d/.test(String(v.name || ''))));
+  }
+  function _sbVerKeepName(d) {
+    d = d || new Date();
+    return 'Main until ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' +
+      d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  // The songbook's own confirm, which names its button (customConfirm's
+  // says Delete under a trash can), lifted over the song library's preview.
+  function _sbVerAsk(title, msg, okLabel) {
+    return new Promise(function(resolve) {
+      var el = document.getElementById('sbConfirmModal');
+      if (!el) { resolve(window.confirm(msg)); return; }
+      el.style.zIndex = '10002';
+      _sbShowConfirm(title, msg, function() { resolve(true); }, okLabel);
+    });
+  }
+  // The library song's words and key replaced by m ({ lyrics, key, moved }
+  // from _sbVerMainOf), the song as it was kept first. Resolves what an undo
+  // needs; rejects with nothing half done.
+  function _sbVerReplaceMain(base, lib, m) {
+    var sup = window._supabase;
+    var old = { lyrics: String(lib.lyrics || ''), key: String(lib.key || '').trim(), lastEdited: lib.lastEdited || '' };
+    var d = m.moved, others = (_sbVers[base] || []).slice(), keep = null, written = false, moved = [];
+    var nowIso = new Date().toISOString();
+    var keepName = _sbVerKeepName(), taken = {}, k = 2;
+    others.forEach(function(v) { taken[v.name] = true; });
+    while (taken[keepName]) keepName = _sbVerKeepName() + ' (' + (k++) + ')';
+    var keepRow = Object.assign({ song_id: base, name: keepName, made_from: 'library' },
+      _sbVerRebase({ transpose_steps: 0, lyrics: old.lyrics, rich_lyrics: null }, d, m.key));
+    return sup.from('song_versions').insert(keepRow).select().then(function(r) {
+      if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the song as it is could not be kept first');
+      keep = r.data[0];
+      return SBQ_SONGS.updateFields(base, { lyrics: m.lyrics, key: m.key, last_edited: nowIso });
+    }).then(function() {
+      written = true;
+      return sup.from('songs').select('lyrics, key').eq('id', base).maybeSingle();
+    }).then(function(r) {
+      if (r.error || !r.data || String(r.data.lyrics || '') !== m.lyrics || String(r.data.key || '') !== m.key) {
+        throw new Error('the song library did not keep the change' + (r.error ? ' (' + r.error.message + ')' : ''));
+      }
+      SBQ_SONGS._announceSongChange(base, m.lyrics);
+      lib.lyrics = m.lyrics; lib.key = m.key; lib.lastEdited = nowIso;
+      if (!d) return [];
+      return Promise.all(others.map(function(v) {
+        var p = _sbVerRebase(v, d, m.key); p.updated_at = nowIso;
+        var was = { transpose_steps: v.transpose_steps, lyrics: v.lyrics, rich_lyrics: v.rich_lyrics };
+        return sup.from('song_versions').update(p).eq('id', v.id).then(function(r2) {
+          if (r2.error) return r2.error.message;
+          moved.push({ v: v, was: was });
+          Object.assign(v, p);
+          return '';
+        }, function(e) { return (e && e.message) || 'no answer'; });
+      }));
+    }).then(function(errs) {
+      (_sbVers[base] = _sbVers[base] || []).push(keep);
+      return { keep: keep, old: old, moved: moved, at: nowIso, failed: (errs || []).filter(Boolean).length };
+    }, function(err) {
+      // Nothing half done: the song back if it was written, the kept copy gone.
+      var back = written ? SBQ_SONGS.updateFields(base, { lyrics: old.lyrics, key: old.key }).catch(function() {}) : Promise.resolve();
+      return back.then(function() {
+        if (keep) sup.from('song_versions').delete().eq('id', keep.id).then(function() {}, function() {});
+        throw err;
+      });
+    });
+  }
+  // ...and undone: the song, its versions, and the kept copy gone. Resolves
+  // whether all of it went back.
+  function _sbVerUndoMain(base, lib, r) {
+    var sup = window._supabase;
+    return SBQ_SONGS.updateFields(base, { lyrics: r.old.lyrics, key: r.old.key, last_edited: r.old.lastEdited || r.at }).then(function() {
+      SBQ_SONGS._announceSongChange(base, r.old.lyrics);
+      lib.lyrics = r.old.lyrics; lib.key = r.old.key; lib.lastEdited = r.old.lastEdited;
+      var puts = r.moved.map(function(x) {
+        return sup.from('song_versions').update(Object.assign({ updated_at: new Date().toISOString() }, x.was)).eq('id', x.v.id)
+          .then(function(q) { if (!q.error) Object.assign(x.v, x.was); return !q.error; }, function() { return false; });
+      });
+      puts.push(sup.from('song_versions').delete().eq('id', r.keep.id).then(function(q) {
+        if (!q.error) _sbVers[base] = (_sbVers[base] || []).filter(function(v) { return v.id !== r.keep.id; });
+        return !q.error;
+      }, function() { return false; }));
+      return Promise.all(puts);
+    }).then(function(oks) { return oks.every(Boolean); });
+  }
+
+  // This service's way of the song made the song's own (gotcha 46).
   function sbVerMakeMain() {
     var song = _sbmSong(); if (!song) return;
     var base = _sbBaseSongId(song), lib = _lbdLibSong(base), sup = window._supabase;
@@ -54431,93 +54831,104 @@ var WO = (function() {
     if (!sup) { showToast('Not connected to the database', 'error'); return; }
     var steps = _sbVerSteps(song);
     var m = _sbVerMainOf(_sbVerWordsOf(song).lyrics, steps, song.key || lib.key, lib.key);
-    var old = { lyrics: String(lib.lyrics || ''), key: String(lib.key || '').trim(), lastEdited: lib.lastEdited || '' };
-    if (_sbVerNorm(m.lyrics) === _sbVerNorm(old.lyrics) && m.key === old.key) { showToast('The song already has these words, in this key', 'info'); return; }
+    var oldKey = String(lib.key || '').trim();
+    if (_sbVerNorm(m.lyrics) === _sbVerNorm(lib.lyrics) && m.key === oldKey) { showToast('The song already has these words, in this key', 'info'); return; }
     if (!_sbVerNorm(m.lyrics)) { showToast('This service has no words for the song, so it cannot be its main version', 'info'); return; }
     var title = lib.title || song.title || 'This song';
-    var keepName = 'Before ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     var msg = '“' + title + '” in the song library becomes what this service sings' + (m.key ? ', in ' + m.key : '') +
       ': its words and chords. New services start from it; services already planned keep their own copies. ' +
-      'The song as it is now' + (old.key ? ' (key ' + old.key + ')' : '') + ' is kept as the version “' + keepName + '”.';
-    // The songbook's own confirm, which names its button; customConfirm's
-    // says Delete under a trash can.
-    var ask = new Promise(function(resolve) {
-      if (document.getElementById('sbConfirmModal')) _sbShowConfirm('Make this the song’s main version?', msg, function() { resolve(true); }, 'Make it the main version');
-      else resolve(window.confirm(msg));
-    });
-    ask.then(function(ok) {
+      'The song as it is now' + (oldKey ? ' (key ' + oldKey + ')' : '') + ' is kept under Earlier main versions, where it can be restored.';
+    _sbVerAsk('Make this the song’s main version?', msg, 'Make it the main version').then(function(ok) {
       if (!ok) return;
       var btn = document.getElementById('sbVerMainBtn'); if (btn) btn.disabled = true;
       var before = _sbVerSnap(song); before.key = song.key; before.masterLyrics = song.masterLyrics;
-      var d = m.moved, others = (_sbVers[base] || []).slice(), keep = null, written = false, moved = [];
-      var nowIso = new Date().toISOString();
-      var keepRow = Object.assign({ song_id: base, name: keepName, made_from: null },
-        _sbVerRebase({ transpose_steps: 0, lyrics: old.lyrics, rich_lyrics: null }, d, m.key));
-      sup.from('song_versions').insert(keepRow).select().then(function(r) {
-        if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the song as it is could not be kept first');
-        keep = r.data[0];
-        return SBQ_SONGS.updateFields(base, { lyrics: m.lyrics, key: m.key, last_edited: nowIso });
-      }).then(function() {
-        written = true;
-        return sup.from('songs').select('lyrics, key').eq('id', base).maybeSingle();
-      }).then(function(r) {
-        if (r.error || !r.data || String(r.data.lyrics || '') !== m.lyrics || String(r.data.key || '') !== m.key) {
-          throw new Error('the song library did not keep the change' + (r.error ? ' (' + r.error.message + ')' : ''));
-        }
-        SBQ_SONGS._announceSongChange(base, m.lyrics);
-        lib.lyrics = m.lyrics; lib.key = m.key; lib.lastEdited = nowIso;
-        if (!d) return [];
-        return Promise.all(others.map(function(v) {
-          var p = _sbVerRebase(v, d, m.key); p.updated_at = nowIso;
-          var was = { transpose_steps: v.transpose_steps, lyrics: v.lyrics, rich_lyrics: v.rich_lyrics };
-          return sup.from('song_versions').update(p).eq('id', v.id).then(function(r2) {
-            if (r2.error) return r2.error.message;
-            moved.push({ v: v, was: was });
-            Object.assign(v, p);
-            return '';
-          }, function(e) { return (e && e.message) || 'no answer'; });
-        }));
-      }).then(function(errs) {
-        var failed = (errs || []).filter(Boolean).length;
-        (_sbVers[base] = _sbVers[base] || []).push(keep);
+      _sbVerReplaceMain(base, lib, m).then(function(r) {
         _sbVerBecomeMain(song, m, steps);
         _sbVerSaved();
         _sbVerReshow(song);
-        var t = '“' + _sbmClip(title, 30) + '” now has these words' + (m.key ? ' in ' + m.key : '') + '. The song as it was is kept as “' + keepName + '”.';
-        if (failed) showToast(t + ' ' + failed + ' other version' + (failed === 1 ? '' : 's') + ' could not be moved to the new key.', 'warning');
+        _sbVerAfterLibraryChange(base);
+        var t = '“' + _sbmClip(title, 30) + '” now has these words' + (m.key ? ' in ' + m.key : '') + '. The song as it was is kept under Earlier main versions.';
+        var undo = function() {
+          _sbVerUndoMain(base, lib, r).then(function(all) {
+            if (_sbmSong() !== song) sbmSelectSong(song.id);
+            song.key = before.key; song.masterLyrics = before.masterLyrics;
+            _sbVerRestore(song, before);
+            _sbVerSaved();
+            _sbVerReshow(song);
+            _sbVerAfterLibraryChange(base);
+            showToast(all ? 'Put back as it was' : 'The song is back as it was, but its versions could not all be put back', all ? 'info' : 'warning');
+          }).catch(function(err) { showToast('Could not undo it: ' + (err && err.message || 'no answer'), 'error'); });
+        };
+        if (r.failed) showToast(t + ' ' + r.failed + ' other version' + (r.failed === 1 ? '' : 's') + ' could not be moved to the new key.', 'warning');
         else showToast(t, 'success', { action: 'Undo', duration: 10000, onAction: undo });
-      }).catch(function(err) {
+      }, function(err) {
         if (btn) btn.disabled = false;
-        // Nothing half done: the song back if it was written, the kept copy gone.
-        var back = written ? SBQ_SONGS.updateFields(base, { lyrics: old.lyrics, key: old.key }).catch(function() {}) : Promise.resolve();
-        back.then(function() { if (keep) sup.from('song_versions').delete().eq('id', keep.id).then(function() {}, function() {}); });
         showToast('Could not make it the main version: ' + (err && err.message || 'no answer'), 'error');
       });
-
-      function undo() {
-        SBQ_SONGS.updateFields(base, { lyrics: old.lyrics, key: old.key, last_edited: old.lastEdited || nowIso }).then(function() {
-          SBQ_SONGS._announceSongChange(base, old.lyrics);
-          lib.lyrics = old.lyrics; lib.key = old.key; lib.lastEdited = old.lastEdited;
-          var puts = moved.map(function(x) {
-            return sup.from('song_versions').update(Object.assign({ updated_at: new Date().toISOString() }, x.was)).eq('id', x.v.id)
-              .then(function(r) { if (!r.error) Object.assign(x.v, x.was); return !r.error; }, function() { return false; });
-          });
-          puts.push(sup.from('song_versions').delete().eq('id', keep.id).then(function(r) {
-            if (!r.error) _sbVers[base] = (_sbVers[base] || []).filter(function(v) { return v.id !== keep.id; });
-            return !r.error;
-          }, function() { return false; }));
-          return Promise.all(puts);
-        }).then(function(oks) {
-          if (_sbmSong() !== song) sbmSelectSong(song.id);
-          song.key = before.key; song.masterLyrics = before.masterLyrics;
-          _sbVerRestore(song, before);
-          _sbVerSaved();
-          _sbVerReshow(song);
-          var all = oks.every(Boolean);
-          showToast(all ? 'Put back as it was' : 'The song is back as it was, but its versions could not all be put back', all ? 'info' : 'warning');
-        }).catch(function(err) { showToast('Could not undo it: ' + (err && err.message || 'no answer'), 'error'); });
-      }
     });
+  }
+
+  // An earlier main version made the song's main version again -- from the
+  // Songbook's Versions sheet or the song library's History. The song as it
+  // is is kept first, so a restore can itself be restored; a service keeps
+  // what it sings. Resolves whether it was done.
+  function sbVerRestoreMain(base, vid) {
+    var lib = _lbdLibSong(base), sup = window._supabase;
+    if (!lib || !sup) { showToast('This song is not in the song library', 'info'); return Promise.resolve(false); }
+    return _sbVerSupport().then(function(ok) {
+      if (!ok) throw new Error('versions are not set up on this database');
+      return _sbVerLoad(base);
+    }).then(function() {
+      var v = _sbVerById(base, vid);
+      if (!v) { showToast('That version is no longer there', 'error'); return false; }
+      var m = _sbVerMainOf(v.lyrics, v.transpose_steps, lib.key, lib.key);
+      if (_sbVerNorm(m.lyrics) === _sbVerNorm(lib.lyrics) && m.key === String(lib.key || '').trim()) { showToast('The song already has these words, in this key', 'info'); return false; }
+      var title = lib.title || 'This song';
+      var msg = '“' + title + '” in the song library goes back to “' + v.name + '”' + (m.key ? ', in ' + m.key : '') +
+        '. New services start from it; services already planned keep their own copies. The song as it is now is kept under Earlier main versions too.';
+      return _sbVerAsk('Restore this main version?', msg, 'Restore it').then(function(yes) {
+        if (!yes) return false;
+        return _sbVerReplaceMain(base, lib, m).then(function(r) {
+          var song = _sbmSong(); if (song && _sbBaseSongId(song) === base) _sbVerReshow(song);
+          _sbVerAfterLibraryChange(base);
+          var undo = function() {
+            _sbVerUndoMain(base, lib, r).then(function(all) {
+              var s2 = _sbmSong(); if (s2 && _sbBaseSongId(s2) === base) _sbVerReshow(s2);
+              _sbVerAfterLibraryChange(base);
+              showToast(all ? 'Put back as it was' : 'The song is back as it was, but its versions could not all be put back', all ? 'info' : 'warning');
+            }).catch(function(err) { showToast('Could not undo it: ' + (err && err.message || 'no answer'), 'error'); });
+          };
+          if (r.failed) showToast('“' + _sbmClip(title, 30) + '” is back to “' + v.name + '”, but ' + r.failed + ' other version' + (r.failed === 1 ? '' : 's') + ' could not be moved to its key.', 'warning');
+          else showToast('“' + _sbmClip(title, 30) + '” is back to “' + v.name + '”', 'success', { action: 'Undo', duration: 10000, onAction: undo });
+          return true;
+        }, function(err) { showToast('Could not restore it: ' + (err && err.message || 'no answer'), 'error'); return false; });
+      });
+    }).catch(function(err) { showToast('Could not restore it: ' + (err && err.message || 'no answer'), 'error'); return false; });
+  }
+  // A song's earlier main versions, oldest first, for the song library's
+  // History: { id, name, created_at, key, original }.
+  function sbVerKept(base) {
+    var lib = _lbdLibSong(base);
+    return _sbVerSupport().then(function(ok) {
+      if (!ok) return [];
+      return _sbVerLoad(base).then(function(list) {
+        var kept = (list || []).filter(_sbVerIsKept);
+        return kept.map(function(v, i) {
+          var m = _sbVerMainOf(v.lyrics, v.transpose_steps, lib && lib.key, lib && lib.key);
+          return { id: v.id, name: v.name, created_at: v.created_at, key: m.key, original: i === 0 };
+        });
+      });
+    }).catch(function() { return []; });
+  }
+  // The song library's own view of a song that just changed: its preview,
+  // when it is open on that song, drawn again.
+  function _sbVerAfterLibraryChange(base) {
+    try {
+      var cur = window.currentLyricsPreviewSong;
+      if (cur && cur.id === base && typeof window.switchLyricsPreviewMode === 'function') {
+        window.switchLyricsPreviewMode(window.currentLyricsPreviewMode || 'lyrics');
+      }
+    } catch (e) {}
   }
   // This copy after it became the song's main version: the same words, now
   // the song's own and in its key, so there is nothing left to transpose.
@@ -54572,9 +54983,10 @@ var WO = (function() {
     var song = _sbmSong(); if (!song) return;
     var base = _sbBaseSongId(song), v = _sbVerById(base, vid), sup = window._supabase;
     if (!v || !sup) return;
-    var n = _sbmMarksOf(base, vid).length;
+    var n = _sbVerMarks(_sbmMarks[base], vid).length;
     var others = ((_sbVerUse[base] || {})[vid] || []).filter(function(id) { return !(currentOrderData && id === currentOrderData.id); }).length;
-    var msg = (n ? 'Its ' + n + ' drawn remark' + (n === 1 ? ' goes' : 's go') + ' with it. ' : '') +
+    var msg = (_sbVerIsKept(v) ? 'It is the song’s main version as it was; without it, that cannot be restored. ' : '') +
+      (n ? 'Its ' + n + ' drawn remark' + (n === 1 ? ' goes' : 's go') + ' with it. ' : '') +
       (others ? others + ' other service' + (others === 1 ? ' sings' : 's sing') + ' it; they keep its key and words and show Standard’s drawings. ' : '') +
       'This cannot be undone.';
     var ask = (typeof window.customConfirm === 'function') ? window.customConfirm('Delete “' + v.name + '”?', msg) : Promise.resolve(window.confirm('Delete “' + v.name + '”? ' + msg));
@@ -87015,13 +87427,14 @@ var WO = (function() {
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
-    sbmVersions: sbmVersions, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain,
+    sbmVersions: sbmVersions, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
     sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
-    sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo,
+    sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo, sbmDrawShare: sbmDrawShare,
+    sbmWho: sbmWho, sbmWhoPart: sbmWhoPart, sbmWhoSave: sbmWhoSave, sbmLayers: sbmLayers, sbmLayerToggle: sbmLayerToggle, sbmLayersShare: sbmLayersShare,
     sbmLiveRefresh: sbmLiveRefresh, sbmLiveDismiss: sbmLiveDismiss, sbmLiveBanner: _sbmLiveBanner,
     sbmPhone: sbmPhone, sbmPhoneDevice: sbmPhoneDevice, sbmPhoneReload: sbmPhoneReload, sbmPhoneBoot: sbmPhoneBoot, sbmPhoneApply: sbmPhoneApply,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
@@ -105850,7 +106263,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
 .sbm-card.is-drawing { outline: 2px dashed rgba(37,99,235,0.5); outline-offset: 3px; }
 .sbm-chip--draw.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
-.sbm-drawbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3700; background: var(--sbm-navy); color: #fff; border-radius: 22px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); max-width: calc(100vw - 16px); }
+.sbm-drawbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3700; background: var(--sbm-navy); color: #fff; border-radius: 22px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); max-width: calc(100vw - 16px);
+  /* left: 50% would cap its shrink-to-fit width at half the screen, and a
+     phone got a column of buttons seven rows tall */
+  width: max-content; }
 .sbm-drawbar__row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .sbm-drawbar__pen { width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; background: var(--c); cursor: pointer; padding: 0; }
 .sbm-drawbar__pen.is-on { border-color: #fff; box-shadow: 0 0 0 2px var(--c); }
@@ -105861,6 +106277,36 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-drawbar__tool.is-on { background: #fff; color: var(--sbm-navy); }
 .sbm-drawbar__gap { width: 4px; }
 .sbm-drawbar__done { min-height: 32px; padding: 0 14px; }
+.sbm-drawbar__who, .sbm-drawbar__share { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-drawbar__share { background: rgba(255,255,255,0.12); }
+.sbm-drawbar__share.is-on { background: var(--sbm-gold); border-color: var(--sbm-gold); color: var(--sbm-navy); }
+
+/* ---- Layers: whose drawings you see ---------------------------------- */
+.lay-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line); background: var(--sbm-card); }
+.lay-row--me { border-color: var(--sbm-gold); background: linear-gradient(var(--sbm-gold-soft), var(--sbm-gold-soft)), var(--sbm-card); }
+.lay-row.is-hidden { opacity: 0.6; }
+.lay-row__main { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 700 14px/1.3 var(--sbm-font-ui); color: var(--sbm-text); overflow-wrap: anywhere; }
+.lay-row__main small { flex: 1 1 100%; font: 400 12px/1.35 var(--sbm-font-body); color: var(--sbm-text-2); }
+.lay-part { padding: 2px 8px; border-radius: 999px; background: var(--sbm-surface); border: 1px solid var(--sbm-line); font: 600 11px/1.3 var(--sbm-font-ui); color: var(--sbm-text-2); }
+.lay-eye { flex: 0 0 auto; min-height: 36px; padding: 0 10px; font-size: 12px; }
+.lay-eye.is-on i { color: #16a34a; }
+.lay-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.lay-acts .sbm-btn { min-height: 38px; padding: 0 12px; font-size: 13px; }
+.lay-h2 { margin-top: 4px; }
+
+/* ---- Who's drawing ---------------------------------------------------- */
+.who .sbm-label { margin-bottom: 6px; }
+.who-h2 { margin-top: 14px; }
+.who-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+.who-part { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--sbm-line); background: var(--sbm-card); font: 600 13px/1 var(--sbm-font-ui); color: var(--sbm-text); cursor: pointer; }
+.who-part.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
+.who-note { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font: 500 13px/1.4 var(--sbm-font-ui); color: var(--sbm-text-2); }
+.who-note i { color: var(--sbm-gold); }
+.who-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ---- Versions: the song's earlier main versions ----------------------- */
+.ver-head--kept { margin-top: 4px; }
+.ver-pill--orig { background: var(--sbm-navy); color: #fff; }
 
 /* ---- Live: the banner for a change made on another device ------------- */
 .sbm-live { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 3650; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 999px; background: #b45309; color: #fff; font: 600 13px/1.2 var(--sbm-font-ui); box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: calc(100vw - 16px); animation: sbmLivePulse 1.6s ease-in-out infinite; }
@@ -118126,6 +118572,16 @@ window.LHC_Install = (function() {
   }
 
   .sf-hist-wrap { padding:4px 2px; }
+  .sf-hist-kept { margin:0 0 14px; padding:12px; border:1px solid #f1d58f; border-radius:12px; background:#fffaf0; }
+  .sf-hist-kept__h { display:flex; align-items:center; gap:8px; margin:0 0 8px; color:#7a5a0c; font-size:.72rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .sf-hist-kept__row { display:flex; align-items:center; gap:10px; padding:8px 0; }
+  .sf-hist-kept__row + .sf-hist-kept__row { border-top:1px solid #f3e3b8; }
+  .sf-hist-kept__t { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+  .sf-hist-kept__t b { color:var(--sf-navy,#06180d); font-size:.82rem; }
+  .sf-hist-kept__t em { font-style:normal; padding:1px 7px; border-radius:999px; background:#0f1f3d; color:#fff; font-size:.62rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+  .sf-hist-kept__t small { color:var(--sf-muted,#5f6b91); font-size:.72rem; }
+  .sf-hist-kept__btn { flex:none; min-height:34px; padding:0 12px; border-radius:9px; border:1px solid #c9a227; background:#fff; color:#7a5a0c; font-size:.76rem; font-weight:700; cursor:pointer; }
+  .sf-hist-kept__btn:disabled { opacity:.5; }
   .sf-hist-loading { margin:0; padding:22px; text-align:center; color:var(--sf-muted,#5f6b91); font-size:.8rem; }
   .sf-hist-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; }
   .sf-hist-item { display:flex; align-items:flex-start; gap:11px; padding:11px 2px; position:relative; }

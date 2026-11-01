@@ -1441,6 +1441,12 @@ const CASES = [
   // A version written again from its song's new key has other steps and the
   // same sound; without the sung comparison every service on it is told it
   // has changed key and words, and offered an Update that would undo the move.
+  // Somebody's own drawing is theirs until they share it; without the
+  // check every private stroke on a chord sheet is drawn for everyone.
+  ['songbook-layers-harness.js', 'other people\'s private drawings are shown',
+    s => s.replace('    if (owner && m.shared === false) return false;\r\n', '')],
+  ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
+    s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
   ['songbook-versions-harness.js', 'a version moved with its song reads as changed',
     s => s.replace('    if (_sbVerHasChords(w.lyrics) && _sbVerSung(w.lyrics, s) === _sbVerSung(v.lyrics, sv)) return { key: false, words: false };\r\n', '')],
   // Going back to Standard writes versionId '' over the stored one; a sync
