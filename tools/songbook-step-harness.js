@@ -170,6 +170,27 @@ console.log('\nA medley read straight through');
   }
 }
 
+console.log('\nSaved medleys: kept, and brought back');
+{
+  let M = null;
+  try { M = load(['_mdsKey', '_mdsRowOf', '_mdsMatch']); } catch (e) { check('the saved medley helpers exist', false, e.message.split('\n')[0]); }
+  if (M) {
+    check('a medley is kept under its songs in order', M._mdsKey(['s1', 's2', 's3']) === 's1>s2>s3' && M._mdsKey(['s2', 's1']) !== M._mdsKey(['s1', 's2']));
+    check('a gap is no song', M._mdsKey(['s1', '', null, 's2']) === 's1>s2');
+    const row = M._mdsRowOf([{ id: 'a', songId: 's1', title: 'Silent Night' }, { id: 'b', songId: 's2', title: 'O Holy Night' }, { id: 'p', title: 'blank page' }],
+      e => ({ a: 0, b: '-2' })[e.id], { id: 'order_1', name: 'Christmas Eve' });
+    check('it keeps each song by library id, title and the key it was sung in', JSON.stringify(row.songs) ===
+      JSON.stringify([{ songId: 's1', title: 'Silent Night', transposeSteps: 0 }, { songId: 's2', title: 'O Holy Night', transposeSteps: -2 }]), JSON.stringify(row.songs));
+    check('named for its songs, and for where it was sung', row.title === 'Silent Night \u2192 O Holy Night' && row.song_key === 's1>s2' &&
+      row.made_from === 'order_1' && row.made_from_name === 'Christmas Eve');
+    const book = [{ id: 'e1', songId: 's1' }, { id: 'e2', songId: 's2' }, { id: 'e3', songId: 's1' }];
+    const m = M._mdsMatch([{ songId: 's1' }, { songId: 's3' }, { songId: 's1' }, { songId: 's2' }], book);
+    check('brought back, each song is a copy the book already has, and a song twice is two copies',
+      m.map(x => x.entry ? x.entry.id : '-').join(',') === 'e1,-,e3,e2', m.map(x => x.entry ? x.entry.id : '-').join(','));
+    check('what the book lacks is said, not guessed', M._mdsMatch([{ songId: 's9' }], book)[0].entry === null && M._mdsMatch(null, book).length === 0);
+  }
+}
+
 console.log('\nThe running order: a medley stands together');
 if (T) {
   const list = ['x', 'a', 'y', 'b', 'z'].map(S);
@@ -335,6 +356,13 @@ console.log('\nThe wiring');
   check('a following song\'s words are set like the first\'s: every lyrics card, not only #sbmLyrics',
     has(/return c\.querySelector\('\.sbm-lyrics, \.sbm-score'\); \}\);/) && has(/document\.querySelectorAll\('#sbmRoot \.sbm-lyrics'\)\.forEach\(_sbmFitChordPairsIn\);/) &&
     (SRC.match(/#sbmRoot :is\(#sbmLyrics, \.sbm-card--follow > \.sbm-lyrics\)/g) || []).length >= 7 && !/#sbmRoot #sbmLyrics/.test(SRC));
+  check('every saved medley is kept once per sequence of songs, and the editor shows the latest five, then the rest',
+    has(/sup\.from\('saved_medleys'\)\.upsert\(row, \{ onConflict: 'song_key' \}\)/) && has(/var shown = _mdsAll \? _mdsRows : _mdsRows\.slice\(0, 5\);/) &&
+    has(/'See more \(' \+ \(_mdsRows\.length - 5\) \+ '\)'/) && has(/_mdsHtml\(\) \+\r?\n\s*'<div class="sbm-label md-ed__h2"><i class="fa-solid fa-plus"><\/i>Add a song from this '/));
+  check('Save medley keeps it, and puts each song in its saved key when asked',
+    has(/if \(ed\.keys && ed\.useKeys\) _mdsApplyKeys\(ed\.keys\);/) && has(/_mdsKeep\(ed\.songs\);\r?\n\s*\}/));
+  check('Use adds a song the book lacks the way Add a song does, or onto a standalone book\'s list',
+    has(/e = _woAddSongToSection\(sec, lib\);/) && has(/e\.id = 'sbsong_' \+ lib\.id \+ '_' \+ songOrderSections\.length;/));
   check('every book has the Medley tile, and nothing hides medleys from a standalone one',
     has(/so every book -- a service's or\r?\n\s*\/\/ a standalone one -- has the medley tile in that place\./) &&
     !has(/_sbStandaloneId \? \[\] : _woMedleys\(\)/) && !has(/if \(!currentOrderData \|\| _sbStandaloneId\) return;\r?\n\s*var md = _woMedleyOf/));

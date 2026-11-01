@@ -51931,6 +51931,198 @@ var WO = (function() {
     openMedleyEditor(song.id);
   }
 
+  // ---- saved medleys: kept, to be sung again ----
+  //
+  // Every medley saved in the editor is also kept in saved_medleys
+  // (migrations/2026-11-01_saved_medleys.sql): its songs by library id, in
+  // order, each in the key it was sung in -- one row per sequence of songs
+  // (song_key), so saving the same medley again brings it back to the top
+  // rather than keeping it twice. The editor lists the latest five, and See
+  // more the rest. Use brings one into the book in front of you: the songs
+  // it already has are used, the others added -- into the section the
+  // medley is sung in, in a service's book -- and the editor holds them
+  // until Save medley, which also puts each song in its saved key if asked.
+  var _mdsOk = null, _mdsProbe = null, _mdsRows = null, _mdsAll = false;
+  function _mdsSupport() {
+    if (_mdsOk !== null) return Promise.resolve(_mdsOk);
+    if (_mdsProbe) return _mdsProbe;
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    _mdsProbe = sup.from('saved_medleys').select('id').limit(1).then(function(r) { _mdsOk = !r.error; return _mdsOk; },
+      function() { _mdsOk = false; return false; });
+    return _mdsProbe;
+  }
+  function _mdsLoad() {
+    var sup = window._supabase;
+    return _mdsSupport().then(function(ok) {
+      if (!ok) { _mdsRows = []; return _mdsRows; }
+      return sup.from('saved_medleys').select('*').order('updated_at', { ascending: false }).limit(500).then(function(r) {
+        _mdsRows = (r && !r.error && r.data) ? r.data : [];
+        return _mdsRows;
+      });
+    });
+  }
+  // The key a sequence of songs is kept under (pure).
+  function _mdsKey(songIds) { return (songIds || []).filter(Boolean).join('>'); }
+  // A medley as it is kept (pure): its songs by library id, title and key.
+  function _mdsRowOf(entries, stepsOf, from) {
+    var songs = (entries || []).filter(function(e) { return e && e.songId; }).map(function(e) {
+      return { songId: e.songId, title: e.title || '', transposeSteps: parseInt(stepsOf ? stepsOf(e) : e.transposeSteps, 10) || 0 };
+    });
+    return {
+      title: songs.map(function(s) { return s.title || 'Song'; }).join(' → '),
+      songs: songs, song_key: _mdsKey(songs.map(function(s) { return s.songId; })),
+      made_from: (from && from.id) || null, made_from_name: (from && from.name) || null,
+      updated_at: new Date().toISOString()
+    };
+  }
+  // A saved medley's songs matched to the book's (pure): each to a copy of
+  // that song not already taken, in order; what the book lacks, listed.
+  function _mdsMatch(saved, book) {
+    var used = {}, out = [];
+    (saved || []).forEach(function(s) {
+      var e = (book || []).filter(function(x) { return x && x.songId === s.songId && !used[x.id]; })[0];
+      if (e) used[e.id] = true;
+      out.push({ saved: s, entry: e || null });
+    });
+    return out;
+  }
+  function _mdsKeep(ids) {
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    var entries = (ids || []).map(_lbdSong).filter(Boolean);
+    if (entries.length < 2) return Promise.resolve(false);
+    var from = { id: currentOrderData && currentOrderData.id, name: currentOrderData && (currentOrderData.title || currentOrderData.orderName) };
+    var row = _mdsRowOf(entries, function(e) { return (sbTransposeSteps[e.id] != null) ? sbTransposeSteps[e.id] : e.transposeSteps; }, from);
+    return _mdsSupport().then(function(ok) {
+      if (!ok) return false;
+      return sup.from('saved_medleys').upsert(row, { onConflict: 'song_key' }).select().then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        _mdsRows = null;
+        return true;
+      });
+    }).catch(function(err) {
+      showToast('The medley is made, but could not be kept in Saved medleys: ' + (err && err.message || 'no answer'), 'warning');
+      return false;
+    });
+  }
+  function _mdsKeyName(s) {
+    var lib = _lbdLibSong(s.songId), key = String((lib && lib.key) || '').trim(), st = parseInt(s.transposeSteps, 10) || 0;
+    if (!key) return '';
+    return (st && typeof transposeChord === 'function') ? String(transposeChord(key, st)) : key;
+  }
+  function _mdsHtml() {
+    if (_mdsOk === false) return '';
+    var head = '<div class="sbm-label md-ed__h2"><i class="fa-solid fa-bookmark"></i>Saved medleys' + (_mdsRows && _mdsRows.length ? '<span class="md-saved__n">' + _mdsRows.length + '</span>' : '') + '</div>';
+    if (!_mdsRows) {
+      _mdsLoad().then(function() { if (_mdEd) _mdEdRender(); }, function() {});
+      return head + '<p class="sbm-empty">Looking for saved medleys…</p>';
+    }
+    var book = _sbmSongs(), where = _sbStandaloneId ? 'songbook' : 'service';
+    var shown = _mdsAll ? _mdsRows : _mdsRows.slice(0, 5);
+    var cards = shown.map(function(r) {
+      var m = _mdsMatch(r.songs, book), lack = m.filter(function(x) { return !x.entry; }).length;
+      var keys = (r.songs || []).map(_mdsKeyName);
+      var when = r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+      var meta = [(r.songs || []).length + ' songs',
+        keys.some(Boolean) ? 'keys ' + keys.map(function(k) { return k || '–'; }).join(', ') : '',
+        lack ? lack + ' not in this ' + where + ' yet' : 'all in this ' + where,
+        (when ? 'saved ' + when : '') + (r.made_from_name ? ' from ' + r.made_from_name : '')].filter(Boolean).join(' · ');
+      return '<div class="md-saved__card" data-t="' + escapeHtml(String(r.title || '').toLowerCase()) + '">' +
+        '<div class="md-saved__main"><b>' + escapeHtml(r.title || 'Medley') + '</b><small>' + escapeHtml(meta) + '</small></div>' +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.mdsUse(\'' + escapeJsArg(r.id) + '\')">Use</button>' +
+        '<button class="sbm-btn sbm-btn--danger" onclick="WO.mdsDelete(\'' + escapeJsArg(r.id) + '\')" aria-label="Remove it from saved medleys" title="Remove it from saved medleys"><i class="fa-solid fa-trash"></i></button></div>';
+    }).join('');
+    return head +
+      (_mdsAll && _mdsRows.length > 5 ? '<input type="search" class="sbm-input md-saved__q" placeholder="Find a saved medley by its songs" oninput="WO.mdsFind(this.value)" autocomplete="off">' : '') +
+      '<div class="md-saved">' + (cards || '<p class="sbm-empty">None yet. Every medley you save here is kept, to be sung again.</p>') + '</div>' +
+      (_mdsRows.length > 5 ? '<button class="sbm-btn sbm-btn--block md-saved__more" onclick="WO.mdsMore(' + (_mdsAll ? 'false' : 'true') + ')">' +
+        (_mdsAll ? 'Show the latest 5' : 'See more (' + (_mdsRows.length - 5) + ')') + '</button>' : '');
+  }
+  function mdsMore(on) { _mdsAll = !!on; _mdEdRender(); }
+  // Filtered where it stands: drawing the sheet again would take the cursor out of the box.
+  function mdsFind(q) {
+    var t = String(q || '').trim().toLowerCase();
+    document.querySelectorAll('#sbmSheet .md-saved__card').forEach(function(c) {
+      c.style.display = (!t || (c.getAttribute('data-t') || '').indexOf(t) !== -1) ? '' : 'none';
+    });
+  }
+  // A song the book lacks, added as Add a song would: into a service's
+  // section, or onto a standalone songbook's list.
+  function _mdsAddToBook(lib, sec, list) {
+    var e;
+    if (_sbStandaloneId) {
+      e = _woNewSongEntry(lib, '');
+      e.id = 'sbsong_' + lib.id + '_' + songOrderSections.length;
+      e.serviceSections = []; e.sectionId = '';
+      songOrderSections.push(e);
+      currentOrderData.songs = songOrderSections.slice();
+      autoSaveOrder();
+    } else {
+      if (!sec) {
+        var music = list.filter(function(s) { return /song|hymn|praise|worship|music/i.test(s.title); })[0];
+        sec = (music || list[0] || {}).id || '';
+      }
+      if (!sec) return null;
+      e = _woAddSongToSection(sec, lib);
+      if (!e) return null;
+    }
+    songOriginalLyrics[e.id] = e.masterLyrics || e.lyrics || '';
+    songOriginalRichLyrics[e.id] = e.richLyrics || formatLyricsWithHighlights(songOriginalLyrics[e.id]);
+    if (e.transposeSteps) sbTransposeSteps[e.id] = e.transposeSteps;
+    return e;
+  }
+  function mdsUse(id) {
+    var r = (_mdsRows || []).filter(function(x) { return x.id === id; })[0];
+    if (!r || !_mdEd || !currentOrderData) return;
+    var list = _woSectionList();
+    var first = _mdEd.songs.length ? _lbdSong(_mdEd.songs[0]) : null;
+    var sec = (first && _woSongFirstSec(first, list)) || '';
+    var m = _mdsMatch(r.songs, _sbmSongs()), ids = [], keys = {}, added = [], lost = [];
+    m.forEach(function(x) {
+      var e = x.entry;
+      if (!e) {
+        var lib = _lbdLibSong(x.saved.songId);
+        e = lib ? _mdsAddToBook(lib, sec, list) : null;
+        if (!e) { lost.push(x.saved.title || 'a song'); return; }
+        added.push(e.title || lib.title || 'Song');
+        if (!sec && !_sbStandaloneId) sec = _woSongFirstSec(e, list);
+      }
+      ids.push(e.id);
+      keys[e.id] = parseInt(x.saved.transposeSteps, 10) || 0;
+    });
+    if (ids.length < 2) { showToast('Too few of its songs are in the song library to make it again', 'info'); return; }
+    _mdEd.songs = ids; _mdEd.keys = keys; _mdEd.useKeys = true;
+    if (added.length) _woAfterSongsChange();
+    _mdEdRender();
+    var where = _sbStandaloneId ? 'the songbook' : 'the service';
+    showToast((added.length ? 'Added to ' + where + ': ' + added.join(', ') + '. ' : '') +
+      (lost.length ? 'Not in the song library any more: ' + lost.join(', ') + '. ' : '') + 'Save the medley to make it.', added.length || lost.length ? 'info' : 'success', { duration: 6000 });
+  }
+  function mdsKeys(on) { if (_mdEd) _mdEd.useKeys = !!on; }
+  // Each song in the key the saved medley sang it in.
+  function _mdsApplyKeys(keys) {
+    var open = typeof _sbmBookOpen === 'function' && _sbmBookOpen();
+    Object.keys(keys || {}).forEach(function(id) {
+      var s = _lbdSong(id); if (!s) return;
+      var want = parseInt(keys[id], 10) || 0;
+      if (open && typeof _sbVerSetKey === 'function') _sbVerSetKey(s, want);
+      else { s.transposeSteps = want; sbTransposeSteps[s.id] = want; }
+    });
+    if (!open) autoSaveOrder();
+  }
+  function mdsDelete(id) {
+    var r = (_mdsRows || []).filter(function(x) { return x.id === id; })[0], sup = window._supabase;
+    if (!r || !sup) return;
+    var ask = (typeof window.customConfirm === 'function') ? window.customConfirm('Remove “' + _sbmClip(r.title, 60) + '” from saved medleys?', 'Services and songbooks that sing it keep their medley.') : Promise.resolve(window.confirm('Remove it from saved medleys?'));
+    ask.then(function(ok) {
+      if (!ok) return;
+      sup.from('saved_medleys').delete().eq('id', id).then(function(q) {
+        if (q.error) throw new Error(q.error.message);
+        _mdsRows = (_mdsRows || []).filter(function(x) { return x.id !== id; });
+        if (_mdEd) _mdEdRender();
+      }).catch(function(err) { showToast('Could not remove it: ' + (err && err.message || 'no answer'), 'error'); });
+    });
+  }
+
   // ---- the medley editor (the Songbook and the Liturgy Builder) ----
   var _mdEd = null;   // { id, songs: [entry ids] } while it is open
 
@@ -51938,6 +52130,7 @@ var WO = (function() {
     if (!currentOrderData) return;
     var md = _woMedleyOf(songId);
     _mdEd = { id: md ? md.medley.id : '', songs: md ? md.medley.songs.slice() : [songId] };
+    _mdsAll = false; _mdsRows = null;   // the saved medleys read afresh, the latest five shown
     _mdEdRender();
   }
 
@@ -51975,6 +52168,12 @@ var WO = (function() {
       '<div class="sbm-label"><i class="fa-solid fa-layer-group"></i>Sung in this order' + (sec ? ' · ' + escapeHtml(secName(sec)) : '') + '</div>' +
       '<div class="md-rows">' + rows + '</div>' +
       (n < 2 ? '<p class="md-ed__hint">Add one more song to make a medley.</p>' : '') +
+      (_mdEd.keys ? '<label class="md-keys"><input type="checkbox"' + (_mdEd.useKeys ? ' checked' : '') + ' onchange="WO.mdsKeys(this.checked)"><span>Sing each in its saved key: ' +
+        escapeHtml(_mdEd.songs.map(function(id) {
+          var s = byId[id], st = _mdEd.keys[id];
+          return s ? _mdsKeyName({ songId: s.songId, transposeSteps: st == null ? 0 : st }) || '\u2013' : '\u2013';
+        }).join(', ')) + '</span></label>' : '') +
+      _mdsHtml() +
       '<div class="sbm-label md-ed__h2"><i class="fa-solid fa-plus"></i>Add a song from this ' + (_sbStandaloneId ? 'songbook' : 'service') + '</div>' +
       '<div class="md-cands">' + (cand || '<p class="sbm-empty">Every song in this ' + (_sbStandaloneId ? 'songbook' : 'service') + ' is in the medley.</p>') + '</div>' +
       '<div class="md-ed__foot">' +
@@ -52007,11 +52206,14 @@ var WO = (function() {
     if (!_mdEd || _mdEd.songs.length < 2) return;
     var ed = _mdEd;
     if (_woSaveMedley(ed.id, ed.songs) === false) return;
+    // A saved medley brought in: each song in its key, when that was wanted.
+    if (ed.keys && ed.useKeys) _mdsApplyKeys(ed.keys);
     _mdEd = null;
     _sbmCloseSheet();
     _woAfterSongsChange();
     var names = ed.songs.map(function(id) { var s = _lbdSong(id); return (s && s.title) || 'Song'; });
-    showToast('Medley: ' + names.join(' + '), 'success', _woUndoOpts());
+    showToast('Medley: ' + names.join(' + ') + (_mdsOk === true ? ' \u00b7 kept in Saved medleys' : ''), 'success', _woUndoOpts());
+    _mdsKeep(ed.songs);
   }
   function mdEdBreak() {
     if (!_mdEd || !_mdEd.id) return;
@@ -87812,7 +88014,7 @@ var WO = (function() {
     sbmAddSongPick: sbmAddSongPick, sbmResRemove: sbmResRemove, sbmResRestore: sbmResRestore,
     sbmMedley: sbmMedley, openMedleyEditor: openMedleyEditor, woMedleyLeave: woMedleyLeave,
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
-    mdEdSave: mdEdSave, mdEdBreak: mdEdBreak,
+    mdEdSave: mdEdSave, mdsMore: mdsMore, mdsFind: mdsFind, mdsUse: mdsUse, mdsKeys: mdsKeys, mdsDelete: mdsDelete, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
     sbmVersions: sbmVersions, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
@@ -107021,6 +107223,17 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .md-cand > i { color: var(--sbm-teal); }
 .md-cand > span { min-width: 0; }
 .md-cand:disabled { opacity: 0.55; cursor: default; }
+.md-saved__n { margin-left: 6px; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--sbm-navy); color: #fff; font-size: 10px; letter-spacing: 0; text-align: center; }
+.md-saved { display: flex; flex-direction: column; gap: 6px; }
+.md-saved__card { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line); background: var(--sbm-card); }
+.md-saved__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.md-saved__main b { font: 700 13.5px/1.3 var(--sbm-font-ui); color: var(--sbm-text); overflow-wrap: anywhere; }
+.md-saved__main small { font: 400 12px/1.35 var(--sbm-font-body); color: var(--sbm-text-2); }
+.md-saved__card .sbm-btn { flex: 0 0 auto; min-height: 36px; padding: 0 12px; font-size: 13px; }
+.md-saved__more { margin-top: 6px; min-height: 38px; font-size: 13px; }
+.md-saved__q { margin: 0 0 8px; }
+.md-keys { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 8px 10px; border-radius: var(--sbm-radius-md); background: var(--sbm-gold-soft); font: 600 13px/1.35 var(--sbm-font-ui); color: var(--sbm-text); }
+.md-keys input { width: 18px; height: 18px; flex: 0 0 auto; }
 .md-ed__foot {
   position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; margin: 14px calc(-1 * var(--sbm-gutter)) 0;
   padding: 10px var(--sbm-gutter); background: rgba(246,248,252,0.97); border-top: 1px solid var(--sbm-line);
