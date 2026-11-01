@@ -506,7 +506,7 @@ const CASES = [
   // Undo on one song deleted the last stroke of another, in the database,
   // with nothing on the screen to show for it.
   ['songbook-marks-harness.js', 'undo deletes the last stroke of any song',
-    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;",
+    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (shown.indexOf(D.undo[i].base) !== -1) break;",
                    "    i = D.undo.length - 1;")],
   ['songbook-marks-harness.js', 'undo skips a stroke that is still saving',
     s => s.replace("    if (String(u.local.id).indexOf('tmp_') === 0) {", "    if (false) {")],
@@ -865,7 +865,7 @@ const CASES = [
           .replace(/(\.wo-lyrics-chord-line,\s*#songbookLiveModal\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')
           // the reading view's own grid, on every screen but the upright phone
-          .replace(/(\.wo-lyrics-chord-line,\s*#sbmRoot #sbmLyrics:not\(\.sbm-lyrics--nochords\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
+          .replace(/(\.wo-lyrics-chord-line,\s*#sbmRoot :is\(#sbmLyrics, \.sbm-card--follow > \.sbm-lyrics\):not\(\.sbm-lyrics--nochords\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')],
 
   ['blank-slide-harness.js', 'the write boundary stops pruning',

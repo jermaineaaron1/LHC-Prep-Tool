@@ -1044,6 +1044,17 @@ the anon key -- verify as `postgres`, not as the app.
     keeps `songIds`, the library ids, and `_woMedleys` reads it back through
     `_woMedleysByLibId`. With no builder and no sections, `_woSongsChange`
     changes its songs directly and keeps its own undo (`_woSbUndo`).
+    In the Songbook's reading view a medley is READ STRAIGHT THROUGH: under
+    the song in front come the rest of its medley (`_sbmFollowHtml`), each
+    with its words and chords in its sung key (or its choir parts), its
+    drawings and an Open button. Those cards carry `data-sbm-song`, and
+    everything about drawings goes by the card's song (`_sbmCardSong`):
+    painting, a new stroke, the rubber (`cv.__base`), and undo, which takes
+    the last stroke on any song on the page (`_sbmShownBases`). A drawing
+    group never spans two cards. The reading view's lyric styles therefore
+    target `:is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics)` -- one id
+    alone left the following songs in a proportional face with their chords
+    bunched -- and the chord fit runs over every `.sbm-lyrics`.
 
 43. **A shared link reaches an order through `window._pendingShareItem`.**
     Every route sets it and then loads the order -- the share picker's Send,
