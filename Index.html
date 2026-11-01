@@ -9141,6 +9141,28 @@
   .vl-rec-btn.is-recording { background: #dc2626; border-color: #dc2626; color: #fff; animation: vlRecPulse 1.2s ease-in-out infinite; }
   @keyframes vlRecPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.45); } 50% { box-shadow: 0 0 0 5px rgba(220,38,38,0); } }
   .vl-rec-takes { display: flex; align-items: center; gap: 4px; }
+  .vl-rec-list { display: none; }
+  .vl-takes-pop { position: fixed; z-index: 2400; width: min(340px, calc(100vw - 16px)); max-height: min(440px, 72vh); display: flex; flex-direction: column;
+    background: #fff; color: #1f2933; border: 1px solid #dfe5ec; border-radius: 14px; box-shadow: 0 14px 40px rgba(11,25,48,0.28); font-family: 'Poppins', sans-serif; overflow: hidden; }
+  .vl-takes-pop--sheet { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 72vh; border-radius: 18px; }
+  .vl-pop-head { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 10px 16px; border-bottom: 1px solid #eef1f5; }
+  .vl-pop-head__t { flex: 1 1 auto; min-width: 0; }
+  .vl-pop-title { font-weight: 700; font-size: 14px; color: #0b1930; }
+  .vl-pop-words { margin-top: 2px; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vl-pop-x { flex: 0 0 auto; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #f1f5f9; color: #334155; cursor: pointer; }
+  .vl-pop-list { flex: 1 1 auto; overflow-y: auto; padding: 6px 8px; }
+  .vl-pop-take { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; }
+  .vl-pop-take.is-playing { background: #f0fdfa; }
+  .vl-pop-play { flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 50%; background: #0d9488; color: #fff; font-size: 13px; cursor: pointer; }
+  .vl-pop-take.is-playing .vl-pop-play { background: #0b1930; }
+  .vl-pop-txt { flex: 1 1 auto; min-width: 0; }
+  .vl-pop-name { font-size: 13px; font-weight: 600; color: #0b1930; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vl-pop-sub { margin-top: 1px; font-size: 11.5px; color: #64748b; }
+  .vl-pop-del { flex: 0 0 auto; width: 38px; height: 38px; border: 1px solid rgba(220,38,38,0.25); border-radius: 50%; background: #fef2f2; color: #b91c1c; font-size: 13px; cursor: pointer; }
+  .vl-pop-none { padding: 14px 10px; font-size: 13px; line-height: 1.45; color: #64748b; }
+  .vl-pop-foot { flex: 0 0 auto; padding: 8px 12px 12px; border-top: 1px solid #eef1f5; }
+  .vl-pop-add { width: 100%; min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1px solid #dfe5ec; border-radius: 10px; background: #f8fafc; color: #0b1930; font: 600 13px/1 'Poppins', sans-serif; cursor: pointer; }
   .vl-take-wrap { display: inline-flex; align-items: center; gap: 4px; }
   .vl-take { border: 1px solid #ddd3fb; background: #f6f3ff; color: #6d28d9; border-radius: 999px; height: 22px; padding: 0 8px; font-size: 10px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .vl-take.is-playing { background: var(--vl-cue); border-color: var(--vl-cue); color: #fff; }
@@ -15378,6 +15400,146 @@ window.lhcVoiceRec = {
     }).join('');
     var line = root.querySelector('.vl-ln[data-line-id="' + lineId + '"]');
     if (line) line.classList.toggle('vl-ln--has-take', takes.length > 0);
+    var badge = root.querySelector('.vl-rec-list[data-rec-line="' + lineId + '"]');
+    if (badge) {
+      var cnt = badge.querySelector('.vl-rec-n');
+      if (cnt) cnt.textContent = String(takes.length);
+      badge.classList.toggle('has-takes', takes.length > 0);
+      var tip = takes.length ? takes.length + ' take' + (takes.length === 1 ? '' : 's') + ' of this line' : 'No takes of this line yet';
+      badge.title = tip;
+      badge.setAttribute('aria-label', tip);
+    }
+    if (R._list && R._list.lineId === String(lineId)) R.paintList();
+  },
+
+  // ONE line's takes, opened from its badge: each to play or delete, and an
+  // audio file to add. It lives on <body> (the songbook's bar is a
+  // transformed box, and position: fixed inside one is not the screen's), and
+  // is painted from the store with the badge, so a take recorded, played or
+  // deleted shows in both at once. A redraw of the score makes a new badge
+  // and a new root: both are found again by the line's id, and the list
+  // closes when the line is no longer on the page.
+  _list: null,
+  openList: function(root, lineId, anchor) {
+    var R = window.lhcVoiceRec;
+    var again = R._list && R._list.lineId === String(lineId);
+    R.closeList();
+    if (again) return;   // the badge tapped again closes it
+    var el = document.createElement('div');
+    el.className = 'vl-takes-pop';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', 'Takes of this line');
+    document.body.appendChild(el);
+    R._list = { root: root, lineId: String(lineId), el: el, anchor: anchor };
+    el.addEventListener('click', function(e) {
+      var b = e.target.closest ? e.target.closest('[data-pop-act]') : null;
+      if (!b || !R._list) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var act = b.getAttribute('data-pop-act'), L = R._list;
+      if (act === 'close') R.closeList();
+      else if (act === 'play') R.play(L.root, b.getAttribute('data-rec-id'), b.getAttribute('data-rec-path'));
+      else if (act === 'del') R.del(L.root, b.getAttribute('data-rec-id'), b.getAttribute('data-rec-path'));
+      else if (act === 'import') R.pickFile(L.root, L.lineId);
+    });
+    R._listAway = function(e) {
+      var L = R._list;
+      if (!L || L.el.contains(e.target)) return;
+      // The confirm a delete asks is not "somewhere else".
+      if (e.target.closest && (e.target.closest('.vl-rec-list[data-rec-line="' + L.lineId + '"]') || e.target.closest('#customConfirmModal'))) return;
+      R.closeList();
+    };
+    R._listKey = function(e) {
+      if (e.key !== 'Escape' || !R._list) return;
+      var cm = document.getElementById('customConfirmModal');
+      if (cm && cm.classList.contains('show')) return;   // Escape is the confirm's
+      e.stopPropagation();
+      R.closeList();
+    };
+    R._listMove = function() { R._placeList(); };
+    document.addEventListener('pointerdown', R._listAway, true);
+    document.addEventListener('keydown', R._listKey, true);
+    window.addEventListener('scroll', R._listMove, true);
+    window.addEventListener('resize', R._listMove);
+    R.paintList();
+  },
+  closeList: function() {
+    var R = window.lhcVoiceRec, L = R._list;
+    if (!L) return;
+    R._list = null;
+    document.removeEventListener('pointerdown', R._listAway, true);
+    document.removeEventListener('keydown', R._listKey, true);
+    window.removeEventListener('scroll', R._listMove, true);
+    window.removeEventListener('resize', R._listMove);
+    if (L.el.parentNode) L.el.parentNode.removeChild(L.el);
+  },
+  // The badge as the page has it now, and the recorder root it is under.
+  _listAnchor: function() {
+    var R = window.lhcVoiceRec, L = R._list;
+    if (!L) return null;
+    var a = L.anchor;
+    if (!a || !a.isConnected) {
+      a = document.querySelector('.vl-rec-list[data-rec-line="' + L.lineId + '"]');
+      L.anchor = a;
+    }
+    if (!a) return null;
+    var n = a;
+    while (n && !n.__vlRecSong) n = n.parentNode;
+    if (n) L.root = n;
+    return a;
+  },
+  _placeList: function() {
+    var R = window.lhcVoiceRec, L = R._list;
+    if (!L) return;
+    var a = R._listAnchor();
+    if (!a) { R.closeList(); return; }
+    var el = L.el;
+    // A phone takes it as a sheet from the bottom, out of the way of the
+    // thumb; a desk, under its badge.
+    var sheet = window.innerWidth < 640;
+    el.classList.toggle('vl-takes-pop--sheet', sheet);
+    if (sheet) { el.style.left = el.style.top = ''; return; }
+    var r = a.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+    var x = Math.min(window.innerWidth - w - 8, Math.max(8, r.right - w));
+    var y = r.bottom + 6;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 6);
+    el.style.left = Math.round(x) + 'px';
+    el.style.top = Math.round(y) + 'px';
+  },
+  paintList: function() {
+    var R = window.lhcVoiceRec, L = R._list;
+    if (!L) return;
+    var a = R._listAnchor();
+    if (!a) { R.closeList(); return; }
+    var esc = window.lhcVoiceLines._esc;
+    var line = a.closest ? a.closest('.vl-ln') : null;
+    var wordsEl = line && line.querySelector('.vl-words');
+    // The words alone: a phone carries the chords inline, in the words.
+    var wc = wordsEl ? wordsEl.cloneNode(true) : null;
+    if (wc) Array.prototype.forEach.call(wc.querySelectorAll('.vl-w__c'), function(c) { c.parentNode.removeChild(c); });
+    var words = wc ? String(wc.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    // Newest first: the one just sung is the one anybody wants to hear.
+    var takes = R._takesFor(R._songOf(L.root), L.lineId).slice().reverse();
+    L.el.innerHTML =
+      '<div class="vl-pop-head"><div class="vl-pop-head__t">' +
+        '<div class="vl-pop-title">' + (takes.length ? takes.length + ' take' + (takes.length === 1 ? '' : 's') + ' of this line' : 'Takes of this line') + '</div>' +
+        (words ? '<div class="vl-pop-words">“' + esc(words) + '”</div>' : '') + '</div>' +
+        '<button type="button" class="vl-pop-x" data-pop-act="close" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>' +
+      '<div class="vl-pop-list">' +
+        (takes.length ? takes.map(function(t) {
+          var on = R._playing === t.id;
+          var name = esc(t.name || 'Take');
+          return '<div class="vl-pop-take' + (on ? ' is-playing' : '') + '">' +
+            '<button type="button" class="vl-pop-play" data-pop-act="play" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" aria-label="' + (on ? 'Stop ' : 'Play ') + name + '">' +
+              '<i class="fa-solid fa-' + (on ? 'stop' : 'play') + '" aria-hidden="true"></i></button>' +
+            '<div class="vl-pop-txt"><div class="vl-pop-name">' + name + '</div>' +
+              '<div class="vl-pop-sub">' + esc(R._dur(t.duration_sec)) + (t.created_at ? ' · ' + esc(R._when(t.created_at)) : '') + '</div></div>' +
+            '<button type="button" class="vl-pop-del" data-pop-act="del" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" title="Delete ' + name + '" aria-label="Delete ' + name + '">' +
+              '<i class="fa-solid fa-trash-can" aria-hidden="true"></i></button></div>';
+        }).join('') : '<div class="vl-pop-none">No takes of this line yet. Record one with the microphone beside its badge.</div>') +
+      '</div>' +
+      '<div class="vl-pop-foot"><button type="button" class="vl-pop-add" data-pop-act="import"><i class="fa-solid fa-file-audio" aria-hidden="true"></i>Add an audio file</button></div>';
+    R._placeList();
   },
 
   // One delegated listener per container, and the container remembers its
@@ -15388,6 +15550,8 @@ window.lhcVoiceRec = {
     var R = window.lhcVoiceRec;
     if (!root) return;
     root.__vlRecSong = songId;
+    // The score was redrawn: the open list follows its line, or closes.
+    if (R._list) setTimeout(function() { R.paintList(); }, 0);
     if (root._vlRecBound) return;
     root._vlRecBound = true;
     root.addEventListener('click', function(e) {
@@ -15397,6 +15561,7 @@ window.lhcVoiceRec = {
       e.stopPropagation();
       var act = btn.getAttribute('data-rec-act');
       if (act === 'toggle') R.toggle(root, btn.getAttribute('data-rec-line'));
+      else if (act === 'list') R.openList(root, btn.getAttribute('data-rec-line'), btn);
       else if (act === 'song') R.toggle(root, null);
       else if (act === 'import') R.pickFile(root, btn.getAttribute('data-rec-line'));
       else if (act === 'import-song') R.pickFile(root, null);
@@ -15702,6 +15867,7 @@ window.lhcVoiceRec = {
   // is nothing left to press to stop it.
   stopPlayback: function(root) {
     var R = window.lhcVoiceRec;
+    R.closeList();
     if (R._audio) { try { R._audio.pause(); } catch (e) {} }
     R._audio = null;
     R._playing = null;
@@ -16691,6 +16857,11 @@ window.lhcVoiceLines = {
 
   _recSlot: function(id) {
     return '<span class="vl-rec" data-rec-line="' + id + '">' +
+      // The reading view's badge: how many takes the line has, and the list
+      // of them. Elsewhere the takes are chips and the badge is not shown.
+      '<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-line="' + id + '" ' +
+      'title="No takes of this line yet" aria-label="No takes of this line yet" aria-haspopup="dialog">' +
+      '<i class="fa-solid fa-list-ul" aria-hidden="true"></i><span class="vl-rec-n">0</span></button>' +
       '<button type="button" class="vl-rec-btn" data-rec-act="toggle" data-rec-line="' + id + '" ' +
       'title="Record this line" aria-label="Record this line">' +
       '<i class="fa-solid fa-microphone"></i></button>' +
@@ -51191,16 +51362,6 @@ var WO = (function() {
   }
   var _SBM_PART_ICON = { all: 'fa-people-group', soprano: 'fa-user', alto: 'fa-user', tenor: 'fa-user', bass: 'fa-user', women: 'fa-user-group', men: 'fa-user-group', other: 'fa-user' };
 
-  // The line mics are a practice tool, so they are off until asked for:
-  // a score with a microphone under every line is a worse score to sing
-  // from. The takes a line already has always show.
-  var _sbmMics = false;
-  try { _sbmMics = localStorage.getItem('lhc_sbm_linemics') === '1'; } catch (e) {}
-  function sbmLineMics() {
-    _sbmMics = !_sbmMics;
-    try { localStorage.setItem('lhc_sbm_linemics', _sbmMics ? '1' : '0'); } catch (e) {}
-    _sbmRender();
-  }
   // A take for one line is named by that line's words: that is how a
   // singer tells which take this is without playing it.
   function _sbmLineWords(rec, song) {
@@ -52769,9 +52930,8 @@ var WO = (function() {
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
-          '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' +
-          '<button class="sbm-chip sbm-score__mics' + (_sbmMics ? ' is-on' : '') + '" onclick="WO.sbmLineMics()" aria-pressed="' + (_sbmMics ? 'true' : 'false') + '" title="Show a microphone on every line, to record just that line"><i class="fa-solid fa-microphone"></i>Line mics</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
-        '<div class="sbm-score sb-song-page--choir' + (_sbmMics ? ' sbm-score--mics' : '') + '" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
+          '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
+        '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
     html += _sbmFollowHtml(mdHere, wide) + '</div>';
@@ -88163,7 +88323,7 @@ var WO = (function() {
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
-    sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmLineMics: sbmLineMics,
+    sbmShare: sbmShare, sbmRedraw: sbmRedraw,
     // Step 2: the inbox, adding a song, medleys
     openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
     sbmInboxAttachTo: sbmInboxAttachTo, sbmInboxRemove: sbmInboxRemove, sbmInboxPaste: sbmInboxPaste,
@@ -106645,20 +106805,23 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 /* ---- The score's microphones and takes, for a thumb ------------------- */
 .sbm-score .vl-ln { flex-wrap: wrap; row-gap: 4px; }
 .sbm-score .vl-rec { flex: 1 0 100%; margin: 0; padding-left: 76px; justify-content: flex-start; gap: 6px; align-items: center; }
-.sbm-score:not(.sbm-score--mics) .vl-rec:not(:has(.vl-take)) { display: none; }
-.sbm-score .vl-rec-btn, .sbm-score .vl-imp-btn {
-  display: none; width: 40px; height: 40px; margin: 0; font-size: 15px; border-radius: 50%;
-  color: var(--sbm-navy); border-color: var(--sbm-line); align-items: center; justify-content: center;
+/* Two boxes on every line: its takes, then the microphone. The takes are
+   listed from the badge; the file to add is in that list. */
+.sbm-score .vl-rec-list, .sbm-score .vl-rec-btn {
+  display: inline-flex; align-items: center; justify-content: center; height: 36px; margin: 0; padding: 0;
+  border: 1px solid var(--sbm-line); border-radius: 9px; background: #fff; color: var(--sbm-navy); cursor: pointer;
 }
-.sbm-score--mics .vl-rec-btn, .sbm-score--mics .vl-imp-btn { display: inline-flex; }
-.sbm-score .vl-rec-btn.is-recording { color: #fff; }
+.sbm-score .vl-rec-btn { width: 36px; font-size: 14px; }
+.sbm-score .vl-rec-list { min-width: 48px; gap: 6px; padding: 0 10px; color: var(--sbm-muted); font: 700 13px/1 var(--sbm-font-ui); }
+.sbm-score .vl-rec-list i { font-size: 12px; }
+.sbm-score .vl-rec-list.has-takes { background: #e6f7f4; border-color: #8fd5c9; color: #0f766e; }
+.sbm-score .vl-imp-btn, .sbm-score .vl-rec-takes { display: none; }
+.sbm-score .vl-rec-btn.is-recording { background: #dc2626; border-color: #dc2626; color: #fff; }
 .sbm-score .vl-rec-takes { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
 .sbm-score .vl-take-wrap { gap: 6px; }
 .sbm-score .vl-take { height: 36px; padding: 0 14px; font-size: 13px; }
 .sbm-score .vl-take-del { width: 36px; height: 36px; font-size: 14px; border-radius: 50%; border: 1px solid rgba(220,38,38,0.25); background: var(--sbm-danger-soft); }
 .sbm-score .vl-ln--has-take { box-shadow: inset 3px 0 0 var(--sbm-teal); }
-.sbm-score__mics { margin-left: auto; min-height: 36px; padding: 0 12px; font-size: 12px; }
-.sbm-score__mics i { font-size: 12px; }
 
 /* ==================== THE SAME BOOK ON A WIDE SCREEN ==================== */
 #sbmRoot.sbm--wide { background: var(--sbm-surface); padding-bottom: 0; }
@@ -106702,7 +106865,8 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 /* On a desk the line's controls sit at its end, as on the printed page; the mics still wait to be asked for. */
 .sbm--wide .sbm-score .vl-ln { flex-wrap: nowrap; }
 .sbm--wide .sbm-score .vl-rec { flex: 0 1 auto; margin-left: auto; padding-left: 0; justify-content: flex-end; }
-.sbm--wide .sbm-score .vl-rec-btn, .sbm--wide .sbm-score .vl-imp-btn { width: 32px; height: 32px; font-size: 13px; }
+.sbm--wide .sbm-score .vl-rec-btn { width: 34px; height: 34px; font-size: 13px; }
+.sbm--wide .sbm-score .vl-rec-list { height: 34px; }
 .sbm--wide .sbm-score .vl-take { height: 30px; padding: 0 12px; font-size: 12px; }
 .sbm--wide .sbm-score .vl-take-del { width: 30px; height: 30px; }
 .sbm--wide .sbm-score .vl-who { flex-basis: 84px; width: 84px; font-size: 11px; }
@@ -106775,7 +106939,6 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm--wide .sbm-part { min-height: 68px; padding: 7px 6px; gap: 2px; }
 .sbm--wide .sbm-part i { font-size: 18px; }
 .sbm--wide .sbm-chip { min-height: 34px; }
-.sbm--wide .sbm-score__mics { min-height: 32px; }
 .sbm--wide .sbm-rec { min-height: 52px; }
 .sbm--wide .sbm-lyrics { line-height: 1.5; }
 /* and so is its editor */
@@ -106837,10 +107000,9 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 #sbmPad:not(.sbm-pad--desktop) .sbm-pad__hint { font-size: 11px; line-height: 1.4; }
 .sbm-score__ov { margin-left: auto; min-height: 36px; padding: 0 12px; font-size: 12px; }
 .sbm-score__ov i { font-size: 12px; }
-.sbm-score__mics { margin-left: 6px; }
 .sbm-score .vl-section { display: inline-flex; align-items: center; gap: 8px; }
 .sbm-sec-edit { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-navy); font-size: 11px; cursor: pointer; }
-.sbm--wide .sbm-score__ov, .sbm--wide .sbm-score__mics { min-height: 32px; }
+.sbm--wide .sbm-score__ov { min-height: 32px; }
 
 /* ---- Titles on the cards, the take menu, the printed page's Overview --- */
 .sbm-label__t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -106892,7 +107054,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm--wide .sbm-part { min-height: 62px; padding: 6px 5px; }
 .sbm--wide .sbm-part i { font-size: 17px; }
 .sbm--wide .sbm-practice-open { min-height: 38px; }
-.sbm--wide .sbm-chip, .sbm--wide .sbm-score__ov, .sbm--wide .sbm-score__mics { min-height: 30px; font-size: 11.5px; }
+.sbm--wide .sbm-chip, .sbm--wide .sbm-score__ov { min-height: 30px; font-size: 11.5px; }
 .sbm--wide .sbm-lyrics { line-height: 1.45; }
 .sbm--wide .sbm-score .vl-ln { padding: 0 6px; }
 .sbm--wide .sbm-rec { min-height: 46px; }
@@ -107199,8 +107361,8 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-practice-open { min-height: 30px; font-size: 13px; }
 #sbmRoot:not(.sbm--wide) .sbm-practice-open i { font-size: 13px; }
 /* the score's own buttons, and each section's */
-#sbmRoot:not(.sbm--wide) .sbm-score__ov, #sbmRoot:not(.sbm--wide) .sbm-score__mics, #sbmRoot:not(.sbm--wide) .sbm-chip--draw { min-height: 28px; padding: 0 10px; font-size: 11px; gap: 5px; }
-#sbmRoot:not(.sbm--wide) .sbm-score__ov i, #sbmRoot:not(.sbm--wide) .sbm-score__mics i, #sbmRoot:not(.sbm--wide) .sbm-chip--draw i { font-size: 11px; }
+#sbmRoot:not(.sbm--wide) .sbm-score__ov, #sbmRoot:not(.sbm--wide) .sbm-chip--draw { min-height: 28px; padding: 0 10px; font-size: 11px; gap: 5px; }
+#sbmRoot:not(.sbm--wide) .sbm-score__ov i, #sbmRoot:not(.sbm--wide) .sbm-chip--draw i { font-size: 11px; }
 #sbmRoot:not(.sbm--wide) .sbm-sec-edit, #sbmRoot:not(.sbm--wide) .sbm-sec-mic { width: 26px; height: 26px; font-size: 10.5px; }
 
 /* ---- The song itself: forward, and wider ---- */
@@ -107218,10 +107380,11 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* ---- A line's recordings on the line of its part chip ---- */
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln { align-items: center; flex-wrap: wrap; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln > .vl-who { order: 0; }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln > .vl-rec { order: 1; flex: 0 1 auto; min-width: 0; margin: 0 0 0 2px; padding: 0; gap: 4px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-ln > .vl-rec { order: 1; flex: 0 1 auto; min-width: 0; margin: 0 0 0 auto; padding: 0; gap: 6px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln > .vl-body { order: 2; flex: 1 1 100%; min-width: 100%; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl { row-gap: 0.3em; }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-rec-btn, #sbmRoot:not(.sbm--wide) .sbm-score .vl-imp-btn { width: 26px; height: 26px; font-size: 11px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-rec-btn { width: 32px; height: 32px; font-size: 12px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-rec-list { height: 32px; min-width: 44px; padding: 0 9px; font-size: 12px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-rec-takes, #sbmRoot:not(.sbm--wide) .sbm-score .vl-take-wrap { gap: 4px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-take { height: 24px; padding: 0 9px; font-size: 11px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-take-del { width: 24px; height: 24px; font-size: 10px; }
