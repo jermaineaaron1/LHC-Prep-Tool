@@ -49930,18 +49930,40 @@ var WO = (function() {
     _sbmSheet(me ? 'Who’s drawing' : 'Who’s drawing?', html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'who');
     setTimeout(function() { var i = document.getElementById('sbmWhoName'); if (i && !i.value) i.focus(); }, 30);
-    // The roster's people, to pick from.
+    // The names already drawing in this book first, then the roster's
+    // people: on another device the same name finds the same drawings.
+    var drawers = [], roster = [], fill = function() {
+      var dl = document.getElementById('sbmWhoNames'); if (!dl) return;
+      var seen = {}, names = [];
+      drawers.concat(roster.slice().sort(function(a, b) { return a.localeCompare(b); })).forEach(function(n) {
+        var t = String(n || '').trim(); if (t && !seen[_sbmMeKey(t)]) { seen[_sbmMeKey(t)] = true; names.push(t); }
+      });
+      dl.innerHTML = names.map(function(n) { return '<option value="' + escapeHtml(n) + '"></option>'; }).join('');
+    };
+    _sbmBookDrawers().then(function(rows) { drawers = _sbmDrawerNames(rows); fill(); });
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.getNames) {
       SBQ_ROSTER.getNames().then(function(byCat) {
-        var dl = document.getElementById('sbmWhoNames'); if (!dl) return;
-        var seen = {}, names = [];
-        Object.keys(byCat || {}).forEach(function(k) { (byCat[k] || []).forEach(function(n) {
-          var t = String(n || '').trim(); if (t && !seen[t.toLowerCase()]) { seen[t.toLowerCase()] = true; names.push(t); }
-        }); });
-        names.sort(function(a, b) { return a.localeCompare(b); });
-        dl.innerHTML = names.map(function(n) { return '<option value="' + escapeHtml(n) + '"></option>'; }).join('');
+        Object.keys(byCat || {}).forEach(function(k) { (byCat[k] || []).forEach(function(n) { roster.push(n); }); });
+        fill();
       }).catch(function() {});
     }
+  }
+  // Who has drawn on the songs of this book: [{ owner, owner_name }], one
+  // row per drawing, read from the database rather than from what this
+  // device happens to have loaded.
+  function _sbmBookDrawers() {
+    var sup = window._supabase, bases = [];
+    _sbmSongs().forEach(function(x) { var b = _sbBaseSongId(x); if (b && bases.indexOf(b) === -1) bases.push(b); });
+    if (!sup || !bases.length || _sbmLayersOk !== true) return Promise.resolve([]);
+    return sup.from('song_marks').select('owner, owner_name').in('song_id', bases).then(function(r) {
+      return (r && !r.error && r.data) ? r.data.filter(function(m) { return m && m.owner; }) : [];
+    }, function() { return []; });
+  }
+  // Their names as they wrote them, A to Z, once each (pure).
+  function _sbmDrawerNames(rows) {
+    var seen = {}, out = [];
+    (rows || []).forEach(function(m) { if (m && m.owner && m.owner_name && !seen[m.owner]) { seen[m.owner] = true; out.push(m.owner_name); } });
+    return out.sort(function(a, b) { return a.localeCompare(b); });
   }
   function sbmWhoPart(p) {
     _sbmWhoPick = (_sbmWhoPick === p) ? '' : p;
@@ -49954,6 +49976,14 @@ var WO = (function() {
     var was = _sbmMe();
     try { localStorage.setItem('lhc_sbm_me', JSON.stringify({ name: name, part: _sbmWhoPick || '' })); } catch (e) {}
     _sbmCloseSheet();
+    // A name that has drawn here before -- on this device or another -- has its drawings back.
+    if (!was || was.key !== _sbmMeKey(name)) {
+      _sbmBookDrawers().then(function(rows) {
+        var mine = rows.filter(function(m) { return m.owner === _sbmMeKey(name); }), had = mine.length;
+        var as = (mine[0] && mine[0].owner_name) || name;   // as they first wrote it
+        if (had) showToast('Welcome back, ' + as.split(' ')[0] + ': your ' + had + ' drawing' + (had === 1 ? '' : 's') + ' in this songbook ' + (had === 1 ? 'is' : 'are') + ' showing', 'success');
+      });
+    }
     if (was && was.key !== _sbmMeKey(name) && _sbmDraw) { _sbmDraw.undo = []; _sbmDraw.group = null; }
     if (thenDraw && !_sbmDraw) { sbmDraw(true); return; }
     if (_sbmDraw) _sbmDrawBar();

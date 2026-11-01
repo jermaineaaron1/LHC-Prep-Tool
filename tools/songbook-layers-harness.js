@@ -66,8 +66,8 @@ function check(label, ok, detail) {
 let L = null;
 try {
   L = new Function(extractVar('_SBM_PARTS') + '\n' +
-    ['_sbmPartLabel', '_sbmMeKey', '_sbmLayerKeep', '_sbmLayerPeople'].map(extractFn).join('\n') +
-    '\nreturn { label: _sbmPartLabel, key: _sbmMeKey, keep: _sbmLayerKeep, people: _sbmLayerPeople };')();
+    ['_sbmPartLabel', '_sbmMeKey', '_sbmLayerKeep', '_sbmLayerPeople', '_sbmDrawerNames'].map(extractFn).join('\n') +
+    '\nreturn { label: _sbmPartLabel, key: _sbmMeKey, keep: _sbmLayerKeep, people: _sbmLayerPeople, drawers: _sbmDrawerNames };')();
 } catch (e) {
   console.log('  (helpers not present: ' + e.message.split('\n')[0] + ')');
 }
@@ -78,6 +78,15 @@ else {
   check('a name is folded to one spelling: case and spaces', L.key('  Aaron   Tan ') === 'aaron tan' && L.key('AARON TAN') === 'aaron tan');
   check('no name is nobody', L.key('') === '' && L.key(null) === '' && L.key('   ') === '');
   check('every part has its label', L.label('keys') === 'Piano / Keys' && L.label('vocals') === 'Singer' && L.label('nonsense') === '');
+}
+
+console.log('\nThe same person on another device');
+if (L) {
+  const rows = [{ owner: 'grace lim', owner_name: 'Grace Lim' }, { owner: 'grace lim', owner_name: 'grace lim' },
+                { owner: 'ben ong', owner_name: 'Ben Ong' }, { owner: null, owner_name: null }];
+  check('the names already drawing are offered once each, as first written, A to Z',
+    JSON.stringify(L.drawers(rows)) === JSON.stringify(['Ben Ong', 'Grace Lim']), JSON.stringify(L.drawers(rows)));
+  check('nobody drawing, nobody offered', L.drawers([]).length === 0 && L.drawers(undefined).length === 0);
 }
 
 console.log('\nWhat a reader is shown');
@@ -136,6 +145,11 @@ console.log('\nThe wiring');
     has(/c\.owner = m\.owner \|\| null; c\.owner_name = m\.owner_name \|\| null; c\.part = m\.part \|\| null; c\.shared = m\.shared !== false;/));
   check('sharing all of yours touches only your rows of this song',
     has(/update\(\{ shared: !!on \}\)\.eq\('song_id', base\)\.eq\('owner', me\.key\)/));
+  check('the names are read from the database for the whole book, not from what this device loaded',
+    has(/sup\.from\('song_marks'\)\.select\('owner, owner_name'\)\.in\('song_id', bases\)/) &&
+    has(/_sbmBookDrawers\(\)\.then\(function\(rows\) \{ drawers = _sbmDrawerNames\(rows\); fill\(\); \}\);/));
+  check('a name that has drawn before is welcomed back with its count',
+    has(/var mine = rows\.filter\(function\(m\) \{ return m\.owner === _sbmMeKey\(name\); \}\), had = mine\.length;/) && has(/var as = \(mine\[0\] && mine\[0\]\.owner_name\) \|\| name;/));
   check('the Layers chip is drawn beside both Draw chips', (SRC.match(/\+ _sbmDrawChip\(\) \+ _sbmLayersChip\(\)/g) || []).length === 2);
   const sql = fs.existsSync(MIGRATION) ? fs.readFileSync(MIGRATION, 'utf8') : '';
   check('the migration adds whose and shared, with the earlier rows shared',

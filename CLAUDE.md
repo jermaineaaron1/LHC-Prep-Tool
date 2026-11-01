@@ -1215,7 +1215,10 @@ the anon key -- verify as `postgres`, not as the app.
     someone draws ("Who's drawing?", the roster's names to pick from); the
     same name on another device is the same person. So "only me" is about
     what is SHOWN, not a lock: every row is still readable through the
-    page's key. A new stroke is private unless the draw bar's switch says
+    page's key. To make the same spelling easy on a new device, the name
+    list offers first the names already drawing in the book (read from
+    the database for every song in it, `_sbmBookDrawers`), and a name with
+    drawings is welcomed back with their count. A new stroke is private unless the draw bar's switch says
     Everyone (`lhc_sb_pen.share`). Every view reads drawings through
     `_sbmMarksOf`, which now filters by `_sbmLayerKeep`: your own (unless
     you hid them), anybody's shared ones (unless you hid that person),
