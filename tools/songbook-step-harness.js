@@ -341,8 +341,16 @@ console.log('\nThe wiring');
   check('and keeps them, in its pseudo-order\'s template',
     has(/\(Array\.isArray\(tpl\.medleys\) && tpl\.medleys\.length > 0\) \|\|/));
   check('a standalone songbook takes the editor over from the order before it, or every save it made was refused',
-    has(/_lbdSetActive\(false\);\r?\n\s*var _woc = \$\('woWorshipOrder'\);\r?\n\s*if \(_woc\) \{ _woc\.innerHTML = ''; _woc\.removeAttribute\('data-order-id'\); \}\r?\n\s*_sbStandaloneId = sbId;/) &&
+    has(/_lbdSetActive\(false\);\r?\n\s*var _woc = \$\('woWorshipOrder'\);\r?\n\s*if \(_woc\) \{ _woc\.innerHTML = ''; _woc\.removeAttribute\('data-order-id'\); \}/) &&
+    has(/_woHideEditor\(\);\r?\n\s*_sbStandaloneId = sbId;/) &&
     has(/_autoSaveTimer = setTimeout\(function\(\) \{\r?\n\s*_autoSaveTimer = null;/));
+  check('...and lets go of it when it closes: its last save as a songbook, then no order, and the one before back on Orders',
+    has(/try \{ saveCurrentOrder\(true\); \} catch \(e\) \{\}\r?\n\s*_sbClosingStandalone = true;\r?\n\s*_sbStandaloneId = null;/) &&
+    has(/if \(_sbClosingStandalone\) \{ _sbClosingStandalone = false; _sbLeaveStandalone\(\); \}/) &&
+    has(/currentOrderData = null;\r?\n\s*songOrderSections = \[\];/) &&
+    has(/if \(_woReopenOrderId\) \{ var _reopen = _woReopenOrderId; _woReopenOrderId = null; loadOrder\(_reopen\); return; \}/));
+  check('a songbook\'s pseudo-order is never saved as a service\'s order',
+    has(/if \(!_sbStandaloneId && String\(currentOrderData\.id \|\| ''\)\.indexOf\('standalone_'\) === 0\) \{\r?\n\s*console\.warn\('\[SaveGuard\] Refusing to save a songbook as an order:'/));
   check('a new songbook named for a service with an order points to that service\'s songbook instead',
     has(/var svc = _sbServiceOrderNamed\(name, \(typeof STATE !== 'undefined' && STATE\.orders\) \|\| \[\]\);/));
   check('the song in front is followed by the rest of its medley, on cards that name their song',

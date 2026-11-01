@@ -32863,6 +32863,8 @@ var WO = (function() {
   }
 
   function showSavedOrders() {
+    // The order open before a standalone songbook was opened, back as it was.
+    if (_woReopenOrderId) { var _reopen = _woReopenOrderId; _woReopenOrderId = null; loadOrder(_reopen); return; }
     // Ensure the orders panel is visible and new-order picker is hidden
     var panel = $('woOrdersPanel');
     var picker = $('woNewOrderOptions');
@@ -35379,6 +35381,12 @@ var WO = (function() {
 
   function saveCurrentOrder(silent) {
     if (!currentOrderData) return;
+    // A songbook's pseudo-order saves by its own path, while _sbStandaloneId
+    // says it is one; never as a service's order.
+    if (!_sbStandaloneId && String(currentOrderData.id || '').indexOf('standalone_') === 0) {
+      console.warn('[SaveGuard] Refusing to save a songbook as an order:', currentOrderData.id);
+      return;
+    }
     if (silent && _loadingOrder) {
       console.warn('[SaveGuard] Silent save skipped — order load in progress');
       return;
@@ -48372,9 +48380,13 @@ var WO = (function() {
         clearTimeout(_autoSaveTimer); _autoSaveTimer = null;
         saveCurrentOrder(true);
       }
+      if (currentOrderData && currentOrderData.id && !_sbStandaloneId && String(currentOrderData.id).indexOf('standalone_') !== 0) _sbPrevOrderId = currentOrderData.id;
       _lbdSetActive(false);
       var _woc = $('woWorshipOrder');
       if (_woc) { _woc.innerHTML = ''; _woc.removeAttribute('data-order-id'); }
+      // The order's editor would otherwise go on showing that order over the
+      // songbook's data -- its header, and the builder drawing the book.
+      _woHideEditor();
       _sbStandaloneId = sbId;
       // Outside any promise chain on purpose. SBQ.loadOrder REJECTS when the
       // orders row does not exist, and a standalone songbook's row is created
@@ -48692,6 +48704,12 @@ var WO = (function() {
     // If opened from Song Finder (standalone), save remaining songs back to localStorage
     if (_sbStandaloneId) {
       var _closeSbId = _sbStandaloneId;
+      // Its last save while it still knows it is a songbook (saveCurrentOrder
+      // sends a standalone one to the songbooks table, and refuses one once
+      // _sbStandaloneId has gone).
+      clearTimeout(_autoSaveTimer); _autoSaveTimer = null;
+      try { saveCurrentOrder(true); } catch (e) {}
+      _sbClosingStandalone = true;
       _sbStandaloneId = null;
       try {
         var _sbList = JSON.parse(localStorage.getItem('lhc_standalone_songbooks') || '[]');
@@ -48752,6 +48770,32 @@ var WO = (function() {
     sbCurrentSongId = null;
     // Keys, notes and lyrics may have changed in the book; the builder shows them.
     if (_lbdIsActive()) lbdRender();
+    if (_sbClosingStandalone) { _sbClosingStandalone = false; _sbLeaveStandalone(); }
+  }
+
+  // A standalone songbook is the app's open "order" while it is open -- the
+  // pseudo-order standalone_<id> -- and must not stay one once it closes. The
+  // order editor, the Liturgy Builder and every save read currentOrderData:
+  // left in place, the builder drew the songbook as a service (its five carols
+  // "not yet in a section" under Service - Nov 1's header) and the close's own
+  // save wrote it as an order. It lets go, and the order that was open before
+  // comes back the next time Orders is shown -- at once, if it is showing.
+  var _sbPrevOrderId = null, _woReopenOrderId = null, _sbClosingStandalone = false;
+  function _woHideEditor() {
+    var ed = $('woEditor'); if (ed) ed.style.display = 'none';
+    var mm = $('woMainMenu'); if (mm) mm.style.display = 'block';
+  }
+  function _sbLeaveStandalone() {
+    var prev = _sbPrevOrderId; _sbPrevOrderId = null;
+    currentOrderData = null;
+    songOrderSections = [];
+    _lbdSetActive(false);
+    var woc = $('woWorshipOrder'); if (woc) { woc.innerHTML = ''; woc.removeAttribute('data-order-id'); }
+    _woHideEditor();
+    if (!prev) return;
+    var view = $('worshipOrderView');
+    if (view && view.style.display !== 'none') loadOrder(prev);
+    else _woReopenOrderId = prev;
   }
 
   // Apply N semitones of transposition to an HTML lyrics string.

@@ -1228,15 +1228,30 @@ the anon key -- verify as `postgres`, not as the app.
     button still fills everything missing.
 
 49. **A standalone songbook must take the editor over from the order before
-    it.** `saveCurrentOrder` refuses any save while `#woWorshipOrder` is
-    stamped (`data-order-id`) for an order other than the one saving --
-    the guard that stops one service's slides being saved into another.
-    Opening a standalone songbook after any order had been in the builder
-    or the LCD left that stamp behind, so every save the songbook made --
-    its song order, medleys, settings -- was refused, silently.
-    `openSongbookStandalone` now saves the outgoing order if an autosave is
-    waiting (`_autoSaveTimer`, nulled when it fires), then takes the
-    builder down and clears the editor and its stamp. Also: "New Songbook"
+    it, and give it back.** `saveCurrentOrder` refuses any save while
+    `#woWorshipOrder` is stamped (`data-order-id`) for an order other than
+    the one saving -- the guard that stops one service's slides being saved
+    into another. Opening a standalone songbook after any order had been in
+    the builder or the LCD left that stamp behind, so every save the
+    songbook made -- its song order, medleys, settings -- was refused,
+    silently. `openSongbookStandalone` now saves the outgoing order if an
+    autosave is waiting (`_autoSaveTimer`, nulled when it fires), remembers
+    it (`_sbPrevOrderId`), takes the builder down, clears the editor and its
+    stamp, and hides the editor (`_woHideEditor`). The other half: while it
+    is open the songbook IS `currentOrderData` (`standalone_<id>`), and it
+    used to stay so after closing. The order editor then showed the last
+    service's header over the songbook's data, the builder drew its carols
+    "not yet in a section" and filled the service template's liturgy into
+    it, and the next save wrote all that under the pseudo-order (the Caroling
+    book's carries 14 such liturgy rows and a 19-section layout from
+    2026-11-01; the songbook ignores them, since it reads only song rows).
+    `closeSongbook` now makes the songbook's last save while
+    `_sbStandaloneId` still says what it is, then `_sbLeaveStandalone` drops
+    it -- no order, no songs, editor hidden -- and reopens the order from
+    before: at once if Orders is showing, otherwise the next time
+    `showSavedOrders` runs (`_woReopenOrderId`). And `saveCurrentOrder`
+    refuses a `standalone_` id outright when `_sbStandaloneId` is not set,
+    so a songbook is never saved as a service. Also: "New Songbook"
     with a service's name ("Service 1 Nov 2026") is refused with a toast
     that opens that service's songbook (`_sbServiceOrderNamed`) -- every
     order is already a songbook, and the hand-made copy sat empty under
