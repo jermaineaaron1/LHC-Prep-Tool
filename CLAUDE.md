@@ -1105,16 +1105,29 @@ the anon key -- verify as `postgres`, not as the app.
     against Standard only the key is. A new version COPIES the remarks of
     the one the service sang, so that one stays as it was.
 
-47. **The WO module's `escapeHtml` is not safe inside an attribute.** The
-    module defines its own (~line 82,500), going through `textContent` /
-    `innerHTML`, which escapes `&`, `<` and `>` and leaves `"` and `'`
-    alone -- unlike the global one, which escapes all five. Text content is
-    fine; `title="' + escapeHtml(name) + '"'` is not: a song or liturgy name
-    with a double quote in it ends the attribute and starts one of its own,
-    and anyone with the app can edit those names. The Liturgy Builder goes
-    through `_lbdEsc`, which escapes the quotes as well
-    (`tools/liturgy-builder-harness.js` checks it). Other WO code that puts
-    names into attributes has not been audited for this.
+47. **In the WO module, text and attributes take `escapeHtml`; a value in
+    an inline handler's JS string takes `escapeJsArg`.** WO has its own
+    `escapeHtml` (~line 83,000). It used to go through `textContent` /
+    `innerHTML` alone, which escapes `&`, `<` and `>` and leaves quotes, so
+    a name with a `"` in it ended its `title=` / `value=` / `data-*=`
+    attribute and could start one of its own -- and names (songs, liturgy,
+    orders, files) and link addresses (shared from phones) are anyone's to
+    type. It now escapes both quotes too. That does NOT make a handler safe:
+    in `onclick="WO.f('X')"` the attribute is decoded before the script
+    runs, so `&#39;` arrives as `'` and ends the string (an order called
+    "Mother's Day" broke its own Add Songs button). Such a value goes
+    through `escapeJsArg`, which escapes for the JS string first and then
+    for the attribute. Never post-process either (`escapeHtml(x).replace(/'/g,
+    "\\'")` stopped working the day `escapeHtml` began escaping `'`), never
+    hand `showToast` escaped text (it escapes its message itself, so the
+    reader sees `&#39;`), and remember `customConfirm` writes its TITLE as
+    HTML (escaped there now) but its message as text.
+    `tools/wo-escape-harness.js` checks all of this against the source.
+    Elsewhere: the global `escapeHtml` escapes all five; the `esc()` helpers
+    (~lines 19,700 and 20,100) and `escOrAttr` escape `"` but not `'`, so they
+    are safe in double-quoted attributes and not in a JS string; the
+    notifications drawer's `_esc` (`LHC_Notif`) escapes neither, and its
+    only attribute is a notification's generated id.
 
 ## Quick Commands for Claude Code
 

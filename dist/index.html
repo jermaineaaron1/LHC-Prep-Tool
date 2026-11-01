@@ -21877,7 +21877,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       var modal = $('customConfirmModal');
       var titleEl = $('customConfirmTitle');
       var msgEl = $('customConfirmMessage');
-      if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-trash mr-2"></i> ' + (title || 'Confirm');
+      // The title is written as HTML and callers put names in it ("Remove “…”?").
+      if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-trash mr-2"></i> ' + escapeHtml(title || 'Confirm');
       if (msgEl) msgEl.textContent = message || 'Are you sure?';
       if (modal) modal.classList.add('show');
     });
@@ -33046,7 +33047,7 @@ var WO = (function() {
         var moreOpen = _woOpenMoreMenuIdx === idx;
         var moreMenu = moreOpen
           ? '<div class="wo-order-more-menu" onclick="event.stopPropagation()">' +
-              (order.id ? '<button onclick="openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-plus"></i> Add Songs</button>' : '') +
+              (order.id ? '<button onclick="openAddSongsModal(\'order\',\'' + escapeJsArg(order.id) + '\',\'' + escapeJsArg(order.title || 'Untitled') + '\');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-plus"></i> Add Songs</button>' : '') +
               '<button onclick="WO.editOrderTitle(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-pen"></i> Rename</button>' +
               '<button class="danger" onclick="WO.deleteOrder(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-trash"></i> Delete</button>' +
             '</div>'
@@ -37468,7 +37469,7 @@ var WO = (function() {
     var links = (currentOrderData && currentOrderData.mediaLinks)
       ? currentOrderData.mediaLinks
       : ((orderId && typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(orderId) : []);
-    var safeId  = orderId ? escapeHtml(orderId).replace(/'/g, '&#39;') : '';
+    var safeId  = orderId ? escapeJsArg(orderId) : '';
 
     var ytItems    = [];
     var otherItems = [];
@@ -37763,7 +37764,7 @@ var WO = (function() {
     picker.innerHTML =
       '<div class="wo-lsp-header">Link to which song?</div>' +
       songs.map(function(s, si) {
-        return '<div class="wo-lsp-row" onclick="WO._doLinkMedia(\'' + escapeHtml(String(orderId)) + '\',' + itemIdx + ',\'' + escapeHtml(String(s.id || si)) + '\',this.closest(\'#woLinkSongPicker\'))">' +
+        return '<div class="wo-lsp-row" onclick="WO._doLinkMedia(\'' + escapeJsArg(String(orderId)) + '\',' + itemIdx + ',\'' + escapeJsArg(String(s.id || si)) + '\',this.closest(\'#woLinkSongPicker\'))">' +
           escapeHtml((s.title || 'Song ' + (si + 1)).substring(0, 40)) +
         '</div>';
       }).join('') +
@@ -38262,7 +38263,7 @@ var WO = (function() {
       /* Double-click a YouTube (or any URL) card to open/play it */
       return '<div class="wo-lc-card ' + cls + '" draggable="true" ' +
         'data-inbox-idx="' + idx + '" data-item-type="' + type + '" ' +
-        (item.url ? 'ondblclick="event.preventDefault();WO._inboxDblClick(\'' + escapeHtml(item.url) + '\')" title="Double-click to open / play" ' : '') +
+        (item.url ? 'ondblclick="event.preventDefault();WO._inboxDblClick(\'' + escapeJsArg(item.url) + '\')" title="Double-click to open / play" ' : '') +
         'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
         dragHandle +
         thumbHtml +
@@ -38674,11 +38675,11 @@ var WO = (function() {
     var type = _lcType(item);
     var kind = _woAttachInboxItem(item, song);
     if (kind === 'video') {
-      showToast('🎬 YouTube added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
+      showToast('🎬 YouTube added to "' + (song.title || 'Song').substring(0, 20) + '"', 'success');
     } else if (kind === 'doc') {
       var typeLabel = { gdoc:'📄 Doc', gdrive:'☁️ Drive file', pdf:'📑 PDF',
                         spotify:'🎵 Spotify', image:'🖼 Image', link:'🔗 Link' };
-      showToast((typeLabel[type] || '🔗 Link') + ' added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
+      showToast((typeLabel[type] || '🔗 Link') + ' added to "' + (song.title || 'Song').substring(0, 20) + '"', 'success');
     }
 
     // ── Open / refresh the song expand panel so the new card is visible ──
@@ -40635,7 +40636,7 @@ var WO = (function() {
       dropItems += '<div class="wo-slr-media-item">' +
         '<i class="' + icon + '" style="color:' + color + ';flex-shrink:0;width:14px;"></i>' +
         '<span class="wo-slr-media-item-name" title="' + escapeHtml(url) + '">' + escapeHtml(lbl) + '</span>' +
-        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'' + escapeHtml(lbl) + '\')" title="Open"><i class="fa-solid fa-play"></i></button>' +
+        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeJsArg(url) + '\',\'' + escapeJsArg(lbl) + '\')" title="Open"><i class="fa-solid fa-play"></i></button>' +
       '</div>';
     });
     // Custom YouTube (removable)
@@ -40647,7 +40648,7 @@ var WO = (function() {
       dropItems += '<div class="wo-slr-media-item">' +
         '<i class="' + icon + '" style="color:' + color + ';flex-shrink:0;width:14px;"></i>' +
         '<span class="wo-slr-media-item-name" title="' + escapeHtml(url) + '">' + escapeHtml(lbl) + ' <span class="wo-slr-media-custom-tag">custom</span></span>' +
-        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'' + escapeHtml(lbl) + '\')" title="Open"><i class="fa-solid fa-play"></i></button>' +
+        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeJsArg(url) + '\',\'' + escapeJsArg(lbl) + '\')" title="Open"><i class="fa-solid fa-play"></i></button>' +
         '<button class="wo-slr-media-item-remove" onclick="WO.removeCustomYoutube(\'' + escapedSid + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
       '</div>';
     });
@@ -40660,7 +40661,7 @@ var WO = (function() {
       dropItems += '<div class="wo-slr-media-item">' +
         '<i class="' + attIcon + '" style="color:' + attColor + ';flex-shrink:0;width:14px;"></i>' +
         '<span class="wo-slr-media-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + '</span>' +
-        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="' + (isWeb ? 'View page' : 'Open') + '"><i class="fa-solid ' + (isWeb ? 'fa-arrow-up-right-from-square' : 'fa-eye') + '"></i></button>' +
+        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeJsArg(att.url||'') + '\',\'' + escapeJsArg(nm) + '\')" title="' + (isWeb ? 'View page' : 'Open') + '"><i class="fa-solid ' + (isWeb ? 'fa-arrow-up-right-from-square' : 'fa-eye') + '"></i></button>' +
       '</div>';
     });
     // Custom docs (removable)
@@ -40672,7 +40673,7 @@ var WO = (function() {
       dropItems += '<div class="wo-slr-media-item">' +
         '<i class="' + attIcon + '" style="color:' + attColor + ';flex-shrink:0;width:14px;"></i>' +
         '<span class="wo-slr-media-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + ' <span class="wo-slr-media-custom-tag">custom</span></span>' +
-        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="' + (isWeb ? 'View page' : 'Open') + '"><i class="fa-solid ' + (isWeb ? 'fa-arrow-up-right-from-square' : 'fa-eye') + '"></i></button>' +
+        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeJsArg(att.url||'') + '\',\'' + escapeJsArg(nm) + '\')" title="' + (isWeb ? 'View page' : 'Open') + '"><i class="fa-solid ' + (isWeb ? 'fa-arrow-up-right-from-square' : 'fa-eye') + '"></i></button>' +
         '<button class="wo-slr-media-item-remove" onclick="WO.removeCustomDoc(\'' + escapedSid + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
       '</div>';
     });
@@ -40686,7 +40687,7 @@ var WO = (function() {
       dropItems += '<div class="wo-slr-media-item">' +
         '<i class="' + lIcon + '" style="color:' + lColor + ';flex-shrink:0;width:14px;"></i>' +
         '<span class="wo-slr-media-item-name" title="' + escapeHtml(lnk.url||'') + '">' + escapeHtml(nm) + ' <span class="wo-slr-media-custom-tag">songbook</span></span>' +
-        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeHtml(lnk.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
+        '<button class="wo-slr-media-item-play" onclick="WO.openMediaModal(\'' + escapeJsArg(lnk.url||'') + '\',\'' + escapeJsArg(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
         '<button class="wo-slr-media-item-remove" onclick="WO.sbRemoveSongLink(\'' + escapedSid + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
       '</div>';
     });
@@ -40727,7 +40728,7 @@ var WO = (function() {
     if (displayIdx === undefined) displayIdx = songOrderSections.indexOf(songSection) + 1;
 
     // Section label pill — clickable: assigned = purple pill, unassigned = green "Set Order" button
-    var _secPillClick = 'onclick="event.stopPropagation();WO.openEditSectionsModal(\'' + escapeHtml(songSection.id) + '\')"';
+    var _secPillClick = 'onclick="event.stopPropagation();WO.openEditSectionsModal(\'' + escapeJsArg(songSection.id) + '\')"';
     var sectionPill = sectionLabel
       ? '<span class="wo-slr-section-pill wo-slr-section-pill--clickable" ' + _secPillClick + ' title="Change section">' + escapeHtml(sectionLabel) + '</span>'
       : '<button class="wo-slr-set-order-btn" ' + _secPillClick + '><i class="fa-solid fa-plus"></i> Set Order</button>';
@@ -46657,7 +46658,7 @@ var WO = (function() {
       });
 
       var addSlideBtnHtml = '<div class="wo-add-slide-row" data-song-id="' + escapeHtml(songId) + '" data-section="' + escapeHtml(sectionId) + '">' +
-        '<button class="wo-add-slide-btn" onclick="event.stopPropagation(); WO.addSlideToGroup(\'song\', \'' + escapeHtml(songId) + '\', \'' + escapeHtml(sectionId) + '\')" title="Add empty slide. Tip: Double-click any slide, then Shift+Enter to split text at cursor.">' +
+        '<button class="wo-add-slide-btn" onclick="event.stopPropagation(); WO.addSlideToGroup(\'song\', \'' + escapeJsArg(songId) + '\', \'' + escapeJsArg(sectionId) + '\')" title="Add empty slide. Tip: Double-click any slide, then Shift+Enter to split text at cursor.">' +
         '<i class="fa-solid fa-plus"></i> Add Slide</button>' +
         '<span class="wo-add-slide-hint">or dbl-click slide → <kbd>Shift+Enter</kbd> to split</span></div>';
 
@@ -47538,7 +47539,7 @@ var WO = (function() {
 
       html += '<div style="padding:12px;background:' + (isVisible ? 'white' : '#f8fafc') + ';border:1px solid ' + (isVisible ? '#e2e8f0' : '#f1f5f9') + ';border-radius:10px;margin-bottom:8px;opacity:' + (isVisible ? '1' : '0.6') + ';transition:all 0.2s;">';
       html += '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;">';
-      html += '<input type="checkbox" ' + (isVisible ? 'checked' : '') + ' onchange="WO.songbookToggleSong(\'' + escapeHtml(song.id) + '\', this.checked)" style="width:18px;height:18px;accent-color:#0e9f6e;">';
+      html += '<input type="checkbox" ' + (isVisible ? 'checked' : '') + ' onchange="WO.songbookToggleSong(\'' + escapeJsArg(song.id) + '\', this.checked)" style="width:18px;height:18px;accent-color:#0e9f6e;">';
       html += '<span style="font-weight:600;color:#1e293b;font-size:0.95rem;">' + (idx + 1) + '. ' + escapeHtml(song.title) + '</span>';
       if (song.artist) html += '<span style="color:#94a3b8;font-size:0.8rem;">by ' + escapeHtml(song.artist) + '</span>';
       html += '</label>';
@@ -47550,7 +47551,7 @@ var WO = (function() {
 
         // Lyrics option
         html += '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;font-size:0.8rem;color:#475569;">';
-        html += '<input type="checkbox" ' + (choices.lyrics ? 'checked' : '') + ' onchange="WO.songbookSetContent(\'' + escapeHtml(song.id) + '\', \'lyrics\', this.checked)" style="accent-color:#0e9f6e;">';
+        html += '<input type="checkbox" ' + (choices.lyrics ? 'checked' : '') + ' onchange="WO.songbookSetContent(\'' + escapeJsArg(song.id) + '\', \'lyrics\', this.checked)" style="accent-color:#0e9f6e;">';
         html += '<i class="fa-solid fa-align-left" style="color:#0e9f6e;font-size:0.8rem;"></i> Lyrics</label>';
 
         // Document options - list each attached doc with its real name
@@ -47596,7 +47597,7 @@ var WO = (function() {
           var attColor = attType === 'GDOC' ? '#4285f4' : attType === 'PDF' ? '#ef4444' : attType === 'IMAGE' ? '#079352' : '#64748b';
           var docVal = 'doc:' + attIdx;
           html += '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;font-size:0.8rem;color:#475569;">';
-          html += '<input type="checkbox" ' + (choices[docVal] ? 'checked' : '') + ' onchange="WO.songbookSetContent(\'' + escapeHtml(song.id) + '\', \'' + docVal + '\', this.checked)" style="accent-color:#0e9f6e;">';
+          html += '<input type="checkbox" ' + (choices[docVal] ? 'checked' : '') + ' onchange="WO.songbookSetContent(\'' + escapeJsArg(song.id) + '\', \'' + docVal + '\', this.checked)" style="accent-color:#0e9f6e;">';
           html += '<i class="' + attIcon + '" style="color:' + attColor + ';font-size:0.8rem;"></i> ' + escapeHtml(attName.length > 40 ? attName.substring(0, 40) + '...' : attName) + '</label>';
         });
 
@@ -48109,7 +48110,7 @@ var WO = (function() {
             'min-height:60vh;gap:14px;color:#94a3b8;text-align:center;padding:40px;">' +
             '<i class="fa-solid fa-circle-exclamation" style="font-size:2rem;color:#f87171;"></i>' +
             '<p style="font-size:1rem;font-weight:600;color:#64748b;margin:0;">Order not found</p>' +
-            '<button onclick="WO.openSongbookByOrderId(\'' + escapeHtml(orderId) + '\')" ' +
+            '<button onclick="WO.openSongbookByOrderId(\'' + escapeJsArg(orderId) + '\')" ' +
             'style="padding:8px 20px;background:#0e9f6e;color:white;border:none;border-radius:8px;' +
             'font-size:0.85rem;font-weight:600;cursor:pointer;">Try Again</button>' +
             '</div>';
@@ -48188,7 +48189,7 @@ var WO = (function() {
             '<i class="fa-solid fa-wifi" style="font-size:2rem;color:#f87171;"></i>' +
             '<p style="font-size:1rem;font-weight:600;color:#64748b;margin:0;">Could not load songbook</p>' +
             '<p style="font-size:0.82rem;margin:0;opacity:0.7;">Check your connection and try again</p>' +
-            '<button onclick="WO.openSongbookByOrderId(\'' + escapeHtml(orderId) + '\')" ' +
+            '<button onclick="WO.openSongbookByOrderId(\'' + escapeJsArg(orderId) + '\')" ' +
             'style="padding:8px 20px;background:#0e9f6e;color:white;border:none;border-radius:8px;' +
             'font-size:0.85rem;font-weight:600;cursor:pointer;">Try Again</button>' +
             '</div>';
@@ -50808,7 +50809,7 @@ var WO = (function() {
     var curTok = _sbmRecTok(rec.storage_path);
     var row = _sbmRecRow(rec, song);
     _sbmSheet('Belongs to', '<div class="sbm-menu">' + opts.map(function(o) {
-      return '<button class="sbm-btn' + (o[0] === curTok && rec.line_id == null ? ' is-on' : '') + '" onclick="WO.sbmRecMoveTo(\'' + escapeHtml(String(rec.id)) + '\',\'' + o[0] + '\')">' +
+      return '<button class="sbm-btn' + (o[0] === curTok && rec.line_id == null ? ' is-on' : '') + '" onclick="WO.sbmRecMoveTo(\'' + escapeJsArg(String(rec.id)) + '\',\'' + o[0] + '\')">' +
         '<i class="fa-solid ' + (_sbRecIsInstrument(o[0]) ? 'fa-guitar' : (_SBM_PART_ICON[_sbmPartFamily(o[0].replace(/-/g, ' '))] || 'fa-tag')) + '"></i>' + escapeHtml(o[1]) + '</button>';
     }).join('') + (row ? '<p class="sbm-rec-menu__sub">This take is of the line \u201c' + escapeHtml(String(row.text || '').trim()) + '\u201d. Moved to a part that sings in that moment, it becomes that line\u2019s latest take; otherwise a take for the whole part.</p>' : rec.section ? '<p class="sbm-rec-menu__sub">This take is the whole of ' + escapeHtml(String(rec.section)) + '. Moved to another part it stays a take of that section, numbered after the ones that part already has.</p>' : '') + '</div>');
   }
@@ -51122,7 +51123,7 @@ var WO = (function() {
     _sbmSheet('Song List', '<div class="sbm-contents">' + list.map(function(x, i) {
       var m = mp[x.id];
       var small = [m ? 'Medley ' + (m.at + 1) + '/' + m.n : '', x.artist || ''].filter(Boolean).join(' · ');
-      return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeHtml(x.id) + '\')">' +
+      return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeJsArg(x.id) + '\')">' +
         '<span class="n">' + (i + 1) + '</span><span>' + escapeHtml(x.title || 'Song ' + (i + 1)) +
         (small ? '<small>' + escapeHtml(small) + '</small>' : '') + '</span></button>';
     }).join('') + '</div>');
@@ -51153,7 +51154,7 @@ var WO = (function() {
     var html = '<div class="sbm-menu">' + rows.map(function(r) {
       return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '"></i>' + r[1] + '</button>';
     }).join('');
-    if (song) html += '<button class="sbm-btn sbm-btn--danger" style="margin-top:10px;" onclick="WO.sbmCloseSheet();WO.sbRemoveSong(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-trash"></i>Remove this song from the songbook</button>';
+    if (song) html += '<button class="sbm-btn sbm-btn--danger" style="margin-top:10px;" onclick="WO.sbmCloseSheet();WO.sbRemoveSong(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-trash"></i>Remove this song from the songbook</button>';
     _sbmSheet('More', html + '</div>');
   }
 
@@ -51184,8 +51185,8 @@ var WO = (function() {
           '<div class="sbm-res__acts"><button class="sbm-btn" onclick="WO.sbmResRestore(\'' + h.src + '\',' + h.k + ')"><i class="fa-solid fa-eye"></i>Show again</button></div></div>';
       }).join('');
     }
-    html += '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAttachFile(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-paperclip"></i>Attach a file</button>' +
-      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAddSongLink(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-link"></i>Add a link</button></div>';
+    html += '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAttachFile(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-paperclip"></i>Attach a file</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAddSongLink(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-link"></i>Add a link</button></div>';
     _sbmSheet('Attached resources (' + res.length + ')', html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'resources');
   }
@@ -51343,7 +51344,7 @@ var WO = (function() {
     var rows = list.map(function(x, i) {
       var note = [x.id === _sbmSid ? 'The song you are on' : '', on && on.id === x.id ? 'It is on this one now' : '', _sbmSectionLabel(x)].filter(Boolean).join(' · ');
       return '<button class="' + (x.id === _sbmSid ? 'is-on' : '') + '"' + (on && on.id === x.id ? ' disabled' : '') +
-        ' onclick="WO.sbmInboxAttachTo(\'' + escapeHtml(String(it.id)) + '\',\'' + escapeHtml(x.id) + '\')">' +
+        ' onclick="WO.sbmInboxAttachTo(\'' + escapeJsArg(String(it.id)) + '\',\'' + escapeJsArg(x.id) + '\')">' +
         '<span class="n">' + (i + 1) + '</span><span>' + escapeHtml(x.title || 'Song ' + (i + 1)) +
         (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</span></button>';
     }).join('');
@@ -51461,7 +51462,7 @@ var WO = (function() {
       var here = o && _woSongSectionIds(o, list).indexOf(secId) !== -1;
       var badge = here ? '<span class="sbm-add__badge">In this section</span>'
                 : (o ? '<span class="sbm-add__badge sbm-add__badge--soft">In this service</span>' : '');
-      return '<button class="sbm-add__song"' + (here ? ' disabled' : '') + ' onclick="WO.sbmAddSongPick(\'' + escapeHtml(s.id) + '\')">' +
+      return '<button class="sbm-add__song"' + (here ? ' disabled' : '') + ' onclick="WO.sbmAddSongPick(\'' + escapeJsArg(s.id) + '\')">' +
         '<span class="sbm-add__t">' + escapeHtml(s.title) + '<small>' + escapeHtml([s.artist, s.key ? 'Key ' + s.key : '', s.theme].filter(Boolean).join(' · ')) + '</small></span>' +
         badge + '<i class="fa-solid fa-plus" aria-hidden="true"></i></button>';
     }).join('') || '<p class="sbm-empty">No songs match “' + escapeHtml(q) + '”.</p>';
@@ -51505,8 +51506,8 @@ var WO = (function() {
     var says = next ? 'into <b>' + escapeHtml(title(next)) + '</b>' : 'after <b>' + escapeHtml(title(prev)) + '</b>';
     return '<div class="sbm-md-ribbon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>' +
       '<span class="sbm-md-ribbon__t">Medley · ' + (md.at + 1) + ' of ' + md.n + ' · sung straight ' + says + '</span>' +
-      (prev ? '<button onclick="WO.sbmSelectSong(\'' + escapeHtml(prev) + '\')" title="' + escapeHtml(title(prev)) + '" aria-label="The song before it in the medley"><i class="fa-solid fa-chevron-left"></i></button>' : '') +
-      (next ? '<button onclick="WO.sbmSelectSong(\'' + escapeHtml(next) + '\')" title="' + escapeHtml(title(next)) + '" aria-label="The song after it in the medley"><i class="fa-solid fa-chevron-right"></i></button>' : '') +
+      (prev ? '<button onclick="WO.sbmSelectSong(\'' + escapeJsArg(prev) + '\')" title="' + escapeHtml(title(prev)) + '" aria-label="The song before it in the medley"><i class="fa-solid fa-chevron-left"></i></button>' : '') +
+      (next ? '<button onclick="WO.sbmSelectSong(\'' + escapeJsArg(next) + '\')" title="' + escapeHtml(title(next)) + '" aria-label="The song after it in the medley"><i class="fa-solid fa-chevron-right"></i></button>' : '') +
       '<button onclick="WO.sbmMedley()">Edit</button></div>';
   }
 
@@ -51552,7 +51553,7 @@ var WO = (function() {
       var from = _woSongFirstSec(s, list), away = sec && from !== sec;
       var other = _woMedleyOf(s.id), leaves = other && other.medley.id !== _mdEd.id;
       var note = [secName(from), away ? (lcd ? 'in another section: move it in the Liturgy Builder first' : 'moves to ' + secName(sec)) : '', leaves ? 'leaves its other medley' : ''].filter(Boolean).join(' · ');
-      return '<button class="md-cand"' + (away && lcd ? ' disabled' : '') + ' onclick="WO.mdEdAdd(\'' + escapeHtml(s.id) + '\')"><i class="fa-solid fa-plus" aria-hidden="true"></i>' +
+      return '<button class="md-cand"' + (away && lcd ? ' disabled' : '') + ' onclick="WO.mdEdAdd(\'' + escapeJsArg(s.id) + '\')"><i class="fa-solid fa-plus" aria-hidden="true"></i>' +
         '<span>' + escapeHtml(s.title || 'Song') + '<small>' + escapeHtml(note) + '</small></span></button>';
     }).join('');
     var html = '<div class="md-ed">' +
@@ -51745,12 +51746,12 @@ var WO = (function() {
     var list = box.querySelector('#sbmRecList');
     list.innerHTML = ordered.length ? ordered.map(function(r) {
       return '<div class="sbm-rec" data-rec="' + escapeHtml(String(r.id)) + '">' +
-        '<button class="sbm-rec__play" onclick="WO.sbmPlay(\'' + escapeHtml(String(r.id)) + '\')" aria-label="Play"><i class="fa-solid fa-play"></i></button>' +
+        '<button class="sbm-rec__play" onclick="WO.sbmPlay(\'' + escapeJsArg(String(r.id)) + '\')" aria-label="Play"><i class="fa-solid fa-play"></i></button>' +
         '<div><div class="sbm-rec__name">' + escapeHtml(_sbmTakeTitle(r, song, all)) + '</div><div class="sbm-rec__sub">' + escapeHtml(_sbmTakeSub(r, song)) + '</div></div>' +
         '<div class="sbm-rec__dur">' + _sbFmtDur(r.duration_sec) + '</div>' +
         '<div class="sbm-rec__acts">' +
-        (r.line_id == null && !r.section ? '<button class="sbm-rec__more sbm-rec__cut" onclick="WO.sbmCut(\'' + escapeHtml(String(r.id)) + '\')" title="Cut a span of this recording into a take for a part, a section or a line" aria-label="Cut into takes"><i class="fa-solid fa-scissors"></i></button>' : '') +
-        '<button class="sbm-rec__more" onclick="WO.sbmRecMenu(\'' + escapeHtml(String(r.id)) + '\')" aria-label="Rename, move or delete"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
+        (r.line_id == null && !r.section ? '<button class="sbm-rec__more sbm-rec__cut" onclick="WO.sbmCut(\'' + escapeJsArg(String(r.id)) + '\')" title="Cut a span of this recording into a take for a part, a section or a line" aria-label="Cut into takes"><i class="fa-solid fa-scissors"></i></button>' : '') +
+        '<button class="sbm-rec__more" onclick="WO.sbmRecMenu(\'' + escapeJsArg(String(r.id)) + '\')" aria-label="Rename, move or delete"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
     }).join('') : '<p class="sbm-empty">' + (_sbmPracPart === 'general' ? 'No general recordings yet. Record a run-through of the song, or import one.' : _sbmPracPart === 'instruments' ? 'No instrument takes yet.' : 'No takes for this part yet.') + '</p>';
     _sbmPaintPlayer();
   }
@@ -51911,7 +51912,7 @@ var WO = (function() {
           seg('cols', '2 Col', cols) + '</div></div></div>';
     var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
     html += '<div class="sbm-pair">' +
-      '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
+      '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
       '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
     var verTile = _sbVerOk === true;
     html += '<div class="sbm-tile-row sbm-tiles' + (verTile ? ' sbm-tile-row--7' : '') + '">' +
@@ -54140,8 +54141,8 @@ var WO = (function() {
       var use = _sbVerUseText(base, vid);
       var name = v ? escapeHtml(v.name) : 'Standard';
       if (v && _sbVerRenaming === v.id) {
-        name = '<span class="ver-rename"><input class="sbm-input" id="sbVerRename" value="' + escapeHtml(v.name) + '" maxlength="60" onkeydown="if(event.key===\'Enter\'){event.preventDefault();WO.sbVerRename(\'' + escapeHtml(v.id) + '\', true);}">' +
-          '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerRename(\'' + escapeHtml(v.id) + '\', true)">Save</button>' +
+        name = '<span class="ver-rename"><input class="sbm-input" id="sbVerRename" value="' + escapeHtml(v.name) + '" maxlength="60" onkeydown="if(event.key===\'Enter\'){event.preventDefault();WO.sbVerRename(\'' + escapeJsArg(v.id) + '\', true);}">' +
+          '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerRename(\'' + escapeJsArg(v.id) + '\', true)">Save</button>' +
           '<button class="sbm-btn" onclick="WO.sbVerRename(\'\')">Cancel</button></span>';
       }
       return '<div class="ver-row' + (on ? ' is-on' : '') + '">' +
@@ -54150,9 +54151,9 @@ var WO = (function() {
           '<div class="ver-row__sub">' + escapeHtml(bits.join(' · ')) + '</div>' +
           (use ? '<div class="ver-row__use">' + escapeHtml(use) + '</div>' : '') + '</div>' +
         '<div class="ver-row__acts">' +
-          (on ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerUse(\'' + escapeHtml(vid) + '\')">Sing this</button>') +
-          (v && _sbVerRenaming !== v.id ? '<button class="sbm-btn" onclick="WO.sbVerRename(\'' + escapeHtml(v.id) + '\')" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>' +
-            '<button class="sbm-btn sbm-btn--danger" onclick="WO.sbVerDelete(\'' + escapeHtml(v.id) + '\')" aria-label="Delete this version"><i class="fa-solid fa-trash"></i></button>' : '') +
+          (on ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerUse(\'' + escapeJsArg(vid) + '\')">Sing this</button>') +
+          (v && _sbVerRenaming !== v.id ? '<button class="sbm-btn" onclick="WO.sbVerRename(\'' + escapeJsArg(v.id) + '\')" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="sbm-btn sbm-btn--danger" onclick="WO.sbVerDelete(\'' + escapeJsArg(v.id) + '\')" aria-label="Delete this version"><i class="fa-solid fa-trash"></i></button>' : '') +
         '</div></div>';
     };
     var changed = [drift.key ? 'the key' : '', drift.words ? 'the words' : ''].filter(Boolean).join(' and ');
@@ -54162,7 +54163,7 @@ var WO = (function() {
     } else if (curV && changed) {
       note = '<div class="ver-note">This service has changed ' + changed + ' since choosing “' + escapeHtml(curV.name) + '”.' +
         '<span class="ver-note__acts"><button class="sbm-btn" onclick="WO.sbVerUpdate()">Update “' + escapeHtml(_sbmClip(curV.name, 24)) + '” with this</button>' +
-        '<button class="sbm-btn" onclick="WO.sbVerUse(\'' + escapeHtml(curV.id) + '\')">Go back to it</button></span></div>';
+        '<button class="sbm-btn" onclick="WO.sbVerUse(\'' + escapeJsArg(curV.id) + '\')">Go back to it</button></span></div>';
     } else if (!curV && drift.key) {
       note = '<div class="ver-note">This service sings it in ' + escapeHtml(_sbVerKeyText(song, steps).replace(/^Key /, '')) + ', not the song’s own key. Save that as a version below, and a later service can sing it the same way.</div>';
     }
@@ -54362,7 +54363,7 @@ var WO = (function() {
         var theme = song.theme || '';
         var masterSong = window.STATE && Array.isArray(window.STATE.songs) && window.STATE.songs.find(function(s) { return s.id === song.songId; });
         if (!theme && masterSong) theme = masterSong.theme || '';
-        html += '<tr class="sb-standalone-row" onclick="WO.sbScrollToSong(\'' + escapeHtml(song.id) + '\')">';
+        html += '<tr class="sb-standalone-row" onclick="WO.sbScrollToSong(\'' + escapeJsArg(song.id) + '\')">';
         html += '<td class="sb-standalone-num">' + (i + 1) + '</td>';
         html += '<td class="sb-standalone-title">' + escapeHtml(song.title) + '</td>';
         html += '<td class="sb-standalone-theme">' + escapeHtml(theme) + '</td>';
@@ -54396,7 +54397,7 @@ var WO = (function() {
           var key = song.id + '__' + (sectionEntry.id || sectionEntry.serviceSectionId);
           if (!usedKeys[key]) { songCounter++; usedKeys[key] = songCounter; }
           var num = usedKeys[key];
-          rightHtml += '<div class="sb-idx-song-entry" onclick="WO.sbScrollToSong(\'' + escapeHtml(song.id) + '\')">';
+          rightHtml += '<div class="sb-idx-song-entry" onclick="WO.sbScrollToSong(\'' + escapeJsArg(song.id) + '\')">';
           rightHtml += '<span class="sb-idx-song-num">' + num + '</span>';
           rightHtml += '<span class="sb-idx-song-title">' + escapeHtml(song.title) + '</span>';
           rightHtml += '</div>';
@@ -54418,7 +54419,7 @@ var WO = (function() {
         html += '<td class="sb-idx-right">';
         unmatched.forEach(function(song) {
           songCounter++;
-          html += '<div class="sb-idx-song-entry" onclick="WO.sbScrollToSong(\'' + escapeHtml(song.id) + '\')">';
+          html += '<div class="sb-idx-song-entry" onclick="WO.sbScrollToSong(\'' + escapeJsArg(song.id) + '\')">';
           html += '<span class="sb-idx-song-num">' + songCounter + '</span>';
           html += '<span class="sb-idx-song-title">' + escapeHtml(song.title) + '</span>';
           html += '</div>';
@@ -54544,8 +54545,8 @@ var WO = (function() {
           var lIsYt = lInfo && lInfo.type === 'youtube' && lInfo.id;
           var bSnapUrl2 = (lnk.url||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           var lSnapBtn = lIsYt ? '' : (lnk.snapshotUrl
-            ? '<button class="sb-snapshot-btn" onclick="WO.sbClearSnapshot(\'' + escapeHtml(sid) + '\',' + li + ',false)"><i class="fa-solid fa-rotate"></i> Retake</button>'
-            : '<button class="sb-snapshot-btn" onclick="WO.sbAutoScreenshot(\'blank\',\'' + escapeHtml(sid) + '\',' + li + ',\'' + bSnapUrl2 + '\')"><i class="fa-solid fa-camera"></i> Snapshot</button>');
+            ? '<button class="sb-snapshot-btn" onclick="WO.sbClearSnapshot(\'' + escapeJsArg(sid) + '\',' + li + ',false)"><i class="fa-solid fa-rotate"></i> Retake</button>'
+            : '<button class="sb-snapshot-btn" onclick="WO.sbAutoScreenshot(\'blank\',\'' + escapeJsArg(sid) + '\',' + li + ',\'' + bSnapUrl2 + '\')"><i class="fa-solid fa-camera"></i> Snapshot</button>');
           var lPanelContent;
           if (lIsYt) {
             lPanelContent = '<div class="wo-slr-embed-video"><iframe src="https://www.youtube.com/embed/' + lInfo.id + '?rel=0&autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
@@ -54556,9 +54557,9 @@ var WO = (function() {
               '<svg class="sb-img-annot-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;"></svg>' +
               // +/- zoom overlay buttons
               '<div class="sb-snap-zoom-btns">' +
-                '<button onclick="WO.sbSnapZoomStep(\'' + escapeHtml(sid) + '\',' + li + ',-25,\'blank\')" title="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
+                '<button onclick="WO.sbSnapZoomStep(\'' + escapeJsArg(sid) + '\',' + li + ',-25,\'blank\')" title="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
                 '<span>' + _blz + '%</span>' +
-                '<button onclick="WO.sbSnapZoomStep(\'' + escapeHtml(sid) + '\',' + li + ',25,\'blank\')" title="Zoom in"><i class="fa-solid fa-plus"></i></button>' +
+                '<button onclick="WO.sbSnapZoomStep(\'' + escapeJsArg(sid) + '\',' + li + ',25,\'blank\')" title="Zoom in"><i class="fa-solid fa-plus"></i></button>' +
               '</div>' +
             '</div>';
           } else {
@@ -54581,7 +54582,7 @@ var WO = (function() {
           }
           var bParseUrl = (lnk.url||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           var bParseBtnHtml = (!lIsYt) ?
-            '<button class="sb-parse-lyrics-btn" onclick="WO.sbOpenParseLyrics(\'' + escapeHtml(sid) + '\',\'blank\',' + li + ',\'' + bParseUrl + '\')" title="Grab page content and extract lyrics">' +
+            '<button class="sb-parse-lyrics-btn" onclick="WO.sbOpenParseLyrics(\'' + escapeJsArg(sid) + '\',\'blank\',' + li + ',\'' + bParseUrl + '\')" title="Grab page content and extract lyrics">' +
               '<i class="fa-solid fa-wand-magic-sparkles"></i> Parse Lyrics</button>' : '';
           var _blzB = lnk.snapshotZoom || 100;
           html += '<div class="sb-doc-panel sb-media-panel" id="sbLinkPanel-' + sid + '-' + li + '" style="display:none">' +
@@ -54592,7 +54593,7 @@ var WO = (function() {
                 lSnapBtn +
                 '<label style="display:flex;align-items:center;gap:3px;font-size:0.72rem;color:#94a3b8;white-space:nowrap;" title="Snapshot zoom">' +
                   '<i class="fa-solid fa-magnifying-glass" style="font-size:0.68rem;"></i>' +
-                  '<select class="sb-link-zoom-sel" onchange="WO.sbSetLinkZoom(\'' + escapeHtml(sid) + '\',' + li + ',this.value,\'blank\')" ' +
+                  '<select class="sb-link-zoom-sel" onchange="WO.sbSetLinkZoom(\'' + escapeJsArg(sid) + '\',' + li + ',this.value,\'blank\')" ' +
                     'style="font-size:0.72rem;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;color:#334155;cursor:pointer;">' +
                     [50,75,100,125,150,175,200].map(function(z){ return '<option value="'+z+'"'+(_blzB===z?' selected':'')+'>'+z+'%</option>'; }).join('') +
                   '</select>' +
@@ -54968,8 +54969,8 @@ var WO = (function() {
         var lIsGDrive = lnk.url.indexOf('drive.google.com') !== -1 || lnk.url.indexOf('docs.google.com') !== -1;
         var lSnapUrl2 = (lnk.url||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         var lSnapBtn2 = (lIsYt2 || lIsGDrive) ? '' : (lnk.snapshotUrl
-          ? '<button class="sb-snapshot-btn" onclick="WO.sbClearSnapshot(\'' + escapeHtml(sid) + '\',' + li + ',true)"><i class="fa-solid fa-rotate"></i> Retake</button>'
-          : '<button class="sb-snapshot-btn" onclick="WO.sbAutoScreenshot(\'song\',\'' + escapeHtml(sid) + '\',' + li + ',\'' + lSnapUrl2 + '\')"><i class="fa-solid fa-camera"></i> Snapshot</button>');
+          ? '<button class="sb-snapshot-btn" onclick="WO.sbClearSnapshot(\'' + escapeJsArg(sid) + '\',' + li + ',true)"><i class="fa-solid fa-rotate"></i> Retake</button>'
+          : '<button class="sb-snapshot-btn" onclick="WO.sbAutoScreenshot(\'song\',\'' + escapeJsArg(sid) + '\',' + li + ',\'' + lSnapUrl2 + '\')"><i class="fa-solid fa-camera"></i> Snapshot</button>');
         var lContent2;
         var _slz = lnk.snapshotZoom || 100;
         if (lIsYt2) {
@@ -54979,9 +54980,9 @@ var WO = (function() {
             '<img src="' + escapeHtml(lnk.snapshotUrl) + '" style="width:' + _slz + '%;height:auto;display:block;' + (_slz < 100 ? 'margin:0 auto;' : '') + '" alt="Snapshot">' +
             '<svg class="sb-img-annot-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;"></svg>' +
             '<div class="sb-snap-zoom-btns">' +
-              '<button onclick="WO.sbSnapZoomStep(\'' + escapeHtml(sid) + '\',' + li + ',-25,\'song\')" title="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
+              '<button onclick="WO.sbSnapZoomStep(\'' + escapeJsArg(sid) + '\',' + li + ',-25,\'song\')" title="Zoom out"><i class="fa-solid fa-minus"></i></button>' +
               '<span>' + _slz + '%</span>' +
-              '<button onclick="WO.sbSnapZoomStep(\'' + escapeHtml(sid) + '\',' + li + ',25,\'song\')" title="Zoom in"><i class="fa-solid fa-plus"></i></button>' +
+              '<button onclick="WO.sbSnapZoomStep(\'' + escapeJsArg(sid) + '\',' + li + ',25,\'song\')" title="Zoom in"><i class="fa-solid fa-plus"></i></button>' +
             '</div>' +
           '</div>';
         } else {
@@ -55007,7 +55008,7 @@ var WO = (function() {
         // 661/662 — Parse Lyrics button: only show for non-YouTube, non-Google links
         var lParseUrl = (lnk.url||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         var lParseBtnHtml = (lIsYt2 || lIsGDrive) ? '' :
-          '<button class="sb-parse-lyrics-btn" onclick="WO.sbOpenParseLyrics(\'' + escapeHtml(sid) + '\',\'song\',' + li + ',\'' + lParseUrl + '\')" title="Grab page content and extract lyrics">' +
+          '<button class="sb-parse-lyrics-btn" onclick="WO.sbOpenParseLyrics(\'' + escapeJsArg(sid) + '\',\'song\',' + li + ',\'' + lParseUrl + '\')" title="Grab page content and extract lyrics">' +
             '<i class="fa-solid fa-wand-magic-sparkles"></i> Parse Lyrics</button>';
         html += '<div class="sb-doc-panel sb-media-panel sb-song-link-panel" id="sbSongLinkPanel-' + sid + '-' + li + '" style="display:none">' +
           '<div class="sb-file-panel-hdr">' +
@@ -55018,7 +55019,7 @@ var WO = (function() {
               // Zoom control — sets projection zoom for book mode
               '<label style="display:flex;align-items:center;gap:3px;font-size:0.72rem;color:#94a3b8;white-space:nowrap;" title="Zoom screenshot (also applies in Book mode)">' +
                 '<i class="fa-solid fa-magnifying-glass" style="font-size:0.68rem;"></i>' +
-                '<select class="sb-link-zoom-sel" onchange="WO.sbSetLinkZoom(\'' + escapeHtml(sid) + '\',' + li + ',this.value,\'song\')" ' +
+                '<select class="sb-link-zoom-sel" onchange="WO.sbSetLinkZoom(\'' + escapeJsArg(sid) + '\',' + li + ',this.value,\'song\')" ' +
                   'style="font-size:0.72rem;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;color:#334155;cursor:pointer;">' +
                   [50,75,100,125,150,175,200].map(function(z) {
                     var sel = (lnk.snapshotZoom || 100) === z ? ' selected' : '';
@@ -55052,9 +55053,9 @@ var WO = (function() {
           _sbChoirCss(typeof song !== 'undefined' ? song : null) +
           '<div class="sb-choir" contenteditable="false">' +
             _sbChoirHeadHtml(song, false) +
-            '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeHtml(_baseId) + '\')">' +
+            '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeJsArg(_baseId) + '\')">' +
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
-            '<button class="sb-choir-edit sb-choir-overview" onclick="WO.sbOverviewFor(\'' + escapeHtml(_baseId) + '\')" title="The whole arrangement as text, with its chords">' +
+            '<button class="sb-choir-edit sb-choir-overview" onclick="WO.sbOverviewFor(\'' + escapeJsArg(_baseId) + '\')" title="The whole arrangement as text, with its chords">' +
               '<i class="fa-solid fa-align-left"></i> Overview edit</button>' +
             '<div class="sb-choir-hint">Double-click a line to change its words, ' +
               'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
@@ -57167,9 +57168,9 @@ var WO = (function() {
           '<span class="sb-rec-item-when">'+((window.lhcVoiceRec && window.lhcVoiceRec._when && r.created_at) ? window.lhcVoiceRec._when(r.created_at) : '')+'</span>' +
           '<span class="sb-rec-item-dur">'+_sbFmtDur(r.duration_sec)+'</span>' +
           '<div class="sb-rec-item-btns">' +
-            '<button class="sb-rec-item-btn" id="sbRecPlay-'+r.id+'" onclick="WO.sbPlayRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+            '<button class="sb-rec-item-btn" id="sbRecPlay-'+r.id+'" onclick="WO.sbPlayRecording(\''+r.id+'\',\''+escapeJsArg(r.storage_path)+'\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
             '<button class="sb-rec-item-btn" onclick="WO.sbRenameRecording(\''+r.id+'\')" title="Rename"><i class="fa-solid fa-pen"></i></button>' +
-            '<button class="sb-rec-item-btn" onclick="WO.sbDeleteRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Delete" style="color:#fca5a5;"><i class="fa-solid fa-trash"></i></button>' +
+            '<button class="sb-rec-item-btn" onclick="WO.sbDeleteRecording(\''+r.id+'\',\''+escapeJsArg(r.storage_path)+'\')" title="Delete" style="color:#fca5a5;"><i class="fa-solid fa-trash"></i></button>' +
           '</div></div></div>';
     }).join('');
   }
@@ -63146,8 +63147,8 @@ var WO = (function() {
     var libCount = filteredAttachments.length;
     var isCustomDoc = docIndex >= libCount;
     var removeCallback = isCustomDoc
-      ? 'WO.sbRemoveCustomDoc(\'' + escapeHtml(songId) + '\',' + (docIndex - libCount) + ')'
-      : 'WO.sbRemoveLibraryDoc(\'' + escapeHtml(songId) + '\',\'' + escapeHtml(url) + '\')';
+      ? 'WO.sbRemoveCustomDoc(\'' + escapeJsArg(songId) + '\',' + (docIndex - libCount) + ')'
+      : 'WO.sbRemoveLibraryDoc(\'' + escapeJsArg(songId) + '\',\'' + escapeJsArg(url) + '\')';
     var removeBtn = '<button class="sb-attachment-remove" onclick="' + removeCallback + '" title="Remove attachment"><i class="fa-solid fa-trash-can"></i> Remove</button>';
     var panelHdr = '<div class="sb-file-panel-hdr"><i class="fa-solid fa-file-lines"></i> ' +
       escapeHtml(att.name || 'Document') + removeBtn + '</div>';
@@ -63155,7 +63156,7 @@ var WO = (function() {
     // 382 — Always try iframe; for Google Docs offer "Load as text" for copy/paste
     var isGoogleDoc = url.indexOf('docs.google.com/document/d/') !== -1;
     var textBtn = isGoogleDoc
-      ? '<button onclick="WO.sbLoadDocAsText(\'' + escapeHtml(songId) + '\',' + docIndex + ',\'' + escapeHtml(url) + '\')" class="sb-load-text-btn" title="Load the document as selectable text so you can copy and paste"><i class="fa-solid fa-font"></i> Load as text</button>'
+      ? '<button onclick="WO.sbLoadDocAsText(\'' + escapeJsArg(songId) + '\',' + docIndex + ',\'' + escapeJsArg(url) + '\')" class="sb-load-text-btn" title="Load the document as selectable text so you can copy and paste"><i class="fa-solid fa-font"></i> Load as text</button>'
       : '<span class="sb-panel-copy-note"><i class="fa-solid fa-circle-info"></i> To copy: use Open full page</span>';
     panel.innerHTML = panelHdr +
       '<div class="sb-panel-open-bar">' + textBtn +
@@ -74637,7 +74638,7 @@ var WO = (function() {
 
     var html = songs.map(function(song) {
       var themes = Array.isArray(song.themes) ? song.themes.join(', ') : (song.themes || '');
-      var _sid = (song.id || song.title).replace(/'/g, "\\'");
+      var _sid = escapeJsArg(song.id || song.title);
       return '<div class="wo-song-item" ondblclick="WO.addSongDirectly(\'' + _sid + '\')" ontouchend="WO._songItemTap(this,\'' + _sid + '\',event)">' +
         '<div class="wo-song-info">' +
         '<div class="wo-song-title-popup">' + escapeHtml(song.title || 'Untitled') + '</div>' +
@@ -76708,7 +76709,7 @@ var WO = (function() {
         '<span class="lcd-media-cap">None</span></div>';
       if (sub === 'image') {
         html += _woDefaultBackgrounds().map(function(c) {
-          var esc = escapeHtml(c.bg).replace(/'/g, '&#39;');
+          var esc = escapeJsArg(c.bg);
           return '<div class="lcd-media-item lcd-media-colour" draggable="true"' +
             ' ondragstart="WO.onBgDragStart(event)" data-drag-bg="' + escapeHtml(c.bg) + '"' +
             ' onclick="WO.selectBackground(\'' + esc + '\', true)"' +
@@ -77904,7 +77905,7 @@ var WO = (function() {
       (subLabel ? '<span class="lcd-rail-scr-group-ref">' + escapeHtml(title) + '</span>' : '') +
       '<span class="lcd-rail-scr-group-count">' + count + '</span>' +
       '<button class="lcd-rail-scr-group-del" title="Remove this reading and keep the ' + escapeHtml(heading) + ' slot" ' +
-        'onclick="event.stopPropagation();WO.lcdRemoveScriptureSlot(\'' + escapeHtml(sectionId) + '\',\'' + escapeHtml(subLabel) + '\',\'' + escapeHtml(title) + '\')">' +
+        'onclick="event.stopPropagation();WO.lcdRemoveScriptureSlot(\'' + escapeJsArg(sectionId) + '\',\'' + escapeJsArg(subLabel) + '\',\'' + escapeJsArg(title) + '\')">' +
         '<i class="fa-solid fa-trash"></i></button>' +
     '</div>';
   }
@@ -77939,7 +77940,7 @@ var WO = (function() {
       '<span class="lcd-rail-ppt-group-name">' + escapeHtml(name) + '</span>' +
       '<span class="lcd-rail-ppt-group-count">' + count + '</span>' +
       '<button class="lcd-rail-ppt-group-del" title="Remove this presentation and all ' + count + ' of its slides" ' +
-        'onclick="event.stopPropagation();WO.removePptFile(\'' + escapeHtml(sectionId) + '\')">' +
+        'onclick="event.stopPropagation();WO.removePptFile(\'' + escapeJsArg(sectionId) + '\')">' +
         '<i class="fa-solid fa-trash"></i></button>' +
     '</div>';
   }
@@ -78599,7 +78600,7 @@ var WO = (function() {
     cats.forEach(function(c) { chips.push({ id: c, label: c }); });
     wrap.innerHTML = chips.map(function(c) {
       var active = (_lcdLibChip === c.id) ? ' active' : '';
-      var esc = escapeHtml(c.id).replace(/'/g, '&#39;');
+      var esc = escapeJsArg(c.id);
       return '<button class="lcd-lib-chip' + active + '" onclick="WO.lcdLibrarySetChip(\'' + esc + '\')">' + escapeHtml(c.label) + '</button>';
     }).join('');
   }
@@ -78608,7 +78609,7 @@ var WO = (function() {
   // panel is fully usable without drag-and-drop (Phase 4 adds dragging on
   // top of this, it never becomes the only way in).
   function _lcdBuildSongCardHtml(song) {
-    var sid = String(song.id || song.title).replace(/'/g, "\\'");
+    var sid = escapeJsArg(song.id || song.title);
     var meta = [];
     if (song.artist) meta.push(song.artist);
     if (song.key) meta.push('Key ' + song.key);
@@ -78993,7 +78994,7 @@ var WO = (function() {
       // what someone actually wants nine times out of ten.
       items.splice(3, 0, { icon: 'fa-table-list', label: 'Insert readings from roster', fn: 'insertReadingsFromRoster' });
     }
-    var esc = String(sectionId).replace(/'/g, "\\'");
+    var esc = escapeJsArg(sectionId);
     menu.innerHTML = items.map(function(it) {
       return '<button class="lcd-section-menu-item' + (it.danger ? ' danger' : '') + '"' +
         ' onclick="WO.lcdRunSectionAction(\'' + it.fn + '\', \'' + esc + '\')">' +
@@ -83012,11 +83013,24 @@ var WO = (function() {
     $('woUndoNotification').classList.remove('show');
   }
 
+  // Safe in text AND in a quoted attribute. textContent / innerHTML escapes
+  // & < > and leaves quotes alone, and much of this module writes names and
+  // addresses into attributes: a " in one would end the attribute and start
+  // one of its own.
   function escapeHtml(text) {
     if (!text) return '';
     var div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // A value inside a JS string inside an inline handler, on...="f('X')".
+  // The attribute is decoded before the script runs, so &#39; arrives as '
+  // and would end the string: escape for the string first, then for the
+  // attribute.
+  function escapeJsArg(text) {
+    var t = text == null ? '' : String(text);
+    return escapeHtml(t.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n').replace(/\u2028|\u2029/g, ''));
   }
 
   // Build a wo-slide-line div, stripping parenthetical text for service order slide display
@@ -83356,7 +83370,7 @@ var WO = (function() {
         navHtml +
         '<iframe src="' + escapeHtml(url) + '" frameborder="0"></iframe>' +
         '<div class="wo-doc-viewer-actions">' +
-        '<button onclick="openDocPreviewModal(\'' + escapeHtml(url).replace(/'/g, "\\'") + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
+        '<button onclick="openDocPreviewModal(\'' + escapeJsArg(url) + '\', \'' + escapeJsArg(name) + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
         '<a href="' + escapeHtml(url) + '" target="_blank" class="wo-doc-open-btn"><i class="fa-solid fa-external-link"></i> Open PDF</a>' +
         '</div>' +
         '</div>';
@@ -83368,7 +83382,7 @@ var WO = (function() {
         navHtml +
         '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '">' +
         '<div class="wo-doc-viewer-actions">' +
-        '<button onclick="openDocPreviewModal(\'' + escapeHtml(url).replace(/'/g, "\\'") + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
+        '<button onclick="openDocPreviewModal(\'' + escapeJsArg(url) + '\', \'' + escapeJsArg(name) + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
         '<a href="' + escapeHtml(url) + '" target="_blank" class="wo-doc-open-btn"><i class="fa-solid fa-external-link"></i> Open Image</a>' +
         '</div>' +
         '</div>';
@@ -83383,7 +83397,7 @@ var WO = (function() {
           navHtml +
           '<iframe src="' + embedUrl + '" frameborder="0" allowfullscreen></iframe>' +
           '<div class="wo-doc-viewer-actions">' +
-          '<button onclick="openDocPreviewModal(\'' + escapeHtml(url).replace(/'/g, "\\'") + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
+          '<button onclick="openDocPreviewModal(\'' + escapeJsArg(url) + '\', \'' + escapeJsArg(name) + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
           '<a href="' + escapeHtml(url) + '" target="_blank" class="wo-doc-open-btn"><i class="fa-solid fa-external-link"></i> Open in Drive</a>' +
           '</div>' +
           '</div>';
@@ -83395,7 +83409,7 @@ var WO = (function() {
       navHtml +
       '<p><i class="fa-solid fa-file-lines"></i> ' + escapeHtml(name) + '</p>' +
       '<div class="wo-doc-viewer-actions">' +
-      '<button onclick="openDocPreviewModal(\'' + escapeHtml(url).replace(/'/g, "\\'") + '\', \'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
+      '<button onclick="openDocPreviewModal(\'' + escapeJsArg(url) + '\', \'' + escapeJsArg(name) + '\')" class="wo-doc-open-btn" style="background:#0b7a53;color:white;border:none;cursor:pointer;"><i class="fa-solid fa-expand"></i> Full Screen</button>' +
       '<a href="' + escapeHtml(url) + '" target="_blank" class="wo-doc-open-btn"><i class="fa-solid fa-external-link"></i> Open Document</a>' +
       '</div>' +
       '</div>';
@@ -83615,15 +83629,15 @@ var WO = (function() {
         html += '<div class="slm-item">' +
           '<span class="slm-item-icon" style="color:#ff0000;"><i class="fa-brands fa-youtube"></i></span>' +
           '<span class="slm-item-name" title="' + escapeHtml(url) + '">' + escapeHtml(label) + '</span>' +
-          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'YouTube ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeJsArg(url) + '\',\'YouTube ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
         '</div>';
       });
       customYoutube.forEach(function(url, i) {
         html += '<div class="slm-item">' +
           '<span class="slm-item-icon" style="color:#ff0000;"><i class="fa-brands fa-youtube"></i></span>' +
           '<span class="slm-item-name" title="' + escapeHtml(url) + '">Custom Video ' + (i + 1) + ' <span class="slm-item-tag">custom</span></span>' +
-          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'Custom Video ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
-          '<button class="slm-item-btn remove" onclick="WO.slmRemoveVideo(\'' + escapeHtml(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeJsArg(url) + '\',\'Custom Video ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+          '<button class="slm-item-btn remove" onclick="WO.slmRemoveVideo(\'' + escapeJsArg(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
         '</div>';
       });
     }
@@ -83640,7 +83654,7 @@ var WO = (function() {
         html += '<div class="slm-item">' +
           '<span class="slm-item-icon">' + icon + '</span>' +
           '<span class="slm-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + '</span>' +
-          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeJsArg(att.url||'') + '\',\'' + escapeJsArg(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
         '</div>';
       });
       customDocs.forEach(function(att, i) {
@@ -83648,8 +83662,8 @@ var WO = (function() {
         html += '<div class="slm-item">' +
           '<span class="slm-item-icon"><i class="fa-solid fa-file-lines" style="color:#4285f4;"></i></span>' +
           '<span class="slm-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + ' <span class="slm-item-tag">custom</span></span>' +
-          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
-          '<button class="slm-item-btn remove" onclick="WO.slmRemoveDoc(\'' + escapeHtml(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeJsArg(att.url||'') + '\',\'' + escapeJsArg(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
+          '<button class="slm-item-btn remove" onclick="WO.slmRemoveDoc(\'' + escapeJsArg(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
         '</div>';
       });
     }
@@ -84639,7 +84653,7 @@ var WO = (function() {
     var safeTitle = title || 'Song reference';
     dock.innerHTML = '<div class="sb-dock-player-head"><span><i class="fa-brands fa-youtube"></i> ' + escapeHtml(safeTitle) + '</span><button onclick="WO.sbCloseDockPlayer()" title="Close player"><i class="fa-solid fa-xmark"></i></button></div>' +
       '<div class="sb-dock-video"><iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(idMatch[1]) + '?autoplay=1&rel=0" title="' + escapeHtml(safeTitle) + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>' +
-      '<button class="sb-dock-jump" onclick="WO.sbScrollToSong(\'' + escapeHtml(songId) + '\')"><i class="fa-solid fa-arrow-turn-down"></i> Jump to song</button>';
+      '<button class="sb-dock-jump" onclick="WO.sbScrollToSong(\'' + escapeJsArg(songId) + '\')"><i class="fa-solid fa-arrow-turn-down"></i> Jump to song</button>';
     var rail = $('sbNotebookRail');
     if (rail) rail.classList.add('has-player');
     return true;

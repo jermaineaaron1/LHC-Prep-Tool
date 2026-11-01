@@ -79,9 +79,12 @@ function check(label, got, want) {
 // ---------------------------------------------------------------------------
 // The sliced source.
 // ---------------------------------------------------------------------------
-let renderSrc, ownCountSrc, catOfSrc, forgetSrc, baseIdSrc;
+let renderSrc, ownCountSrc, catOfSrc, forgetSrc, baseIdSrc, jsArgSrc = '';
 try {
   renderSrc = extract(/^  function sbRenderRecordings\(/, 'sbRenderRecordings');
+  // The play button passes the take's storage path into an onclick's JS
+  // string through escapeJsArg (source from before that has none).
+  try { jsArgSrc = extract(/^  function escapeJsArg\(/, 'escapeJsArg'); } catch (e) { jsArgSrc = ''; }
   ownCountSrc = extract(/^  function _sbOwnRecCount\(/, '_sbOwnRecCount');
   catOfSrc = extract(/^  function _sbRecCatOf\(/, '_sbRecCatOf');
   baseIdSrc = extract(/^  function _sbBaseSongId\(/, '_sbBaseSongId');
@@ -193,7 +196,7 @@ const sandbox = {
 const body =
   catsLine.replace(/\r$/, '').trim() + '\n' +
   'function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || "General"; }\n' +
-  catOfSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
+  catOfSrc + '\n' + jsArgSrc + '\n' + renderSrc + '\n' + ownCountSrc + '\n' + baseIdSrc + '\n' +
   'var lhcVoiceRec = { _takes: {}, _drafts: {}, ' + forgetSrc + ', ' + takeNameSrc + ', ' + whenSrc + ' };\n' +
   'window.lhcVoiceRec = lhcVoiceRec;\n' +
   'return { sbRenderRecordings: sbRenderRecordings, _sbOwnRecCount: _sbOwnRecCount, rec: lhcVoiceRec, baseId: _sbBaseSongId };';
