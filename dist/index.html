@@ -71857,7 +71857,8 @@ var WO = (function() {
       fb('fmt-color', '<span class="lbw-fb-a">A</span>' + dd, 'Colour of the selected words', ' data-need="rich" aria-haspopup="menu"') +
       fb('fmt', '<i class="fa-solid fa-text-slash" aria-hidden="true"></i>', 'Clear formatting', ' data-cmd="clear" data-need="rich"') +
       '<span class="lbw-fsep" aria-hidden="true"></span>' +
-      fb('ins-break', '<i class="fa-solid fa-scissors" aria-hidden="true"></i><span class="lbw-fb-lbl">Slide break</span>', 'Start a new slide at the cursor (Ctrl+Enter)', ' data-need="rich"') +
+      fb('ins-break', '<i class="fa-solid fa-scissors" aria-hidden="true"></i><span class="lbw-fb-lbl">Slide break</span>', 'Start a new slide at the cursor (Ctrl+Enter)', ' data-need="words"') +
+      fb('ins-line', '<span class="lbw-nl" aria-hidden="true">&#8629;</span><span class="lbw-fb-lbl">New line</span>', 'A new line in this slide (on a touch screen, Enter starts a new slide)', ' data-need="words"') +
       fb('ins-note', '<i class="fa-regular fa-comment" aria-hidden="true"></i><span class="lbw-fb-lbl">Note</span>', 'A note for the liturgist on this section, never projected') +
       '<span class="lbw-fmt-end">' +
         '<span class="lbw-seg" role="group" aria-label="View">' +
@@ -72189,8 +72190,10 @@ var WO = (function() {
     '</nav>';
   }
 
-  // Over the phone's keyboard while typing: Done, the speaker, the
-  // formatting, a slide break, a note, and up / down between the words.
+  // Over the phone's keyboard while typing: Done, the speaker, a new line and
+  // a slide break (Enter is the slide break on a touch screen, so these two
+  // come first, in reach without scrolling), the formatting, a note, and
+  // up / down between the words.
   function _lbdKbHtml() {
     function kb(act, inner, label, extra) {
       return '<button type="button" class="lbw-kb-b" data-act="' + act + '" aria-label="' + _lbdEsc(label) + '" title="' + _lbdEsc(label) + '"' + (extra || '') + '>' + inner + '</button>';
@@ -72199,12 +72202,13 @@ var WO = (function() {
       kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done') +
       '<span class="lbw-kb-scroll">' +
         kb('fmt-role', '<span class="lbw-kb-role">L·C</span>', 'Who says this line', ' data-need="words"') +
+        kb('ins-line', '<span class="lbw-nl" aria-hidden="true">&#8629;</span>', 'New line', ' data-need="words"') +
+        kb('ins-break', '<i class="fa-solid fa-scissors" aria-hidden="true"></i>', 'Slide break', ' data-need="words"') +
         kb('fmt', '<b>B</b>', 'Bold', ' data-cmd="bold" data-need="rich" aria-pressed="false"') +
         kb('fmt', '<i class="lbw-fb-i">I</i>', 'Italic', ' data-cmd="italic" data-need="rich" aria-pressed="false"') +
         kb('fmt', '<u>U</u>', 'Underline', ' data-cmd="underline" data-need="rich" aria-pressed="false"') +
         kb('fmt-color', '<span class="lbw-fb-a">A</span>', 'Colour', ' data-need="rich"') +
         kb('fmt-size', '<i class="fa-solid fa-text-height" aria-hidden="true"></i>', 'Size', ' data-need="rich"') +
-        kb('ins-break', '<i class="fa-solid fa-scissors" aria-hidden="true"></i>', 'Slide break', ' data-need="rich"') +
         kb('ins-note', '<i class="fa-regular fa-comment" aria-hidden="true"></i>', 'Note') +
         kb('kb-up', '<i class="fa-solid fa-chevron-up" aria-hidden="true"></i>', 'Previous words') +
         kb('kb-down', '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>', 'Next words') +
@@ -72892,6 +72896,20 @@ var WO = (function() {
     var ok = false;
     try { ok = document.execCommand('insertLineBreak'); } catch (e) {}
     if (!ok) _lbdInsertText('\n');
+  }
+
+  // A touch screen's keyboard has no Shift+Enter, so there Enter is the slide
+  // break, as Shift+Enter is on a desk, and a new line is the New line key (or
+  // Shift+Enter, with a keyboard attached).
+  function _lbdTouchKeys() {
+    try { return !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches); } catch (e) { return false; }
+  }
+  function _lbdNewLineAtCaret() {
+    var ae = document.activeElement, host = $('woLiturgyBuilder');
+    var f = ae && host && host.contains(ae) && ae.getAttribute('data-field');
+    if (f === 'slide') { _lbdLineBreak(); return; }
+    if (f === 'content-text') { _lbdInsertText('\n'); return; }
+    showToast('Tap in the words of a slide, where the new line should go', 'info');
   }
 
   function _lbdRichField() {
@@ -73864,6 +73882,7 @@ var WO = (function() {
     host.addEventListener('focusin', _lbdOnFocusIn);
     host.addEventListener('focusout', _lbdOnFocusOut);
     host.addEventListener('keydown', _lbdOnKeyDown);
+    host.addEventListener('beforeinput', _lbdOnBeforeInput);
     host.addEventListener('paste', _lbdOnPaste);
     host.addEventListener('dragstart', _lbdOnDragStart);
     host.addEventListener('dragover', _lbdOnDragOver);
@@ -73955,6 +73974,7 @@ var WO = (function() {
       case 'ins-section': _lbdInsert('section'); break;
       case 'ins-note': _lbdInsert('note'); break;
       case 'ins-break': _lbdBreakAtCaret(); break;
+      case 'ins-line': _lbdNewLineAtCaret(); break;
       case 'menu-import': _lbdOpenImportMenu(btn); break;
       case 'menu-templates': _lbdOpenTplMenu(btn); break;
       case 'menu-svl': _lbdOpenSvlMenu(btn); break;
@@ -74173,6 +74193,14 @@ var WO = (function() {
       return;
     }
     if (f !== 'slide' && f !== 'content-text') return;
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && _lbdTouchKeys()) {
+      e.preventDefault();
+      _lbdKeyDoneAt = Date.now();
+      if (e.shiftKey) _lbdNewLineAtCaret();
+      else if (f === 'slide') _lbdBreakAt(el);
+      else _lbdBreakText(el);
+      return;
+    }
     if (e.key === 'Enter' && f === 'slide' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault();
       _lbdBreakAt(el);
@@ -74189,7 +74217,7 @@ var WO = (function() {
       var car = _lbdCaret(el);
       if (car && car.collapsed) {
         var c = _lbdCtx(el);
-        if (e.key === 'Backspace' && car.start === 0 && c.idx > 0) { e.preventDefault(); _lbdMergeAt(c.item, c.idx); return; }
+        if (e.key === 'Backspace' && car.start === 0 && c.idx > 0) { e.preventDefault(); _lbdKeyDoneAt = Date.now(); _lbdMergeAt(c.item, c.idx); return; }
         if (e.key === 'Delete' && car.start >= _lbdTextOf(el).replace(/\n+$/, '').length) {
           var it = _lbdItem(c.item);
           if (it && Array.isArray(it.slides) && c.idx < it.slides.length - 1) { e.preventDefault(); _lbdMergeAt(c.item, c.idx + 1, true); return; }
@@ -74200,6 +74228,25 @@ var WO = (function() {
       var dir = e.key === 'ArrowDown' ? 1 : -1;
       if (_lbdCaretAtEdge(el, dir) && _lbdStep(el, dir)) e.preventDefault();
     }
+  }
+
+  // Android keyboards often send Enter and Backspace as key 229, which the
+  // keydown above cannot read; what the key would do arrives here instead.
+  // A key the keydown already acted on is not acted on twice.
+  var _lbdKeyDoneAt = 0;
+  function _lbdOnBeforeInput(e) {
+    var el = e.target, f = el && el.getAttribute && el.getAttribute('data-field');
+    if ((f !== 'slide' && f !== 'content-text') || !_lbdTouchKeys()) return;
+    var it = e.inputType;
+    if (it !== 'insertParagraph' && !(it === 'deleteContentBackward' && f === 'slide')) return;
+    if (Date.now() - _lbdKeyDoneAt < 400) { e.preventDefault(); return; }
+    if (it === 'insertParagraph') {
+      e.preventDefault();
+      if (f === 'slide') _lbdBreakAt(el); else _lbdBreakText(el);
+      return;
+    }
+    var car = _lbdCaret(el), c = _lbdCtx(el);
+    if (car && car.collapsed && car.start === 0 && c.idx > 0) { e.preventDefault(); _lbdMergeAt(c.item, c.idx); }
   }
 
   // Everything pasted onto the page goes in as plain text. Text with blank
@@ -105191,6 +105238,12 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-fmt-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
 /* What needs the cursor in the words of a slide is dimmed until it is. */
 .lbw:not(.lbw--rich) [data-need="rich"], .lbw:not(.lbw--words) [data-need="words"] { opacity: 0.4; }
+/* New line is only for a touch screen, where Enter starts a new slide. */
+.lbw-fb[data-act="ins-line"], .lbw-kb-b[data-act="ins-line"] { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .lbw-fb[data-act="ins-line"], .lbw-kb-b[data-act="ins-line"] { display: inline-flex; }
+}
+.lbw-nl { font-size: 17px; font-weight: 700; line-height: 1; }
 .lbw-seg { display: inline-flex; border: 1px solid #cfdcd3; border-radius: 7px; overflow: hidden; }
 .lbw-seg-b { height: 32px; padding: 0 12px; border: 0; background: #fff; color: #33433a; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .lbw-seg-b + .lbw-seg-b { border-left: 1px solid #cfdcd3; }
