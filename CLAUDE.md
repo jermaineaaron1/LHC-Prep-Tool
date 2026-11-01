@@ -134,7 +134,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Order starts closed (`_lbdLibOn` false; a saved "open" counts only from
      `libV` 2), and Shift/Ctrl+Enter starts a new slide at the cursor -- in a
      text slide, a new text slide -- which the leave-a-slide tidy now spares
-     while the cursor is in it (`_lbdFocusIn`). Edits the order's data directly; see gotchas 34-37,
+     while the cursor is in it (`_lbdFocusIn`). A phone's keyboard has no
+     Shift+Enter, so on a touch screen (`_lbdTouchKeys`: no hover, a coarse
+     pointer) plain Enter is the slide break, and a line is the New line key
+     (first in the keys over the keyboard, beside Slide break; on the
+     formatting bar too, shown only on a touch screen) or Shift+Enter with a
+     keyboard attached. Android keyboards often send Enter and Backspace to
+     keydown as key 229; what they would do is caught again at `beforeinput`
+     (`_lbdOnBeforeInput`: `insertParagraph` breaks the slide,
+     `deleteContentBackward` at a slide's start joins it), never twice for
+     one key (`_lbdKeyDoneAt`). Edits the order's data directly; see gotchas 34-37,
      39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
@@ -1023,8 +1032,8 @@ the anon key -- verify as `postgres`, not as the app.
     weight, style, decoration or family. A slide break or join goes through
     `_lbdSplitField` / the merge in `_lbdMergeAt` so each half keeps its
     formatting; `_lbdSetSlide` (words only) still drops it. Enter in a slide
-    is `insertLineBreak` (a `<div>` would be a paragraph); paste is still
-    plain text. Typing writes the data as it goes and never redraws;
+    is `insertLineBreak` (a `<div>` would be a paragraph) on a desk, and the
+    slide break on a touch screen; paste is still plain text. Typing writes the data as it goes and never redraws;
     anything that does redraw (`lbdRender`) hands the cursor back where it
     was (`_lbdFocusKey` / `_lbdRestoreFocus`), and a run of typing is one
     undo step, pushed by `_lbdFlushTyping` before any other change -- it

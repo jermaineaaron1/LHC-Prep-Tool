@@ -616,6 +616,18 @@ console.log('\n[service liturgies]');
     has(/if \(_lbdIsActive\(\) && !_lbdFocusIn\(c\.item\)\) _lbdDropEmptySlides\(c\.item\);/));
   check('and in a text slide the words after the cursor go on to a new one',
     has(/if \(e\.key === 'Enter' && f === 'content-text' && \(e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey\)\) \{/) && has(/function _lbdBreakText\(el\) \{/));
+  check('on a touch screen Enter is the slide break, before it can become a new line',
+    has(/window\.matchMedia\('\(hover: none\) and \(pointer: coarse\)'\)\.matches/) &&
+    has(/if \(e\.key === 'Enter' && !e\.ctrlKey && !e\.metaKey && !e\.altKey && _lbdTouchKeys\(\)\) \{\r?\n\s*e\.preventDefault\(\);\r?\n\s*_lbdKeyDoneAt = Date\.now\(\);\r?\n\s*if \(e\.shiftKey\) _lbdNewLineAtCaret\(\);\r?\n\s*else if \(f === 'slide'\) _lbdBreakAt\(el\);\r?\n\s*else _lbdBreakText\(el\);/) &&
+    SRC.indexOf("_lbdTouchKeys()) {") < SRC.indexOf("if (e.key === 'Enter' && f === 'slide' && !e.altKey) { e.preventDefault(); _lbdLineBreak(); return; }"));
+  check('...and an Android keyboard\'s Enter and Backspace, which keydown cannot read, are caught as they would act, never twice',
+    has(/host\.addEventListener\('beforeinput', _lbdOnBeforeInput\);/) &&
+    has(/if \(Date\.now\(\) - _lbdKeyDoneAt < 400\) \{ e\.preventDefault\(\); return; \}/) &&
+    has(/if \(it === 'insertParagraph'\) \{\r?\n\s*e\.preventDefault\(\);\r?\n\s*if \(f === 'slide'\) _lbdBreakAt\(el\); else _lbdBreakText\(el\);/) &&
+    has(/if \(car && car\.collapsed && car\.start === 0 && c\.idx > 0\) \{ e\.preventDefault\(\); _lbdMergeAt\(c\.item, c\.idx\); \}/));
+  check('a New line key on the formatting bar and over the phone\'s keyboard, shown only on a touch screen',
+    has(/fb\('ins-line', /) && has(/kb\('ins-line', /) && has(/case 'ins-line': _lbdNewLineAtCaret\(\); break;/) &&
+    has(/\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: none; \}\r?\n@media \(hover: none\) and \(pointer: coarse\) \{\r?\n\s*\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: inline-flex; \}/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',
