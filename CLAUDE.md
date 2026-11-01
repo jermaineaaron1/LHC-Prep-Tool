@@ -107,16 +107,22 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
 - One order, three numbered steps, as tabs under the editor header:
   1. **Liturgy Builder** (order of worship) -- the sections, and in each the
-     songs, liturgy, readings and the liturgist's notes, laid out like a Word
-     document: a one-row ribbon (Insert, Note, Import, View), numbered
-     headings typed on in place, the liturgy's and readings' words typed on
-     the page with a dashed rule between slides (Ctrl/Shift+Enter breaks a
-     slide, Backspace at its start joins it back), notes as comments in the
-     margin, a navigation pane of the headings (click to go, drag to
-     reorder), right-click menus and a status bar. Outline view shows one
-     line per part; Full text shows every word. Import takes a Word .docx or
-     text pasted from Word: headings become sections, the words under them
-     liturgy. Edits the order's data directly; see gotchas 34-37 and 39-41.
+     songs, liturgy, readings and the liturgist's notes, as a word processor.
+     On a desk, three columns: the Order Outline (numbered sections, drag a
+     grip to reorder), the page under a formatting bar (Speaker L:/P:/C:/All:,
+     size, bold, italic, underline, colour), and Add to Order (the library by
+     category, your own items, the service templates; click to add where you
+     are, or drag onto a section). A ribbon above inserts songs, liturgy,
+     readings, prayers, text, sections, slide breaks and notes. Sections are
+     heading bars with move, duplicate and remove; the words are typed on the
+     page with "Slide 2, 3" marks between slides (Ctrl/Shift+Enter breaks a
+     slide, Backspace at its start joins it back); notes are margin
+     comments. On a phone it works like Google Docs: a bottom bar with Add
+     in the middle, the outline and the library as sheets from below, and
+     the formatting keys over the keyboard. Compact shows one line per part;
+     Full text shows every word. Import takes a Word .docx or text pasted
+     from Word: headings become sections, the words under them liturgy.
+     Edits the order's data directly; see gotchas 34-37, 39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
      is showing and closes back to it. It also has the order's **inbox**
@@ -970,17 +976,33 @@ the anon key -- verify as `postgres`, not as the app.
     Both lists now go through `_woUniqueItems`, and the LCD draws a text
     box once per id. Build any new item list the same way.
 
-41. **The builder's words are plain-text editables; read them with
-    `_lbdVal`.** Every field on the page is `contenteditable=
-    "plaintext-only"` (plain `true` plus paste and Enter handling where a
-    browser lacks it), read through `_lbdTextOf` -- text, `<br>` and block
-    elements to `'\n'` -- never `innerHTML`. Typing writes the data as it
-    goes and never redraws; anything that does redraw (`lbdRender`) hands
-    the cursor back where it was (`_lbdFocusKey` / `_lbdRestoreFocus`), and
-    a run of typing is one undo step, pushed by `_lbdFlushTyping` before any
-    other change. Work that redraws after a field loses focus waits a tick
-    (`setTimeout 0`), or the redraw swallows the click that moved the
-    cursor.
+41. **The builder's words are plain-text editables, except a slide's,
+    which keep the LCD's formatting.** Titles, notes and text slides are
+    `contenteditable="plaintext-only"` (plain `true` plus paste and Enter
+    handling where a browser lacks it), read through `_lbdVal` /
+    `_lbdTextOf` -- text, `<br>` and block elements to `'\n'` -- never
+    `innerHTML`. The words of a liturgy or reading slide
+    (`data-field="slide"`) are `contenteditable="true"` and written as a
+    PAIR: `content` (the words, from `_lbdTextOf`) and `richHtml` (the same
+    lines as inline HTML joined by `<br>`, from `_lbdRichOf`, or `null` when
+    nothing is formatted) -- the form the LCD's own editor saves and redraws.
+    The two walks treat text, `<br>` and blocks alike, so their lines always
+    agree; change one, change both. `_lbdRichOf` is also the sanitiser:
+    stored `richHtml` is parsed and walked again (`_lbdRichClean`) before it
+    is drawn, keeping only b/i/u/s/sup/sub and spans with colour, size,
+    weight, style, decoration or family. A slide break or join goes through
+    `_lbdSplitField` / the merge in `_lbdMergeAt` so each half keeps its
+    formatting; `_lbdSetSlide` (words only) still drops it. Enter in a slide
+    is `insertLineBreak` (a `<div>` would be a paragraph); paste is still
+    plain text. Typing writes the data as it goes and never redraws;
+    anything that does redraw (`lbdRender`) hands the cursor back where it
+    was (`_lbdFocusKey` / `_lbdRestoreFocus`), and a run of typing is one
+    undo step, pushed by `_lbdFlushTyping` before any other change -- it
+    compares the slide's `innerHTML` too, so Ctrl+B alone is a step. The
+    formatting bar and its menus keep the cursor in the words
+    (`mousedown`/`pointerdown` prevented, `keepFocus` menus). Work that
+    redraws after a field loses focus waits a tick (`setTimeout 0`), or the
+    redraw swallows the click that moved the cursor.
 
 42. **A medley is a SET; the running order says how it is sung.**
     `currentOrderData.template.medleys = [{ id, songs: [entry id] }]` is saved
@@ -1025,6 +1047,30 @@ the anon key -- verify as `postgres`, not as the app.
     closed. Do NOT redraw the schedule with `selectOrder('service')` to
     catch up: its init calls `_clearPreviewToBlank`, which sends an empty
     slide to the projector -- mid-service, a blank screen.
+
+45. **The builder's layout is a class set in script, not a size
+    container.** `_lbdModeFor(width of #woLiturgyBuilder)` picks `lbw--xl`
+    (>= 1280: outline | page | Add to Order), `lg` (outline | page, Add to
+    Order a drawer), `md` (>= 700: both panes drawers) or `sm` (a phone:
+    top bar, bottom bar with Add in the middle, both panes sheets from
+    below, and formatting keys pinned over the keyboard by
+    `visualViewport`). A ResizeObserver re-picks it and `_lbdApplyShell`
+    swaps the classes without redrawing. It is not a `container-type` on
+    the builder because that would become the containing block of the
+    drawers, sheets and keys, which are `position: fixed`; the page column
+    (`.lbw-canvas`) is a size container, for the margin notes and the
+    formatting bar, and holds nothing fixed. On a phone the builder owns
+    the screen: `body.wo-lbd-on.wo-lbd-phone` hides the app's
+    `#lhcBottomNav` and the 68px kept for it (needing `wo-lbd-on`, which
+    `setActiveView` takes away with the view, so the bar comes back
+    elsewhere), and the top bar names the section scrolled to, which is
+    where Add adds. Entering the builder on a desk drops the app sidebar to
+    its icon rail through `_lcdAutoCollapseSidebar`, as LCD Projection
+    does, without touching the saved preference. Testing in the browser
+    pane while it is hidden: transitions freeze at their start value and
+    animation frames never come, so the sidebar's grid and the sheets look
+    stuck -- inject `*{transition:none!important}` into the test page
+    before measuring.
 
 ## Quick Commands for Claude Code
 
