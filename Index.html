@@ -70015,7 +70015,10 @@ var WO = (function() {
     } catch (e) { return 'true'; }
   })();
 
-  function _lbdEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
+  // This module's escapeHtml leaves quotes alone (it goes through textContent),
+  // and the builder writes names into attributes: title=, aria-label=, value=.
+  // A title with a " in it would end the attribute and start one of its own.
+  function _lbdEsc(s) { return escapeHtml(s == null ? '' : String(s)).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   function _lbdCssId(s) { return String(s || '').replace(/["\\]/g, '\\$&'); }
 
   function _lbdPeek(text, n) {
@@ -70335,7 +70338,7 @@ var WO = (function() {
     if (_lbdLayoutBound) return;
     _lbdLayoutBound = true;
     window.addEventListener('resize', _lbdOnResize);
-    if (typeof ResizeObserver !== 'undefined' && host) new ResizeObserver(function() { _lbdOnResize(); }).observe(host);
+    if (typeof ResizeObserver !== 'undefined' && host) new ResizeObserver(function() { setTimeout(_lbdOnResize, 0); }).observe(host);
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', _lbdKbPlace);
       window.visualViewport.addEventListener('scroll', _lbdKbPlace);
@@ -70864,7 +70867,7 @@ var WO = (function() {
 
   function _lbdKindOf(it, slotLabel) {
     var t = it.itemType, ty = (it.content && it.content.type) || '';
-    if (t === 'liturgy') return ty === 'prayer' ? 'Prayer' : ty === 'creed' ? 'Creed' : 'Liturgy';
+    if (t === 'liturgy') return (ty === 'prayer' || _LBD_PRAYER.test(it.title || '')) ? 'Prayer' : ty === 'creed' ? 'Creed' : 'Liturgy';
     if (t === 'scripture') return slotLabel || (it.content && it.content.subLabel) || 'Reading';
     return t === 'slides' ? 'Slides' : t === 'video' ? 'Video' : 'Text';
   }
@@ -70932,7 +70935,7 @@ var WO = (function() {
       return '<option value="' + _lbdEsc(sec.id) + '">' + (i + 1) + '. ' + _lbdEsc(sec.title) + '</option>';
     }).join('');
     return '<div class="lbw-unplaced" id="lbwUnplaced">' +
-      '<div class="lbw-unplaced-head"><i class="fa-solid fa-music" aria-hidden="true"></i> In Song Order, not yet in the service <span class="lbw-badge">' + un.length + '</span></div>' +
+      '<div class="lbw-unplaced-head"><i class="fa-solid fa-music" aria-hidden="true"></i> Songs in this order but not yet in a section <span class="lbw-badge">' + un.length + '</span></div>' +
       un.map(function(s) {
         return '<div class="lbw-el lbw-el--song" data-song="' + _lbdEsc(s.id) + '" data-unplaced="1">' +
           '<div class="lbw-el-line"><span class="lbw-kind">Song</span><span class="lbw-el-title">' + _lbdEsc(s.title || 'Song') + '</span></div>' +
@@ -71058,6 +71061,11 @@ var WO = (function() {
   function _lbdLitAll() {
     return (typeof LiturgyModule !== 'undefined' && LiturgyModule.getAllItems) ? (LiturgyModule.getAllItems() || []) : [];
   }
+
+  // The library files nearly everything as type 'liturgy', so a prayer is
+  // known by its name as well as by its type.
+  var _LBD_PRAYER = /\bprayers?\b|collect|intercession|petition|litany|supplication/i;
+  function _lbdIsPrayer(x) { return x.type === 'prayer' || _LBD_PRAYER.test(String(x.title || '')); }
 
   function _lbdIsSacrament(x) {
     var tags = Array.isArray(x.tags) ? x.tags.join(' ') : String(x.tags || '');
@@ -71199,8 +71207,7 @@ var WO = (function() {
       // As the LCD's own picker: projectable items, plus what the template
       // assigns here. The library also holds documents that are not slides.
       if (!x.projectable && !suggested[x.id]) return false;
-      if (kind === 'prayers' && x.type !== 'prayer') return false;
-      if (kind === 'liturgy' && x.type === 'prayer') return false;
+      if (kind === 'prayers' && !_lbdIsPrayer(x)) return false;
       if (kind === 'sacraments' && !_lbdIsSacrament(x)) return false;
       if (!q) return true;
       return String(x.title).toLowerCase().indexOf(q) !== -1 || String(x.content || '').toLowerCase().indexOf(q) !== -1;
@@ -71219,7 +71226,7 @@ var WO = (function() {
       var svcT = (x.sectionAssignment && x.sectionAssignment.serviceType) || x.serviceType || '';
       var svcLabel = svcT === 'both' ? 'Both services' : svcT ? svcT.charAt(0).toUpperCase() + svcT.slice(1) : '';
       var first = String(x.content || '').split(_LBD_SLIDE_BREAK)[0];
-      return _lbdCard('liturgy', x.id, x.type === 'prayer' ? 'fa-solid fa-hands-praying' : _lbdIsSacrament(x) ? 'fa-solid fa-wine-glass' : 'fa-solid fa-scroll',
+      return _lbdCard('liturgy', x.id, _lbdIsPrayer(x) ? 'fa-solid fa-hands-praying' : _lbdIsSacrament(x) ? 'fa-solid fa-wine-glass' : 'fa-solid fa-scroll',
         x.title, [svcLabel, _lbdPeek(first, 70)].filter(Boolean).join(' · '), badge, here || !sec);
     }).join('');
     return { html: html, n: Math.min(rows.length, max), total: rows.length };
@@ -71318,7 +71325,7 @@ var WO = (function() {
     if (recent.length) {
       h += '<div class="lbw-lib-group"><span>Recently changed in the library</span></div>' + recent.map(function(x) {
         var here = !!sec && _lbdLiturgyPlacement(x.id) === sec;
-        return _lbdCard('liturgy', x.id, x.type === 'prayer' ? 'fa-solid fa-hands-praying' : 'fa-solid fa-scroll', x.title,
+        return _lbdCard('liturgy', x.id, _lbdIsPrayer(x) ? 'fa-solid fa-hands-praying' : 'fa-solid fa-scroll', x.title,
           _lbdAgo(x.modified || x.created), here ? '<span class="lbw-badge">In this section</span>' : '', here || !sec);
       }).join('');
     }
@@ -72878,6 +72885,8 @@ var WO = (function() {
   // in: the builder's own history, as in Word. In a field, the browser's
   // own undo of the typing.
   function _lbdOnDocKey(e) {
+    // Escape closes a pane slid over the page (a menu or dialog closes first).
+    if (e.key === 'Escape' && _lbdDrawer && _lbdIsActive() && !_lbdMenu && !_lbdSheetState) { _lbdCloseDrawer(); return; }
     if (!(e.ctrlKey || e.metaKey) || e.altKey || !_lbdIsActive()) return;
     var k = e.key;
     if (k !== 'z' && k !== 'Z' && k !== 'y' && k !== 'Y') return;
@@ -73079,11 +73088,12 @@ var WO = (function() {
     var all = (typeof LiturgyModule !== 'undefined' && LiturgyModule.getAllItems) ? (LiturgyModule.getAllItems() || []) : [];
     var types = {};
     all.forEach(function(x) { if (x && x.type && x.projectable) types[x.type] = true; });
-    if (preset === 'prayer') types.prayer = true;
+    delete types.prayer;
     delete types.sacrament;
     var typeOpts = Object.keys(types).sort().map(function(t) {
       return '<option value="' + _lbdEsc(t) + '"' + (t === preset ? ' selected' : '') + '>' + _lbdEsc(t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
-    }).join('') + '<option value="sacrament"' + (preset === 'sacrament' ? ' selected' : '') + '>Sacraments</option>';
+    }).join('') + '<option value="prayer"' + (preset === 'prayer' ? ' selected' : '') + '>Prayers</option>' +
+      '<option value="sacrament"' + (preset === 'sacrament' ? ' selected' : '') + '>Sacraments</option>';
     var what = preset === 'prayer' ? 'a prayer' : preset === 'sacrament' ? 'a sacrament' : 'liturgy';
     _lbdSheet('Add ' + what + ' to <b>' + _lbdEsc(_lbdSecTitle(secId)) + '</b>',
       '<div class="lbd-sheet-row">' +
@@ -73112,7 +73122,7 @@ var WO = (function() {
     var rows = all.filter(function(x) {
       if (!x || !x.title) return false;
       if (!x.projectable && !suggested[x.id]) return false;
-      if (st.type === 'sacrament' ? !_lbdIsSacrament(x) : (st.type && x.type !== st.type)) return false;
+      if (st.type === 'sacrament' ? !_lbdIsSacrament(x) : st.type === 'prayer' ? !_lbdIsPrayer(x) : (st.type && x.type !== st.type)) return false;
       if (!q) return true;
       return String(x.title).toLowerCase().indexOf(q) !== -1 || String(x.content || '').toLowerCase().indexOf(q) !== -1;
     });
