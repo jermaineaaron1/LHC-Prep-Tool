@@ -24,6 +24,7 @@
     window.__DEEPLINK_VIEW     = window.__DEEPLINK_VIEW     || '';
     window.__DEEPLINK_PLAYLIST = window.__DEEPLINK_PLAYLIST || '';
     window.__DEEPLINK_SONGBOOK = window.__DEEPLINK_SONGBOOK || '';
+    window.__DEEPLINK_SBSONG   = window.__DEEPLINK_SBSONG   || '';
     window.__DEEPLINK_DATE     = window.__DEEPLINK_DATE     || '';
     window.__DEEPLINK_DNAME    = window.__DEEPLINK_DNAME    || '';
     window.__DEEPLINK_RMONTH   = window.__DEEPLINK_RMONTH   || '';
@@ -175,6 +176,7 @@
       window.__DEEPLINK_VIEW     = p.get('view')         || '';
       window.__DEEPLINK_PLAYLIST = p.get('playlist')     || '';
       window.__DEEPLINK_SONGBOOK = p.get('sb')           || '';
+      window.__DEEPLINK_SBSONG   = p.get('sbSong')       || '';
       window.__DEEPLINK_DATE     = p.get('date')         || '';
       window.__DEEPLINK_DNAME    = p.get('dname')        || '';
       window.__DEEPLINK_RMONTH   = p.get('rmonth')       || '';
@@ -28242,6 +28244,13 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     // Handle ?sb= deep-link — auto-open a songbook by ID
     var _deepSb = (window.__DEEPLINK_SONGBOOK || '').trim();
     if (_deepSb) {
+      // A link to one song of the book (&sbSong=, from Share › This song)
+      // opens the book at that song: the reading view opens where this
+      // device last was in that book, so that is where it is put.
+      var _deepSbSong = (window.__DEEPLINK_SBSONG || '').trim();
+      if (_deepSbSong) {
+        try { localStorage.setItem('lhc_sbm_song_' + _deepSb.replace(/^(order|sb)-/, ''), _deepSbSong); } catch (e) {}
+      }
       var _deepSbAttempts = 0;
       var _deepSbInterval = setInterval(function() {
         _deepSbAttempts++;
@@ -30146,7 +30155,10 @@ var SBQ = {
                 transposeSteps:   snap.transposeSteps   || 0,
                 liturgistNotes:   snap.liturgistNotes   || '',
                 customRichLyrics: snap.richLyrics != null ? snap.richLyrics : null
-              }),
+              // The version the copy sings: written when there is one, or when
+              // there was and it went back to Standard, so every other row
+              // merges to exactly what is stored and is not sent.
+              }, (snap.versionId || (base.customizations && base.customizations.versionId)) ? { versionId: snap.versionId || '' } : {}),
               content: Object.assign({}, base.content || {}, {
                 textAnnotations: snap.textAnnotations || [],
                 sbLyricsColumns: snap.sbLyricsColumns || 1,
@@ -33659,7 +33671,8 @@ var WO = (function() {
         backgrounds: item.backgrounds || {},
         richLyrics: cust.customRichLyrics || null,  // 343: restore Songbook-edited rich lyrics
         masterRichLyrics: null,
-        liturgistNotes: cust.liturgistNotes || ''  // 557: restore per-song liturgist notes
+        liturgistNotes: cust.liturgistNotes || '',  // 557: restore per-song liturgist notes
+        versionId: cust.versionId || ''  // the version of the song it sings; '' = Standard
       };
       console.log('Loaded song:', songEntry.title, '| sectionId:', songEntry.sectionId, '| transposeSteps:', transposeSteps, '| hasCustomLyrics:', !!customLyrics, '| hasMasterLyrics:', !!masterLyrics);
       completeOrder.songs.push(songEntry);
@@ -35388,7 +35401,8 @@ var WO = (function() {
           savedSlides:             s.savedSlides || [],
           backgrounds:             s.backgrounds || {},
           richLyrics:              s.richLyrics || null,
-          liturgistNotes:          s.liturgistNotes || ''
+          liturgistNotes:          s.liturgistNotes || '',
+          versionId:               s.versionId || ''
         };
       });
 
@@ -36074,7 +36088,10 @@ var WO = (function() {
           imgAnnotations: songData.imgAnnotations || {},
           serviceSections: songData.serviceSections || [],
           customRichLyrics: songData.richLyrics || '',   // 343: persist Songbook-edited rich lyrics
-          liturgistNotes: songData.liturgistNotes || ''  // 557: per-song liturgist notes & prayers
+          liturgistNotes: songData.liturgistNotes || '',  // 557: per-song liturgist notes & prayers
+          // The version of the song it sings. Left out for Standard, which
+          // is what a copy with none has always sung.
+          versionId: songData.versionId || undefined
         },
         slides: slidesData,
         lyrics: currentLyrics,
@@ -48217,7 +48234,8 @@ var WO = (function() {
           slides: saved.slides || [], savedSlides: saved.savedSlides || [],
           sectionId: '', backgrounds: saved.backgrounds || {},
           richLyrics: saved.richLyrics || null, masterRichLyrics: null,
-          liturgistNotes: saved.liturgistNotes || ''
+          liturgistNotes: saved.liturgistNotes || '',
+          versionId: saved.versionId || ''
         };
       }).filter(Boolean);
       _sbStandaloneId = sbId;
@@ -48275,6 +48293,7 @@ var WO = (function() {
             if (c.customRichLyrics != null) song.richLyrics = c.customRichLyrics;
             if (typeof c.transposeSteps === 'number') song.transposeSteps = c.transposeSteps;
             if (c.liturgistNotes != null) song.liturgistNotes = c.liturgistNotes;
+            if (typeof c.versionId === 'string') song.versionId = c.versionId;
             // syncItems splits a snapshot across TWO jsonb columns, and
             // this merge only ever read one of them. customizations holds
             // the five fields above; content holds the five below, and
@@ -49484,7 +49503,7 @@ var WO = (function() {
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
     _sbmGlowDraw(g, card, W);
-    var marks = _sbmMarks[base] || [], memo = {}, laid = [], byAnchor = {};
+    var marks = _sbmMarksOf(base, song && song.versionId), memo = {}, laid = [], byAnchor = {};
     cv.__laid = [];
     marks.forEach(function(m) {
       if (memo[m.anchor] === undefined) memo[m.anchor] = _sbmMarkFrame(card, m.anchor);
@@ -49814,6 +49833,9 @@ var WO = (function() {
     var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
     var mark = { song_id: base, anchor: hit.key, tool: 'w', colour: D.colour, width: D.width,
                  points: pts.map(function(q) { return _sbmMarkToLocal(frame, q, 'w').map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
+    // On the version this copy of the song sings (null: Standard) -- only
+    // once the column is there, or the insert would be refused whole.
+    if (_sbVerOk === true) mark.version_id = song.versionId || null;
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
     (_sbmMarks[base] = _sbmMarks[base] || []).push(local);
@@ -49978,8 +50000,8 @@ var WO = (function() {
     var row2 = _sbmMarkRow(sys, m[2]); if (!row2) return null;
     return (m[1] === 't' && row2.querySelector('.vl-words')) || row2;
   }
-  function _sbMarksInjectScore(html, base) {
-    var marks = (_sbmMarks[base] || []).filter(function(m) { return /^s:/.test(m.anchor || ''); });
+  function _sbMarksInjectScore(html, base, versionId) {
+    var marks = _sbmMarksOf(base, versionId).filter(function(m) { return /^s:/.test(m.anchor || ''); });
     if (!marks.length) return html;
     var box = document.createElement('div'); box.innerHTML = html;
     marks.forEach(function(m) {
@@ -50022,8 +50044,8 @@ var WO = (function() {
     for (var k = 0; k < blocks.length; k++) { if (blocks[k].start > i) break; blk = blocks[k]; span = (k + 1 < blocks.length) ? Math.max(1, blocks[k + 1].start - blocks[k].start) : 1; }
     return blk ? { el: blk.el, shift: [i - blk.start, span] } : null;
   }
-  function _sbMarksInjectLyrics(songDiv, base) {
-    var marks = (_sbmMarks[base] || []).filter(function(m) { return /^l:\d+/.test(m.anchor || ''); });
+  function _sbMarksInjectLyrics(songDiv, base, versionId) {
+    var marks = _sbmMarksOf(base, versionId).filter(function(m) { return /^l:\d+/.test(m.anchor || ''); });
     if (!marks.length) return;
     marks.forEach(function(m) {
       var hits = _sbmKeyParts(m.anchor).ends.map(function(x) { var i = parseInt(x.base.slice(2), 10); return _sbMarkPrintLineEl(songDiv, i, x.sub) || _sbMarkPrintOldBlock(songDiv, i); });
@@ -50223,7 +50245,7 @@ var WO = (function() {
     ['tablet', 'Tablet', 768],
     ['sideways', 'Tablet sideways', 1024]
   ];
-  var _SBM_PHONE_FIELDS = ['choirView', 'sbmLyricsMode', 'sbLyricsColumns', 'transposeSteps', 'customLyrics', 'hasCustomLyrics', 'richLyrics', 'lyrics', 'masterLyrics', 'key', 'title', 'artist', 'theme'];
+  var _SBM_PHONE_FIELDS = ['choirView', 'sbmLyricsMode', 'sbLyricsColumns', 'transposeSteps', 'customLyrics', 'hasCustomLyrics', 'richLyrics', 'lyrics', 'masterLyrics', 'key', 'title', 'artist', 'theme', 'versionId'];
   var _sbmPhone = null;   // { el, frame, dev, ready, poll, last, reloadAt }
   var _sbmPhoneFollowT = 0, _sbmPhoneScrollT = 0, _sbmPhoneStrokeAt = 0;
   function _sbmPhoneFits() { return _sbmWideNow() && window.innerWidth >= 1000 && !window.__SBM_PREVIEW; }
@@ -50341,7 +50363,7 @@ var WO = (function() {
   function _sbmPhonePayload(full) {
     var song = _sbmSong(); if (!song) return null;
     var base = _sbBaseSongId(song), list = _sbmSongs();
-    var p = { sid: song.id, base: base, nth: Math.max(0, list.filter(function(x) { return _sbBaseSongId(x) === base; }).indexOf(song)), marks: _sbmMarks[base] || [] };
+    var p = { sid: song.id, base: base, nth: Math.max(0, list.filter(function(x) { return _sbBaseSongId(x) === base; }).indexOf(song)), marks: _sbmMarksOf(base, song.versionId) };
     if (full) {
       p.item = {};
       _SBM_PHONE_FIELDS.forEach(function(k) { if (song[k] !== undefined) p.item[k] = song[k]; });
@@ -51116,6 +51138,7 @@ var WO = (function() {
       rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()']);
       if (song) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
     }
+    if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()']);
     rows = rows.concat([
       ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)'],
       ['fa-book-open', 'Read in full screen', 'WO.sbmCloseSheet();WO.sbOpenFullscreen()'],
@@ -51821,7 +51844,11 @@ var WO = (function() {
     var nPdf = res.filter(function(r) { return r.kind === 'pdf'; }).length;
     var nOther = res.length - nVid - nPdf;
     var steps = (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (song.transposeSteps || 0);
-    var keyLabel = song.key ? ('Key: ' + song.key) : (steps ? ((steps > 0 ? '+' : '') + steps + ' semitones') : '');
+    // The key it is sung in -- the library song's, moved by this service's
+    // transposition -- with the move beside it.
+    var sungKey = _sbSungKey(song);
+    var keyLabel = sungKey ? ('Key: ' + sungKey + (steps ? ' (' + (steps > 0 ? '+' : '') + steps + ')' : ''))
+      : (steps ? ((steps > 0 ? '+' : '') + steps + ' semitones') : '');
     // On a phone the way around the book is a bar of its own above the
     // title: Contents, which song this is of how many, and the arrows --
     // red for back, green for on. A desk has the contents beside it.
@@ -51840,6 +51867,9 @@ var WO = (function() {
     var badges = '';
     if (song.theme) String(song.theme).split(',').slice(0, 3).forEach(function(t) { if (t.trim()) badges += '<span class="sbm-badge">' + escapeHtml(t.trim()) + '</span>'; });
     if (keyLabel) badges += '<span class="sbm-badge sbm-badge--key"><i class="fa-solid fa-music"></i>' + escapeHtml(keyLabel) + '</span>';
+    // The version it sings, when it is not Standard.
+    var verHere = (_sbVerOk === true && song.versionId) ? _sbVerById(_sbBaseSongId(song), song.versionId) : null;
+    if (verHere) badges += '<span class="sbm-badge sbm-badge--ver sbm-badge--tap" onclick="WO.sbmVersions()" title="The version of the song this service sings"><i class="fa-solid fa-code-branch"></i>' + escapeHtml(verHere.name) + '</span>';
     if (nVid) badges += '<span class="sbm-badge sbm-badge--yt sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-brands fa-youtube"></i>' + nVid + ' video' + (nVid === 1 ? '' : 's') + '</span>';
     if (nPdf) badges += '<span class="sbm-badge sbm-badge--pdf sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-file-pdf"></i>PDF' + (nPdf > 1 ? ' \u00d7' + nPdf : '') + '</span>';
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
@@ -51883,11 +51913,13 @@ var WO = (function() {
     html += '<div class="sbm-pair">' +
       '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
       '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
-    html += '<div class="sbm-tile-row sbm-tiles">' +
+    var verTile = _sbVerOk === true;
+    html += '<div class="sbm-tile-row sbm-tiles' + (verTile ? ' sbm-tile-row--7' : '') + '">' +
       '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      (verTile ? '<button class="sbm-tile' + (verHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmVersions()" title="Versions of this song: a key, words and drawings to sing it with"><i class="fa-solid fa-code-branch"></i>Versions</button>' : '') +
       // Links and Files opened the same sheet; an order's book has medleys instead.
       (_sbmOrderBook()
         ? '<button class="sbm-tile' + (mdHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmMedley()" title="' + (mdHere ? 'Edit the medley this song is in' : 'Make a medley: songs sung one straight into the next') + '"><i class="fa-solid fa-layer-group"></i>Medley</button>'
@@ -51974,6 +52006,12 @@ var WO = (function() {
     _sbmLiveStart();
     _sbmPhoneFollowSoon();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
+    // Versions, once the database has them: the tile appears, and the name
+    // of the version this copy sings is fetched for its badge.
+    if (_sbVerOk === null && !_sbVerProbe) _sbVerSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
+    else if (_sbVerOk === true && song.versionId && !_sbVers[_sbBaseSongId(song)]) {
+      _sbVerLoad(_sbBaseSongId(song)).then(function() { if (_sbmActive()) _sbmRender(); }, function() {});
+    }
     if (showScore && V && cur) {
       var sc = root.querySelector('#sbChoirPage-' + CSS.escape(song.id) + ' .vl-score');
       if (sc) V.filterPart(sc, cur);
@@ -53837,10 +53875,426 @@ var WO = (function() {
   function sbmImport() { var song = _sbmSong(); if (!song) return; _sbRecCurrentSongId = _sbBaseSongId(song); sbImportRecording(); setTimeout(function() { delete _sbmRecsAt[_sbBaseSongId(song)]; }, 3000); }
   function sbmShare() {
     // The desktop popover is positioned off its header button, which is
-    // hidden here; a sheet says the same two things at a size for a thumb.
-    _sbmSheet('Share this songbook', '<div class="sbm-menu">' +
-      '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmCloseSheet();WO.sbShareWhatsApp()"><i class="fa-brands fa-whatsapp"></i>Share on WhatsApp</button>' +
-      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbCopyLink()"><i class="fa-solid fa-link"></i>Copy the link</button></div>');
+    // hidden here; a sheet says the same things at a size for a thumb. One
+    // song -- its key, its version, a link straight to it -- or the book.
+    var song = _sbmSong();
+    _sbmSheet('Share', '<div class="sbm-menu">' +
+      (song ? '<div class="sbm-label sbm-share__h"><i class="fa-solid fa-music"></i>This song</div>' +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmCloseSheet();WO.sbShareSongWhatsApp()"><i class="fa-brands fa-whatsapp"></i>“' + escapeHtml(_sbmClip(song.title || 'This song', 28)) + '” on WhatsApp</button>' +
+        '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbCopySongLink()"><i class="fa-solid fa-link"></i>Copy a link to this song</button>' : '') +
+      '<div class="sbm-label sbm-share__h"><i class="fa-solid fa-book-open"></i>The whole songbook</div>' +
+      '<button class="sbm-btn' + (song ? '' : ' sbm-btn--primary') + '" onclick="WO.sbmCloseSheet();WO.sbShareWhatsApp()"><i class="fa-brands fa-whatsapp"></i>Share the songbook on WhatsApp</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbCopyLink()"><i class="fa-solid fa-link"></i>Copy the songbook’s link</button></div>');
+  }
+  function _sbmClip(t, n) { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; }
+
+  // A link with one more parameter on it, whether it had any or not (pure).
+  function _sbLinkWith(url, key, val) {
+    url = String(url || '');
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);
+  }
+  // The songbook's link, opening at this song (see the ?sb= deep link).
+  function _sbSongShareUrl(song) { return _sbLinkWith(_sbShareUrl(), 'sbSong', song.id); }
+
+  // One song, for WhatsApp: its title, the key it is sung in and the key it
+  // was moved from, its version, a medley it runs into or follows, the
+  // service, one video, and the link. Pure, for the harness.
+  function _sbSongShareMessage(o) {
+    var lines = ['*' + (o.title || 'Song') + '*'];
+    if (o.key) lines.push('Key: ' + o.key + (o.fromKey && o.fromKey !== o.key ? ' (moved from ' + o.fromKey + ')' : ''));
+    if (o.version) lines.push('Version: ' + o.version);
+    if (o.medley) lines.push(o.medley);
+    if (o.service) lines.push('For: ' + o.service);
+    if (o.video) lines.push('Listen: ' + o.video);
+    lines.push('');
+    if (o.link) lines.push('Open it in the Songbook: ' + o.link);
+    lines.push('', '_LHC Worship Prep_');
+    return lines.join('\n');
+  }
+
+  function _sbSongShareText(song) {
+    var base = _sbBaseSongId(song), lib = _lbdLibSong(song.songId);
+    var v = (song.versionId && _sbVerOk === true) ? _sbVerById(base, song.versionId) : null;
+    var own = String(song.key || (lib && lib.key) || '').trim();
+    var md = (!_sbStandaloneId && currentOrderData) ? _woMedleyOf(song.id) : null, medley = '';
+    if (md) {
+      var other = _lbdSong(md.medley.songs[md.at + 1] || md.medley.songs[md.at - 1]);
+      medley = 'Medley: sung straight ' + (md.medley.songs[md.at + 1] ? 'into' : 'after') + ' “' + ((other && other.title) || 'the next song') + '”';
+    }
+    var service = '';
+    if (currentOrderData) {
+      service = currentOrderData.title || currentOrderData.orderName || '';
+      if (!_sbStandaloneId && currentOrderData.serviceDate && service.indexOf(currentOrderData.serviceDate) === -1) service += ' · ' + currentOrderData.serviceDate;
+    }
+    var video = _sbmResources(song).filter(function(r) { return r.kind === 'yt' && r.url; }).map(function(r) { return r.url; })[0] || '';
+    return _sbSongShareMessage({ title: song.title, key: _sbSungKey(song), fromKey: own, version: v ? v.name : '',
+                                 medley: medley, service: service, video: video, link: _sbSongShareUrl(song) });
+  }
+  function sbShareSongWhatsApp() {
+    var song = _sbmSong(); if (!song) return;
+    window.open('https://wa.me/?text=' + encodeURIComponent(_sbSongShareText(song)), '_blank');
+  }
+  function sbCopySongLink() {
+    var song = _sbmSong(); if (!song) return;
+    var url = _sbSongShareUrl(song);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() { showToast('Link to “' + _sbmClip(song.title, 30) + '” copied', 'success'); },
+        function() { _sbCopyFallback(url); });
+    } else _sbCopyFallback(url);
+  }
+
+  // ==================== VERSIONS OF A SONG ====================
+  //
+  // A version is the way a service sings a song: its key, its own words and
+  // chords when they were changed, and the remarks drawn on it in the
+  // reading view. It is kept with the SONG (song_versions), so a later
+  // service can sing it that way again. Every song also has Standard -- its
+  // own key and words, and the drawn remarks with no version -- which needs
+  // no row. A service's copy of the song says which it sings (versionId;
+  // '' is Standard). Choosing a version copies its key and words onto the
+  // copy, and from then on the reading view shows, prints and draws that
+  // version's remarks (_sbmMarksOf). The key and words stay the service's
+  // own after that, as they always were: a version changes only when
+  // somebody asks (Update), and a new one is a copy, drawings and all.
+  // Offered only once the database has the table and the marks' column
+  // (migrations/2026-11-01_song_versions.sql).
+  var _sbVerOk = null, _sbVerProbe = null;
+  var _sbVers = {};       // library song id -> its version rows, oldest first
+  var _sbVerUse = {};     // library song id -> { versionId: [order ids] }
+  var _sbVerRenaming = '';
+
+  function _sbVerSupport() {
+    if (_sbVerOk !== null) return Promise.resolve(_sbVerOk);
+    if (_sbVerProbe) return _sbVerProbe;
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    _sbVerProbe = Promise.all([
+      sup.from('song_versions').select('id').limit(1),
+      sup.from('song_marks').select('version_id').limit(1)
+    ]).then(function(rs) {
+      _sbVerOk = !rs[0].error && !rs[1].error;
+      return _sbVerOk;
+    }, function() { _sbVerOk = false; return false; });
+    return _sbVerProbe;
+  }
+
+  // The drawn remarks of one version, out of all of a song's (pure).
+  function _sbVerMarks(marks, versionId) {
+    var v = versionId || '';
+    return (marks || []).filter(function(m) { return m && (m.version_id || '') === v; });
+  }
+  function _sbmMarksOf(base, versionId) { return _sbVerMarks(_sbmMarks[base], versionId); }
+
+  // Words as a comparison sees them: the same text however it is spaced.
+  function _sbVerNorm(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim(); }
+  // The words a version keeps: this copy's exactly as it shows them -- its
+  // text and the songbook's drawing of it -- so a service that takes the
+  // version shows just what this one did (pure). Kept whole, not only when
+  // "changed": a transposition made in Song Order was saved as the copy's
+  // own text, so against the song's words nearly every transposed copy
+  // looks re-worded, and that question has no good answer.
+  function _sbVerWordsOf(copy) {
+    return { lyrics: String((copy && (copy.customLyrics || copy.lyrics)) || ''), rich: (copy && copy.richLyrics) || null };
+  }
+  // How a copy has moved from its version since it was chosen (pure):
+  // { key, words }. steps: the copy's key now. Against Standard only the key
+  // is asked, for the reason above.
+  function _sbVerDrift(copy, v, steps) {
+    var key = (parseInt(steps, 10) || 0) !== (v ? (parseInt(v.transpose_steps, 10) || 0) : 0);
+    var words = false;
+    if (v) {
+      var w = _sbVerWordsOf(copy);
+      words = _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) || _sbVerNorm(w.rich) !== _sbVerNorm(v.rich_lyrics);
+    }
+    return { key: key, words: words };
+  }
+
+  function _sbVerById(base, id) { return (_sbVers[base] || []).filter(function(v) { return v.id === id; })[0] || null; }
+  function _sbVerSteps(song) {
+    return (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (parseInt(song.transposeSteps, 10) || 0);
+  }
+
+  function _sbVerLoad(base) {
+    var sup = window._supabase; if (!sup || !base) return Promise.resolve([]);
+    return sup.from('song_versions').select('*').eq('song_id', base).order('created_at').then(function(r) {
+      if (r.error) { _sbVers[base] = _sbVers[base] || []; throw new Error(r.error.message); }
+      _sbVers[base] = r.data || [];
+      return _sbVers[base];
+    });
+  }
+  // Which services sing each version: { versionId: [order ids] }, '' for Standard.
+  function _sbVerLoadUse(base) {
+    var sup = window._supabase; if (!sup || !base) return Promise.resolve({});
+    return sup.from('order_items').select('order_id, versionId:customizations->>versionId')
+      .eq('source_id', base).eq('item_type', 'song').then(function(r) {
+        if (r.error) return {};
+        var out = {};
+        (r.data || []).forEach(function(row) {
+          var k = row.versionId || '';
+          (out[k] = out[k] || []).indexOf(row.order_id) === -1 && out[k].push(row.order_id);
+        });
+        _sbVerUse[base] = out;
+        return out;
+      }, function() { return {}; });
+  }
+  function _sbVerUseText(base, vid) {
+    var ids = ((_sbVerUse[base] || {})[vid || ''] || []).filter(function(id) { return !(currentOrderData && id === currentOrderData.id); });
+    if (!ids.length) return '';
+    var named = ids.map(function(id) {
+      if (String(id).indexOf('standalone_') === 0) return { t: 'a songbook', d: '' };
+      var o = (savedOrders || []).filter(function(x) { return x && x.id === id; })[0];
+      return o ? { t: o.title || 'a service', d: o.serviceDate || o.createdDate || '' } : { t: 'another service', d: '' };
+    }).sort(function(a, b) { return String(b.d).localeCompare(String(a.d)); });
+    return 'Also sung this way in ' + (ids.length === 1 ? named[0].t : ids.length + ' others, most recently ' + named[0].t);
+  }
+
+  // A version's words and key put on this copy of the song (Standard's are
+  // the copy's first words, the song's as it was added), and from now on
+  // its drawn remarks.
+  function _sbVerSetWords(song, v) {
+    if (!v || (v.lyrics == null && v.rich_lyrics == null)) {
+      var lib = _lbdLibSong(song.songId);
+      song.lyrics = song.masterLyrics || (lib && lib.lyrics) || song.lyrics || '';
+      song.customLyrics = ''; song.hasCustomLyrics = false;
+      song.richLyrics = null; song.customRichLyrics = null;
+    } else {
+      var words = String(v.lyrics || '');
+      song.lyrics = words || song.masterLyrics || ''; song.customLyrics = words; song.hasCustomLyrics = !!words;
+      song.richLyrics = v.rich_lyrics || null; song.customRichLyrics = song.richLyrics;
+    }
+    // The transposition's baseline is the words as they now are.
+    songOriginalLyrics[song.id] = song.lyrics;
+    songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(song.lyrics);
+    _sbCanonicalText[song.id] = song.lyrics;
+  }
+  function _sbVerSetKey(song, want) {
+    var cur = _sbVerSteps(song);
+    if (want === cur) { song.transposeSteps = want; sbTransposeSteps[song.id] = want; return; }
+    if (want === 0) sbResetTranspose(song.id); else sbTranspose(song.id, want - cur);
+  }
+  var _SB_VER_FIELDS = ['versionId', 'lyrics', 'customLyrics', 'hasCustomLyrics', 'richLyrics', 'customRichLyrics'];
+  function _sbVerSnap(song) {
+    var o = { steps: _sbVerSteps(song) };
+    _SB_VER_FIELDS.forEach(function(k) { o[k] = song[k]; });
+    return o;
+  }
+  function _sbVerRestore(song, snap) {
+    _SB_VER_FIELDS.forEach(function(k) { song[k] = snap[k]; });
+    songOriginalLyrics[song.id] = song.lyrics;
+    songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
+    _sbCanonicalText[song.id] = song.lyrics;
+    _sbVerSetKey(song, snap.steps);
+  }
+  function _sbVerApply(song, v) {
+    song.versionId = v ? v.id : '';
+    _sbVerSetWords(song, v);
+    _sbVerSetKey(song, v ? (parseInt(v.transpose_steps, 10) || 0) : 0);
+  }
+  // A copy's choice of version saved, and shown: synced at once, saved
+  // whole (the words are only in the full save), drawn again.
+  function _sbVerSaved() {
+    sbAutoSave();
+    autoSaveOrder();
+    _sbmLiveSend();
+    renderSongbookLive();
+  }
+
+  function sbmVersions() {
+    var song = _sbmSong(); if (!song) return;
+    _sbmSheet('Versions', '<p class="sbm-empty">Looking for the versions of “' + escapeHtml(song.title || 'this song') + '”…</p>');
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'versions');
+    _sbVerRenaming = '';
+    _sbVerSupport().then(function(ok) {
+      if (!ok) {
+        _sbmSheet('Versions', '<p class="sbm-empty">Versions need a one-time update to the database (migrations/2026-11-01_song_versions.sql, run in the Supabase SQL editor). Until then every service shares one set of drawings for each song.</p>');
+        return;
+      }
+      var base = _sbBaseSongId(song);
+      return Promise.all([_sbVerLoad(base), _sbVerLoadUse(base), _sbmLoadMarks(song, true)]).then(function() {
+        if (_sbmSong() === song) _sbVerRender(song);
+      });
+    }).catch(function(err) {
+      _sbmSheet('Versions', '<p class="sbm-empty">The versions could not be read just now (' + escapeHtml(err && err.message || 'no answer') + '). Try again in a moment.</p>');
+    });
+  }
+
+  function _sbVerKeyText(song, steps) {
+    var lib = _lbdLibSong(song.songId);
+    var own = String(song.key || (lib && lib.key) || '').trim();
+    var mv = steps ? ' (' + (steps > 0 ? '+' : '') + steps + ')' : '';
+    if (!own) return steps ? 'Moved ' + (steps > 0 ? 'up ' : 'down ') + Math.abs(steps) + ' semitone' + (Math.abs(steps) === 1 ? '' : 's') : 'The song’s own key';
+    if (!steps || typeof transposeChord !== 'function') return 'Key ' + own + (steps ? mv : ' (its own)');
+    return 'Key ' + transposeChord(own, steps) + mv;
+  }
+
+  function _sbVerRender(song) {
+    var base = _sbBaseSongId(song), list = _sbVers[base] || [];
+    var cur = song.versionId || '', curV = cur ? _sbVerById(base, cur) : null;
+    var steps = _sbVerSteps(song);
+    var drift = _sbVerDrift(song, curV, steps);
+    var row = function(v) {
+      var vid = v ? v.id : '', on = vid === (curV ? cur : '');
+      var n = _sbmMarksOf(base, vid).length;
+      var bits = [_sbVerKeyText(song, v ? (parseInt(v.transpose_steps, 10) || 0) : 0),
+        v ? 'its own copy of the words' : 'the song’s own words',
+        n ? n + ' drawn remark' + (n === 1 ? '' : 's') : 'no drawings yet'];
+      var use = _sbVerUseText(base, vid);
+      var name = v ? escapeHtml(v.name) : 'Standard';
+      if (v && _sbVerRenaming === v.id) {
+        name = '<span class="ver-rename"><input class="sbm-input" id="sbVerRename" value="' + escapeHtml(v.name) + '" maxlength="60" onkeydown="if(event.key===\'Enter\'){event.preventDefault();WO.sbVerRename(\'' + escapeHtml(v.id) + '\', true);}">' +
+          '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerRename(\'' + escapeHtml(v.id) + '\', true)">Save</button>' +
+          '<button class="sbm-btn" onclick="WO.sbVerRename(\'\')">Cancel</button></span>';
+      }
+      return '<div class="ver-row' + (on ? ' is-on' : '') + '">' +
+        '<div class="ver-row__main"><div class="ver-row__name"><i class="fa-solid ' + (v ? 'fa-code-branch' : 'fa-music') + '" aria-hidden="true"></i>' + name +
+          (on ? '<span class="ver-pill">This service</span>' : '') + '</div>' +
+          '<div class="ver-row__sub">' + escapeHtml(bits.join(' · ')) + '</div>' +
+          (use ? '<div class="ver-row__use">' + escapeHtml(use) + '</div>' : '') + '</div>' +
+        '<div class="ver-row__acts">' +
+          (on ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbVerUse(\'' + escapeHtml(vid) + '\')">Sing this</button>') +
+          (v && _sbVerRenaming !== v.id ? '<button class="sbm-btn" onclick="WO.sbVerRename(\'' + escapeHtml(v.id) + '\')" aria-label="Rename"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="sbm-btn sbm-btn--danger" onclick="WO.sbVerDelete(\'' + escapeHtml(v.id) + '\')" aria-label="Delete this version"><i class="fa-solid fa-trash"></i></button>' : '') +
+        '</div></div>';
+    };
+    var changed = [drift.key ? 'the key' : '', drift.words ? 'the words' : ''].filter(Boolean).join(' and ');
+    var note = '';
+    if (cur && !curV) {
+      note = '<div class="ver-note">The version this service sang has been deleted, so it shows Standard’s drawings. Its key and words are as they were.</div>';
+    } else if (curV && changed) {
+      note = '<div class="ver-note">This service has changed ' + changed + ' since choosing “' + escapeHtml(curV.name) + '”.' +
+        '<span class="ver-note__acts"><button class="sbm-btn" onclick="WO.sbVerUpdate()">Update “' + escapeHtml(_sbmClip(curV.name, 24)) + '” with this</button>' +
+        '<button class="sbm-btn" onclick="WO.sbVerUse(\'' + escapeHtml(curV.id) + '\')">Go back to it</button></span></div>';
+    } else if (!curV && drift.key) {
+      note = '<div class="ver-note">This service sings it in ' + escapeHtml(_sbVerKeyText(song, steps).replace(/^Key /, '')) + ', not the song’s own key. Save that as a version below, and a later service can sing it the same way.</div>';
+    }
+    var orderName = (currentOrderData && (currentOrderData.title || currentOrderData.orderName)) || '';
+    var html = '<div class="ver">' +
+      '<p class="ver__lead">A version is how a service sings this song: its key, its own words and chords if they were changed, and the remarks drawn on it. Each service picks one; drawing in that service draws on its version.</p>' +
+      row(null) + list.slice().reverse().map(row).join('') + note +
+      '<div class="ver-new"><div class="sbm-label"><i class="fa-solid fa-plus"></i>Save this service’s way as a new version</div>' +
+        '<p class="ver-new__what">' + escapeHtml(_sbVerKeyText(song, steps) + ' · the words as this service has them · a copy of the ' + _sbmMarksOf(base, curV ? cur : '').length + ' drawn remarks on ' + (curV ? '“' + curV.name + '”' : 'Standard')) + '. This service then sings the new version, and what you draw goes on it.</p>' +
+        '<div class="ver-new__row"><input class="sbm-input" id="sbVerName" maxlength="60" placeholder="A name, e.g. Jubilee, key of A" value="' + escapeHtml(_sbmClip(orderName, 60)) + '">' +
+        '<button class="sbm-btn sbm-btn--primary" id="sbVerSaveBtn" onclick="WO.sbVerCreate()"><i class="fa-solid fa-floppy-disk"></i>Save version</button></div></div>' +
+      '</div>';
+    var prev = document.getElementById('sbmSheet');
+    var top = (prev && prev.getAttribute('data-sheet') === 'versions') ? (prev.querySelector('.sbm-sheet') || {}).scrollTop || 0 : 0;
+    _sbmSheet('Versions of “' + _sbmClip(song.title || 'this song', 36) + '”', html);
+    var sh = document.getElementById('sbmSheet');
+    if (sh) {
+      sh.setAttribute('data-sheet', 'versions');
+      var box = sh.querySelector('.sbm-sheet'); if (box && top) box.scrollTop = top;
+    }
+    if (_sbVerRenaming) setTimeout(function() { var r = document.getElementById('sbVerRename'); if (r) { r.focus(); r.select(); } }, 30);
+  }
+  function _sbVerReshow(song) {
+    var sh = document.getElementById('sbmSheet');
+    if (sh && sh.getAttribute('data-sheet') === 'versions' && _sbmSong() === song) _sbVerRender(song);
+  }
+
+  function sbVerUse(vid) {
+    var song = _sbmSong(); if (!song) return;
+    var base = _sbBaseSongId(song), v = vid ? _sbVerById(base, vid) : null;
+    if (vid && !v) return;
+    var before = _sbVerSnap(song);
+    _sbVerApply(song, v);
+    _sbVerSaved();
+    _sbVerReshow(song);
+    showToast('This service sings ' + (v ? '“' + v.name + '”' : 'Standard') + ' now', 'success', { action: 'Undo', duration: 6000, onAction: function() {
+      if (_sbmSong() !== song) sbmSelectSong(song.id);
+      _sbVerRestore(song, before);
+      _sbVerSaved();
+      _sbVerReshow(song);
+    } });
+  }
+
+  function sbVerCreate() {
+    var song = _sbmSong(); if (!song) return;
+    var inp = document.getElementById('sbVerName'), btn = document.getElementById('sbVerSaveBtn');
+    var name = String((inp && inp.value) || '').trim().slice(0, 60);
+    if (!name) { showToast('Give the version a name first', 'info'); if (inp) inp.focus(); return; }
+    var sup = window._supabase; if (!sup) return;
+    var base = _sbBaseSongId(song), from = song.versionId || '';
+    if (btn) btn.disabled = true;
+    var w = _sbVerWordsOf(song);
+    var row = { song_id: base, name: name, transpose_steps: _sbVerSteps(song), lyrics: w.lyrics, rich_lyrics: w.rich,
+                made_from: (currentOrderData && currentOrderData.id) || null };
+    sup.from('song_versions').insert(row).select().then(function(r) {
+      if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the version did not come back from the database');
+      var v = r.data[0];
+      (_sbVers[base] = _sbVers[base] || []).push(v);
+      // Its drawings: a copy of the ones on the version this service sang,
+      // so that one stays exactly as it was.
+      var copies = _sbmMarksOf(base, from).map(function(m) {
+        return { song_id: base, anchor: m.anchor, tool: m.tool, colour: m.colour, width: m.width, points: m.points, version_id: v.id };
+      });
+      var done = copies.length ? sup.from('song_marks').insert(copies).select() : Promise.resolve({ data: [] });
+      return done.then(function(r2) {
+        (r2 && r2.data || []).forEach(function(m) { (_sbmMarks[base] = _sbmMarks[base] || []).push(m); });
+        song.versionId = v.id;   // its key and words are this copy's already
+        _sbVerSaved();
+        _sbVerReshow(song);
+        if (r2 && r2.error) showToast('Saved “' + v.name + '”, but its drawings could not be copied: ' + r2.error.message, 'warning');
+        else showToast('Saved “' + v.name + '”. This service sings it now, and drawings go on it.', 'success');
+      });
+    }).catch(function(err) {
+      if (btn) btn.disabled = false;
+      showToast('Could not save the version: ' + (err && err.message || 'no answer'), 'error');
+    });
+  }
+
+  // This service's key and words, written into the version it sings.
+  function sbVerUpdate() {
+    var song = _sbmSong(); if (!song || !song.versionId) return;
+    var base = _sbBaseSongId(song), v = _sbVerById(base, song.versionId), sup = window._supabase;
+    if (!v || !sup) return;
+    var w = _sbVerWordsOf(song);
+    var patch = { transpose_steps: _sbVerSteps(song), lyrics: w.lyrics, rich_lyrics: w.rich, updated_at: new Date().toISOString() };
+    sup.from('song_versions').update(patch).eq('id', v.id).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      Object.assign(v, patch);
+      _sbVerReshow(song);
+      showToast('“' + v.name + '” updated', 'success');
+    }).catch(function(err) { showToast('Could not update the version: ' + (err && err.message || 'no answer'), 'error'); });
+  }
+
+  function sbVerRename(vid, save) {
+    var song = _sbmSong(); if (!song) return;
+    if (!save) { _sbVerRenaming = vid || ''; _sbVerRender(song); return; }
+    var base = _sbBaseSongId(song), v = _sbVerById(base, vid), sup = window._supabase;
+    var inp = document.getElementById('sbVerRename');
+    var name = String((inp && inp.value) || '').trim().slice(0, 60);
+    if (!v || !sup || !name) return;
+    sup.from('song_versions').update({ name: name, updated_at: new Date().toISOString() }).eq('id', v.id).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      v.name = name;
+      _sbVerRenaming = '';
+      _sbVerReshow(song);
+      renderSongbookLive();
+    }).catch(function(err) { showToast('Could not rename it: ' + (err && err.message || 'no answer'), 'error'); });
+  }
+
+  function sbVerDelete(vid) {
+    var song = _sbmSong(); if (!song) return;
+    var base = _sbBaseSongId(song), v = _sbVerById(base, vid), sup = window._supabase;
+    if (!v || !sup) return;
+    var n = _sbmMarksOf(base, vid).length;
+    var others = ((_sbVerUse[base] || {})[vid] || []).filter(function(id) { return !(currentOrderData && id === currentOrderData.id); }).length;
+    var msg = (n ? 'Its ' + n + ' drawn remark' + (n === 1 ? ' goes' : 's go') + ' with it. ' : '') +
+      (others ? others + ' other service' + (others === 1 ? ' sings' : 's sing') + ' it; they keep its key and words and show Standard’s drawings. ' : '') +
+      'This cannot be undone.';
+    var ask = (typeof window.customConfirm === 'function') ? window.customConfirm('Delete “' + v.name + '”?', msg) : Promise.resolve(window.confirm('Delete “' + v.name + '”? ' + msg));
+    ask.then(function(ok) {
+      if (!ok) return;
+      sup.from('song_versions').delete().eq('id', v.id).then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        _sbVers[base] = (_sbVers[base] || []).filter(function(x) { return x.id !== v.id; });
+        _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m.version_id !== v.id; });
+        // This copy keeps its key and words; it shows Standard's drawings.
+        if (song.versionId === v.id) { song.versionId = ''; _sbVerSaved(); }
+        else { _sbmLiveSend(); renderSongbookLive(); }
+        _sbVerReshow(song);
+        showToast('Deleted “' + v.name + '”', 'info');
+      }).catch(function(err) { showToast('Could not delete it: ' + (err && err.message || 'no answer'), 'error'); });
+    });
   }
 
   function renderSongbookLive() {
@@ -58832,6 +59286,7 @@ var WO = (function() {
           if (c.customRichLyrics != null) song.richLyrics = c.customRichLyrics;
           if (typeof c.transposeSteps === 'number') song.transposeSteps = c.transposeSteps;
           if (c.liturgistNotes != null) song.liturgistNotes = c.liturgistNotes;  // 557
+          if (typeof c.versionId === 'string') song.versionId = c.versionId;
         });
       }
       sbSyncFromRemote();
@@ -59063,7 +59518,9 @@ var WO = (function() {
               slides:          Array.isArray(item.slides) ? item.slides : [],
               customYoutube:   Array.isArray(cont.customYoutube) ? cont.customYoutube : [],
               customDocs:      Array.isArray(cont.customDocs)    ? cont.customDocs    : [],
-              sbLinks:         Array.isArray(cont.sbLinks)        ? cont.sbLinks       : []
+              sbLinks:         Array.isArray(cont.sbLinks)        ? cont.sbLinks       : [],
+              versionId:       typeof c.versionId === 'string' ? c.versionId : '',
+              customLyrics:    c.customLyrics || ''
             };
             sbApplyBroadcast({ orderId: currentOrderData.id, songs: [incoming] });
           });
@@ -59111,7 +59568,9 @@ var WO = (function() {
                 slides:          Array.isArray(item.slides) ? item.slides : [],
                 customYoutube:   Array.isArray(cont.customYoutube) ? cont.customYoutube : [],
                 customDocs:      Array.isArray(cont.customDocs)    ? cont.customDocs    : [],
-                sbLinks:         Array.isArray(cont.sbLinks)       ? cont.sbLinks       : []
+                sbLinks:         Array.isArray(cont.sbLinks)       ? cont.sbLinks       : [],
+                versionId:       typeof c.versionId === 'string' ? c.versionId : '',
+                customLyrics:    c.customLyrics || ''
               };
               sbApplyBroadcast({ orderId: currentOrderData.id, songs: [incoming] });
             });
@@ -59690,6 +60149,10 @@ var WO = (function() {
       transposeSteps:  s.transposeSteps || 0,
       sbLyricsColumns: s.sbLyricsColumns || 1,
       choirView:       s.choirView || '',
+      // The version of the song this copy sings ('' = Standard), and the
+      // words it took from it -- another device switching with it needs both.
+      versionId:       s.versionId || '',
+      customLyrics:    s.customLyrics || '',
       // Notes & slides
       liturgistNotes:  s.liturgistNotes  || '',
       slides:          Array.isArray(s.slides)      ? s.slides      : [],
@@ -59899,9 +60362,31 @@ var WO = (function() {
         song.sbLinks = inc.sbLinks; mediaChanged = true;
       }
       if (mediaChanged) { p.media = true; p.label = p.label || 'updating media'; }
+
+      // ── Version ──────────────────────────────────────────────────────────────
+      // Another device chose a version for this copy: its words come with
+      // it whole (Standard's rich lyrics are null, which the lyrics block
+      // above passes over), and the drawings shown are that version's.
+      if (typeof inc.versionId === 'string' && inc.versionId !== (song.versionId || '')) {
+        song.versionId = inc.versionId;
+        if (inc.customLyrics != null) {
+          song.customLyrics = inc.customLyrics;
+          song.hasCustomLyrics = !!inc.customLyrics;
+          song.lyrics = inc.customLyrics || song.masterLyrics || song.lyrics;
+        }
+        song.richLyrics = inc.richLyrics != null ? inc.richLyrics : null;
+        songOriginalLyrics[song.id] = song.lyrics;
+        songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
+        p.lyrics = true;
+        p.version = true;
+        p.label = p.label || 'choosing a version';
+      }
     });
 
     _sbLastRealtimeBroadcastTs = Date.now();
+    // The reading view draws from the song's state rather than being patched,
+    // so a version chosen elsewhere redraws it.
+    if (Object.keys(patches).some(function(k) { return patches[k].version; }) && _sbmActive()) _sbmRender();
 
     // ── Apply surgical patches (Google-Docs style — no full re-render) ─────────
     Object.keys(patches).forEach(function(songId) {
@@ -66287,7 +66772,7 @@ var WO = (function() {
       // The remarks drawn on the song, into the blocks that hold their lines.
       // A song whose reading view shows rich lyrics has no source lines to
       // match against, so its lyric marks stay on the screen.
-      if (_prMarks && includeLyrics && !song.richLyrics) _sbMarksInjectLyrics(_songDiv, _sbBaseSongId(song));
+      if (_prMarks && includeLyrics && !song.richLyrics) _sbMarksInjectLyrics(_songDiv, _sbBaseSongId(song), song.versionId);
       songPages += _songDiv.outerHTML;
 
       // ── Choir parts: their own printed pages, straight after the song ──
@@ -66297,7 +66782,7 @@ var WO = (function() {
       // pagination it is better at than we are.
       var _prChoir = _sbChoirBodyHtml(song);
       if (_prChoir) {
-        if (_prMarks) _prChoir = _sbMarksInjectScore(_prChoir, _sbBaseSongId(song));
+        if (_prMarks) _prChoir = _sbMarksInjectScore(_prChoir, _sbBaseSongId(song), song.versionId);
         songPages += '<div class="sp-song">' + _sbChoirCss(typeof song !== 'undefined' ? song : null) +
           '<div class="sb-choir">' + _sbChoirHeadHtml(song, false) + _prChoir + '</div></div>';
       }
@@ -86118,6 +86603,10 @@ var WO = (function() {
     sbmMedley: sbmMedley, openMedleyEditor: openMedleyEditor, woMedleyLeave: woMedleyLeave,
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdEdBreak: mdEdBreak,
+    // Versions of a song, and sharing one song
+    sbmVersions: sbmVersions, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate,
+    sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
+    sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
@@ -105268,6 +105757,50 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* the Liturgy Builder's mark on a song in a medley */
 .lbw-md { flex: 0 0 auto; padding: 0 6px; border-radius: 5px; background: #fdf3d4; color: #8a6510; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .lbw-el--md { box-shadow: inset 3px 0 0 #c9a227; }
+
+/* ---- Versions of a song ---- */
+.sbm-tile-row--7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+@media (max-width: 359px) { .sbm-tile-row--7 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.sbm-badge--ver { background: rgba(201,162,39,0.24); }
+.sbm-badge--ver i { color: var(--sbm-gold); }
+.sbm-share__h { margin: 6px 0 2px; }
+.sbm-share__h:first-child { margin-top: 0; }
+.ver__lead { margin: 0 0 12px; font: 400 13px/1.45 var(--sbm-font-body); color: var(--sbm-text-2); }
+.ver-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 10px 10px 12px; margin-bottom: 8px; border-radius: var(--sbm-radius-md);
+  border: 1px solid var(--sbm-line); background: var(--sbm-card);
+}
+.ver-row.is-on { border-color: var(--sbm-gold); background: var(--sbm-gold-soft); }
+.ver-row__main { min-width: 0; }
+.ver-row__name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font: 700 15px/1.25 var(--sbm-font-ui); color: var(--sbm-text); overflow-wrap: anywhere; }
+.ver-row__name > i { color: #a67c12; font-size: 13px; }
+.ver-row__sub { margin-top: 3px; font: 400 12.5px/1.35 var(--sbm-font-body); color: var(--sbm-text-2); }
+.ver-row__use { margin-top: 2px; font: 400 12px/1.35 var(--sbm-font-body); color: var(--sbm-muted); font-style: italic; }
+.ver-row__acts { display: flex; align-items: center; gap: 4px; }
+.ver-row__acts .sbm-btn { min-height: 38px; padding: 0 10px; font-size: 13px; }
+.ver-pill { padding: 2px 8px; border-radius: 999px; background: var(--sbm-gold); color: var(--sbm-navy); font: 700 10px/1.4 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; }
+.ver-rename { display: flex; gap: 6px; flex: 1 1 100%; }
+.ver-rename .sbm-input { min-height: 40px; }
+.ver-rename .sbm-btn { min-height: 40px; padding: 0 10px; font-size: 13px; }
+.ver-note {
+  margin: 4px 0 12px; padding: 10px 12px; border-radius: var(--sbm-radius-md); background: #fff8e6;
+  border: 1px solid #f1d58f; color: #6b4e10; font: 500 13px/1.4 var(--sbm-font-ui);
+}
+.ver-note__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ver-note__acts .sbm-btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+.ver-new { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--sbm-line); }
+.ver-new__what { margin: 0 0 10px; font: 400 12.5px/1.45 var(--sbm-font-body); color: var(--sbm-text-2); }
+.ver-new__row { display: flex; gap: 8px; }
+.ver-new__row .sbm-btn--primary { min-height: var(--sbm-btn); }
+.ver-new__row .sbm-btn:disabled { opacity: 0.5; }
+@media (max-width: 460px) {
+  .ver-row { grid-template-columns: minmax(0, 1fr); }
+  .ver-row__acts { justify-content: flex-end; }
+  .ver-new__row { flex-wrap: wrap; }
+  .ver-new__row .sbm-input { flex: 1 1 100%; }
+  .ver-new__row .sbm-btn { flex: 1 1 100%; }
+}
 </style>
 
 <!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->

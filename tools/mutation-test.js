@@ -1423,6 +1423,32 @@ const CASES = [
     s => s.replace('    return _woRunWithMedleys(sorted, _woMedleys());', '    return sorted;')],
   ['songbook-step-harness.js', "the builder's undo forgets medleys",
     s => s.replace('      medleys: JSON.stringify((o.template && o.template.medleys) || []),\r\n', '')],
+
+  // Versions of a song. Each of these puts one service's drawings on
+  // another's song, or loses which version a service sings, on a page that
+  // looks right until the next service opens the song.
+  ['songbook-versions-harness.js', 'the card paints every version\'s remarks',
+    s => s.replace('    var marks = _sbmMarksOf(base, song && song.versionId), memo = {}, laid = [], byAnchor = {};',
+                   '    var marks = _sbmMarks[base] || [], memo = {}, laid = [], byAnchor = {};')],
+  ['songbook-versions-harness.js', 'a remark is drawn on Standard whatever the service sings',
+    s => s.replace('    if (_sbVerOk === true) mark.version_id = song.versionId || null;\r\n', '')],
+  ['songbook-versions-harness.js', 'a version shows remarks that are not its own',
+    s => s.replace("return (marks || []).filter(function(m) { return m && (m.version_id || '') === v; });",
+                   'return (marks || []).filter(function(m) { return !!m; });')],
+  ['songbook-versions-harness.js', 're-drawn words are not a change from the version',
+    s => s.replace('      words = _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) || _sbVerNorm(w.rich) !== _sbVerNorm(v.rich_lyrics);',
+                   '      words = _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics);')],
+  // Going back to Standard writes versionId '' over the stored one; a sync
+  // that only ever writes a version keeps the old one, and the reload undoes
+  // the choice.
+  ['songbook-versions-harness.js', 'going back to Standard is never synced',
+    s => s.replace("(snap.versionId || (base.customizations && base.customizations.versionId)) ? { versionId: snap.versionId || '' } : {}",
+                   'snap.versionId ? { versionId: snap.versionId } : {}')],
+  ['songbook-versions-harness.js', 'a link to one song opens the book at its index',
+    s => s.replace("        try { localStorage.setItem('lhc_sbm_song_' + _deepSb.replace(/^(order|sb)-/, ''), _deepSbSong); } catch (e) {}\r\n", '')],
+  ['songbook-versions-harness.js', 'a shared link gains a second question mark',
+    s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
+                   "    return url + '?' + key + '=' + encodeURIComponent(val);")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

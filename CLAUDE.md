@@ -51,7 +51,8 @@ The ones worth knowing; there are around 29 in all.
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
 | `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
-| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31 |
+| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard |
+| `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -128,8 +129,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      is showing and closes back to it. It also has the order's **inbox**
      (links and files shared to the service from a phone's share sheet, the
      share picker, or pasted -- put each on a song), **Add a song** (into a
-     section), each song's links hidden for this service or removed, and
-     **medleys** (gotchas 42-44).
+     section), each song's links hidden for this service or removed,
+     **medleys** (gotchas 42-44), and **versions** of a song -- a key, words
+     and drawings a later service can sing it with -- and Share › This
+     song, a link that opens the book at that song (gotcha 46).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - **Song Order**, step 2 until November 2026, is retired: it is under More
   as "Song Order (old view)" with a note pointing to the Songbook, and its
@@ -243,6 +246,12 @@ _woAddSongToSection(secId, lib)    // a library song into a section from outside
 _woSongsChange(fn)                 // a change to the songs from outside the
                                    // builder: _lbdChange, or straight onto the
                                    // data when the LCD is in the page (gotcha 44)
+WO.sbmVersions()                   // the Versions sheet for the song in front
+                                   // of you; _sbVerApply puts one on a copy
+_sbmMarksOf(base, versionId)       // a song's drawn remarks on ONE version --
+                                   // the only way to read them (gotcha 46)
+WO.sbShareSongWhatsApp()           // one song: its key, version and a link that
+                                   // opens the book at it (&sbSong=)
 _woSectionList()                   // THE order's sections: [{id, title,
                                    // serviceSectionId, notes}], titles
                                    // without "4. " ordinals
@@ -1071,6 +1080,30 @@ the anon key -- verify as `postgres`, not as the app.
     animation frames never come, so the sidebar's grid and the sheets look
     stuck -- inject `*{transition:none!important}` into the test page
     before measuring.
+
+46. **A drawn remark belongs to a VERSION of its song, and a version keeps
+    its words whole.** `song_versions` holds named versions; Standard (the
+    song's own key and words, remarks with `version_id` null) needs no row.
+    A service's copy names the version it sings in `versionId` ('' =
+    Standard), which every path a copy takes must carry: `_absorbOrderItem`,
+    `collectOrderItems` (left out for Standard), `SBQ.syncItems` (written
+    when there is one or when there WAS one, so going back to Standard
+    clears it), `sbBuildSongSnapshot` / `sbApplyBroadcast`, both polls,
+    `sbRefresh` and the standalone songbook's load and save. Every view that
+    shows remarks reads them through `_sbmMarksOf(base, versionId)` -- the
+    card, the printed page, the Phone view -- and a stroke is saved with the
+    copy's `version_id`, but only once `_sbVerSupport()` has found the table
+    AND the column: until the migration is run the insert would be refused
+    whole, and the Versions tile is simply not drawn. Choosing a version
+    copies its key and words onto the copy (`_sbVerApply`); after that they
+    are the service's own again, and a version changes only by Update. The
+    words are kept EXACTLY as the saving service had them (`customLyrics`
+    and `richLyrics`), never "only if changed": Song Order's transposition
+    stored the transposed text as the copy's own words, so against the
+    library song nearly every transposed copy looks re-worded. "Changed
+    since" (`_sbVerDrift`) is therefore asked only against a named version;
+    against Standard only the key is. A new version COPIES the remarks of
+    the one the service sang, so that one stays as it was.
 
 ## Quick Commands for Claude Code
 
