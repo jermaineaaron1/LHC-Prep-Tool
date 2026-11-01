@@ -134,7 +134,15 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Order starts closed (`_lbdLibOn` false; a saved "open" counts only from
      `libV` 2), and Shift/Ctrl+Enter starts a new slide at the cursor -- in a
      text slide, a new text slide -- which the leave-a-slide tidy now spares
-     while the cursor is in it (`_lbdFocusIn`). A phone's keyboard has no
+     while the cursor is in it (`_lbdFocusIn`). Add a song has **New song**
+     (in its head, and offered with the search as its title when nothing
+     matches): the library's Add Song form opens, and once it is saved the
+     song goes into the section Add a song was opened on, after the part the
+     cursor was on (`_lbdNewSong`). The hand-over is `window._lhcNewSongThen`,
+     taken by `saveNewSong` before the form closes and run once `loadSongs`
+     has the song; `closeModal('addSongModal')` forgets it, so a cancelled form
+     adds nothing and a song saved later from the Songs page goes nowhere
+     else, and it adds only while the same order is still in the builder. A phone's keyboard has no
      Shift+Enter, so on a touch screen (`_lbdTouchKeys`: no hover, a coarse
      pointer) plain Enter is the slide break, and a line is the New line key
      (first in the keys over the keyboard, beside Slide break; on the
