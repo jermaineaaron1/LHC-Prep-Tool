@@ -125,10 +125,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
      the formatting keys over the keyboard. Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
      from Word: headings become sections, the words under them liturgy.
-     **Service liturgies** (ribbon, or More / Add on a phone) save the whole
+     **Save / Load** (ribbon, or More / Add on a phone) saves the whole
      liturgy for its occasion of the church year and a year, and a later
-     year's order uses it whole, then saves over it or keeps a copy
-     (gotcha 51). Edits the order's data directly; see gotchas 34-37,
+     year's order loads it whole, then saves over it or keeps a copy
+     (gotcha 51). The ribbon's Liturgy opens a menu: the library, what suits
+     this section, or your own written as liturgy (kept in the Liturgy Book's
+     liturgy style); Text is a plain slide for this service only. Add to
+     Order starts closed (`_lbdLibOn` false; a saved "open" counts only from
+     `libV` 2), and Shift/Ctrl+Enter starts a new slide at the cursor -- in a
+     text slide, a new text slide -- which the leave-a-slide tidy now spares
+     while the cursor is in it (`_lbdFocusIn`). Edits the order's data directly; see gotchas 34-37,
      39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
@@ -1222,47 +1228,67 @@ the anon key -- verify as `postgres`, not as the app.
     button still fills everything missing.
 
 49. **A standalone songbook must take the editor over from the order before
-    it.** `saveCurrentOrder` refuses any save while `#woWorshipOrder` is
-    stamped (`data-order-id`) for an order other than the one saving --
-    the guard that stops one service's slides being saved into another.
-    Opening a standalone songbook after any order had been in the builder
-    or the LCD left that stamp behind, so every save the songbook made --
-    its song order, medleys, settings -- was refused, silently.
-    `openSongbookStandalone` now saves the outgoing order if an autosave is
-    waiting (`_autoSaveTimer`, nulled when it fires), then takes the
-    builder down and clears the editor and its stamp. Also: "New Songbook"
+    it, and give it back.** `saveCurrentOrder` refuses any save while
+    `#woWorshipOrder` is stamped (`data-order-id`) for an order other than
+    the one saving -- the guard that stops one service's slides being saved
+    into another. Opening a standalone songbook after any order had been in
+    the builder or the LCD left that stamp behind, so every save the
+    songbook made -- its song order, medleys, settings -- was refused,
+    silently. `openSongbookStandalone` now saves the outgoing order if an
+    autosave is waiting (`_autoSaveTimer`, nulled when it fires), remembers
+    it (`_sbPrevOrderId`), takes the builder down, clears the editor and its
+    stamp, and hides the editor (`_woHideEditor`). The other half: while it
+    is open the songbook IS `currentOrderData` (`standalone_<id>`), and it
+    used to stay so after closing. The order editor then showed the last
+    service's header over the songbook's data, the builder drew its carols
+    "not yet in a section" and filled the service template's liturgy into
+    it, and the next save wrote all that under the pseudo-order (the Caroling
+    book's carries 14 such liturgy rows and a 19-section layout from
+    2026-11-01; the songbook ignores them, since it reads only song rows).
+    `closeSongbook` now makes the songbook's last save while
+    `_sbStandaloneId` still says what it is, then `_sbLeaveStandalone` drops
+    it -- no order, no songs, editor hidden -- and reopens the order from
+    before: at once if Orders is showing, otherwise the next time
+    `showSavedOrders` runs (`_woReopenOrderId`). And `saveCurrentOrder`
+    refuses a `standalone_` id outright when `_sbStandaloneId` is not set,
+    so a songbook is never saved as a service. Also: "New Songbook"
     with a service's name ("Service 1 Nov 2026") is refused with a toast
     that opens that service's songbook (`_sbServiceOrderNamed`) -- every
     order is already a songbook, and the hand-made copy sat empty under
     My Songbooks beside it.
 
-50. **A drawing is its drawer's own until they share it.** `song_marks`
-    carries `owner` (the drawer's name folded to lower case and single
-    spaces, `_sbmMeKey`), `owner_name`, `part` (leader, vocals, guitar,
-    bass, keys, drums, other) and `shared`. Nobody signs in, so "who" is a
-    name and a part kept on the device (`lhc_sbm_me`), asked the first time
-    someone draws ("Who's drawing?", the roster's names to pick from); the
-    same name on another device is the same person. So "only me" is about
-    what is SHOWN, not a lock: every row is still readable through the
-    page's key. To make the same spelling easy on a new device, the name
-    list offers first the names already drawing in the book (read from
-    the database for every song in it, `_sbmBookDrawers`), and a name with
-    drawings is welcomed back with their count. A new stroke is private unless the draw bar's switch says
-    Everyone (`lhc_sb_pen.share`). Every view reads drawings through
-    `_sbmMarksOf`, which now filters by `_sbmLayerKeep`: your own (unless
-    you hid them), anybody's shared ones (unless you hid that person),
-    and the rows from before layers, which have no owner and stay
-    everybody's ("Earlier drawings", hidden as one under the key '').
-    What a reader hides is theirs alone (`lhc_sbm_layers_hidden`). The
-    Layers sheet shares or makes private all of one's drawings on the song
-    (on the version the service sings). The rubber takes only one's own
-    strokes and the earlier ones. Copies of drawings made for a new version
-    read the UNFILTERED list (`_sbVerMarks`) and keep whose each is, and a
+50. **A drawing is everyone's when it is drawn; its drawer then says who
+    sees it.** `song_marks` carries `owner` (the drawer's name folded to
+    lower case and single spaces, `_sbmMeKey`), `owner_name`, `shared` and
+    `part`. Nobody signs in, so the drawer is a NAME kept on the device
+    (`lhc_sbm_me`), asked the first time someone draws ("Who's drawing?",
+    the names already drawing in the book first, then the roster's, and a
+    name with drawings welcomed back with their count); the same name on
+    another device is the same person, and their drawings -- private ones
+    included -- come back there. "Only me" is about what is SHOWN, not a
+    lock: every row is still readable through the page's key. A stroke goes
+    in for everyone (`shared` true, `part` null). On Done, the strokes of
+    that sitting (`_sbmSessionStrokes`) are offered to the drawer
+    (`_sbmAskAudience`): Everyone (the default), Only me (`shared` false),
+    or one part of the band (`part`: leader, vocals, guitar, bass, keys,
+    drums -- `_SBM_PARTS`), saved by `sbmAudience` on exactly those ids.
+    Every view reads drawings through `_sbmMarksOf`, which filters by
+    `_sbmLayerKeep`: your own, whoever they are for (unless you hid them);
+    anybody else's when they are for everyone, or for a part the READER
+    has said, under Layers, that they play or sing (`lhc_sbm_parts`); the
+    rows from before layers, which have no owner, stay everybody's
+    ("Earlier drawings", hidden as one under the key ''). What a reader
+    hides, and which parts they chose, are theirs alone. Layers also
+    changes who sees all of one's drawings on the song (on the version the
+    service sings), and says how many drawings are for parts the reader has
+    not chosen. The rubber takes only one's own strokes and the earlier
+    ones. Copies of drawings made for a new version read the UNFILTERED
+    list (`_sbVerMarks`) and keep whose each is and who it is for, and a
     delete's count is of all of them. Print and the Phone view show what
     the reader is shown. None of this applies until
     `migrations/2026-11-01_song_marks_layers.sql` has been run
-    (`_sbmLayersOk`, probed with the marks): till then every drawing is
-    everybody's and there is no Layers chip.
+    (`_sbmLayersOk`, probed with the marks). `part` meant the DRAWER's part
+    for the first hour of layers; no row had one when it changed meaning.
     `tools/songbook-layers-harness.js` checks the rules.
 
 51. **A service liturgy is a whole liturgy, used whole.** The builder saves
