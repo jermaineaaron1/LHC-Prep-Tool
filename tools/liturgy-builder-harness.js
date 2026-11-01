@@ -539,6 +539,82 @@ console.log('\n[readings put in by themselves]');
   check('a standalone songbook is never given readings', has(/if \(!o \|\| !o\.id \|\| _sbStandaloneId \|\| String\(o\.id\)\.indexOf\('standalone_'\) === 0\) return;/));
 })();
 
+// ---------------------------------------------------------------------------
+// Service liturgies: a whole liturgy kept for its occasion, used whole by a
+// later year's order of the same kind, and saved over or copied.
+// ---------------------------------------------------------------------------
+console.log('\n[service liturgies]');
+(function() {
+  let V;
+  try {
+    V = new Function(buildModule([extractFn('_woStripNum'), extractFn('_svlOccasionFor'), extractFn('_svlSnapshotOf'),
+      extractFn('_svlOutline'), extractFn('_svlCounts')]))();
+  } catch (e) {
+    check('the service liturgy helpers exist', false, e.message.split('\n')[0]);
+    return;
+  }
+  const occ = (d, t) => V._svlOccasionFor(d, t || 'traditional');
+  check('the Day of Pentecost is Pentecost', occ('Day of Pentecost') === 'pentecost' && occ('Pentecost Sunday') === 'pentecost');
+  check('a Sunday after Pentecost is an ordinary Sunday', occ('5th Sunday after Pentecost') === 'ordinary-traditional' &&
+    occ('3rd Sunday after Pentecost', 'contemporary') === 'ordinary-contemporary');
+  check('Holy Trinity is not Pentecost, and Easter\'s Sundays are Easter', occ('The Holy Trinity') === 'holy-trinity' && occ('2nd Sunday of Easter') === 'easter');
+  check('the days of Holy Week and Christmas are told apart', occ('Palm Sunday') === 'palm-sunday' && occ('Maundy Thursday') === 'maundy-thursday' &&
+    occ('Good Friday') === 'good-friday' && occ('Christmas Eve') === 'christmas-eve' && occ('Christmas Day') === 'christmas-day');
+  check('a day it does not know, or none, is the ordinary service of its kind', occ('All Saints Sunday') === 'ordinary-traditional' && occ('', 'contemporary') === 'ordinary-contemporary');
+
+  const order = {
+    sectionLayout: [{ id: 'wo-section-0', title: '1. Invocation' }, { id: 'wo-section-6', title: 'Scripture Readings', notes: 'Read slowly' }],
+    clearedSections: ['wo-section-3'],
+    allItems: [
+      { id: 'o__lit1', itemType: 'liturgy', sectionId: 'wo-section-0', title: 'Invocation', slides: [{ content: 'In the name of the Father' }] },
+      { id: 'o__lit1', itemType: 'liturgy', sectionId: 'wo-section-0', title: 'Invocation', slides: [] },
+      { id: 'o__sc1', itemType: 'scripture', sectionId: 'wo-section-6', title: 'Acts 2:1-21' },
+      { id: 'o__song1', itemType: 'song', title: 'kept apart' }
+    ],
+    template: { serviceNotes: 'Red paraments' }
+  };
+  const songs = [{ songId: 's1', title: 'Spirit of God', transposeSteps: '2', serviceSections: ['wo-section-6'], liturgistNotes: 'Verse 1 only' },
+                 { itemType: 'blank', songId: '' }, { title: 'no song id' }];
+  const snap = V._svlSnapshotOf(order, songs, s => s.serviceSections);
+  check('it keeps the sections, as they are, with their notes', snap.sectionLayout.length === 2 && snap.sectionLayout[1].notes === 'Read slowly' && snap.clearedSections[0] === 'wo-section-3');
+  check('and every liturgy and reading once, but no song item', snap.items.map(i => i.id).join(',') === 'o__lit1,o__sc1', snap.items.map(i => i.id).join(','));
+  check('the songs by library id, section and key, and nothing that is not a song', snap.songs.length === 1 &&
+    snap.songs[0].songId === 's1' && snap.songs[0].transposeSteps === 2 && snap.songs[0].sections[0] === 'wo-section-6' && snap.songs[0].liturgistNotes === 'Verse 1 only');
+  check('and the notes for the whole service', snap.serviceNotes === 'Red paraments');
+  check('a copy, not the order\'s own objects', snap.items[0] !== order.allItems[0] && snap.sectionLayout[0] !== order.sectionLayout[0]);
+  const out = V._svlOutline(snap);
+  check('its outline: each section, without its number, and what is in it', out[0].title === 'Invocation' && out[0].items[0].kind === 'liturgy' &&
+    out[1].items.map(x => x.kind + ':' + x.title).join(',') === 'reading:Acts 2:1-21,song:Spirit of God', JSON.stringify(out));
+  const c = V._svlCounts(snap);
+  check('and its counts', c.sections === 2 && c.liturgy === 1 && c.readings === 1 && c.songs === 1);
+  check('an empty or broken one is nothing, not a crash', V._svlOutline(null).length === 0 && V._svlCounts(undefined).sections === 0);
+})();
+
+(function() {
+  const has = re => re.test(SRC);
+  check('using one replaces the order\'s liturgy as one undoable change, each item with an id of this order',
+    has(/var ok = _lbdChange\(function\(\) \{\r?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/) &&
+    has(/\.map\(function\(it\) \{ it\.id = _lbdPfx\(\) \+ 'svl_' \+ _lbdUid\(\); return it; \}\);/));
+  check('its readings and songs come only when asked; else this date\'s readings come from the roster, in the same undo step',
+    has(/filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/) && has(/if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/) &&
+    has(/if \(n && _lbdUndoStack\.length === mark \+ 1\) _lbdUndoStack\.splice\(mark, 1\);/));
+  check('only by an order of the kind it was made for', has(/if \(\(r\.order_type \|\| 'traditional'\) !== _svlOrderType\(\)\) \{ showToast\('That liturgy was made for another kind of service'/));
+  check('the order remembers where its liturgy came from, and undo forgets it with the rest',
+    has(/currentOrderData\.template\.serviceLiturgy = \{ id: r\.id, title: r\.title, occasion: r\.occasion_id, year: r\.year \};/) &&
+    has(/svl: JSON\.stringify\(\(o\.template && o\.template\.serviceLiturgy\) \|\| null\),/) && has(/if \(svl\) currentOrderData\.template\.serviceLiturgy = svl; else delete currentOrderData\.template\.serviceLiturgy;/));
+  check('saving over the one it came from, or as a copy, and read back before it is reported',
+    has(/\? sup\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', from\.id\)\.select\(\) : sup\.from\('service_liturgies'\)\.insert\(row\)\.select\(\);/) &&
+    has(/return sup\.from\('service_liturgies'\)\.select\('id'\)\.eq\('id', saved\.id\)/));
+  check('the occasions are the Liturgy page\'s own', has(/getOccasions: function\(\) \{ return OCCASIONS\.map\(/));
+  check('it is offered in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('menu-svl', 'fa-solid fa-book-bookmark', 'Service liturgies'/) &&
+    has(/\['svl', 'fa-solid fa-book-bookmark', 'Service liturgies'\]/) && has(/label: 'Service liturgies: use one, or save this'/));
+  const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
+  const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
+  check('the migration makes the table, readable through the app\'s key',
+    /create table if not exists public\.service_liturgies/.test(sql) && /occasion_id\s+text not null/.test(sql) && /data\s+jsonb not null/.test(sql) &&
+    /create policy "anon_all_service_liturgies"/.test(sql));
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {
