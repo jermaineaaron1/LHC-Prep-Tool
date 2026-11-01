@@ -152,6 +152,24 @@ console.log("\nA songbook named for a service is that service's songbook");
   }
 }
 
+console.log('\nA medley read straight through');
+{
+  let F = null;
+  try {
+    const songs = { a: { id: 'a', title: 'A' }, b: { id: 'b', title: 'B' }, c: { id: 'c', title: 'C' } };
+    F = load(['_sbmFollowSongs'], 'function _lbdSong(id) { return ({ a: { id: "a" }, b: { id: "b" }, c: { id: "c" } })[id] || null; }');
+  } catch (e) { check('the follow helper exists', false, e.message.split('\n')[0]); }
+  if (F) {
+    const md = (at) => ({ medley: { id: 'm1', songs: ['a', 'b', 'c'] }, at: at, n: 3 });
+    const ids = list => list.map(x => x.song.id + '@' + (x.at + 1) + '/' + x.n).join(' ');
+    check('from its first song, the rest of the medley follows under it, in sung order', ids(F._sbmFollowSongs(md(0))) === 'b@2/3 c@3/3');
+    check('from its second, only what comes after', ids(F._sbmFollowSongs(md(1))) === 'c@3/3');
+    check('its last song has nothing under it', F._sbmFollowSongs(md(2)).length === 0);
+    check('a song in no medley has nothing under it', F._sbmFollowSongs(null).length === 0);
+    check('a song that left the book is passed over', ids(F._sbmFollowSongs({ medley: { id: 'm', songs: ['a', 'gone', 'c'] }, at: 0, n: 3 })) === 'c@3/3');
+  }
+}
+
 console.log('\nThe running order: a medley stands together');
 if (T) {
   const list = ['x', 'a', 'y', 'b', 'z'].map(S);
@@ -306,6 +324,17 @@ console.log('\nThe wiring');
     has(/_autoSaveTimer = setTimeout\(function\(\) \{\r?\n\s*_autoSaveTimer = null;/));
   check('a new songbook named for a service with an order points to that service\'s songbook instead',
     has(/var svc = _sbServiceOrderNamed\(name, \(typeof STATE !== 'undefined' && STATE\.orders\) \|\| \[\]\);/));
+  check('the song in front is followed by the rest of its medley, on cards that name their song',
+    has(/html \+= _sbmFollowHtml\(mdHere, wide\) \+ '<\/div>';/) && has(/class="sbm-card sbm-card--follow" data-sbm-song="/) &&
+    has(/_sbmMarksMount\(\);\r?\n\s*_sbmFollowAfter\(\);/));
+  check('drawings are painted, drawn, rubbed out and undone on the song each card shows',
+    has(/var song = _sbmCardSong\(card\), base = song \? _sbBaseSongId\(song\) : '';\r?\n\s*cv\.__base = base;/) &&
+    has(/var song = _sbmCardSong\(live\.card\), base = song \? _sbBaseSongId\(song\) : '';/) &&
+    has(/_sbmMarkDelete\(l\.id, cv\.__base\);/) && has(/var shown = _sbmShownBases\(\), i;/) &&
+    has(/if \(D\.group && D\.groupCard !== live\.card\) D\.group = null;/));
+  check('a following song\'s words are set like the first\'s: every lyrics card, not only #sbmLyrics',
+    has(/return c\.querySelector\('\.sbm-lyrics, \.sbm-score'\); \}\);/) && has(/document\.querySelectorAll\('#sbmRoot \.sbm-lyrics'\)\.forEach\(_sbmFitChordPairsIn\);/) &&
+    (SRC.match(/#sbmRoot :is\(#sbmLyrics, \.sbm-card--follow > \.sbm-lyrics\)/g) || []).length >= 7 && !/#sbmRoot #sbmLyrics/.test(SRC));
   check('every book has the Medley tile, and nothing hides medleys from a standalone one',
     has(/so every book -- a service's or\r?\n\s*\/\/ a standalone one -- has the medley tile in that place\./) &&
     !has(/_sbStandaloneId \? \[\] : _woMedleys\(\)/) && !has(/if \(!currentOrderData \|\| _sbStandaloneId\) return;\r?\n\s*var md = _woMedleyOf/));

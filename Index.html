@@ -49238,12 +49238,12 @@ var WO = (function() {
 
   // ---- the cards and their canvases ----
   function _sbmMarkCards() {
-    return Array.prototype.slice.call(document.querySelectorAll('#sbmRoot .sbm-card')).filter(function(c) { return c.querySelector('#sbmLyrics, .sbm-score'); });
+    return Array.prototype.slice.call(document.querySelectorAll('#sbmRoot .sbm-card')).filter(function(c) { return c.querySelector('.sbm-lyrics, .sbm-score'); });
   }
   // Lyric lines are the block children of #sbmLyrics; each gets its index
   // as its anchor. The score's moments carry theirs from html().
   function _sbmStampAnchors(card) {
-    var ly = card.querySelector('#sbmLyrics'); if (!ly) return;
+    var ly = card.querySelector('.sbm-lyrics'); if (!ly) return;
     var i = 0;
     Array.prototype.slice.call(ly.children).forEach(function(el) { if (!el.hasAttribute('data-anchor')) el.setAttribute('data-anchor', 'l:' + i); i++; });
   }
@@ -49623,7 +49623,9 @@ var WO = (function() {
     return Math.max(k, Math.min(1, (minPx || 11) / (fontPx || 16)));
   }
   function _sbmFitChordPairs() {
-    var ly = document.getElementById('sbmLyrics');
+    document.querySelectorAll('#sbmRoot .sbm-lyrics').forEach(_sbmFitChordPairsIn);
+  }
+  function _sbmFitChordPairsIn(ly) {
     if (!ly || ly.classList.contains('sbm-lyrics--nochords')) return;
     var avail = ly.clientWidth; if (!avail) return;
     Array.prototype.forEach.call(ly.querySelectorAll('.wo-lyrics-chord-line'), function(cl) {
@@ -49687,7 +49689,8 @@ var WO = (function() {
   function _sbmMarksPaintAll() { _sbmMarkCards().forEach(_sbmMarksPaint); }
   function _sbmMarksPaint(card) {
     var cv = card.querySelector('canvas.sbm-marks'); if (!cv) return;
-    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    var song = _sbmCardSong(card), base = song ? _sbBaseSongId(song) : '';
+    cv.__base = base;
     var W = card.clientWidth, H = card.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (!W || !H) return;
     if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
@@ -50093,19 +50096,20 @@ var WO = (function() {
       '<span class="sbm-drawbar__gap"></span>';
   }
 
-  // Undo takes back the last stroke drawn on the song in front of you. The
-  // list holds every stroke of the session with its song, so a stroke on
-  // another song -- one the reader cannot see -- is never what goes; it used
+  // Undo takes back the last stroke drawn on a song on the page -- the one in
+  // front, or a medley's song under it. The list holds every stroke of the
+  // session with its song, so a stroke on another song -- one the reader
+  // cannot see -- is never what goes; it used
   // to be deleted from the database while nothing on this screen changed.
   // A stroke still being saved is taken off the page at once and out of the
   // database the moment its id comes back; undo used to skip it and take
   // the stroke before.
   function sbmDrawUndo() {
     var D = _sbmDraw; if (!D || !D.undo.length) return;
-    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '', i;
-    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;
+    var shown = _sbmShownBases(), i;
+    for (i = D.undo.length - 1; i >= 0; i--) if (shown.indexOf(D.undo[i].base) !== -1) break;
     if (i < 0) return;
-    var u = D.undo.splice(i, 1)[0];
+    var u = D.undo.splice(i, 1)[0], base = u.base;
     if (String(u.local.id).indexOf('tmp_') === 0) {
       u.local.undone = true;
       _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return m !== u.local; });
@@ -50115,6 +50119,13 @@ var WO = (function() {
       return;
     }
     _sbmMarkDelete(u.local.id, u.base);
+  }
+  // The songs whose cards are on the page: the one in front, and a
+  // medley's following songs under it.
+  function _sbmShownBases() {
+    var out = [], song = _sbmSong(); if (song) out.push(_sbBaseSongId(song));
+    _sbmMarkCards().forEach(function(c) { var x = _sbmCardSong(c), b = x ? _sbBaseSongId(x) : ''; if (b && out.indexOf(b) === -1) out.push(b); });
+    return out;
   }
   // A drawing whose strokes have all gone -- undone, rubbed out, refused by
   // the database -- is over: the next stroke finds its own anchor. Without
@@ -50215,10 +50226,11 @@ var WO = (function() {
     // screen's edge -- is dropped, not saved as a fragment.
     if (ev.type === 'pointercancel') { _sbmMarksPaint(live.card); return; }
     var pts = _sbmMarkThin(live.pts);
+    if (D.group && D.groupCard !== live.card) D.group = null;   // one drawing is on one card
     var hit = _sbmMarkAnchorFor(live.card, pts, D.group), frame = hit ? _sbmMarkFrame(live.card, hit.key) : null;
     if (!frame) { _sbmMarksPaint(live.card); showToast('Nothing here to attach a mark to', 'error'); return; }
-    D.group = hit.group;
-    var song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
+    D.group = hit.group; D.groupCard = live.card;
+    var song = _sbmCardSong(live.card), base = song ? _sbBaseSongId(song) : '';
     var mark = { song_id: base, anchor: hit.key, tool: 'w', colour: D.colour, width: D.width,
                  points: pts.map(function(q) { return _sbmMarkToLocal(frame, q, 'w').map(function(v) { return Math.round(v * 10000) / 10000; }); }) };
     // On the version this copy of the song sings (null: Standard) -- only
@@ -50257,7 +50269,7 @@ var WO = (function() {
       .forEach(function(l) {
         if (String(l.id).indexOf('tmp_') === 0) return;
         if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }
-        _sbmMarkDelete(l.id);
+        _sbmMarkDelete(l.id, cv.__base);
       });
     if (theirs && Date.now() - _sbmEraseWarnAt > 4000) {
       _sbmEraseWarnAt = Date.now();
@@ -52198,6 +52210,76 @@ var WO = (function() {
       (order ? '<button class="sbm-side__add" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add a song</button>' : '');
   }
 
+  // ---- a medley read straight through ----
+  //
+  // A medley is sung without a stop, so the songs after this one in it are
+  // drawn under it: their words and chords in the key each is sung in,
+  // their choir parts if that is what the song shows, and their drawings --
+  // the band scrolls from one into the next as it is sung, and nobody
+  // reaches for the next button mid-song. Each such card names its own song
+  // (data-sbm-song, _sbmCardSong), so drawing on it draws on that song.
+  // Its controls -- key, versions, recording -- stay with the song: Open
+  // makes it the song in front.
+  function _sbmFollowSongs(md) {
+    if (!md) return [];
+    var out = [];
+    for (var k = md.at + 1; k < md.medley.songs.length; k++) {
+      var s = _lbdSong(md.medley.songs[k]); if (s) out.push({ song: s, at: k, n: md.n });
+    }
+    return out;
+  }
+  function _sbmFollowHtml(md, wide) {
+    var V = window.lhcVoiceLines;
+    return _sbmFollowSongs(md).map(function(f) {
+      var s = f.song, id = escapeHtml(s.id);
+      var steps = (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[s.id] != null) ? sbTransposeSteps[s.id] : (parseInt(s.transposeSteps, 10) || 0);
+      var key = _sbSungKey(s);
+      var hasChoir = _sbSongHasChoir(s);
+      var view = hasChoir ? _sbChoirView(s) : (s.sbmLyricsMode || 'both');
+      var out = '<div class="sbm-follow" id="sbmFollow-' + id + '">' +
+        '<div class="sbm-follow__kicker"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>Medley · ' + (f.at + 1) + ' of ' + f.n + ' · straight on into</div>' +
+        '<div class="sbm-follow__row"><div class="sbm-follow__t">' + escapeHtml(s.title || 'Song') + '</div>' +
+          (key ? '<span class="sbm-badge sbm-badge--key"><i class="fa-solid fa-music"></i>Key: ' + escapeHtml(key) + (steps ? ' (' + (steps > 0 ? '+' : '') + steps + ')' : '') + '</span>' : '') +
+          '<button class="sbm-btn sbm-follow__open" onclick="WO.sbmSelectSong(\'' + escapeJsArg(s.id) + '\')" title="Make it the song in front: its key, versions, recordings">Open</button></div></div>';
+      if (!hasChoir || view !== 'choir') {
+        var lyricsHtml = s.richLyrics
+          ? _sbStripTrailingEmptyHtml(s.richLyrics)
+          : formatLyricsWithHighlights(_sbStripTrailingEmptyText(s.lyrics || ''));
+        if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
+        var noChords = view === 'lyrics', cols = s.sbLyricsColumns === 2;
+        out += '<div class="sbm-card sbm-card--follow" data-sbm-song="' + id + '">' +
+          '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
+      }
+      if (hasChoir && view !== 'lyrics') {
+        var score = _sbChoirBodyHtml(s, false, !wide);
+        var lanes = (V && score) ? V.lanes(_sbVoiceRowsFor(s)) : [];
+        out += '<div class="sbm-card sbm-card--follow" data-sbm-song="' + id + '"' + (lanes.length ? ' data-sbm-part="' + escapeHtml(_sbChoirPartFor(s, lanes) || '') + '"' : '') + '>' +
+          '<div class="sbm-score sb-song-page--choir sbm-score--follow" data-choir-song="' + escapeHtml(_sbBaseSongId(s)) + '">' +
+          _sbPartColourCss(s) + (score || '<p class="sbm-empty">Loading the choir parts…</p>') + '</div></div>';
+      }
+      return out;
+    }).join('');
+  }
+  // The song a card shows: a medley's following song names itself on its
+  // card; every other card is the song in front.
+  function _sbmCardSong(card) {
+    var sid = card && card.getAttribute ? card.getAttribute('data-sbm-song') : '';
+    if (sid) { var hit = _sbmSongs().filter(function(x) { return x.id === sid; })[0]; if (hit) return hit; }
+    return _sbmSong();
+  }
+  // After a render: the following songs' words laid out like the first's,
+  // their part filter applied, and their drawings fetched.
+  function _sbmFollowAfter() {
+    var V = window.lhcVoiceLines;
+    document.querySelectorAll('#sbmRoot .sbm-card--follow').forEach(function(card) {
+      var ly = card.querySelector('.sbm-lyrics');
+      if (ly && typeof sbApplySectionBadges === 'function') sbApplySectionBadges(ly);
+      var part = card.getAttribute('data-sbm-part'), sc = card.querySelector('.vl-score');
+      if (V && sc && part) V.filterPart(sc, part);
+      var s = _sbmCardSong(card); if (s) _sbmLoadMarks(s);
+    });
+  }
+
   function _sbmRender() {
     _sbmInit();
     var modal = document.getElementById('songbookLiveModal');
@@ -52365,7 +52447,7 @@ var WO = (function() {
         '<div class="sbm-score sb-song-page--choir' + (_sbmMics ? ' sbm-score--mics' : '') + '" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
-    html += '</div>';
+    html += _sbmFollowHtml(mdHere, wide) + '</div>';
     root.innerHTML = wide
       ? _sbmTopBar(orderTitle, song, list) +
         '<div class="sbm-wide"><aside class="sbm-side">' + _sbmSideHtml(list, song) + '</aside>' +
@@ -52405,6 +52487,7 @@ var WO = (function() {
     _sbmFitChordPairs();
     _sbmEvenRows();
     _sbmMarksMount();
+    _sbmFollowAfter();
     _sbmLiveStart();
     _sbmPhoneFollowSoon();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
@@ -105687,8 +105770,8 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 /* !important because older songbook rules force the chord line to 15-16px
    with it; fenced off from the phone held upright, whose own grid stays. */
 @media not all and (max-width: 820px) and (orientation: portrait) {
-  #sbmRoot #sbmLyrics:not(.sbm-lyrics--nochords) .wo-lyrics-chord-line,
-  #sbmRoot #sbmLyrics:not(.sbm-lyrics--nochords) .wo-lyrics-lyric-line {
+  #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-chord-line,
+  #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-lyric-line {
     font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace !important;
     font-size: calc(18px * var(--sbm-lyrics-scale) * var(--sbm-fit, 1)) !important;
     letter-spacing: 0 !important;
@@ -105699,8 +105782,8 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 }
 /* the phone held upright keeps its 1rem grid, by the same factor */
 @media (max-width: 820px) and (orientation: portrait) {
-  #sbmRoot #sbmLyrics:not(.sbm-lyrics--nochords) .wo-lyrics-chord-line,
-  #sbmRoot #sbmLyrics:not(.sbm-lyrics--nochords) .wo-lyrics-lyric-line { font-size: calc(1rem * var(--sbm-fit, 1)) !important; }
+  #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-chord-line,
+  #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-lyric-line { font-size: calc(1rem * var(--sbm-fit, 1)) !important; }
 }
 .sbm-lyrics--nochords .wo-lyrics-chord-pair { margin: 0 0 0.35em; }
 .sbm-lyrics--cols { column-count: 2; column-gap: 18px; font-size: calc(var(--sbm-t-lyrics) * var(--sbm-lyrics-scale) * 0.82); }
@@ -106281,6 +106364,14 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-drawbar__share { background: rgba(255,255,255,0.12); }
 .sbm-drawbar__share.is-on { background: var(--sbm-gold); border-color: var(--sbm-gold); color: var(--sbm-navy); }
 
+/* ---- A medley read straight through ----------------------------------- */
+.sbm-follow { margin: 18px 0 8px; padding: 12px 14px; border-radius: var(--sbm-radius-md); background: var(--sbm-navy); color: #fff; box-shadow: inset 4px 0 0 var(--sbm-gold); }
+.sbm-follow__kicker { display: flex; align-items: center; gap: 7px; font: 700 11px/1.2 var(--sbm-font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--sbm-gold); }
+.sbm-follow__row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 6px; }
+.sbm-follow__t { flex: 1 1 auto; min-width: 0; font: 700 18px/1.25 var(--sbm-font-ui); overflow-wrap: anywhere; }
+.sbm-follow .sbm-badge--key { background: rgba(255,255,255,0.14); color: #fff; }
+.sbm-follow__open { min-height: 34px; padding: 0 14px; font-size: 13px; }
+
 /* ---- Layers: whose drawings you see ---------------------------------- */
 .lay-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: var(--sbm-radius-md); border: 1px solid var(--sbm-line); background: var(--sbm-card); }
 .lay-row--me { border-color: var(--sbm-gold); background: linear-gradient(var(--sbm-gold-soft), var(--sbm-gold-soft)), var(--sbm-card); }
@@ -106357,9 +106448,9 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
    150px of nothing between verses. Here only -- Page view and print keep
    theirs. A blank line straight after a heading or another blank line
    keeps a sliver of height, so a remark drawn on it still has a box. */
-#sbmRoot #sbmLyrics .wo-lyrics-empty-line { height: 0.6em; }
-#sbmRoot #sbmLyrics .wo-lyrics-section-header + .wo-lyrics-empty-line,
-#sbmRoot #sbmLyrics .wo-lyrics-empty-line + .wo-lyrics-empty-line { height: 0.15em; }
+#sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics) .wo-lyrics-empty-line { height: 0.6em; }
+#sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics) .wo-lyrics-section-header + .wo-lyrics-empty-line,
+#sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics) .wo-lyrics-empty-line + .wo-lyrics-empty-line { height: 0.15em; }
 
 /* ==================== THE PHONE: SMALLER CONTROLS, THE SONG FIRST ====================
    The controls were sized for a thumb and took the whole first screen,
@@ -106420,10 +106511,10 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-sec-edit, #sbmRoot:not(.sbm--wide) .sbm-sec-mic { width: 26px; height: 26px; font-size: 10.5px; }
 
 /* ---- The song itself: forward, and wider ---- */
-#sbmRoot:not(.sbm--wide) .sbm-card:has(> .sbm-score), #sbmRoot:not(.sbm--wide) .sbm-card:has(> #sbmLyrics) {
+#sbmRoot:not(.sbm--wide) .sbm-card:has(> .sbm-score), #sbmRoot:not(.sbm--wide) .sbm-card:has(> #sbmLyrics, > .sbm-lyrics) {
   padding: 12px 8px 8px; box-shadow: var(--sbm-shadow); border-top: 3px solid var(--sbm-gold);
 }
-#sbmRoot:not(.sbm--wide) .sbm-card:has(> .sbm-score) > .sbm-label, #sbmRoot:not(.sbm--wide) .sbm-card:has(> #sbmLyrics) > .sbm-label { padding: 0 4px; color: var(--sbm-navy); }
+#sbmRoot:not(.sbm--wide) .sbm-card:has(> .sbm-score) > .sbm-label, #sbmRoot:not(.sbm--wide) .sbm-card:has(> #sbmLyrics, > .sbm-lyrics) > .sbm-label { padding: 0 4px; color: var(--sbm-navy); }
 /* the margin numbers keep their column, narrower; the lines start near the card's edge */
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score { padding-left: 14px; font-size: calc(18px * var(--sbm-lyrics-scale)); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-no { left: -14px; width: 11px; }
