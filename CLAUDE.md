@@ -56,6 +56,7 @@ The ones worth knowing; there are around 29 in all.
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
+| `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
 lyrics and slides with nothing on them.
@@ -123,7 +124,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      the formatting keys over the keyboard. Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
      from Word: headings become sections, the words under them liturgy.
-     Edits the order's data directly; see gotchas 34-37, 39-41 and 45.
+     **Service liturgies** (ribbon, or More / Add on a phone) save the whole
+     liturgy for its occasion of the church year and a year, and a later
+     year's order uses it whole, then saves over it or keeps a copy
+     (gotcha 51). Edits the order's data directly; see gotchas 34-37,
+     39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
      is showing and closes back to it. It also has the order's **inbox**
@@ -1246,6 +1251,28 @@ the anon key -- verify as `postgres`, not as the app.
     (`_sbmLayersOk`, probed with the marks): till then every drawing is
     everybody's and there is no Layers chip.
     `tools/songbook-layers-harness.js` checks the rules.
+
+51. **A service liturgy is a whole liturgy, used whole.** The builder saves
+    an order's sections, its non-song items (liturgy, readings, text), its
+    songs (by library id, section, key and notes) and its service notes in
+    `service_liturgies`, against an occasion -- the Liturgy page's
+    `OCCASIONS`, through `LiturgyModule.getOccasions()` -- and a year. The
+    occasion is guessed from the roster's liturgical day
+    (`_svlOccasionFor`: "Day of Pentecost" is Pentecost, "5th Sunday after
+    Pentecost" an ordinary Sunday). Using one REPLACES the order's sections
+    and non-song items in one `_lbdChange`, each item given an id of THIS
+    order (`_lbdPfx() + 'svl_'`); its songs come only when asked (added,
+    never replacing the order's), and its readings only when asked --
+    otherwise this date's come from the roster through `_lbdFillReadings`,
+    folded into the SAME undo step, and the toast with its Undo waits for
+    them, or one Undo would take back only the readings. A liturgy is used
+    only by an order of the type it was made for: a section's place in the
+    type's template (`wo-section-<n>`) is what gives it its reading slots.
+    The order notes where its liturgy came from
+    (`template.serviceLiturgy`, in the builder's undo snapshot too), which
+    is what offers "Save over" beside "Save as a new copy"; both read the
+    row back before they report it. Until the migration is run the menu
+    says so and nothing is saved.
 
 ## Quick Commands for Claude Code
 
