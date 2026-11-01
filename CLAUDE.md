@@ -50,7 +50,7 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3, up to 30), each named in `display_style.recInstrumentNames` (by slot: Piano, Guitar...). Written by TWO recorders -- see gotcha 21 |
 | `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard. `owner`, `owner_name`, `part`, `shared` (`migrations/2026-11-01_song_marks_layers.sql`) say whose it is and whether others see it; see gotcha 50 |
 | `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. `made_from = 'library'` marks an EARLIER MAIN VERSION: the library song as it was before it was replaced, restorable. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
@@ -161,7 +161,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Drawings are each drawer's own until shared; Layers says whose you see
      (gotcha 50). Every line of the choir score records on its own: at its
      end a takes badge and a microphone, the badge listing that line's takes
-     to play or delete, with an audio file to add (gotcha 52).
+     to play or delete, with an audio file to add (gotcha 52). Between the
+     sections run the band's moments -- an Intro, the way into each section,
+     an Ending -- each recorded one instrument at a time, by name, as many
+     as the song needs (gotcha 53).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1342,6 +1345,36 @@ the anon key -- verify as `postgres`, not as the app.
     elsewhere (the confirm is not elsewhere). A phone carries chords inside
     the words (`.vl-w__c`), so the list quotes a copy without them. The
     "Line mics" switch that once hid the microphones is gone.
+
+53. **The band's moments are section takes with names of their own.** The
+    intro, the way into each section and the ending are strips in the song
+    in front (`_sbmInstStrips`): between the sections of its score, or -- a
+    song shown as lyrics -- between the section headers of `#sbmLyrics`
+    (the reading view's `.wo-lyrics-section-header`; `.wo-lyrics-section-label`
+    is the editor's). `_sbmStampAnchors` passes over `.sbm-inst`, because the
+    drawn remarks' `l:<i>` anchors count the lyrics' block children; a strip
+    counted as a line would move every remark under it. Each moment is a
+    `song_recordings.section` value, so no migration: "Intro (instruments)",
+    "Into Verse 2 (instruments)" (`#2` on a section's second time, shown "2nd
+    time"), "Ending (instruments)" (`_sbmInstKey`, `_sbmIsInstKey`,
+    `_sbmInstLabel`); matched lower-case, so the score's "Verse 2" and the
+    lyrics' "VERSE 2" share their takes. A strip is the line's two boxes: a
+    badge (`data-rec-sec`) opening that moment's list in `lhcVoiceRec`
+    (`openList(..., section)`, its takes from the drafts store, counted by
+    `paintSecBadges`, which `paintDrafts` calls), and a microphone
+    (`.sbm-sec-mic.sbm-inst__mic`, so `_setSecBtn` shows STOP on it) that asks
+    which instrument first (`_sbmInstPick`) and then records into that slot
+    (`toggleSection`), or, from the list, gives it a file (`pickFile(root,
+    null, { section, part, name })`). Instruments go by name: "A new
+    instrument" takes the first slot nobody has named or recorded on, else
+    one more, up to 30 (`_sbRecInstrumentAdd`); the pen renames one
+    (`_sbRecInstrumentRename`); both write `display_style` whole through
+    `_sbRecDsWrite`. Names show wherever a slot is labelled (`_sbRecCatsFor`,
+    so Practice Tracks too), and a take of a moment is placed as the moment
+    ("Intro"), not as "(whole section)". The lyrics card binds a recorder of
+    its own; in the Both view only the score has strips. A medley's follow
+    cards are another song's, so neither strips nor the section badges' pen,
+    microphone and takes are drawn on them (`:not(.sbm-score--follow)`).
 
 ## Quick Commands for Claude Code
 

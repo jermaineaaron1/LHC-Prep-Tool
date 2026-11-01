@@ -389,15 +389,41 @@ console.log('\nThe wiring');
   check('the badge counts the line\'s takes, and a list open on the line is painted with it',
     has(/if \(cnt\) cnt\.textContent = String\(takes\.length\);/) && has(/if \(R\._list && R\._list\.lineId === String\(lineId\)\) R\.paintList\(\);/));
   check('the badge opens the list; a take in it plays, or is deleted through the confirm',
-    has(/else if \(act === 'list'\) R\.openList\(root, btn\.getAttribute\('data-rec-line'\), btn\);/) &&
+    has(/else if \(act === 'list'\) R\.openList\(root, btn\.getAttribute\('data-rec-line'\), btn, btn\.getAttribute\('data-rec-sec'\)\);/) &&
     has(/else if \(act === 'play'\) R\.play\(L\.root, b\.getAttribute\('data-rec-id'\), b\.getAttribute\('data-rec-path'\)\);/) &&
     has(/else if \(act === 'del'\) R\.del\(L\.root, b\.getAttribute\('data-rec-id'\), b\.getAttribute\('data-rec-path'\)\);/) &&
-    has(/else if \(act === 'import'\) R\.pickFile\(L\.root, L\.lineId\);/));
+    has(/else R\.pickFile\(L\.root, L\.lineId\);/));
   check('...and it follows a redraw, closes when its line has gone, and with the view',
     has(/if \(R\._list\) setTimeout\(function\(\) \{ R\.paintList\(\); \}, 0\);/) && has(/if \(!a\) \{ R\.closeList\(\); return; \}/) &&
     has(/stopPlayback: function\(root\) \{\r?\n\s*var R = window\.lhcVoiceRec;\r?\n\s*R\.closeList\(\);/));
   check('...stays open while its delete is confirmed, and leaves Escape to the confirm',
     has(/e\.target\.closest\('#customConfirmModal'\)/) && has(/if \(cm && cm\.classList\.contains\('show'\)\) return;/));
+  // The band's moments: an intro, the way into each section, an ending,
+  // each recorded one instrument at a time, as many as the song names.
+  check('an instrument moment is a section take under a name of its own: Intro, Into <section> (#2 the second time), Ending',
+    has(/if \(kind === 'intro'\) return 'Intro' \+ _SBM_INST_TAIL;/) && has(/return 'Into ' \+ String\(name \|\| ''\)\.replace\(\/\\s\+\/g, ' '\)\.trim\(\) \+ \(run > 1 \? ' #' \+ run : ''\) \+ _SBM_INST_TAIL;/) &&
+    has(/var _SBM_INST_TAIL = ' \(instruments\)';/));
+  check('...drawn into the song in front: its score, or its lyrics when there is no score; never a medley follow card',
+    has(/_sbmInstStrips\(root, song, showScore, hasChoir\);\r?\n\s*_sbmPaintSectionTakes\(song\);/) &&
+    has(/var page = hasChoir && showScore \? root\.querySelector\('#sbChoirPage-' \+ CSS\.escape\(song\.id\)\) : null;/) &&
+    (SRC.match(/root\.querySelectorAll\('\.sbm-score:not\(\.sbm-score--follow\) \.vl-section'\)/g) || []).length === 2 && !has(/root\.querySelectorAll\('\.sbm-score \.vl-section'\)/));
+  check('...and the drawn remarks\' count of lyric lines passes over the strips',
+    has(/forEach\(function\(el\) \{ if \(el\.classList\.contains\('sbm-inst'\)\) return; if \(!el\.hasAttribute\('data-anchor'\)\) el\.setAttribute\('data-anchor', 'l:' \+ i\); i\+\+; \}\);/));
+  check('each strip has the two boxes: its badge lists that moment\'s takes, its microphone asks which instrument',
+    has(/'<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-sec="' \+ escapeHtml\(key\) \+ '"/) &&
+    has(/'<button type="button" class="sbm-sec-mic sbm-inst__mic' \+ \(live \? ' is-recording' : ''\) \+ '" data-section="' \+ escapeHtml\(key\) \+ '" onclick="WO\.sbmInstRecord\(this\)" '/) &&
+    has(/if \(R\._rec && R\._rec\.state !== 'inactive'\) \{ R\.stop\(\); return; \}\r?\n\s*var key = btn\.getAttribute\('data-section'\); if \(!key\) return;\r?\n\s*_sbmInstPick\(btn, key, 'record'\);/));
+  check('...the chosen instrument records into its own slot, or gives a file to one',
+    has(/if \(mode === 'import'\) R\.pickFile\(r, null, \{ section: key, part: slot, name: label \}\);\r?\n\s*else R\.toggleSection\(r, key, slot, label\);/) &&
+    has(/R\._save\(root, songId, sec \? null : lineId, who\.part, file, secs, file\.name, who\.name, sec \? sec\.section : null\);/));
+  check('...and the moment\'s list holds its takes from every instrument, each named by its instrument',
+    has(/var takes = \(sec \? R\._draftsFor\(sid\)\.filter\(function\(d\) \{ return d\.section && R\._secKey\(d\.section\) === R\._secKey\(sec\); \}\)/) &&
+    has(/var inst = sec && R\.slotLabel \? R\.slotLabel\(sid, R\._slotOf\(t\.storage_path\)\) : '';/) && has(/R\.paintSecBadges\(root\);/));
+  check('instruments go by name, as many as thirty to a song; a new name takes a slot nobody has named or used',
+    has(/var _SB_REC_INSTRUMENTS = 3, _SB_REC_INSTRUMENTS_MAX = 30;/) && has(/out\.push\(\[_sbRecInstrumentSlot\(i\), _sbRecInstrumentName\(base, i\)\]\);/) &&
+    has(/if \(!names\[sj\] && !used\[sj\]\) slot = sj;/) && has(/ds\.recInstrumentNames\[slot\] = name;/) && !has(/Math\.min\(12, /));
+  check('a take of an instrument moment is placed as the moment, not as a whole section',
+    has(/if \(rec\.section\) return _sbmIsInstKey\(rec\.section\) \? _sbmInstLabel\(rec\.section\) : String\(rec\.section\) \+ ' \(whole section\)';/));
   check('the list quotes the line\'s words without the chords a phone carries in them',
     has(/wc\.querySelectorAll\('\.vl-w__c'\), function\(c\) \{ c\.parentNode\.removeChild\(c\); \}\);/));
 }

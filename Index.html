@@ -15345,6 +15345,7 @@ window.lhcVoiceRec = {
 
   paintDrafts: function(root) {
     var R = window.lhcVoiceRec;
+    R.paintSecBadges(root);
     var box = root && root.querySelector('[data-rec-drafts]');
     if (!box) return;
     var songId = R._songOf(root);
@@ -15420,17 +15421,20 @@ window.lhcVoiceRec = {
   // and a new root: both are found again by the line's id, and the list
   // closes when the line is no longer on the page.
   _list: null,
-  openList: function(root, lineId, anchor) {
+  openList: function(root, lineId, anchor, section) {
     var R = window.lhcVoiceRec;
-    var again = R._list && R._list.lineId === String(lineId);
+    // A line's takes, or -- given a section -- the takes of one instrument
+    // moment: the intro, the way into a section, the ending.
+    var key = section ? 's:' + R._secKey(section) : 'l:' + String(lineId);
+    var again = R._list && R._list.key === key;
     R.closeList();
     if (again) return;   // the badge tapped again closes it
     var el = document.createElement('div');
     el.className = 'vl-takes-pop';
     el.setAttribute('role', 'dialog');
-    el.setAttribute('aria-label', 'Takes of this line');
+    el.setAttribute('aria-label', section ? 'Instrument takes' : 'Takes of this line');
     document.body.appendChild(el);
-    R._list = { root: root, lineId: String(lineId), el: el, anchor: anchor };
+    R._list = { root: root, lineId: section ? null : String(lineId), section: section || null, key: key, el: el, anchor: anchor };
     el.addEventListener('click', function(e) {
       var b = e.target.closest ? e.target.closest('[data-pop-act]') : null;
       if (!b || !R._list) return;
@@ -15440,13 +15444,19 @@ window.lhcVoiceRec = {
       if (act === 'close') R.closeList();
       else if (act === 'play') R.play(L.root, b.getAttribute('data-rec-id'), b.getAttribute('data-rec-path'));
       else if (act === 'del') R.del(L.root, b.getAttribute('data-rec-id'), b.getAttribute('data-rec-path'));
-      else if (act === 'import') R.pickFile(L.root, L.lineId);
+      else if (act === 'import') {
+        // An instrument moment asks which instrument the file is first.
+        if (L.section) { if (R.onSecImport) R.onSecImport(L.root, L.section, R._listAnchor()); }
+        else R.pickFile(L.root, L.lineId);
+      }
     });
     R._listAway = function(e) {
       var L = R._list;
       if (!L || L.el.contains(e.target)) return;
       // The confirm a delete asks is not "somewhere else".
-      if (e.target.closest && (e.target.closest('.vl-rec-list[data-rec-line="' + L.lineId + '"]') || e.target.closest('#customConfirmModal'))) return;
+      var own = e.target.closest ? e.target.closest('.vl-rec-list') : null;
+      if (own && R._badgeKey(own) === L.key) return;
+      if (e.target.closest && e.target.closest('#customConfirmModal')) return;
       R.closeList();
     };
     R._listKey = function(e) {
@@ -15473,13 +15483,43 @@ window.lhcVoiceRec = {
     window.removeEventListener('resize', R._listMove);
     if (L.el.parentNode) L.el.parentNode.removeChild(L.el);
   },
+  _secKey: function(x) { return String(x || '').trim().toLowerCase(); },
+  // Which list a badge opens: a line's, or an instrument moment's.
+  _badgeKey: function(b) {
+    var R = window.lhcVoiceRec, sec = b.getAttribute('data-rec-sec');
+    return sec != null ? 's:' + R._secKey(sec) : 'l:' + b.getAttribute('data-rec-line');
+  },
+  // Set by the songbook: an instrument's name for its slot ("Piano" for
+  // instrument-2), and the instrument to ask for before a file is added to
+  // an instrument moment.
+  slotLabel: null,
+  onSecImport: null,
+  // An instrument moment's badge counts every take of that moment.
+  paintSecBadges: function(root) {
+    var R = window.lhcVoiceRec;
+    if (!root || !root.querySelectorAll) return;
+    var drafts = R._draftsFor(R._songOf(root));
+    Array.prototype.forEach.call(root.querySelectorAll('.vl-rec-list[data-rec-sec]'), function(b) {
+      var k = R._secKey(b.getAttribute('data-rec-sec'));
+      var n = drafts.filter(function(d) { return d.section && R._secKey(d.section) === k; }).length;
+      var c = b.querySelector('.vl-rec-n');
+      if (c) c.textContent = String(n);
+      b.classList.toggle('has-takes', n > 0);
+      var tip = n ? n + ' take' + (n === 1 ? '' : 's') + ' here' : 'Nothing recorded here yet';
+      b.title = tip;
+      b.setAttribute('aria-label', tip);
+    });
+    if (R._list && R._list.section) R.paintList();
+  },
   // The badge as the page has it now, and the recorder root it is under.
   _listAnchor: function() {
     var R = window.lhcVoiceRec, L = R._list;
     if (!L) return null;
     var a = L.anchor;
     if (!a || !a.isConnected) {
-      a = document.querySelector('.vl-rec-list[data-rec-line="' + L.lineId + '"]');
+      a = null;
+      var all = document.querySelectorAll('.vl-rec-list');
+      for (var i = 0; i < all.length && !a; i++) if (R._badgeKey(all[i]) === L.key) a = all[i];
       L.anchor = a;
     }
     if (!a) return null;
@@ -15519,24 +15559,31 @@ window.lhcVoiceRec = {
     if (wc) Array.prototype.forEach.call(wc.querySelectorAll('.vl-w__c'), function(c) { c.parentNode.removeChild(c); });
     var words = wc ? String(wc.textContent || '').replace(/\s+/g, ' ').trim() : '';
     // Newest first: the one just sung is the one anybody wants to hear.
-    var takes = R._takesFor(R._songOf(L.root), L.lineId).slice().reverse();
+    var sid = R._songOf(L.root), sec = L.section;
+    var takes = (sec ? R._draftsFor(sid).filter(function(d) { return d.section && R._secKey(d.section) === R._secKey(sec); })
+                     : R._takesFor(sid, L.lineId)).slice().reverse();
+    var place = sec ? (a.getAttribute('data-rec-label') || sec) : '';
     L.el.innerHTML =
       '<div class="vl-pop-head"><div class="vl-pop-head__t">' +
-        '<div class="vl-pop-title">' + (takes.length ? takes.length + ' take' + (takes.length === 1 ? '' : 's') + ' of this line' : 'Takes of this line') + '</div>' +
+        '<div class="vl-pop-title">' + (sec ? esc(place) + ' · ' + (takes.length ? takes.length + ' instrument take' + (takes.length === 1 ? '' : 's') : 'instruments')
+          : takes.length ? takes.length + ' take' + (takes.length === 1 ? '' : 's') + ' of this line' : 'Takes of this line') + '</div>' +
         (words ? '<div class="vl-pop-words">“' + esc(words) + '”</div>' : '') + '</div>' +
         '<button type="button" class="vl-pop-x" data-pop-act="close" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>' +
       '<div class="vl-pop-list">' +
         (takes.length ? takes.map(function(t) {
           var on = R._playing === t.id;
           var name = esc(t.name || 'Take');
+          // Which instrument, by its name now: one renamed since is shown so.
+          var inst = sec && R.slotLabel ? R.slotLabel(sid, R._slotOf(t.storage_path)) : '';
           return '<div class="vl-pop-take' + (on ? ' is-playing' : '') + '">' +
             '<button type="button" class="vl-pop-play" data-pop-act="play" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" aria-label="' + (on ? 'Stop ' : 'Play ') + name + '">' +
               '<i class="fa-solid fa-' + (on ? 'stop' : 'play') + '" aria-hidden="true"></i></button>' +
             '<div class="vl-pop-txt"><div class="vl-pop-name">' + name + '</div>' +
-              '<div class="vl-pop-sub">' + esc(R._dur(t.duration_sec)) + (t.created_at ? ' · ' + esc(R._when(t.created_at)) : '') + '</div></div>' +
+              '<div class="vl-pop-sub">' + (inst ? esc(inst) + ' · ' : '') + esc(R._dur(t.duration_sec)) + (t.created_at ? ' · ' + esc(R._when(t.created_at)) : '') + '</div></div>' +
             '<button type="button" class="vl-pop-del" data-pop-act="del" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" title="Delete ' + name + '" aria-label="Delete ' + name + '">' +
               '<i class="fa-solid fa-trash-can" aria-hidden="true"></i></button></div>';
-        }).join('') : '<div class="vl-pop-none">No takes of this line yet. Record one with the microphone beside its badge.</div>') +
+        }).join('') : '<div class="vl-pop-none">' + (sec ? 'Nothing recorded here yet. Record it with the microphone beside its badge: each instrument on its own, as many as the song needs.'
+                                                        : 'No takes of this line yet. Record one with the microphone beside its badge.') + '</div>') +
       '</div>' +
       '<div class="vl-pop-foot"><button type="button" class="vl-pop-add" data-pop-act="import"><i class="fa-solid fa-file-audio" aria-hidden="true"></i>Add an audio file</button></div>';
     R._placeList();
@@ -15561,7 +15608,7 @@ window.lhcVoiceRec = {
       e.stopPropagation();
       var act = btn.getAttribute('data-rec-act');
       if (act === 'toggle') R.toggle(root, btn.getAttribute('data-rec-line'));
-      else if (act === 'list') R.openList(root, btn.getAttribute('data-rec-line'), btn);
+      else if (act === 'list') R.openList(root, btn.getAttribute('data-rec-line'), btn, btn.getAttribute('data-rec-sec'));
       else if (act === 'song') R.toggle(root, null);
       else if (act === 'import') R.pickFile(root, btn.getAttribute('data-rec-line'));
       else if (act === 'import-song') R.pickFile(root, null);
@@ -15638,7 +15685,7 @@ window.lhcVoiceRec = {
     btns.forEach(function(btn) {
       btn.classList.toggle('is-recording', !!on);
       btn.innerHTML = on ? '<i class="fa-solid fa-stop"></i>' : '<i class="fa-solid fa-microphone"></i>';
-      btn.title = on ? 'Stop recording' : 'Record this section';
+      btn.title = on ? 'Stop recording' : btn.classList.contains('sbm-inst__mic') ? 'Record an instrument here' : 'Record this section';
     });
   },
   _slotOf: function(path) { var m = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(path || ''); return m ? m[1] : 'general'; },
@@ -15716,7 +15763,7 @@ window.lhcVoiceRec = {
   // Ask for a file, then take it. The input is made and dropped here so
   // there is no hidden element to go stale when the view re-renders --
   // and this view re-renders on every edit.
-  pickFile: function(root, lineId) {
+  pickFile: function(root, lineId, sec) {
     var R = window.lhcVoiceRec;
     var inp = document.createElement('input');
     inp.type = 'file';
@@ -15726,7 +15773,7 @@ window.lhcVoiceRec = {
     inp.addEventListener('change', function() {
       var f = inp.files && inp.files[0];
       document.body.removeChild(inp);
-      if (f) R.importFile(root, lineId, f);
+      if (f) R.importFile(root, lineId, f, sec);
     });
     inp.click();
   },
@@ -15735,7 +15782,8 @@ window.lhcVoiceRec = {
   // small enough that a whole rehearsal video does not go up by mistake.
   _MAX_IMPORT: 25 * 1024 * 1024,
 
-  importFile: function(root, lineId, file) {
+  // sec, for an instrument moment: { section, part (the slot), name }.
+  importFile: function(root, lineId, file, sec) {
     var R = window.lhcVoiceRec;
     var songId = R._songOf(root);
     if (!songId) { showToast('Nothing to import against', 'error'); return; }
@@ -15748,10 +15796,10 @@ window.lhcVoiceRec = {
       showToast('That file is larger than 25MB', 'error');
       return;
     }
-    var who = R._partOf(root, lineId);
+    var who = sec ? { part: sec.part || 'general', name: sec.name || '' } : R._partOf(root, lineId);
     R._durationOf(file).then(function(secs) {
       // Straight into the ordinary save. An import is a take.
-      R._save(root, songId, lineId, who.part, file, secs, file.name, who.name);
+      R._save(root, songId, sec ? null : lineId, who.part, file, secs, file.name, who.name, sec ? sec.section : null);
     });
   },
 
@@ -15814,7 +15862,7 @@ window.lhcVoiceRec = {
         R._drafts[songId].push(row);
         R.paintDrafts(root);
         R._changed(songId);
-        showToast('Take saved \u2014 ' + section, 'success');
+        showToast('Take saved \u2014 ' + String(section).replace(/ \(instruments\)$/, ''), 'success');
         return;
       }
       var k = String(lineId);
@@ -49296,11 +49344,225 @@ var WO = (function() {
     var label = cur ? V.partLabel(cur) : 'All';
     window.lhcVoiceRec.toggleSection(root, name, slug, label);
   }
+  // ==================== INSTRUMENTS: INTRO, THE WAY INTO EACH SECTION, ENDING ====================
+  //
+  // What the band plays where nobody sings, so the musicians can hear how it
+  // goes: before the singing starts, leading into each section, after the
+  // last line. Each moment is a strip between the sections with the line's
+  // two boxes -- its takes, then the microphone -- and each take is one
+  // instrument, as many as the song names. They are section takes
+  // (song_recordings.section) under names of their own, so no migration:
+  // "Intro (instruments)", "Into Verse 2 (instruments)" ("#2" for a
+  // section's second time), "Ending (instruments)"; the slot in the file's
+  // name says which instrument (gotcha 53).
+  var _SBM_INST_TAIL = ' (instruments)';
+  function _sbmInstKey(kind, name, run) {
+    if (kind === 'intro') return 'Intro' + _SBM_INST_TAIL;
+    if (kind === 'ending') return 'Ending' + _SBM_INST_TAIL;
+    return 'Into ' + String(name || '').replace(/\s+/g, ' ').trim() + (run > 1 ? ' #' + run : '') + _SBM_INST_TAIL;
+  }
+  function _sbmIsInstKey(sec) { return / \(instruments\)$/.test(String(sec || '')); }
+  function _sbmInstLabel(sec) {
+    var t = String(sec || '').replace(/ \(instruments\)$/, '');
+    var m = /^(.*) #(\d+)$/.exec(t);
+    if (!m) return t;
+    var n = parseInt(m[2], 10);
+    return m[1] + ' (' + (n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th') + ' time)';
+  }
+  function _sbmInstStripHtml(kind, key, label, sub, song) {
+    var VR = window.lhcVoiceRec;
+    var live = !!(VR && VR._rec && VR._rec.state !== 'inactive' && VR._recSec && _sbmSecNorm(VR._recSec) === _sbmSecNorm(key) &&
+                  song && String(VR._recSong) === String(_sbBaseSongId(song)));
+    return '<div class="sbm-inst sbm-inst--' + kind + '">' +
+      '<i class="fa-solid fa-guitar sbm-inst__ico" aria-hidden="true"></i>' +
+      '<span class="sbm-inst__txt"><span class="sbm-inst__t">' + escapeHtml(label) + '</span><span class="sbm-inst__s">' + escapeHtml(sub) + '</span></span>' +
+      '<span class="sbm-inst__rec">' +
+        '<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-sec="' + escapeHtml(key) + '" data-rec-label="' + escapeHtml(label) + '" ' +
+          'title="Nothing recorded here yet" aria-label="Nothing recorded here yet" aria-haspopup="dialog">' +
+          '<i class="fa-solid fa-list-ul" aria-hidden="true"></i><span class="vl-rec-n">0</span></button>' +
+        '<button type="button" class="sbm-sec-mic sbm-inst__mic' + (live ? ' is-recording' : '') + '" data-section="' + escapeHtml(key) + '" onclick="WO.sbmInstRecord(this)" ' +
+          'title="' + (live ? 'Stop recording' : 'Record an instrument here') + '" aria-label="Record an instrument: ' + escapeHtml(label) + '">' +
+          '<i class="fa-solid fa-' + (live ? 'stop' : 'microphone') + '"></i></button>' +
+      '</span></div>';
+  }
+  // The strips, drawn into the song in front: between the sections of its
+  // score, or -- a song of words and chords -- between the sections of its
+  // lyrics, where the drawn remarks' line count passes over them.
+  function _sbmInstStrips(root, song, showScore, hasChoir) {
+    if (_sbRecSecOk !== true || !song || !root) return;
+    _sbmInstHooks();
+    var page = hasChoir && showScore ? root.querySelector('#sbChoirPage-' + CSS.escape(song.id)) : null;
+    var vsc = page && page.querySelector('.vl-score');
+    var ly = !showScore ? document.getElementById('sbmLyrics') : null;
+    var host = vsc || ly;
+    if (!host) return;
+    // A lyrics card's section heading: the reading view's header, the
+    // editor's label, or (formatted lyrics) a line that is only "[Name]".
+    var isHead = function(el) {
+      return el.classList.contains('wo-lyrics-section-header') || el.classList.contains('wo-lyrics-section-label') ||
+        !!el.querySelector('.wo-lyrics-section-label') || /^\s*\[[^\]\n]{1,40}\]\s*$/.test(el.textContent || '');
+    };
+    var marks = vsc ? Array.prototype.slice.call(vsc.querySelectorAll('.vl-section'))
+                    : Array.prototype.slice.call(ly.children).filter(isHead);
+    var strip = function(kind, key, label, sub) {
+      var t = document.createElement('div');
+      t.innerHTML = _sbmInstStripHtml(kind, key, label, sub, song);
+      return t.firstChild;
+    };
+    // Has anything been sung before this element?
+    var sungBefore = function(el) {
+      if (vsc) { var first = vsc.querySelector('.vl-sys'); return !!(first && (first.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)); }
+      for (var p = el.previousElementSibling; p; p = p.previousElementSibling) {
+        if (!p.classList.contains('sbm-inst') && String(p.textContent || '').trim()) return true;
+      }
+      return false;
+    };
+    var runs = {};
+    marks.forEach(function(el) {
+      var lbl = (vsc || el.classList.contains('wo-lyrics-section-header') || el.classList.contains('wo-lyrics-section-label')) ? el : (el.querySelector('.wo-lyrics-section-label') || el);
+      var name = (vsc ? el.getAttribute('data-section') : '') || String(lbl.textContent || '').replace(/[\[\]]/g, '').trim();
+      if (!name) return;
+      var nk = name.toLowerCase(), run = runs[nk] = (runs[nk] || 0) + 1;
+      if (!sungBefore(el)) return;   // the intro leads into the first
+      var key = _sbmInstKey('into', name, run);
+      el.parentNode.insertBefore(strip('into', key, _sbmInstLabel(key), 'Instruments, leading into it'), el);
+    });
+    host.insertBefore(strip('intro', _sbmInstKey('intro'), 'Intro', 'Instruments, before the singing starts'), host.firstChild);
+    host.appendChild(strip('ending', _sbmInstKey('ending'), 'Ending', 'Instruments, after the last line'));
+    // The lyrics have no recorder of their own; the score's is bound later
+    // in the render, with every other line's.
+    if (ly && window.lhcVoiceRec) {
+      var R = window.lhcVoiceRec, base = _sbBaseSongId(song);
+      R.bind(ly, base);
+      if (R.loaded(base)) R.paintAll(ly);
+      else R.load(base).then(function() { var live = document.getElementById('sbmLyrics'); if (live) { R.bind(live, base); R.paintAll(live); } });
+    }
+  }
+  function _sbmInstHooks() {
+    var R = window.lhcVoiceRec;
+    if (!R || R.slotLabel) return;
+    R.slotLabel = function(songId, slot) { return _sbRecIsInstrument(slot) ? _sbRecCatLabel(slot, songId) : ''; };
+    R.onSecImport = function(root, section, anchor) { _sbmInstPick(anchor, section, 'import'); };
+  }
+  // The recorder root an element is under, or the one holding this moment now.
+  function _sbmInstRoot(el, key) {
+    for (var n = el; n; n = n.parentNode) if (n.__vlRecSong) return n;
+    if (key) {
+      var mics = document.querySelectorAll('#sbmRoot .sbm-inst__mic');
+      for (var i = 0; i < mics.length; i++) if (_sbmSecNorm(mics[i].getAttribute('data-section')) === _sbmSecNorm(key)) return _sbmInstRoot(mics[i]);
+    }
+    return null;
+  }
+  // The strip's microphone: a take under way stops; otherwise, which instrument?
+  function sbmInstRecord(btn) {
+    var R = window.lhcVoiceRec; if (!R || !btn) return;
+    if (R._rec && R._rec.state !== 'inactive') { R.stop(); return; }
+    var key = btn.getAttribute('data-section'); if (!key) return;
+    _sbmInstPick(btn, key, 'record');
+  }
+  var _sbmIP = null;
+  function _sbmInstPickClose() {
+    if (!_sbmIP) return;
+    document.removeEventListener('pointerdown', _sbmIP.away, true);
+    document.removeEventListener('keydown', _sbmIP.key, true);
+    if (_sbmIP.el.parentNode) _sbmIP.el.parentNode.removeChild(_sbmIP.el);
+    _sbmIP = null;
+  }
+  // Which instrument: the song's, by name, each with how many takes it has
+  // at this moment, a pen to rename it, and a new one by name. Recording
+  // (or the file chooser) starts the moment one is chosen.
+  function _sbmInstPick(anchor, key, mode) {
+    var song = _sbmSong(), R = window.lhcVoiceRec;
+    if (!song || !R || !anchor) return;
+    var base = _sbBaseSongId(song), root = _sbmInstRoot(anchor, key);
+    if (!root) return;
+    _sbmInstPickClose();
+    R.closeList();
+    var here = R._draftsFor(base).filter(function(d) { return d.section && _sbmSecNorm(d.section) === _sbmSecNorm(key); });
+    var rows = '';
+    for (var i = 1; i <= _sbRecInstruments(base); i++) {
+      var slot = _sbRecInstrumentSlot(i), label = _sbRecInstrumentName(base, i);
+      var n = here.filter(function(d) { return _sbRecCatOf(d.storage_path) === slot; }).length;
+      rows += '<div class="sbm-ip-row"><button type="button" class="sbm-ip-pick" data-ip-slot="' + slot + '">' +
+        '<i class="fa-solid fa-guitar" aria-hidden="true"></i><span class="sbm-ip-name">' + escapeHtml(label) + '</span>' +
+        (n ? '<span class="sbm-ip-n">' + n + ' here</span>' : '') + '</button>' +
+        '<button type="button" class="sbm-ip-ren" data-ip-ren="' + slot + '" title="Rename ' + escapeHtml(label) + '" aria-label="Rename ' + escapeHtml(label) + '">' +
+        '<i class="fa-solid fa-pen" aria-hidden="true"></i></button></div>';
+    }
+    var el = document.createElement('div');
+    el.className = 'vl-takes-pop sbm-ip';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', 'Which instrument');
+    el.innerHTML = '<div class="vl-pop-head"><div class="vl-pop-head__t">' +
+        '<div class="vl-pop-title">' + (mode === 'import' ? 'Add an audio file: which instrument?' : 'Record which instrument?') + '</div>' +
+        '<div class="vl-pop-words">' + escapeHtml(_sbmInstLabel(key)) + '</div></div>' +
+        '<button type="button" class="vl-pop-x" data-ip-close="1" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>' +
+      '<div class="vl-pop-list">' + rows + '</div>' +
+      '<div class="vl-pop-foot"><button type="button" class="vl-pop-add" data-ip-new="1"><i class="fa-solid fa-plus" aria-hidden="true"></i>A new instrument</button></div>';
+    document.body.appendChild(el);
+    var go = function(slot) {
+      _sbmInstPickClose();
+      // After a prompt the score may have been drawn again: the root is the one on the page now.
+      var r = (root && root.isConnected) ? root : _sbmInstRoot(null, key);
+      if (!r) return;
+      var label = _sbRecCatLabel(slot, base);
+      if (mode === 'import') R.pickFile(r, null, { section: key, part: slot, name: label });
+      else R.toggleSection(r, key, slot, label);
+    };
+    el.addEventListener('click', function(e) {
+      var b = e.target.closest ? e.target.closest('button') : null;
+      if (!b) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (b.hasAttribute('data-ip-close')) { _sbmInstPickClose(); return; }
+      if (b.hasAttribute('data-ip-slot')) { go(b.getAttribute('data-ip-slot')); return; }
+      if (b.hasAttribute('data-ip-ren')) {
+        var rs = b.getAttribute('data-ip-ren');
+        _sbmInstPickClose();
+        window.customPrompt('Rename instrument', 'What is this instrument called?', _sbRecCatLabel(rs, base)).then(function(nm) {
+          if (!nm || !_sbRecCleanName(nm)) return;
+          return _sbRecInstrumentRename(base, rs, nm).then(function() {
+            showToast('Renamed ' + _sbRecCleanName(nm), 'success');
+            var a = (anchor && anchor.isConnected) ? anchor : document.querySelector('#sbmRoot .sbm-inst__mic');
+            if (a) _sbmInstPick(a, key, mode);
+          });
+        }).catch(function(err) { showToast('Could not rename it: ' + ((err && err.message) || 'unknown error'), 'error'); });
+        return;
+      }
+      if (b.hasAttribute('data-ip-new')) {
+        _sbmInstPickClose();
+        window.customPrompt('A new instrument', 'What is it called? Piano, guitar, bass, drums…', '').then(function(nm) {
+          if (!nm || !_sbRecCleanName(nm)) return;
+          return _sbRecInstrumentAdd(base, nm).then(function(slot) { go(slot); });
+        }).catch(function(err) { showToast('Could not add the instrument: ' + ((err && err.message) || 'unknown error'), 'error'); });
+      }
+    });
+    var away = function(e) {
+      if (!_sbmIP || _sbmIP.el.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('#customPromptModal')) return;
+      _sbmInstPickClose();
+    };
+    var key2 = function(e) { if (e.key === 'Escape' && _sbmIP) { e.stopPropagation(); _sbmInstPickClose(); } };
+    _sbmIP = { el: el, away: away, key: key2 };
+    setTimeout(function() { if (_sbmIP && _sbmIP.el === el) document.addEventListener('pointerdown', away, true); }, 0);
+    document.addEventListener('keydown', key2, true);
+    // Under its microphone on a desk; a sheet from the bottom on a phone.
+    var sheet = window.innerWidth < 640;
+    el.classList.toggle('vl-takes-pop--sheet', sheet);
+    if (!sheet) {
+      var ar = anchor.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+      var x = Math.min(window.innerWidth - w - 8, Math.max(8, ar.right - w)), y = ar.bottom + 6;
+      if (y + h > window.innerHeight - 8) y = Math.max(8, ar.top - h - 6);
+      el.style.left = Math.round(x) + 'px';
+      el.style.top = Math.round(y) + 'px';
+    }
+  }
+
   // The takes a section has, as chips beside its badge.
   function _sbmPaintSectionTakes(song) {
     var root = document.getElementById('sbmRoot'); if (!root || !song) return;
     var recs = _sbmRecs[_sbBaseSongId(song)] || [];
-    root.querySelectorAll('.sbm-score .vl-section').forEach(function(el) {
+    root.querySelectorAll('.sbm-score:not(.sbm-score--follow) .vl-section').forEach(function(el) {
       var name = el.getAttribute('data-section') || '';
       // The chips sit in a row of their own UNDER the badge, and it wraps:
       // beside the badge, four of them measured 422px in a 319px score
@@ -49464,7 +49726,8 @@ var WO = (function() {
   function _sbmStampAnchors(card) {
     var ly = card.querySelector('.sbm-lyrics'); if (!ly) return;
     var i = 0;
-    Array.prototype.slice.call(ly.children).forEach(function(el) { if (!el.hasAttribute('data-anchor')) el.setAttribute('data-anchor', 'l:' + i); i++; });
+    // The instrument strips between the lines are not lines (gotcha 53).
+    Array.prototype.slice.call(ly.children).forEach(function(el) { if (el.classList.contains('sbm-inst')) return; if (!el.hasAttribute('data-anchor')) el.setAttribute('data-anchor', 'l:' + i); i++; });
   }
   function _sbmMarkBoxes(card) {
     var cr = card.getBoundingClientRect(), out = {};
@@ -52586,7 +52849,7 @@ var WO = (function() {
       return row.section ? row.section + ', ' + line : line;
     }
     if (rec.line_id != null) return 'one line';
-    if (rec.section) return String(rec.section) + ' (whole section)';
+    if (rec.section) return _sbmIsInstKey(rec.section) ? _sbmInstLabel(rec.section) : String(rec.section) + ' (whole section)';
     return '';
   }
   function _sbmTakeWords(rec, song) {
@@ -52945,7 +53208,7 @@ var WO = (function() {
     if (ly && typeof sbApplySectionBadges === 'function') sbApplySectionBadges(ly);
     // Each section of the score gets its own way into the pad.
     var secRuns = {};
-    root.querySelectorAll('.sbm-score .vl-section').forEach(function(el) {
+    root.querySelectorAll('.sbm-score:not(.sbm-score--follow) .vl-section').forEach(function(el) {
       var name = el.textContent.trim();
       var nk = name.toLowerCase(), run = secRuns[nk] = (secRuns[nk] || 0) + 1;
       var b = document.createElement('button');
@@ -52970,6 +53233,7 @@ var WO = (function() {
       }
     });
     if (_sbRecSecOk === null && !_sbRecSecProbe) _sbRecSectionSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
+    _sbmInstStrips(root, song, showScore, hasChoir);
     _sbmPaintSectionTakes(song);
     _sbmFitChordPairs();
     _sbmEvenRows();
@@ -58314,7 +58578,7 @@ var WO = (function() {
   // part; a take already filed under one keeps its label, which is what
   // _SB_REC_CATS is now for.
   var _SB_REC_CATS = { general: 'General', instrumental: 'Instrument 1', 'harmony-2nds': 'Harmony \u00b7 2nds', 'harmony-3rds': 'Harmony \u00b7 3rds', soprano: 'Soprano', alto: 'Alto', tenor: 'Tenor', bass: 'Bass', women: 'Women', men: 'Men' };
-  var _SB_REC_INSTRUMENTS = 3;
+  var _SB_REC_INSTRUMENTS = 3, _SB_REC_INSTRUMENTS_MAX = 30;
   function _sbRecInstrumentSlot(i) { return i === 1 ? 'instrumental' : 'instrument-' + i; }
   function _sbRecIsInstrument(slot) { return slot === 'instrumental' || /^instrument-\d+$/.test(String(slot || '')); }
   // How many instruments the song offers: songs.display_style.recInstruments,
@@ -58323,7 +58587,70 @@ var WO = (function() {
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     var ds = (lib && lib.display_style && typeof lib.display_style === 'object') ? lib.display_style : {};
     var n = parseInt(ds.recInstruments, 10);
-    return Math.min(12, Math.max(_SB_REC_INSTRUMENTS, isNaN(n) ? 0 : n));
+    return Math.min(_SB_REC_INSTRUMENTS_MAX, Math.max(_SB_REC_INSTRUMENTS, isNaN(n) ? 0 : n));
+  }
+  // What each instrument is called -- Piano, Guitar -- by its slot, kept in
+  // songs.display_style.recInstrumentNames. Unnamed, it is "Instrument 2".
+  function _sbRecInstrumentNames(base) {
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    var m = (lib && lib.display_style && typeof lib.display_style === 'object') ? lib.display_style.recInstrumentNames : null;
+    return (m && typeof m === 'object') ? m : {};
+  }
+  function _sbRecInstrumentName(base, i) {
+    var n = _sbRecInstrumentNames(base)[_sbRecInstrumentSlot(i)];
+    return (n && String(n).trim()) || 'Instrument ' + i;
+  }
+  // The slots this song already has takes in, from both stores.
+  function _sbRecSlotsUsed(base) {
+    var used = {}, R = window.lhcVoiceRec;
+    var mark = function(r) { if (r && r.storage_path) used[_sbRecCatOf(r.storage_path)] = true; };
+    (_sbmRecs[base] || []).forEach(mark);
+    if (R) {
+      (R._drafts[base] || []).forEach(mark);
+      Object.keys(R._takes[base] || {}).forEach(function(k) { (R._takes[base][k] || []).forEach(mark); });
+    }
+    return used;
+  }
+  function _sbRecDsWrite(base, change) {
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    if (!lib) return Promise.reject(new Error('the song is not loaded'));
+    // The whole JSON goes back, so it is the song's own with its keys changed.
+    var ds = Object.assign({}, (lib.display_style && typeof lib.display_style === 'object') ? lib.display_style : {});
+    var names = (ds.recInstrumentNames && typeof ds.recInstrumentNames === 'object') ? ds.recInstrumentNames : {};
+    ds.recInstrumentNames = Object.assign({}, names);
+    change(ds);
+    return SBQ_SONGS.updateDisplayStyle(base, ds).then(function() { lib.display_style = ds; if (typeof _sbmLiveSend === 'function') _sbmLiveSend(); });
+  }
+  function _sbRecCleanName(name) { return String(name || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
+  // A new instrument, by name. The same name twice is the same instrument;
+  // otherwise it takes the first slot nobody has named or recorded on, and
+  // past those, one more -- up to thirty.
+  function _sbRecInstrumentAdd(base, name) {
+    name = _sbRecCleanName(name);
+    if (!name) return Promise.reject(new Error('it needs a name'));
+    var count = _sbRecInstruments(base), names = _sbRecInstrumentNames(base);
+    for (var i = 1; i <= count; i++) {
+      if (String(names[_sbRecInstrumentSlot(i)] || '').trim().toLowerCase() === name.toLowerCase()) return Promise.resolve(_sbRecInstrumentSlot(i));
+    }
+    var used = _sbRecSlotsUsed(base), slot = null, n = count;
+    for (var j = 1; j <= count && !slot; j++) {
+      var sj = _sbRecInstrumentSlot(j);
+      if (!names[sj] && !used[sj]) slot = sj;
+    }
+    if (!slot) {
+      n = count + 1;
+      if (n > _SB_REC_INSTRUMENTS_MAX) return Promise.reject(new Error(_SB_REC_INSTRUMENTS_MAX + ' instruments is as many as a song can have'));
+      slot = _sbRecInstrumentSlot(n);
+    }
+    return _sbRecDsWrite(base, function(ds) {
+      ds.recInstruments = Math.max(n, parseInt(ds.recInstruments, 10) || 0);
+      ds.recInstrumentNames[slot] = name;
+    }).then(function() { return slot; });
+  }
+  function _sbRecInstrumentRename(base, slot, name) {
+    name = _sbRecCleanName(name);
+    if (!name) return Promise.reject(new Error('it needs a name'));
+    return _sbRecDsWrite(base, function(ds) { ds.recInstrumentNames[slot] = name; });
   }
   function _sbRecInstrumentsSave(base, n) {
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
@@ -58336,7 +58663,7 @@ var WO = (function() {
   function _sbRecCatsFor(base) {
     var out = [['general', 'General recording']];
     var count = _sbRecInstruments(base);
-    for (var i = 1; i <= count; i++) out.push([_sbRecInstrumentSlot(i), 'Instrument ' + i]);
+    for (var i = 1; i <= count; i++) out.push([_sbRecInstrumentSlot(i), _sbRecInstrumentName(base, i)]);
     var V = window.lhcVoiceLines;
     if (V && base) (V.lanes(_sbVoiceLines[base] || []) || []).forEach(function(q) {
       var slug = _sbmRecSlug(V.partKey(q));
@@ -58349,7 +58676,7 @@ var WO = (function() {
     var hit = _sbRecCatsFor(base || '').find(function(o) { return o[0] === cat; });
     if (hit) return hit[1];
     if (_SB_REC_CATS[cat]) return _SB_REC_CATS[cat];
-    var m = /^instrument-(\d+)$/.exec(cat); if (m) return 'Instrument ' + m[1];
+    var m = /^instrument-(\d+)$/.exec(cat); if (m) return _sbRecInstrumentName(base || '', parseInt(m[1], 10));
     return cat.replace(/-/g, ' ').replace(/^./, function(c) { return c.toUpperCase(); });
   }
   function _sbRecCatOf(storagePath) {
@@ -58377,7 +58704,7 @@ var WO = (function() {
     if (!sel || sel.value !== '__add') return;
     var base = _sbRecCurrentSongId, n = _sbRecInstruments(base) + 1;
     sel.value = 'general';
-    if (n > 12) { showToast('Twelve instruments is as many as a song can have', 'error'); return; }
+    if (n > _SB_REC_INSTRUMENTS_MAX) { showToast(_SB_REC_INSTRUMENTS_MAX + ' instruments is as many as a song can have', 'error'); return; }
     _sbRecInstrumentsSave(base, n).then(function() {
       _sbRecFillCategories(base);
       sel.value = _sbRecInstrumentSlot(n);
@@ -88370,7 +88697,7 @@ var WO = (function() {
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
-    sbmShare: sbmShare, sbmRedraw: sbmRedraw,
+    sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmInstRecord: sbmInstRecord,
     // Step 2: the inbox, adding a song, medleys
     openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
     sbmInboxAttachTo: sbmInboxAttachTo, sbmInboxRemove: sbmInboxRemove, sbmInboxPaste: sbmInboxPaste,
@@ -107417,6 +107744,32 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-score__ov, #sbmRoot:not(.sbm--wide) .sbm-chip--draw { min-height: 28px; padding: 0 10px; font-size: 11px; gap: 5px; }
 #sbmRoot:not(.sbm--wide) .sbm-score__ov i, #sbmRoot:not(.sbm--wide) .sbm-chip--draw i { font-size: 11px; }
 #sbmRoot:not(.sbm--wide) .sbm-sec-edit, #sbmRoot:not(.sbm--wide) .sbm-sec-mic { width: 26px; height: 26px; font-size: 10.5px; }
+/* ---- The band's moments: intro, the way into each section, ending ---- */
+.sbm-inst { display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 6px 8px 6px 12px; border: 1px dashed #c3cfdc; border-radius: 12px; background: #f6f8fc; font-family: var(--sbm-font-ui); white-space: normal; }
+.sbm-inst__ico { flex: 0 0 auto; color: #7c5cbf; font-size: 15px; }
+.sbm-inst__txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+.sbm-inst__t { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sbm-navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-inst__s { font-size: 11.5px; color: var(--sbm-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-inst__rec { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+.sbm-inst .vl-rec-list, #sbmRoot .sbm-inst .sbm-inst__mic {
+  display: inline-flex; align-items: center; justify-content: center; height: 34px; margin: 0; padding: 0;
+  border: 1px solid var(--sbm-line); border-radius: 9px; background: #fff; color: var(--sbm-navy); cursor: pointer;
+}
+.sbm-inst .vl-rec-list { min-width: 46px; gap: 6px; padding: 0 10px; color: var(--sbm-muted); font: 700 13px/1 var(--sbm-font-ui); }
+.sbm-inst .vl-rec-list i { font-size: 12px; }
+.sbm-inst .vl-rec-list.has-takes { background: #e6f7f4; border-color: #8fd5c9; color: #0f766e; }
+#sbmRoot .sbm-inst .sbm-inst__mic { width: 34px; font-size: 13px; animation: none; }
+#sbmRoot .sbm-inst .sbm-inst__mic.is-recording { background: #dc2626; border-color: #dc2626; color: #fff; animation: vlRecPulse 1.2s ease-in-out infinite; }
+#sbmRoot:not(.sbm--wide) .sbm-inst { padding: 5px 6px 5px 10px; gap: 8px; }
+#sbmRoot:not(.sbm--wide) .sbm-inst .vl-rec-list, #sbmRoot:not(.sbm--wide) .sbm-inst .sbm-inst__mic { height: 32px; }
+#sbmRoot:not(.sbm--wide) .sbm-inst .sbm-inst__mic { width: 32px; }
+.sbm-ip-row { display: flex; align-items: center; gap: 6px; }
+.sbm-ip-pick { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: #0b1930; font: 600 14px/1.2 'Poppins', sans-serif; text-align: left; cursor: pointer; }
+.sbm-ip-pick:hover { background: #f1f5f9; }
+.sbm-ip-pick i { color: #7c5cbf; }
+.sbm-ip-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-ip-n { flex: 0 0 auto; font-size: 11.5px; font-weight: 600; color: #0f766e; }
+.sbm-ip-ren { flex: 0 0 auto; width: 36px; height: 36px; border: 0; border-radius: 50%; background: #f1f5f9; color: #475569; font-size: 12px; cursor: pointer; }
 
 /* ---- The song itself: forward, and wider ---- */
 #sbmRoot:not(.sbm--wide) .sbm-card:has(> .sbm-score), #sbmRoot:not(.sbm--wide) .sbm-card:has(> #sbmLyrics, > .sbm-lyrics) {
