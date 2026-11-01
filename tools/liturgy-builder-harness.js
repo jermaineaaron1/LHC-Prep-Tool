@@ -606,8 +606,16 @@ console.log('\n[service liturgies]');
     has(/\? sup\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', from\.id\)\.select\(\) : sup\.from\('service_liturgies'\)\.insert\(row\)\.select\(\);/) &&
     has(/return sup\.from\('service_liturgies'\)\.select\('id'\)\.eq\('id', saved\.id\)/));
   check('the occasions are the Liturgy page\'s own', has(/getOccasions: function\(\) \{ return OCCASIONS\.map\(/));
-  check('it is offered in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('menu-svl', 'fa-solid fa-book-bookmark', 'Service liturgies'/) &&
-    has(/\['svl', 'fa-solid fa-book-bookmark', 'Service liturgies'\]/) && has(/label: 'Service liturgies: use one, or save this'/));
+  check('it is offered as Save / Load in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('menu-svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'/) &&
+    has(/\['svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'\]/) && has(/label: 'Save \/ Load: this liturgy, or one from another year'/));
+  check('Add to Order starts closed, and an old saved "open" does not count',
+    has(/var _lbdLibOn = false;/) && has(/if \(typeof p\.lib === 'boolean' && p\.libV === 2\) _lbdLibOn = p\.lib;/));
+  check('Liturgy holds what the Liturgies menu did, and that menu is gone',
+    has(/case 'ins-liturgy': _lbdOpenLitMenu\(btn\); break;/) && !has(/b\('menu-liturgies'/));
+  check('Shift+Enter: a new slide is not tidied away while the cursor is in it',
+    has(/if \(_lbdIsActive\(\) && !_lbdFocusIn\(c\.item\)\) _lbdDropEmptySlides\(c\.item\);/));
+  check('and in a text slide the words after the cursor go on to a new one',
+    has(/if \(e\.key === 'Enter' && f === 'content-text' && \(e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey\)\) \{/) && has(/function _lbdBreakText\(el\) \{/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',

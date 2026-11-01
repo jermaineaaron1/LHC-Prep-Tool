@@ -49164,7 +49164,8 @@ var WO = (function() {
   // layers have no owner and stay everybody's ("Earlier drawings"). Until
   // the columns exist every drawing is everybody's, as it always was.
   var _sbmLayersOk = null;
-  var _SBM_PARTS = [['leader', 'Leader'], ['vocals', 'Singer'], ['guitar', 'Guitar'], ['bass', 'Bass'], ['keys', 'Piano / Keys'], ['drums', 'Drums'], ['other', 'Other']];
+  // The parts of the band a drawing can be meant for (song_marks.part).
+  var _SBM_PARTS = [['leader', 'Worship Leader'], ['vocals', 'Singers'], ['guitar', 'Guitar'], ['bass', 'Bass'], ['keys', 'Piano / Keys'], ['drums', 'Drums']];
   function _sbmPartLabel(p) {
     for (var i = 0; i < _SBM_PARTS.length; i++) if (_SBM_PARTS[i][0] === p) return _SBM_PARTS[i][1];
     return '';
@@ -49182,20 +49183,23 @@ var WO = (function() {
     return (h && typeof h === 'object') ? h : {};
   }
   // Is one drawing shown to this reader? (pure) Their own, unless they hid
-  // them; anybody else's only once it is shared, and unless they hid that
-  // person; an earlier drawing, which has no owner, unless they hid those.
-  function _sbmLayerKeep(m, meKey, hidden) {
+  // them. Anybody else's: never when it is theirs alone (shared false);
+  // when it is meant for a part of the band, only to readers who play or
+  // sing that part (myParts); otherwise -- everyone's -- unless they hid that
+  // person. An earlier drawing has no owner and is everyone's ('' hides them).
+  function _sbmLayerKeep(m, meKey, hidden, myParts) {
     if (!m) return false;
     hidden = hidden || {};
     var owner = m.owner || '';
     if (owner && meKey && owner === meKey) return !hidden[owner];
     if (owner && m.shared === false) return false;
+    if (owner && m.part && (myParts || []).indexOf(m.part) === -1) return false;
     return !hidden[owner];
   }
   function _sbmLayerFilter(marks) {
     if (_sbmLayersOk !== true) return marks || [];
-    var me = _sbmMe(), hidden = _sbmLayersHidden();
-    return (marks || []).filter(function(m) { return _sbmLayerKeep(m, me && me.key, hidden); });
+    var me = _sbmMe(), hidden = _sbmLayersHidden(), parts = _sbmMyParts();
+    return (marks || []).filter(function(m) { return _sbmLayerKeep(m, me && me.key, hidden, parts); });
   }
   function _sbmMarkMine(m) { var me = _sbmMe(); return !!(m && me && m.owner && m.owner === me.key); }
   // ---- the geometry, kept pure for tools/songbook-marks-harness.js ----
@@ -49853,7 +49857,13 @@ var WO = (function() {
 
   // ---- drawing ----
   function sbmDraw(on) {
-    if (on === false || (on == null && _sbmDraw)) { _sbmDrawEnd(); _sbmRender(); return; }
+    if (on === false || (on == null && _sbmDraw)) {
+      var drawn = _sbmSessionStrokes();
+      _sbmDrawEnd(); _sbmRender();
+      // Everyone sees what was drawn, unless the drawer says otherwise -- asked now.
+      if (drawn.length && _sbmLayersOk === true) _sbmAskAudience(drawn);
+      return;
+    }
     if (_sbmMarksOk !== true) { showToast('Drawing is not set up on this database yet', 'error'); return; }
     if (_sbmLayersOk === true && !_sbmMe()) { sbmWho(true); return; }
     var saved = {}; try { saved = JSON.parse(localStorage.getItem('lhc_sb_pen') || '{}') || {}; } catch (e) {}
@@ -49861,7 +49871,6 @@ var WO = (function() {
       tool: 'pen',
       colour: _SBM_PENS.some(function(q) { return q[0] === saved.colour; }) ? saved.colour : _SBM_PENS[0][0],
       width: _SBM_WEIGHTS.indexOf(Number(saved.width)) > -1 ? Number(saved.width) : 4,
-      share: saved.share === true,   // yours alone until you share
       scroll: false, undo: [], live: null
     };
     document.body.classList.add('sbm-drawing');
@@ -49892,7 +49901,7 @@ var WO = (function() {
       (_sbmPhoneFits() ? '<button type="button" class="sbm-drawbar__phone' + (_sbmPhone ? ' is-on' : '') + '" onclick="WO.sbmPhone()" aria-pressed="' + (_sbmPhone ? 'true' : 'false') + '" title="Phone view: the song as a phone shows it, beside this one"><i class="fa-solid fa-mobile-screen"></i>Phone view</button>' : '') +
       '<button type="button" class="sbm-btn sbm-btn--primary sbm-drawbar__done" onclick="WO.sbmDraw(false)">Done</button></div>';
   }
-  function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width, share: !!_sbmDraw.share })); } catch (e) {} }
+  function _sbmDrawRemember() { try { localStorage.setItem('lhc_sb_pen', JSON.stringify({ colour: _sbmDraw.colour, width: _sbmDraw.width })); } catch (e) {} }
   function sbmDrawColour(c) { if (!_sbmDraw) return; _sbmDraw.colour = c; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
   function sbmDrawWeight(w) { if (!_sbmDraw) return; _sbmDraw.width = Number(w) || 4; _sbmDraw.tool = 'pen'; _sbmDrawRemember(); _sbmDrawBar(); }
   function sbmDrawTool(t) { if (!_sbmDraw) return; _sbmDraw.tool = t === 'eraser' ? 'eraser' : 'pen'; _sbmDrawBar(); }
@@ -49902,32 +49911,17 @@ var WO = (function() {
     _sbmMarkCards().forEach(function(c) { c.classList.toggle('is-scrolling', _sbmDraw.scroll); });
     _sbmDrawBar();
   }
-  // New strokes yours alone, or everybody's. Yours alone until you say.
-  function sbmDrawShare() {
-    if (!_sbmDraw) return;
-    _sbmDraw.share = !_sbmDraw.share;
-    _sbmDrawRemember();
-    _sbmDrawBar();
-    showToast(_sbmDraw.share ? 'What you draw now is shared: everyone sees it' : 'What you draw now is yours: only you see it', 'info');
-  }
 
   // ---- who is drawing ----
-  var _sbmWhoPick = '';
   function sbmWho(thenDraw) {
     var me = _sbmMe(), pic = null;
     try { pic = JSON.parse(sessionStorage.getItem('lhc_pic_session') || 'null'); } catch (e) {}
     var name = me ? me.name : ((pic && pic.name) || '');
-    _sbmWhoPick = me ? me.part : '';
-    var parts = _SBM_PARTS.map(function(p) {
-      return '<button type="button" class="who-part' + (_sbmWhoPick === p[0] ? ' is-on' : '') + '" data-part="' + p[0] + '" onclick="WO.sbmWhoPart(\'' + p[0] + '\')">' + escapeHtml(p[1]) + '</button>';
-    }).join('');
     var html = '<div class="who">' +
       '<label class="sbm-label" for="sbmWhoName"><i class="fa-solid fa-user"></i>Your name</label>' +
       '<input class="sbm-input" id="sbmWhoName" list="sbmWhoNames" maxlength="40" autocomplete="name" placeholder="Your name" value="' + escapeHtml(name) + '">' +
       '<datalist id="sbmWhoNames"></datalist>' +
-      '<div class="sbm-label who-h2"><i class="fa-solid fa-guitar"></i>What you play or sing</div>' +
-      '<div class="who-parts">' + parts + '</div>' +
-      '<p class="who-note"><i class="fa-solid fa-lock"></i>Only you see what you draw, until you share it.</p>' +
+      '<p class="who-note"><i class="fa-solid fa-users"></i>When you finish drawing, you choose who sees it: everyone, only you, or one part of the band.</p>' +
       '<div class="who-foot"><button class="sbm-btn" onclick="WO.sbmCloseSheet()">Cancel</button>' +
         '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWhoSave(' + (thenDraw ? 'true' : 'false') + ')">' + (thenDraw ? '<i class="fa-solid fa-pen-nib"></i>Start drawing' : 'Save') + '</button></div></div>';
     _sbmSheet(me ? 'Who’s drawing' : 'Who’s drawing?', html);
@@ -49968,16 +49962,12 @@ var WO = (function() {
     (rows || []).forEach(function(m) { if (m && m.owner && m.owner_name && !seen[m.owner]) { seen[m.owner] = true; out.push(m.owner_name); } });
     return out.sort(function(a, b) { return a.localeCompare(b); });
   }
-  function sbmWhoPart(p) {
-    _sbmWhoPick = (_sbmWhoPick === p) ? '' : p;
-    document.querySelectorAll('#sbmSheet .who-part').forEach(function(b) { b.classList.toggle('is-on', b.getAttribute('data-part') === _sbmWhoPick); });
-  }
   function sbmWhoSave(thenDraw) {
     var inp = document.getElementById('sbmWhoName');
     var name = String((inp && inp.value) || '').trim().replace(/\s+/g, ' ').slice(0, 40);
     if (!name) { showToast('Put your name in first', 'info'); if (inp) inp.focus(); return; }
     var was = _sbmMe();
-    try { localStorage.setItem('lhc_sbm_me', JSON.stringify({ name: name, part: _sbmWhoPick || '' })); } catch (e) {}
+    try { localStorage.setItem('lhc_sbm_me', JSON.stringify({ name: name })); } catch (e) {}
     _sbmCloseSheet();
     // A name that has drawn here before -- on this device or another -- has its drawings back.
     if (!was || was.key !== _sbmMeKey(name)) {
@@ -49994,65 +49984,157 @@ var WO = (function() {
     _sbmPhoneMarks(null);
   }
 
+  // ---- who sees a drawing: asked once it is drawn ----
+  //
+  // A stroke goes in for everyone. When the drawer taps Done, the strokes
+  // of that sitting are offered to them -- everyone, only me, or one part
+  // of the band -- and saved that way (sbmAudience). A drawing for a part
+  // is seen by the readers who have said, under Layers, that they play or
+  // sing it (lhc_sbm_parts), and by its drawer.
+  var _sbmAudIds = null;
+  // This sitting's strokes that are still there: the drawer's own, saved.
+  function _sbmSessionStrokes() {
+    var D = _sbmDraw; if (!D) return [];
+    var out = [];
+    (D.undo || []).forEach(function(u) {
+      var id = u && u.local && u.local.id;
+      if (!id || String(id).indexOf('tmp_') === 0 || u.local.undone) return;
+      if ((_sbmMarks[u.base] || []).some(function(m) { return String(m.id) === String(id); })) out.push(String(id));
+    });
+    return out;
+  }
+  function _sbmAudienceChoices() {
+    return [['all', 'fa-earth-asia', 'Everyone'], ['me', 'fa-lock', 'Only me']].concat(_SBM_PARTS.map(function(p) { return [p[0], 'fa-user-group', p[1]]; }));
+  }
+  // A choice as the row holds it (pure): everyone, only the drawer, or a part.
+  function _sbmAudienceRow(aud) {
+    if (aud === 'me') return { shared: false, part: null };
+    if (aud && aud !== 'all') return { shared: true, part: aud };
+    return { shared: true, part: null };
+  }
+  // ...and back (pure).
+  function _sbmAudienceOf(m) {
+    if (!m) return 'all';
+    if (m.shared === false) return 'me';
+    return m.part || 'all';
+  }
+  function _sbmAudienceLabel(aud) {
+    if (aud === 'me') return 'only you';
+    if (!aud || aud === 'all') return 'everyone';
+    return _sbmPartLabel(aud) || aud;
+  }
+  function _sbmAskAudience(ids) {
+    _sbmAudIds = ids.slice();
+    var btns = _sbmAudienceChoices().map(function(c) {
+      return '<button type="button" class="who-part' + (c[0] === 'all' ? ' is-on' : '') + '" onclick="WO.sbmAudience(\'' + c[0] + '\')"><i class="fa-solid ' + c[1] + '"></i> ' + escapeHtml(c[2]) + '</button>';
+    }).join('');
+    _sbmSheet('Who should see your drawing?',
+      '<div class="who"><p class="who-note"><i class="fa-solid fa-pen-nib"></i>' + ids.length + ' stroke' + (ids.length === 1 ? '' : 's') + ' drawn just now. Everyone sees them unless you choose otherwise.</p>' +
+      '<div class="who-parts who-parts--aud">' + btns + '</div></div>');
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'audience');
+  }
+  function sbmAudience(aud) {
+    var ids = _sbmAudIds || [], sup = window._supabase;
+    _sbmAudIds = null;
+    _sbmCloseSheet();
+    if (!ids.length || !sup || aud === 'all') return;   // they are everybody's already
+    var row = _sbmAudienceRow(aud);
+    sup.from('song_marks').update(row).in('id', ids).select('id').then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var got = {}; (r.data || []).forEach(function(x) { got[String(x.id)] = true; });
+      Object.keys(_sbmMarks).forEach(function(b) { (_sbmMarks[b] || []).forEach(function(m) { if (got[String(m.id)]) { m.shared = row.shared; m.part = row.part; } }); });
+      _sbmMarksPaintAll();
+      _sbmPhoneMarks(null);
+      _sbmLiveSend();
+      showToast('Your drawing is for ' + _sbmAudienceLabel(aud) + ' now. Change it any time under Layers.', 'success');
+    }).catch(function(err) { showToast('Could not change who sees it: ' + (err && err.message || 'no answer') + '. Everyone sees it for now.', 'error'); });
+  }
+
   // ---- whose drawings you see ----
+  function _sbmMyParts() {
+    var a = []; try { a = JSON.parse(localStorage.getItem('lhc_sbm_parts') || '[]') || []; } catch (e) {}
+    return Array.isArray(a) ? a : [];
+  }
+  function sbmLayerPart(p) {
+    var a = _sbmMyParts(), i = a.indexOf(p);
+    if (i === -1) a.push(p); else a.splice(i, 1);
+    try { localStorage.setItem('lhc_sbm_parts', JSON.stringify(a)); } catch (e) {}
+    _sbmMarksPaintAll();
+    _sbmPhoneMarks(null);
+    var sh = document.getElementById('sbmSheet');
+    if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
+  }
   function _sbmLayersChip() {
     if (_sbmMarksOk !== true || _sbmLayersOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw sbm-chip--layers" onclick="WO.sbmLayers()" title="Whose drawings you see, and sharing your own"><i class="fa-solid fa-users"></i>Layers</button>';
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--layers" onclick="WO.sbmLayers()" title="Whose drawings you see, and who sees yours"><i class="fa-solid fa-users"></i>Layers</button>';
   }
   // The drawers of one song's drawings as a reader may list them (pure):
-  // themselves first, then everybody who has shared one, by part and name,
-  // and the earlier drawings last. Somebody's unshared drawings are not
-  // theirs to list.
-  function _sbmLayerPeople(marks, meKey) {
+  // their own, counted by who sees them; then everybody else's that this
+  // reader can see, by part and name, the earlier drawings last; and how
+  // many are meant for parts the reader has not chosen.
+  function _sbmLayerPeople(marks, meKey, myParts) {
     var rank = {}; _SBM_PARTS.forEach(function(p, i) { rank[p[0]] = i; });
-    var me = { key: meKey || '', mine: true, n: 0, shared: 0 }, by = {};
+    var mine = myParts || [];
+    var me = { key: meKey || '', n: 0, by: {} }, by = {}, elsewhere = {};
     (marks || []).forEach(function(m) {
       if (!m) return;
-      var o = m.owner || '';
-      if (o && meKey && o === meKey) { me.n++; if (m.shared !== false) me.shared++; return; }
-      if (o && m.shared === false) return;
-      var p = by[o] = by[o] || { key: o, name: o ? (m.owner_name || o) : '', part: o ? (m.part || '') : '', n: 0 };
+      var o = m.owner || '', aud = _sbmAudienceOf(m);
+      if (o && meKey && o === meKey) { me.n++; me.by[aud] = (me.by[aud] || 0) + 1; return; }
+      if (o && aud === 'me') return;
+      if (o && aud !== 'all' && mine.indexOf(aud) === -1) { elsewhere[aud] = (elsewhere[aud] || 0) + 1; return; }
+      var p = by[o] = by[o] || { key: o, name: o ? (m.owner_name || o) : '', n: 0, parts: {} };
       p.n++;
+      if (o && aud !== 'all') p.parts[aud] = true;
     });
     var others = Object.keys(by).map(function(k) { return by[k]; }).sort(function(a, b) {
       if (!a.key !== !b.key) return a.key ? -1 : 1;
-      var ra = rank[a.part] != null ? rank[a.part] : 99, rb = rank[b.part] != null ? rank[b.part] : 99;
-      return ra !== rb ? ra - rb : String(a.name).localeCompare(String(b.name));
+      return String(a.name).localeCompare(String(b.name));
     });
-    return { me: me, others: others };
+    return { me: me, others: others, elsewhere: elsewhere };
   }
   function sbmLayers() {
     var song = _sbmSong(); if (!song) return;
-    var base = _sbBaseSongId(song), me = _sbmMe(), hidden = _sbmLayersHidden();
-    var L = _sbmLayerPeople(_sbVerMarks(_sbmMarks[base], song.versionId), me && me.key);
+    var base = _sbBaseSongId(song), me = _sbmMe(), hidden = _sbmLayersHidden(), parts = _sbmMyParts();
+    var L = _sbmLayerPeople(_sbVerMarks(_sbmMarks[base], song.versionId), me && me.key, parts);
     var eye = function(key, label) {
       var on = !hidden[key];
       return '<button class="sbm-btn lay-eye' + (on ? ' is-on' : '') + '" onclick="WO.sbmLayerToggle(\'' + escapeJsArg(key) + '\')" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + (on ? 'Hide ' : 'Show ') + escapeHtml(label) + '">' +
         '<i class="fa-solid ' + (on ? 'fa-eye' : 'fa-eye-slash') + '"></i>' + (on ? 'Showing' : 'Hidden') + '</button>';
     };
     var count = function(n) { return n + ' drawing' + (n === 1 ? '' : 's'); };
-    var html = '<div class="lay">';
+    var html = '<div class="lay">' +
+      '<div class="ver-head"><span>Drawings meant for</span></div>' +
+      '<div class="who-parts lay-parts">' + _SBM_PARTS.map(function(p) {
+        var on = parts.indexOf(p[0]) !== -1;
+        return '<button type="button" class="who-part' + (on ? ' is-on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="WO.sbmLayerPart(\'' + p[0] + '\')">' + escapeHtml(p[1]) + '</button>';
+      }).join('') + '</div>' +
+      '<p class="lay-hint">Choose what you play or sing to see the drawings meant for it. Drawings for everyone always show.</p>';
     if (me) {
-      var priv = L.me.n - L.me.shared;
-      html += '<div class="ver-head"><span>Yours</span></div>' +
+      var mineBits = Object.keys(L.me.by).map(function(a) { return L.me.by[a] + ' for ' + _sbmAudienceLabel(a); });
+      html += '<div class="ver-head lay-h2"><span>Yours</span></div>' +
         '<div class="lay-row lay-row--me"><div class="lay-row__main"><b>' + escapeHtml(me.name) + '</b>' +
-          (me.part ? '<span class="lay-part">' + escapeHtml(_sbmPartLabel(me.part)) + '</span>' : '') +
-          '<small>' + (L.me.n ? escapeHtml(count(L.me.n) + ' on this song: ' + priv + ' only you see, ' + L.me.shared + ' shared') : 'Nothing drawn on this song yet') + '</small></div>' +
+          '<small>' + (L.me.n ? escapeHtml(count(L.me.n) + ' on this song: ' + mineBits.join(', ')) : 'Nothing drawn on this song yet') + '</small></div>' +
           (L.me.n ? eye(me.key, 'your drawings') : '') + '</div>' +
-        '<div class="lay-acts">' +
-          (priv ? '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmLayersShare(true)"><i class="fa-solid fa-users"></i>Share mine with everyone</button>' : '') +
-          (L.me.shared ? '<button class="sbm-btn" onclick="WO.sbmLayersShare(false)"><i class="fa-solid fa-lock"></i>Make mine private</button>' : '') +
-          '<button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '?</button></div>';
+        (L.me.n ? '<div class="lay-sub">Who sees yours</div><div class="who-parts lay-aud">' + _sbmAudienceChoices().map(function(c) {
+          var all = L.me.by[c[0]] === L.me.n;
+          return '<button type="button" class="who-part' + (all ? ' is-on' : '') + '" onclick="WO.sbmLayersAudience(\'' + c[0] + '\')">' + escapeHtml(c[2]) + '</button>';
+        }).join('') + '</div>' : '') +
+        '<div class="lay-acts"><button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '?</button></div>';
     } else {
       html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>';
     }
-    html += '<div class="ver-head lay-h2"><span>Shared by others</span><span class="ver-head__n">' + L.others.length + '</span></div>';
+    html += '<div class="ver-head lay-h2"><span>By others</span><span class="ver-head__n">' + L.others.length + '</span></div>';
     html += L.others.length ? '<div class="lay-list">' + L.others.map(function(p) {
       var label = p.key ? p.name : 'Earlier drawings';
+      var forParts = Object.keys(p.parts).map(function(a) { return _sbmPartLabel(a); });
       return '<div class="lay-row' + (hidden[p.key] ? ' is-hidden' : '') + '"><div class="lay-row__main"><b>' + escapeHtml(label) + '</b>' +
-        (p.part ? '<span class="lay-part">' + escapeHtml(_sbmPartLabel(p.part)) + '</span>' : '') +
+        (forParts.length ? '<span class="lay-part">for ' + escapeHtml(forParts.join(', ')) + '</span>' : '') +
         '<small>' + escapeHtml(count(p.n) + (p.key ? '' : ', from before drawings had names')) + '</small></div>' + eye(p.key, label) + '</div>';
-    }).join('') + '</div>' : '<div class="ver-empty">Nobody else has shared a drawing on this song.</div>';
+    }).join('') + '</div>' : '<div class="ver-empty">Nobody else’s drawings to show on this song.</div>';
+    var away = Object.keys(L.elsewhere);
+    if (away.length) {
+      html += '<p class="lay-hint">' + escapeHtml(away.map(function(a) { return count(L.elsewhere[a]) + ' for ' + _sbmPartLabel(a); }).join(', ')) + ' — choose that part above to see ' + (away.length === 1 && L.elsewhere[away[0]] === 1 ? 'it' : 'them') + '.</p>';
+    }
     html += '</div>';
     _sbmSheet('Layers — ' + _sbmClip(song.title || 'this song', 30), html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
@@ -50066,33 +50148,32 @@ var WO = (function() {
     var sh = document.getElementById('sbmSheet');
     if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
   }
-  // Every drawing of yours on this song (its version) shared, or made yours alone again.
-  function sbmLayersShare(on) {
+  // Every drawing of yours on this song (its version) given one audience.
+  function sbmLayersAudience(aud) {
     var song = _sbmSong(), me = _sbmMe(), sup = window._supabase;
     if (!song || !me || !sup || _sbmLayersOk !== true) return;
-    var base = _sbBaseSongId(song), vid = song.versionId || '';
-    var q = sup.from('song_marks').update({ shared: !!on }).eq('song_id', base).eq('owner', me.key);
+    var base = _sbBaseSongId(song), vid = song.versionId || '', row = _sbmAudienceRow(aud);
+    var q = sup.from('song_marks').update(row).eq('song_id', base).eq('owner', me.key);
     if (_sbVerOk === true) q = vid ? q.eq('version_id', vid) : q.is('version_id', null);
     q.select('id').then(function(r) {
       if (r.error) throw new Error(r.error.message);
       var ids = {}; (r.data || []).forEach(function(x) { ids[String(x.id)] = true; });
-      (_sbmMarks[base] || []).forEach(function(m) { if (ids[String(m.id)]) m.shared = !!on; });
+      (_sbmMarks[base] || []).forEach(function(m) { if (ids[String(m.id)]) { m.shared = row.shared; m.part = row.part; } });
       _sbmMarksPaintAll();
       _sbmPhoneMarks(null);
       _sbmLiveSend();
       var n = (r.data || []).length;
-      showToast(on ? 'Shared: everyone sees your ' + n + ' drawing' + (n === 1 ? '' : 's') + ' on this song now'
-                   : 'Private: only you see your ' + n + ' drawing' + (n === 1 ? '' : 's') + ' on this song now', 'success');
+      showToast('Your ' + n + ' drawing' + (n === 1 ? '' : 's') + ' on this song ' + (n === 1 ? 'is' : 'are') + ' for ' + _sbmAudienceLabel(aud) + ' now', 'success');
       var sh = document.getElementById('sbmSheet');
       if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
     }).catch(function(err) { showToast('Could not change who sees them: ' + (err && err.message || 'no answer'), 'error'); });
   }
 
+
   function _sbmDrawWho(D) {
     if (_sbmLayersOk !== true) return '';
     var me = _sbmMe(); if (!me) return '';
-    return '<button type="button" class="sbm-drawbar__who" onclick="WO.sbmWho(false)" title="Drawing as ' + escapeHtml(me.name) + (me.part ? ', ' + escapeHtml(_sbmPartLabel(me.part)) : '') + ' \u2014 tap to change"><i class="fa-solid fa-user"></i>' + escapeHtml(_sbmClip(me.name.split(' ')[0], 12)) + '</button>' +
-      '<button type="button" class="sbm-drawbar__share' + (D.share ? ' is-on' : '') + '" onclick="WO.sbmDrawShare()" aria-pressed="' + (D.share ? 'true' : 'false') + '" title="' + (D.share ? 'Shared: everyone sees what you draw now' : 'Only you see what you draw now') + '"><i class="fa-solid ' + (D.share ? 'fa-users' : 'fa-lock') + '"></i>' + (D.share ? 'Everyone' : 'Only me') + '</button>' +
+    return '<button type="button" class="sbm-drawbar__who" onclick="WO.sbmWho(false)" title="Drawing as ' + escapeHtml(me.name) + ' \u2014 tap to change"><i class="fa-solid fa-user"></i>' + escapeHtml(_sbmClip(me.name.split(' ')[0], 12)) + '</button>' +
       '<span class="sbm-drawbar__gap"></span>';
   }
 
@@ -50239,7 +50320,7 @@ var WO = (function() {
     // Whose it is, and whether anybody else sees it (_sbmLayerKeep).
     if (_sbmLayersOk === true) {
       var me = _sbmMe();
-      if (me) { mark.owner = me.key; mark.owner_name = me.name; mark.part = me.part || null; mark.shared = !!D.share; }
+      if (me) { mark.owner = me.key; mark.owner_name = me.name; mark.part = null; mark.shared = true; }   // everyone's, until the drawer says (sbmAudience)
     }
     var sup = window._supabase; if (!sup) return;
     var local = Object.assign({ id: 'tmp_' + Date.now() }, mark);
@@ -71118,11 +71199,13 @@ var WO = (function() {
   // The view and the navigation pane are the viewer's own choice.
   function _lbdPrefs(save) {
     try {
-      if (save) { localStorage.setItem('lhc_lbd_view', JSON.stringify({ view: _lbdView, nav: _lbdNavOn, lib: _lbdLibOn })); return; }
+      if (save) { localStorage.setItem('lhc_lbd_view', JSON.stringify({ view: _lbdView, nav: _lbdNavOn, lib: _lbdLibOn, libV: 2 })); return; }
       var p = JSON.parse(localStorage.getItem('lhc_lbd_view') || '{}');
       if (p.view === 'outline' || p.view === 'document') _lbdView = p.view;
       if (typeof p.nav === 'boolean') _lbdNavOn = p.nav;
-      if (typeof p.lib === 'boolean') _lbdLibOn = p.lib;
+      // Kept only from when it started closed (libV 2): before that, open
+      // was saved with every other choice, whether or not it was chosen.
+      if (typeof p.lib === 'boolean' && p.libV === 2) _lbdLibOn = p.lib;
     } catch (e) {}
   }
 
@@ -71395,7 +71478,7 @@ var WO = (function() {
   //   sm  a phone: a top bar, the page, a bottom bar, sheets from below,
   //       and the formatting keys over the keyboard while typing
   var _lbdMode = 'xl';
-  var _lbdLibOn = true;          // Add to Order beside the page, where there is room
+  var _lbdLibOn = false;         // Add to Order beside the page: closed until asked for
   var _lbdDrawer = '';           // '' | 'nav' | 'lib': the pane slid over the page
   var _lbdLibTab = 'lib';        // 'lib' | 'mine' | 'tpl'
   var _lbdLibCat = '';           // the library category open, '' for all of them
@@ -71490,7 +71573,7 @@ var WO = (function() {
   // where it does not.
   function _lbdOpenPane(which) {
     if (which === 'nav' && _lbdNavDocked()) { _lbdNavOn = true; _lbdPrefs(true); _lbdDrawer = ''; }
-    else if (which === 'lib' && _lbdLibDocked()) { _lbdLibOn = true; _lbdPrefs(true); _lbdDrawer = ''; }
+    else if (which === 'lib' && _lbdLibDocked()) { _lbdLibOn = true; _lbdDrawer = ''; }
     else _lbdDrawer = which;
     if (which === 'lib') _lbdRenderLibPane();
     _lbdApplyShell();
@@ -71688,10 +71771,10 @@ var WO = (function() {
         '<i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Item</span></button>' +
       '<div class="lbw-rgroup" role="group" aria-label="Insert">' +
         b('ins-song', 'fa-solid fa-music', 'Song', 'Insert a song from the library, after the one you are on') +
-        b('ins-liturgy', 'fa-solid fa-person-praying', 'Liturgy', 'Insert liturgy from the library, or write your own') +
+        b('ins-liturgy', 'fa-solid fa-person-praying', 'Liturgy' + dd, 'Liturgy from the library (invocations, confessions, creeds), what suits this section, or your own written as liturgy', ' aria-haspopup="menu"') +
         b('ins-reading', 'fa-solid fa-book-bible', 'Reading', 'Insert a scripture reading') +
         b('ins-prayer', 'fa-solid fa-hands-praying', 'Prayer', 'Insert a prayer from the library') +
-        b('ins-text', 'fa-solid fa-font', 'Text', 'Insert a slide of your own words') +
+        b('ins-text', 'fa-solid fa-font', 'Text', 'A plain slide of your own words, for this service only: a welcome, an announcement, a title') +
         b('ins-section', 'fa-solid fa-heading', 'Section', 'Insert a new section after this one') +
         b('ins-break', 'fa-solid fa-scissors', 'Slide', 'Start a new slide at the cursor (Ctrl+Enter)') +
         b('ins-note', 'fa-regular fa-comment', 'Note', 'A note for the liturgist on this section, never projected') +
@@ -71699,8 +71782,7 @@ var WO = (function() {
       '<div class="lbw-rgroup" role="group" aria-label="Bring in">' +
         b('menu-import', 'fa-solid fa-file-import', 'Import' + dd, 'Bring in a Word document, pasted text, or this date’s readings', ' aria-haspopup="menu"') +
         b('menu-templates', 'fa-regular fa-calendar-days', 'Templates' + dd, 'Sections from a service template', ' aria-haspopup="menu"') +
-        b('menu-svl', 'fa-solid fa-book-bookmark', 'Service liturgies' + dd, 'Use a liturgy saved for this occasion in another year, or save this one', ' aria-haspopup="menu"') +
-        b('menu-liturgies', 'fa-regular fa-clipboard', 'Liturgies' + dd, 'Liturgy suggested for this section, the library, or your own words', ' aria-haspopup="menu"') +
+        b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load one saved in another year', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup lbw-rgroup--end" role="group" aria-label="Panes">' +
         b('nav-toggle', 'fa-solid fa-list-ol', 'Outline', 'Show or hide the order outline', ' aria-pressed="false" aria-label="Order outline"') +
@@ -72925,7 +73007,7 @@ var WO = (function() {
     var tiles = [['song', 'fa-solid fa-music', 'Song'], ['liturgy', 'fa-solid fa-scroll', 'Liturgy'], ['reading', 'fa-solid fa-book-bible', 'Reading'],
       ['prayer', 'fa-solid fa-hands-praying', 'Prayer'], ['sacrament', 'fa-solid fa-wine-glass', 'Sacrament'], ['text', 'fa-solid fa-font', 'Text slide'],
       ['note', 'fa-regular fa-comment', 'Note'], ['section', 'fa-solid fa-heading', 'Section'], ['library', 'fa-solid fa-book-open', 'Library'],
-      ['templates', 'fa-regular fa-calendar-days', 'Templates'], ['svl', 'fa-solid fa-book-bookmark', 'Service liturgies'], ['import', 'fa-solid fa-file-import', 'Import'], ['roster', 'fa-solid fa-calendar-check', 'Roster readings']];
+      ['templates', 'fa-regular fa-calendar-days', 'Templates'], ['svl', 'fa-solid fa-book-bookmark', 'Save / Load'], ['import', 'fa-solid fa-file-import', 'Import'], ['roster', 'fa-solid fa-calendar-check', 'Roster readings']];
     _lbdSheet('Add to the order',
       '<label class="lbd-field lbw-ins-to"><span>Into</span><select class="lbd-select" data-sfield="ins-sec">' + opts + '</select></label>' +
       '<div class="lbw-tiles">' + tiles.map(function(t) {
@@ -73102,7 +73184,7 @@ var WO = (function() {
   function lbdServiceLiturgies(occasion) {
     if (!currentOrderData) return;
     _svlSel = occasion === '*' ? '' : (occasion || _svlSel || _svlGuess());
-    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Service liturgies', '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Looking for saved liturgies…</p>', { kind: 'svl' });
+    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Load a saved liturgy', '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Looking for saved liturgies…</p>', { kind: 'svl' });
     _svlLoad().then(_svlDrawList, function(err) {
       _lbdCloseSheet();
       if (err && err.message === 'setup') _svlSetupMsg();
@@ -73125,7 +73207,7 @@ var WO = (function() {
         '<div class="svl-card__top"><div class="svl-card__t">' + _lbdEsc(r.title || _svlOccLabel(r.occasion_id)) +
           (from && from.id === r.id ? '<span class="svl-pill">This order came from it</span>' : '') + '</div>' +
           '<div class="svl-card__acts"><button type="button" class="lbd-btn" onclick="WO.lbdSvlToggle(\'' + escapeJsArg(r.id) + '\')">' + (open ? 'Hide' : 'Preview') + '</button>' +
-          (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-file-import"></i> Use it</button>' : '') + '</div></div>' +
+          (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-file-import"></i> Load it</button>' : '') + '</div></div>' +
         '<div class="svl-card__meta">' + _lbdEsc([_svlOccLabel(r.occasion_id), r.year ? String(r.year) : '', (r.order_type || 'traditional') === 'contemporary' ? 'Contemporary' : (r.order_type === 'special' ? 'Special' : 'Traditional'),
           c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs', when ? 'saved ' + when : ''].filter(Boolean).join(' · ')) + '</div>' +
         (same ? '' : '<div class="svl-card__warn">Made for a ' + _lbdEsc(r.order_type || 'traditional') + ' service; open a ' + _lbdEsc(r.order_type || 'traditional') + ' order to use it.</div>');
@@ -73134,7 +73216,7 @@ var WO = (function() {
           '<label class="svl-check"><input type="checkbox" id="svlSongs"> Bring its ' + c.songs + ' song' + (c.songs === 1 ? '' : 's') + ' too</label>' +
           '<label class="svl-check"><input type="checkbox" id="svlReadings"> Bring its readings (otherwise this date’s come from the roster)</label>' +
           '<div class="svl-use__foot"><button type="button" class="lbd-btn" onclick="WO.lbdSvlAsk(\'\')">Cancel</button>' +
-          '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlUse(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-check"></i> Use for this service</button></div></div>';
+          '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlUse(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-check"></i> Load into this service</button></div></div>';
       }
       if (open) {
         out += '<ol class="svl-outline">' + _svlOutline(r.data).map(function(sec) {
@@ -73149,7 +73231,7 @@ var WO = (function() {
       (cards || '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> ' + (sel ? 'No liturgy saved for ' + _lbdEsc(_svlOccLabel(sel)) + ' yet. ' : 'No liturgies saved yet. ') +
         'Shape this one, then save it for its occasion and a later year can start from it.</p>') +
       '<div class="lbd-sheet-foot"><span></span><button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSaveSheet()"><i class="fa-solid fa-floppy-disk"></i> Save this liturgy…</button></div>';
-    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Service liturgies', html, { kind: 'svl' });
+    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Load a saved liturgy', html, { kind: 'svl' });
   }
   function lbdSvlToggle(id) { _svlOpen = _svlOpen === id ? '' : id; _svlDrawList(); }
   function lbdSvlAsk(id) { _svlUse = id || ''; _svlDrawList(); }
@@ -73211,7 +73293,7 @@ var WO = (function() {
         '<label class="lbd-field"><span>Year</span><input class="lbd-input" id="svlYear" type="number" min="2000" max="2100" value="' + year + '" oninput="WO.lbdSvlName()"></label>' +
         '<label class="lbd-field"><span>Name</span><input class="lbd-input" id="svlTitle" maxlength="80" data-autofocus value="' + _lbdEsc(_svlOccLabel(occ) + ' ' + year) + '"></label>' +
         '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> Its sections, liturgy, readings, songs and notes, as this order has them now.</p>' +
-        '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies()">Saved liturgies</button><span class="svl-foot-gap"></span>' +
+        '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies()">Load instead…</button><span class="svl-foot-gap"></span>' +
           (from && from.id ? '<button type="button" class="lbd-btn" onclick="WO.lbdSvlSave(true)"><i class="fa-solid fa-floppy-disk"></i> Save over “' + _lbdEsc(_woClipText(from.title || 'the original', 28)) + '”</button>' : '') +
           '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSave(false)"><i class="fa-solid fa-copy"></i> ' + (from && from.id ? 'Save as a new copy' : 'Save') + '</button></div>';
       _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Save this liturgy for its occasion', html, { kind: 'svl-save' });
@@ -73268,11 +73350,11 @@ var WO = (function() {
 
   function _lbdOpenSvlMenu(anchor) {
     var occ = _svlGuess(), from = currentOrderData && currentOrderData.template && currentOrderData.template.serviceLiturgy;
-    _lbdOpenMenu(anchor, 'Service liturgies', [
-      { label: 'Use a saved liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ); } },
-      { label: 'All saved liturgies…', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies('*'); } },
+    _lbdOpenMenu(anchor, 'Save / Load', [
+      { label: from && from.id ? 'Save: over “' + _woClipText(from.title, 24) + '”, or as a copy…' : 'Save this liturgy for its occasion…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet },
       '-',
-      { label: from && from.id ? 'Save: over “' + _woClipText(from.title, 24) + '”, or as a copy…' : 'Save this liturgy for its occasion…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet }
+      { label: 'Load a saved liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ); } },
+      { label: 'All saved liturgies…', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies('*'); } }
     ]);
   }
 
@@ -73283,7 +73365,7 @@ var WO = (function() {
       { label: 'Import a Word document…', icon: 'fa-solid fa-file-import', run: _lbdOpenImportSheet },
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
       { label: 'Templates', icon: 'fa-regular fa-calendar-days', run: function() { _lbdShowLib('tpl', ''); } },
-      { label: 'Service liturgies: use one, or save this', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
+      { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
       '-',
       { label: allFolded ? 'Expand all sections' : 'Collapse all sections', icon: allFolded ? 'fa-solid fa-angles-down' : 'fa-solid fa-angles-up',
         run: function() { _lbdFoldAll(); } },
@@ -73322,9 +73404,29 @@ var WO = (function() {
     _lbdFocusSlide(it.id, c.idx + 1, 0);
   }
 
+  // Shift+Enter (or Ctrl+Enter) in a text slide: the words after the cursor
+  // go on to a text slide of their own, straight after it, as LCD Projection
+  // does with a text box. At the end, that is a new empty one to type in.
+  function _lbdBreakText(el) {
+    var c = _lbdCtx(el), it = _lbdItem(c.item), car = _lbdCaret(el);
+    if (!it || !car) return;
+    var text = _lbdTextOf(el);
+    var before = text.slice(0, car.start).replace(/\s+$/, ''), after = text.slice(car.end).replace(/^\s+/, '');
+    var item = { id: _lbdPfx() + 'content_' + it.sectionId + '_' + _lbdUid(), itemType: 'content', sectionId: it.sectionId, sourceId: '', title: '',
+                 content: { text: after }, customizations: {}, slides: [] };
+    if (!_lbdChange(function() {
+      if (!it.content) it.content = {};
+      it.content.text = before;
+      _lbdInsertItem(item, it.id);
+    })) return;
+    _lbdSetCur(it.sectionId, 'item:' + item.id);
+    _lbdFocus('[data-item="' + _lbdCssId(item.id) + '"] [data-field="content-text"]', 'start');
+  }
+
   function _lbdBreakAtCaret() {
     var ae = document.activeElement, host = $('woLiturgyBuilder');
     if (ae && host && host.contains(ae) && ae.getAttribute('data-field') === 'slide') { _lbdBreakAt(ae); return; }
+    if (ae && host && host.contains(ae) && ae.getAttribute('data-field') === 'content-text') { _lbdBreakText(ae); return; }
     showToast('Click in the words of a liturgy or reading, where the new slide should start', 'info');
   }
 
@@ -73391,6 +73493,12 @@ var WO = (function() {
 
   // A slide emptied and left behind goes, as an empty page does. A slide
   // with a background of its own is a picture and stays.
+  // Is the cursor in one of this item's words? (Then it has not been left.)
+  function _lbdFocusIn(itemId) {
+    var a = document.activeElement;
+    return !!(a && a.closest && a.closest('[data-item="' + _lbdCssId(itemId) + '"]'));
+  }
+
   function _lbdDropEmptySlides(itemId) {
     var it = _lbdItem(itemId);
     if (!it || !Array.isArray(it.slides) || it.slides.length < 2) return;
@@ -73796,7 +73904,7 @@ var WO = (function() {
       case 'add-section': lbdAddSection(parseInt(btn.getAttribute('data-at'), 10)); break;
       case 'add-item': _lbdAddItem(btn); break;
       case 'ins-song': _lbdInsert('song'); break;
-      case 'ins-liturgy': _lbdInsert('liturgy'); break;
+      case 'ins-liturgy': _lbdOpenLitMenu(btn); break;
       case 'ins-reading': _lbdInsert('reading'); break;
       case 'ins-prayer': _lbdInsert('prayer'); break;
       case 'ins-text': _lbdInsert('text'); break;
@@ -73971,7 +74079,7 @@ var WO = (function() {
     }
     if (_lbdTyping && _lbdTyping.el === el) { _lbdFlushTyping(); _woUpdateUndoRedoButtons(); }
     if (f === 'slide' && !(next && next.closest && next.closest('[data-item="' + _lbdCssId(c.item) + '"]'))) {
-      setTimeout(function() { if (_lbdIsActive()) _lbdDropEmptySlides(c.item); }, 0);
+      setTimeout(function() { if (_lbdIsActive() && !_lbdFocusIn(c.item)) _lbdDropEmptySlides(c.item); }, 0);
     } else if (f === 'content-text') {
       setTimeout(function() { if (_lbdIsActive()) _lbdDropEmptyText(c.item, document.activeElement); }, 0);
     } else if ((f === 'sec-notes' || f === 'song-notes' || f === 'svc-notes') && !_lbdVal(el).trim()) {
@@ -74024,6 +74132,11 @@ var WO = (function() {
     if (e.key === 'Enter' && f === 'slide' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault();
       _lbdBreakAt(el);
+      return;
+    }
+    if (e.key === 'Enter' && f === 'content-text' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      e.preventDefault();
+      _lbdBreakText(el);
       return;
     }
     if (e.key === 'Enter' && f === 'slide' && !e.altKey) { e.preventDefault(); _lbdLineBreak(); return; }
@@ -88022,8 +88135,8 @@ var WO = (function() {
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
-    sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo, sbmDrawShare: sbmDrawShare,
-    sbmWho: sbmWho, sbmWhoPart: sbmWhoPart, sbmWhoSave: sbmWhoSave, sbmLayers: sbmLayers, sbmLayerToggle: sbmLayerToggle, sbmLayersShare: sbmLayersShare,
+    sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo, sbmAudience: sbmAudience, sbmLayerPart: sbmLayerPart,
+    sbmWho: sbmWho, sbmWhoSave: sbmWhoSave, sbmLayers: sbmLayers, sbmLayerToggle: sbmLayerToggle, sbmLayersAudience: sbmLayersAudience,
     sbmLiveRefresh: sbmLiveRefresh, sbmLiveDismiss: sbmLiveDismiss, sbmLiveBanner: _sbmLiveBanner,
     sbmPhone: sbmPhone, sbmPhoneDevice: sbmPhoneDevice, sbmPhoneReload: sbmPhoneReload, sbmPhoneBoot: sbmPhoneBoot, sbmPhoneApply: sbmPhoneApply,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
@@ -106922,6 +107035,14 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .who-note { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font: 500 13px/1.4 var(--sbm-font-ui); color: var(--sbm-text-2); }
 .who-note i { color: var(--sbm-gold); }
 .who-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.who-parts--aud { margin-top: 12px; }
+.who-parts--aud .who-part { min-height: 46px; padding: 0 16px; font-size: 14px; }
+.who-parts--aud .who-part i, .who-part i { margin-right: 6px; }
+.lay-parts { margin-bottom: 6px; }
+.lay-hint { margin: 4px 0 14px; font: 400 12.5px/1.4 var(--sbm-font-body); color: var(--sbm-text-2); }
+.lay-sub { margin: 2px 0 6px; font: 700 11px/1.2 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--sbm-muted); }
+.lay-aud { margin-bottom: 10px; }
+.lay-aud .who-part { min-height: 36px; padding: 0 12px; font-size: 12.5px; }
 
 /* ---- Versions: the song's earlier main versions ----------------------- */
 .ver-head--kept { margin-top: 4px; }
