@@ -628,6 +628,22 @@ console.log('\n[service liturgies]');
   check('a New line key on the formatting bar and over the phone\'s keyboard, shown only on a touch screen',
     has(/fb\('ins-line', /) && has(/kb\('ins-line', /) && has(/case 'ins-line': _lbdNewLineAtCaret\(\); break;/) &&
     has(/\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: none; \}\r?\n@media \(hover: none\) and \(pointer: coarse\) \{\r?\n\s*\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: inline-flex; \}/));
+  check('Add a song offers a new song: in its head, and when a search finds nothing, titled with the search',
+    has(/'<button type="button" class="lbd-head-btn" data-sact="new-song"/) &&
+    has(/if \(!rows\.length && q\) box\.insertAdjacentHTML\('beforeend',\r?\n\s*'<button type="button" class="lbd-write" data-sact="new-song">/) &&
+    has(/\} else if \(act === 'new-song'\) \{\r?\n\s*var nsSec = st\.sectionId, nsAfter = st\.after, nsTitle = String\(st\.q \|\| ''\)\.trim\(\);\r?\n\s*_lbdCloseSheet\(\);\r?\n\s*_lbdNewSong\(nsSec, nsAfter, nsTitle\);/));
+  check('...the saved song goes into the section it was asked from, only while that order is in the builder',
+    has(/window\._lhcNewSongThen = function\(songId\) \{\r?\n\s*if \(!currentOrderData \|\| currentOrderData\.id !== orderId \|\| !_lbdIsActive\(\)\) \{/) &&
+    has(/if \(_lbdAddSong\(secId, lib, after\) !== false\) showToast\(/));
+  check('...the Add Song form hands it over once the library has it, taken before the form closes',
+    has(/var _then = window\._lhcNewSongThen;\r?\n\s*window\._lhcNewSongThen = null;/) &&
+    SRC.indexOf('var _then = window._lhcNewSongThen;') > 0 &&
+    SRC.indexOf('var _then = window._lhcNewSongThen;') < SRC.indexOf("closeModal('addSongModal');", SRC.indexOf('var _then = window._lhcNewSongThen;')) &&
+    has(/if \(typeof _then === 'function'\) \{ try \{ _then\(songData\.id\); \} catch \(e\) \{ console\.error\(e\); \} \}/));
+  check('...and a form closed without saving hands nothing over',
+    has(/if \(modalId === 'addSongModal'\) window\._lhcNewSongThen = null;/));
+  check('the pickers\' rows are told apart by a firmer border',
+    has(/\.lbd-result \{\r?\n\s*display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left;\r?\n\s*border: 2px solid #d6e4da;/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',

@@ -22353,6 +22353,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     if (modalId === 'addSongModal' && typeof _asDiscardUnsavedScan === 'function') {
       _asDiscardUnsavedScan();
     }
+    // Closed without saving: whatever wanted the new song does not get one.
+    if (modalId === 'addSongModal') window._lhcNewSongThen = null;
   }
 
   function generateOrderTitle(date) {
@@ -27025,6 +27027,11 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     if (typeof _asmRecordCorrection === 'function') _asmRecordCorrection(songData);
     showLoader(true);
     SBQ_SONGS.create(songData).then(function(result) {
+      // Opened from somewhere that wants the new song (the Liturgy Builder's
+      // Add a song): taken now, before closeModal forgets it, and handed over
+      // once the library has the song.
+      var _then = window._lhcNewSongThen;
+      window._lhcNewSongThen = null;
       showToast('Song added successfully!', 'success');
       // The song owns the photographs it kept; anything the scan uploaded
       // that it did NOT keep is a page removed from the form before saving,
@@ -27056,6 +27063,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
           if (window.WO.woPopupPopulateFilters) window.WO.woPopupPopulateFilters();
           if (window.WO.woPopupApplyFilters)   window.WO.woPopupApplyFilters();
         }
+        if (typeof _then === 'function') { try { _then(songData.id); } catch (e) { console.error(e); } }
       });
     }).catch(function(err) {
       console.error(err);
@@ -74968,7 +74976,7 @@ var WO = (function() {
   }
 
   // ── Pickers ─────────────────────────────────────────────────────────────
-  function _lbdSheet(titleHtml, bodyHtml, state) {
+  function _lbdSheet(titleHtml, bodyHtml, state, headHtml) {
     var el = $('lbdSheet');
     if (!el) {
       el = document.createElement('div');
@@ -74983,7 +74991,7 @@ var WO = (function() {
     }
     _lbdSheetState = state;
     el.innerHTML = '<div class="lbd-sheet" role="dialog" aria-modal="true">' +
-      '<div class="lbd-sheet-head"><div class="lbd-sheet-title">' + titleHtml + '</div>' +
+      '<div class="lbd-sheet-head"><div class="lbd-sheet-title">' + titleHtml + '</div>' + (headHtml || '') +
         '<button type="button" class="lbd-icon" data-sact="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
       '<div class="lbd-sheet-body">' + bodyHtml + '</div></div>';
     el.classList.add('show');
@@ -75029,6 +75037,10 @@ var WO = (function() {
         showToast('Added “' + (lit.title || 'liturgy') + '” to ' + _lbdSecTitle(st.sectionId), 'success');
         _lbdCloseSheet();
       }
+    } else if (act === 'new-song') {
+      var nsSec = st.sectionId, nsAfter = st.after, nsTitle = String(st.q || '').trim();
+      _lbdCloseSheet();
+      _lbdNewSong(nsSec, nsAfter, nsTitle);
     } else if (act === 'write-own') {
       var secId = st.sectionId, after = st.after;
       _lbdCloseSheet();
@@ -75116,8 +75128,36 @@ var WO = (function() {
   function _lbdOpenSongSheet(secId, after) {
     _lbdSheet('Add a song to <b>' + _lbdEsc(_lbdSecTitle(secId)) + '</b>',
       '<input type="search" class="lbd-input lbd-search" data-sfield="q" data-autofocus placeholder="Search songs by title, artist or theme" autocomplete="off">' +
-      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'song', sectionId: secId, q: '', after: after || '' });
+      '<div class="lbd-results" id="lbdResults"></div>', { kind: 'song', sectionId: secId, q: '', after: after || '' },
+      '<button type="button" class="lbd-head-btn" data-sact="new-song" title="A song the library does not have yet: add it, and it goes straight into this section">' +
+        '<i class="fa-solid fa-plus" aria-hidden="true"></i><span>New song</span></button>');
     _lbdRenderSongResults();
+  }
+
+  // A song the library does not have yet: the library's own Add Song form,
+  // and once it is saved the song goes into the section Add a song was opened
+  // on, after the part the cursor was on. Cancelling the form adds nothing
+  // (closeModal forgets the hand-over), and a song saved after this order or
+  // the builder was left goes only into the library.
+  function _lbdNewSong(secId, after, title) {
+    var orderId = currentOrderData && currentOrderData.id;
+    if (!orderId) return;
+    window._lhcNewSongThen = function(songId) {
+      if (!currentOrderData || currentOrderData.id !== orderId || !_lbdIsActive()) {
+        showToast('The song is in the library. Add it to the service from Add a song.', 'info');
+        return;
+      }
+      var lib = _lbdLibSong(songId);
+      if (!lib) { showToast('The song is in the library, but could not be added to this section', 'error'); return; }
+      if (_lbdAddSong(secId, lib, after) !== false) showToast('Added “' + (lib.title || 'song') + '” to ' + _lbdSecTitle(secId), 'success');
+    };
+    openNewSongFromWO();
+    var t = document.getElementById('newSongTitle');
+    if (t && title) {
+      t.value = title;
+      // As if typed: the form's "Title required" note listens for input.
+      try { t.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+    }
   }
 
   function _lbdRenderSongResults() {
@@ -75149,6 +75189,10 @@ var WO = (function() {
         '<span class="lbd-result-meta">' + _lbdEsc([s.artist, s.key ? 'Key ' + s.key : '', s.theme].filter(Boolean).join(' · ')) + '</span></span>' +
         badge + '<i class="fa-solid fa-plus lbd-result-add" aria-hidden="true"></i></button>';
     }).join('') || '<p class="lbd-empty">No songs match “' + _lbdEsc(st.q) + '”.</p>';
+    // Nothing found: offer it as a new song, its title what was searched for.
+    if (!rows.length && q) box.insertAdjacentHTML('beforeend',
+      '<button type="button" class="lbd-write" data-sact="new-song"><i class="fa-solid fa-plus"></i><span><b>Add “' + _lbdEsc(String(st.q).trim()) + '” as a new song</b>' +
+      '<small>Fill in the song, save it, and it goes straight into this section</small></span></button>');
   }
 
   function _lbdOpenLiturgySheet(secId, after, preset) {
@@ -106248,13 +106292,18 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .lbd-sheet-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px 18px; border-bottom: 1px solid #eef3ef; }
 .lbd-sheet-title { flex: 1; min-width: 0; font-size: 0.95rem; color: #1f2933; }
 .lbd-sheet-title b { color: #14532d; }
+.lbd-head-btn {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px;
+  border: 1px solid #22a957; border-radius: 999px; background: #22a957; color: #fff; font: 600 0.8rem/1 'Poppins', sans-serif; cursor: pointer;
+}
+.lbd-head-btn:hover { background: #188e44; border-color: #188e44; }
 .lbd-sheet-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; overflow-y: auto; }
 .lbd-sheet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lbd-sheet-row .lbd-input { flex: 1 1 220px; width: auto; }
-.lbd-results { display: flex; flex-direction: column; gap: 4px; }
+.lbd-results { display: flex; flex-direction: column; gap: 6px; }
 .lbd-result {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left;
-  border: 1px solid #eef3ef; border-radius: 10px; background: #fff; cursor: pointer; font-family: 'Poppins', sans-serif; color: inherit;
+  border: 2px solid #d6e4da; border-radius: 10px; background: #fff; cursor: pointer; font-family: 'Poppins', sans-serif; color: inherit;
 }
 .lbd-result:hover:not(:disabled) { background: #f0faf3; border-color: #bfe3cb; }
 .lbd-result:disabled { opacity: 0.55; cursor: default; }
