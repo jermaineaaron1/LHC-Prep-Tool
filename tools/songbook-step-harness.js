@@ -379,6 +379,27 @@ console.log('\nThe wiring');
   check('the builder\'s undo covers medleys', has(/medleys: JSON\.stringify\(\(o\.template && o\.template\.medleys\) \|\| \[\]\)/));
   check('the shared song list is built from the running order', has(/rows: _sbShareRows\(\),/) && has(/return _woUnits\(_sbmSongs\(\), md\)\.map/));
   check('a song taken out of the songbook comes off LCD Projection\'s schedule too', has(/_woLcdDropSong\(baseSongId\);/));
+  // Recording line by line: two boxes on every line -- its takes, then the
+  // microphone -- and the takes listed from the badge, each to play or delete.
+  check('every line\'s slot has a takes badge, then the microphone',
+    has(/'<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-line="' \+ id \+ '" ' \+\r?\n[^\n]*\r?\n\s*'<i class="fa-solid fa-list-ul" aria-hidden="true"><\/i><span class="vl-rec-n">0<\/span><\/button>' \+\r?\n\s*'<button type="button" class="vl-rec-btn" data-rec-act="toggle"/));
+  check('...shown on every line of the reading view, with no switch to turn them on',
+    has(/\.sbm-score \.vl-rec-list, \.sbm-score \.vl-rec-btn \{\r?\n\s*display: inline-flex;/) && has(/\.sbm-score \.vl-imp-btn, \.sbm-score \.vl-rec-takes \{ display: none; \}/) &&
+    !has(/sbm-score--mics/) && !has(/Line mics<\/button>/) && !has(/sbmLineMics/));
+  check('the badge counts the line\'s takes, and a list open on the line is painted with it',
+    has(/if \(cnt\) cnt\.textContent = String\(takes\.length\);/) && has(/if \(R\._list && R\._list\.lineId === String\(lineId\)\) R\.paintList\(\);/));
+  check('the badge opens the list; a take in it plays, or is deleted through the confirm',
+    has(/else if \(act === 'list'\) R\.openList\(root, btn\.getAttribute\('data-rec-line'\), btn\);/) &&
+    has(/else if \(act === 'play'\) R\.play\(L\.root, b\.getAttribute\('data-rec-id'\), b\.getAttribute\('data-rec-path'\)\);/) &&
+    has(/else if \(act === 'del'\) R\.del\(L\.root, b\.getAttribute\('data-rec-id'\), b\.getAttribute\('data-rec-path'\)\);/) &&
+    has(/else if \(act === 'import'\) R\.pickFile\(L\.root, L\.lineId\);/));
+  check('...and it follows a redraw, closes when its line has gone, and with the view',
+    has(/if \(R\._list\) setTimeout\(function\(\) \{ R\.paintList\(\); \}, 0\);/) && has(/if \(!a\) \{ R\.closeList\(\); return; \}/) &&
+    has(/stopPlayback: function\(root\) \{\r?\n\s*var R = window\.lhcVoiceRec;\r?\n\s*R\.closeList\(\);/));
+  check('...stays open while its delete is confirmed, and leaves Escape to the confirm',
+    has(/e\.target\.closest\('#customConfirmModal'\)/) && has(/if \(cm && cm\.classList\.contains\('show'\)\) return;/));
+  check('the list quotes the line\'s words without the chords a phone carries in them',
+    has(/wc\.querySelectorAll\('\.vl-w__c'\), function\(c\) \{ c\.parentNode\.removeChild\(c\); \}\);/));
 }
 
 console.log('\n' + pass + '/' + (pass + fail) + ' checks passed');

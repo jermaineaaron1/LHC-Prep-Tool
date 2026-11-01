@@ -159,7 +159,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      there or from the song's History in the song library -- and Share ›
      This song, a link that opens the book at that song (gotcha 46).
      Drawings are each drawer's own until shared; Layers says whose you see
-     (gotcha 50).
+     (gotcha 50). Every line of the choir score records on its own: at its
+     end a takes badge and a microphone, the badge listing that line's takes
+     to play or delete, with an audio file to add (gotcha 52).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1321,6 +1323,25 @@ the anon key -- verify as `postgres`, not as the app.
     is what offers "Save over" beside "Save as a new copy"; both read the
     row back before they report it. Until the migration is run the menu
     says so and nothing is saved.
+
+52. **A line's takes are a badge and a list, on every line.** In the
+    reading view each line of the choir score ends in two boxes
+    (`lhcVoiceLines._recSlot`): a badge with the line's count of takes
+    (`.vl-rec-list`, teal once it has one), then the microphone. The badge
+    opens `lhcVoiceRec.openList`, ONE line's takes, newest first, each to
+    play or delete (`R.del`, which asks first), and "Add an audio file"
+    (`R.pickFile`) -- so the import button and the inline take chips are
+    hidden there. Other views that draw the slot keep their chips and never
+    show the badge. The list lives on `<body>` at z-index 2400, over the
+    songbook (2200) and under the confirm (10001); it is a sheet from the
+    bottom under 640px wide. It is painted from the store with the badge
+    (`paint` calls `paintList`), so a take recorded, played or deleted
+    shows in both; a redraw makes a new badge and root, found again by the
+    line's id (`_listAnchor`), and the list closes when the line is gone,
+    with `stopPlayback`, on Escape (unless the confirm is up) and on a tap
+    elsewhere (the confirm is not elsewhere). A phone carries chords inside
+    the words (`.vl-w__c`), so the list quotes a copy without them. The
+    "Line mics" switch that once hid the microphones is gone.
 
 ## Quick Commands for Claude Code
 
