@@ -73,10 +73,37 @@ function check(label, ok, detail) {
   else { fail++; console.log('  FAIL  ' + label + (detail ? '\n        ' + detail : '')); }
 }
 
+// The app's own chord transposers, top level in the page: what moves a
+// chart into another key, and what decides which lines are chords.
+function extractTop(name) {
+  const startIdx = lines.findIndex(l => new RegExp('^function ' + name + '\\s*\\(').test(l));
+  if (startIdx < 0) throw new Error('top-level function not found: ' + name);
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return out.join('\n');
+  }
+  throw new Error('unbalanced braces while extracting: ' + name);
+}
+function extractVar(name) {
+  const l = lines.find(x => new RegExp('^var ' + name + ' = ').test(x));
+  if (!l) throw new Error('var not found: ' + name);
+  return l;
+}
+
 let T = null;
 try {
-  const names = ['_sbVerMarks', '_sbVerNorm', '_sbVerWordsOf', '_sbVerDrift', '_sbLinkWith', '_sbSongShareMessage'];
-  T = new Function(names.map(extractFn).join('\n') + '\nreturn {' + names.map(n => n + ':' + n).join(',') + '};')();
+  const vars = ['CHORD_NOTES', 'FLAT_TO_SHARP', 'CHORD_TOKEN_RE', 'SHARP_TO_FLAT', 'FLAT_KEY_ROOTS'].map(extractVar);
+  const top = ['isChordToken', 'isChordLineGlobal', 'transposeChord', 'transposeLine', '_keyDistance', '_spellChordsForKey',
+               '_transposeChordRowKeepingColumns', '_transposeChordLinesOnly'].map(extractTop);
+  const names = ['_sbVerMarks', '_sbVerNorm', '_sbVerWordsOf', '_sbVerDrift', '_sbLinkWith', '_sbSongShareMessage',
+                 '_sbVerSung', '_sbVerIsChordLine', '_sbVerHasChords', '_sbVerWordsAlone', '_sbVerMainOf', '_sbVerRebase'];
+  T = new Function(vars.join('\n') + '\n' + top.join('\n') + '\n' + names.map(extractFn).join('\n') +
+    '\nreturn {' + names.map(n => n + ':' + n).join(',') + '};')();
 } catch (e) {
   console.log('  (helpers not present: ' + e.message.split('\n')[0] + ')');
 }
@@ -124,6 +151,42 @@ if (T) {
   check("against Standard a moved key is", T._sbVerDrift({}, null, 3).key === true);
 }
 
+console.log("\nThis service's way made the song's main version");
+if (T) {
+  const chart = '[Verse 1]\nG       C       G\nAmazing grace how sweet the sound\nG              D\nThat saved a wretch like me';
+  const m = T._sbVerMainOf(chart, 2, 'G', 'G');
+  const ln = m.lyrics.split('\n');
+  check('the key is the one it is sung in', m.key === 'A', m.key);
+  check('the chords are written in that key, over the same columns', ln[1] === 'A       D       A' && ln[3] === 'A              E', JSON.stringify(ln));
+  check('the words, and the section, are left alone', ln[0] === '[Verse 1]' && ln[2] === 'Amazing grace how sweet the sound' && ln[4] === 'That saved a wretch like me');
+  check("the song's key moves by as much", m.moved === 2);
+  const same = T._sbVerMainOf(chart, 0, 'G', 'G');
+  check('in its own key nothing moves', same.lyrics === chart && same.key === 'G' && same.moved === 0);
+  check('steps as text read as numbers', T._sbVerMainOf(chart, '-2', 'G', 'G').key === 'F');
+  const down = T._sbVerMainOf(chart, -7, 'G', 'G');
+  check("a long way down is the short way up for the song's key", down.key === 'C' && down.moved === 5, JSON.stringify([down.key, down.moved]));
+  check('a song with no key keeps none, and its chords still move', T._sbVerMainOf('G\nHallelujah', 2, '', '').key === '' &&
+    T._sbVerMainOf('G\nHallelujah', 2, '', '').lyrics === 'A\nHallelujah');
+  check('"A mighty fortress" is a line of words, not of chords', T._sbVerMainOf('A mighty fortress is our God', 2, 'C', 'C').lyrics === 'A mighty fortress is our God');
+
+  // Another version of the song, written again from the new key: it must
+  // sound as it did, and a service singing it must not be told it changed.
+  const v = { id: 'v1', transpose_steps: -2, lyrics: chart, rich_lyrics: null };
+  const p = T._sbVerRebase(v, 2, 'A');
+  check('a version moved with its song has steps from the new key', p.transpose_steps === -4);
+  check('and its chords written from the new key', p.lyrics.split('\n')[1] === 'A       D       A');
+  check('so it sounds exactly as it did', T._sbVerSung(p.lyrics, p.transpose_steps) === T._sbVerSung(v.lyrics, v.transpose_steps));
+  check('no move is no change', JSON.stringify(T._sbVerRebase(v, 0, 'G')) === JSON.stringify({ transpose_steps: -2, lyrics: chart, rich_lyrics: null }));
+  const old = { customLyrics: chart };
+  const d1 = T._sbVerDrift(old, Object.assign({}, v, p), -2);
+  check('a service that chose it before the move sees no change', !d1.key && !d1.words, JSON.stringify(d1));
+  const d2 = T._sbVerDrift(old, Object.assign({}, v, p), 0);
+  check('but one that has since moved its key does, and only the key', d2.key && !d2.words, JSON.stringify(d2));
+  const d3 = T._sbVerDrift({ customLyrics: chart.replace('wretch', 'soul') }, Object.assign({}, v, p), 0);
+  check('and new words are new words, whatever the key', d3.words === true);
+  check('spelling is not a change: Bb is A#', T._sbVerSung('Bb  F\nla', 0) === T._sbVerSung('A#  F\nla', 0));
+}
+
 console.log('\nA link to one song, and the message that carries it');
 if (T) {
   check('a link without a query gains one', T._sbLinkWith('https://x.app/', 'sbSong', 'wo-song-1') === 'https://x.app/?sbSong=wo-song-1');
@@ -163,6 +226,16 @@ console.log('\nThe wiring');
   check('a link to one song opens the book at it',
     has(/window\.__DEEPLINK_SBSONG\s+= p\.get\('sbSong'\)/) && has(/localStorage\.setItem\('lhc_sbm_song_' \+ _deepSb\.replace\(\/\^\(order\|sb\)-\/, ''\), _deepSbSong\)/));
   check('versions are offered only once the database has them', has(/_sbVerOk = !rs\[0\]\.error && !rs\[1\]\.error;/));
+  check('a saved version is read back before it is reported as kept',
+    has(/return sup\.from\('song_versions'\)\.select\('id'\)\.eq\('id', v\.id\);/) && has(/throw new Error\('the database did not keep it'/));
+  check('making it the main version keeps the song as it was first, then writes only its words and key',
+    has(/keepRow = Object\.assign\(\{ song_id: base, name: keepName, made_from: null \}/) &&
+    has(/SBQ_SONGS\.updateFields\(base, \{ lyrics: m\.lyrics, key: m\.key, last_edited: nowIso \}\)/) &&
+    !has(/SBQ_SONGS\.update\(\{[^)]*m\.lyrics/));
+  check('and reads the song back, and tells the open orders', has(/sup\.from\('songs'\)\.select\('lyrics, key'\)\.eq\('id', base\)\.maybeSingle\(\)/) &&
+    has(/SBQ_SONGS\._announceSongChange\(base, m\.lyrics\);/));
+  check('the sheet lists the saved versions and offers it', has(/<span>Saved versions<\/span><span class="ver-head__n">/) &&
+    has(/onclick="WO\.sbVerMakeMain\(\)"/) && has(/sbVerMakeMain: sbVerMakeMain/));
   const mig = fs.existsSync(MIGRATION) ? MIGRATION : (fs.existsSync(MIGRATION_ALT) ? MIGRATION_ALT : null);
   const sql = mig ? fs.readFileSync(mig, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',

@@ -74,7 +74,8 @@ function load(names, prelude) {
 let T = null;
 try {
   T = load(['_woMedleyList', '_woRunWithMedleys', '_woUnits', '_woFlatUnits', '_woStepInSeq', '_woDropInSeq', '_woWriteSeq',
-            '_woInboxKey', '_sbShareMessage', '_lcType', 'soExtractYouTubeId', '_woAttachInboxItem', '_woDetachInboxItem']);
+            '_woInboxKey', '_sbShareMessage', '_lcType', 'soExtractYouTubeId', '_woAttachInboxItem', '_woDetachInboxItem',
+            '_woMedleysByLibId']);
 } catch (e) {
   console.log('  (helpers not present: ' + e.message.split('\n')[0] + ')');
 }
@@ -106,6 +107,49 @@ if (!T) {
     L([{ id: 'm1', songs: ['d', 'a'] }]) === '');
   check('a medley needs an id and a list', L([{ songs: ['a', 'b'] }, null, { id: 'm3' }]) === '');
   check('nothing stored, no medleys', L(undefined) === '' && L('junk') === '');
+}
+
+console.log('\nMedleys in a standalone songbook: kept by song, not by place');
+if (T) {
+  // A standalone songbook's entries are sbsong_<songId>_<place>; reordered
+  // and reopened, every place moves, so the medley must find its songs by
+  // the library id it keeps alongside.
+  const E = (lid, n) => ({ id: 'sbsong_' + lid + '_' + n, songId: lid, title: lid });
+  const R = (raw, songs) => T._woMedleysByLibId(raw, songs).map(m => m && (m.id + ':' + m.songs.join('+'))).join(' ');
+  const saved = [{ id: 'm1', songs: ['sbsong_A_1', 'sbsong_B_2'], songIds: ['A', 'B'] }];
+  check('read back onto the same entries while they hold the songs',
+    R(saved, [E('X', 0), E('A', 1), E('B', 2)]) === 'm1:sbsong_A_1+sbsong_B_2');
+  check('and onto their new places after a reorder renumbers them',
+    R(saved, [E('B', 0), E('X', 1), E('A', 2)]) === 'm1:sbsong_A_2+sbsong_B_0', R(saved, [E('B', 0), E('X', 1), E('A', 2)]));
+  check('an entry that now holds another song is not taken for it',
+    R(saved, [E('A', 0), E('X', 1), E('B', 2)]) === 'm1:sbsong_A_0+sbsong_B_2');
+  check('a song in the book twice: the medley keeps the copy it had',
+    R([{ id: 'm1', songs: ['sbsong_A_2', 'sbsong_B_3'], songIds: ['A', 'B'] }], [E('A', 0), E('X', 1), E('A', 2), E('B', 3)]) === 'm1:sbsong_A_2+sbsong_B_3');
+  check('two medleys never share an entry',
+    R([{ id: 'm1', songs: [], songIds: ['A', 'B'] }, { id: 'm2', songs: [], songIds: ['A', 'C'] }], [E('A', 0), E('B', 1), E('C', 2)]) === 'm1:sbsong_A_0+sbsong_B_1 m2:sbsong_C_2');
+  check('a song taken out of the book leaves the medley (the list then drops a medley of one)',
+    R(saved, [E('A', 0), E('X', 1)]) === 'm1:sbsong_A_0');
+  check("an order's medleys, kept by entry, pass through untouched",
+    R([{ id: 'm9', songs: ['wo-1', 'wo-2'] }], [E('A', 0)]) === 'm9:wo-1+wo-2');
+}
+
+console.log("\nA songbook named for a service is that service's songbook");
+{
+  let named = null;
+  try { named = load(['_sbServiceOrderNamed'])._sbServiceOrderNamed; } catch (e) { check('the name check exists', false, e.message.split('\n')[0]); }
+  if (named) {
+    const orders = [{ id: 'o1', title: 'Service - Nov 1', serviceDate: 'Nov 1', createdDate: '2026-10-27T00:00:00Z' },
+                    { id: 'o2', title: 'Service - 27 Sep 2026', serviceDate: 'Sep 27' },
+                    { id: 'o3', title: 'Service - Jan 3', serviceDate: 'Jan 3', createdDate: '2026-12-20T00:00:00Z' }];
+    const n = x => { const o = named(x, orders); return o ? o.id : null; };
+    check('"Service 1 Nov 2026" is the 1 Nov service (the one under My Songbooks)', n('Service 1 Nov 2026') === 'o1');
+    check('so is its own title, and any spelling of the date', n('Service - Nov 1') === 'o1' && n('service nov 1') === 'o1' && n('Service 27 September 2026') === 'o2');
+    check('a year the order is not in is another service', n('Service 27 Sep 2025') === null && n('Service 1 Nov 2027') === null);
+    check('an order made in December for January still counts', n('Service 3 Jan 2027') === 'o3');
+    check('an event is an event even on a service day', n('Christmas Day 2026') === null && n('Worship Songs 2026') === null);
+    check('a name that only starts like it is not it', n('Serviceman Nov 1') === null && n('Service Sunday') === null);
+    check('no orders, no service', named('Service 1 Nov 2026', []) === null && named('Service 1 Nov 2026', undefined) === null);
+  }
 }
 
 console.log('\nThe running order: a medley stands together');
@@ -249,6 +293,22 @@ console.log('\nThe wiring');
     has(/close\(\);\r?\n(?:\s*\/\/.*\r?\n)*\s*window\._pendingShareItem = item;/));
   check('the Songbook lists its songs with their medleys together',
     has(/return _woRunWithMedleys\(sorted, _woMedleys\(\)\);/));
+  check('a standalone songbook reads its medleys by song',
+    has(/if \(_sbStandaloneId\) raw = _woMedleysByLibId\(raw, songOrderSections\);/) &&
+    has(/m\.songIds = m\.songs\.map\(function\(x\) \{ var e = _lbdSong\(x\); return \(e && e\.songId\) \|\| ''; \}\);/));
+  check('and changes them without the builder, with an undo of its own',
+    has(/if \(_sbStandaloneId\) \{\r?\n\s*var snap = \{ songs: songOrderSections\.slice\(\), medleys:/) &&
+    has(/return snap \? \{ action: 'Undo', duration: 6000, onAction: function\(\) \{ _woSbUndoTo\(snap\); \} \} : undefined;/));
+  check('and keeps them, in its pseudo-order\'s template',
+    has(/\(Array\.isArray\(tpl\.medleys\) && tpl\.medleys\.length > 0\) \|\|/));
+  check('a standalone songbook takes the editor over from the order before it, or every save it made was refused',
+    has(/_lbdSetActive\(false\);\r?\n\s*var _woc = \$\('woWorshipOrder'\);\r?\n\s*if \(_woc\) \{ _woc\.innerHTML = ''; _woc\.removeAttribute\('data-order-id'\); \}\r?\n\s*_sbStandaloneId = sbId;/) &&
+    has(/_autoSaveTimer = setTimeout\(function\(\) \{\r?\n\s*_autoSaveTimer = null;/));
+  check('a new songbook named for a service with an order points to that service\'s songbook instead',
+    has(/var svc = _sbServiceOrderNamed\(name, \(typeof STATE !== 'undefined' && STATE\.orders\) \|\| \[\]\);/));
+  check('every book has the Medley tile, and nothing hides medleys from a standalone one',
+    has(/so every book -- a service's or\r?\n\s*\/\/ a standalone one -- has the medley tile in that place\./) &&
+    !has(/_sbStandaloneId \? \[\] : _woMedleys\(\)/) && !has(/if \(!currentOrderData \|\| _sbStandaloneId\) return;\r?\n\s*var md = _woMedleyOf/));
   check('the songbook\'s drag moves a medley as one', has(/var next = _woDropInSeq\(songOrderSections, fromId, toId,/));
   check('the builder\'s Move up and Move down step past a medley as one', has(/var next = _woStepInSeq\(inSec, songId, delta, _woMedleys\(\)\);/));
   check('the builder\'s undo covers medleys', has(/medleys: JSON\.stringify\(\(o\.template && o\.template\.medleys\) \|\| \[\]\)/));

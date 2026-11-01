@@ -1436,8 +1436,13 @@ const CASES = [
     s => s.replace("return (marks || []).filter(function(m) { return m && (m.version_id || '') === v; });",
                    'return (marks || []).filter(function(m) { return !!m; });')],
   ['songbook-versions-harness.js', 're-drawn words are not a change from the version',
-    s => s.replace('      words = _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) || _sbVerNorm(w.rich) !== _sbVerNorm(v.rich_lyrics);',
-                   '      words = _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics);')],
+    s => s.replace('      return { key: false, words: _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) || _sbVerNorm(w.rich) !== _sbVerNorm(v.rich_lyrics) };',
+                   '      return { key: false, words: _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) };')],
+  // A version written again from its song's new key has other steps and the
+  // same sound; without the sung comparison every service on it is told it
+  // has changed key and words, and offered an Update that would undo the move.
+  ['songbook-versions-harness.js', 'a version moved with its song reads as changed',
+    s => s.replace('    if (_sbVerHasChords(w.lyrics) && _sbVerSung(w.lyrics, s) === _sbVerSung(v.lyrics, sv)) return { key: false, words: false };\r\n', '')],
   // Going back to Standard writes versionId '' over the stored one; a sync
   // that only ever writes a version keeps the old one, and the reload undoes
   // the choice.
