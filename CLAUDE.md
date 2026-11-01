@@ -51,8 +51,8 @@ The ones worth knowing; there are around 29 in all.
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
 | `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3). Written by TWO recorders -- see gotcha 21 |
-| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard |
-| `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. See gotcha 46 |
+| `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard. `owner`, `owner_name`, `part`, `shared` (`migrations/2026-11-01_song_marks_layers.sql`) say whose it is and whether others see it; see gotcha 50 |
+| `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. `made_from = 'library'` marks an EARLIER MAIN VERSION: the library song as it was before it was replaced, restorable. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
@@ -138,8 +138,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
      **medleys** (gotchas 42-44; a standalone songbook has them too), and
      **versions** of a song -- a key, words and drawings a later service can
      sing it with, listed as "Saved versions", and "Make this the song's main
-     version", which writes the service's way into the song library -- and
-     Share › This song, a link that opens the book at that song (gotcha 46).
+     version", which writes the service's way into the song library and
+     keeps what it replaced under "Earlier main versions", each restorable
+     there or from the song's History in the song library -- and Share ›
+     This song, a link that opens the book at that song (gotcha 46).
+     Drawings are each drawer's own until shared; Layers says whose you see
+     (gotcha 50).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1045,6 +1049,17 @@ the anon key -- verify as `postgres`, not as the app.
     keeps `songIds`, the library ids, and `_woMedleys` reads it back through
     `_woMedleysByLibId`. With no builder and no sections, `_woSongsChange`
     changes its songs directly and keeps its own undo (`_woSbUndo`).
+    In the Songbook's reading view a medley is READ STRAIGHT THROUGH: under
+    the song in front come the rest of its medley (`_sbmFollowHtml`), each
+    with its words and chords in its sung key (or its choir parts), its
+    drawings and an Open button. Those cards carry `data-sbm-song`, and
+    everything about drawings goes by the card's song (`_sbmCardSong`):
+    painting, a new stroke, the rubber (`cv.__base`), and undo, which takes
+    the last stroke on any song on the page (`_sbmShownBases`). A drawing
+    group never spans two cards. The reading view's lyric styles therefore
+    target `:is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics)` -- one id
+    alone left the following songs in a proportional face with their chords
+    bunched -- and the chord fit runs over every `.sbm-lyrics`.
 
 43. **A shared link reaches an order through `window._pendingShareItem`.**
     Every route sets it and then loads the order -- the share picker's Send,
@@ -1137,6 +1152,20 @@ the anon key -- verify as `postgres`, not as the app.
     changed. Drawn remarks stay where they are; services already planned
     keep their own copies; the toast's Undo puts back the song, the
     versions and the copy, and deletes the kept one.
+    What was replaced is an EARLIER MAIN VERSION: a version with
+    `made_from = 'library'` (`_sbVerIsKept`; one kept before that marker
+    is known by its "Before <date>" name), named "Main until <date, time>",
+    and the oldest is labelled the Original. The Versions sheet lists them
+    apart from a service's saved versions, and the song library's History
+    panel lists them too (`WO.sbVerKept`), each with a Restore
+    (`sbVerRestoreMain`). A restore goes through the same
+    `_sbVerReplaceMain` as Make main -- so the song as it is is kept first
+    and a restore can itself be restored -- but changes no service's copy.
+    Both ask through `_sbVerAsk` (the songbook's labelled confirm, raised
+    to z-index 10002 so it shows over the song library's preview). A
+    version's key is always shown counted from the SONG's key
+    (`_sbVerKeyText(song, steps, libKey)`), never the copy's, which a
+    Make main may have moved.
 
 47. **In the WO module, text and attributes take `escapeHtml`; a value in
     an inline handler's JS string takes `escapeJsArg`.** WO has its own
@@ -1194,6 +1223,34 @@ the anon key -- verify as `postgres`, not as the app.
     order is already a songbook, and the hand-made copy sat empty under
     My Songbooks beside it.
 
+50. **A drawing is its drawer's own until they share it.** `song_marks`
+    carries `owner` (the drawer's name folded to lower case and single
+    spaces, `_sbmMeKey`), `owner_name`, `part` (leader, vocals, guitar,
+    bass, keys, drums, other) and `shared`. Nobody signs in, so "who" is a
+    name and a part kept on the device (`lhc_sbm_me`), asked the first time
+    someone draws ("Who's drawing?", the roster's names to pick from); the
+    same name on another device is the same person. So "only me" is about
+    what is SHOWN, not a lock: every row is still readable through the
+    page's key. To make the same spelling easy on a new device, the name
+    list offers first the names already drawing in the book (read from
+    the database for every song in it, `_sbmBookDrawers`), and a name with
+    drawings is welcomed back with their count. A new stroke is private unless the draw bar's switch says
+    Everyone (`lhc_sb_pen.share`). Every view reads drawings through
+    `_sbmMarksOf`, which now filters by `_sbmLayerKeep`: your own (unless
+    you hid them), anybody's shared ones (unless you hid that person),
+    and the rows from before layers, which have no owner and stay
+    everybody's ("Earlier drawings", hidden as one under the key '').
+    What a reader hides is theirs alone (`lhc_sbm_layers_hidden`). The
+    Layers sheet shares or makes private all of one's drawings on the song
+    (on the version the service sings). The rubber takes only one's own
+    strokes and the earlier ones. Copies of drawings made for a new version
+    read the UNFILTERED list (`_sbVerMarks`) and keep whose each is, and a
+    delete's count is of all of them. Print and the Phone view show what
+    the reader is shown. None of this applies until
+    `migrations/2026-11-01_song_marks_layers.sql` has been run
+    (`_sbmLayersOk`, probed with the marks): till then every drawing is
+    everybody's and there is no Layers chip.
+    `tools/songbook-layers-harness.js` checks the rules.
 
 51. **A service liturgy is a whole liturgy, used whole.** The builder saves
     an order's sections, its non-song items (liturgy, readings, text), its

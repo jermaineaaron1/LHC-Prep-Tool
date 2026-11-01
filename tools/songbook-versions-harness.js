@@ -187,6 +187,22 @@ if (T) {
   check('spelling is not a change: Bb is A#', T._sbVerSung('Bb  F\nla', 0) === T._sbVerSung('A#  F\nla', 0));
 }
 
+console.log('\nThe song as it was, kept and restorable');
+{
+  let K = null;
+  try {
+    K = new Function(extractFn('_sbVerIsKept') + '\n' + extractFn('_sbVerKeepName') + '\nreturn { kept: _sbVerIsKept, name: _sbVerKeepName };')();
+  } catch (e) { check('the keeping helpers exist', false, e.message.split('\n')[0]); }
+  if (K) {
+    check('a version made from the library is the song as it was', K.kept({ made_from: 'library', name: 'Main until 1 Nov 2026, 17:42' }) === true);
+    check('so is one kept before that was marked, by its name', K.kept({ made_from: null, name: 'Before 1 Nov 2026' }) === true);
+    check('a service\'s own version is not', K.kept({ made_from: 'order_1', name: 'Before the sermon' }) === false &&
+      K.kept({ made_from: null, name: 'Jubilee in E' }) === false && K.kept(null) === false);
+    const n = K.name(new Date(2026, 10, 1, 17, 42));
+    check('it is named for when the song stopped being that', /^Main until 1 Nov 2026, 17:42$/.test(n), n);
+  }
+}
+
 console.log('\nA link to one song, and the message that carries it');
 if (T) {
   check('a link without a query gains one', T._sbLinkWith('https://x.app/', 'sbSong', 'wo-song-1') === 'https://x.app/?sbSong=wo-song-1');
@@ -229,11 +245,19 @@ console.log('\nThe wiring');
   check('a saved version is read back before it is reported as kept',
     has(/return sup\.from\('song_versions'\)\.select\('id'\)\.eq\('id', v\.id\);/) && has(/throw new Error\('the database did not keep it'/));
   check('making it the main version keeps the song as it was first, then writes only its words and key',
-    has(/keepRow = Object\.assign\(\{ song_id: base, name: keepName, made_from: null \}/) &&
+    has(/keepRow = Object\.assign\(\{ song_id: base, name: keepName, made_from: 'library' \}/) &&
     has(/SBQ_SONGS\.updateFields\(base, \{ lyrics: m\.lyrics, key: m\.key, last_edited: nowIso \}\)/) &&
     !has(/SBQ_SONGS\.update\(\{[^)]*m\.lyrics/));
   check('and reads the song back, and tells the open orders', has(/sup\.from\('songs'\)\.select\('lyrics, key'\)\.eq\('id', base\)\.maybeSingle\(\)/) &&
     has(/SBQ_SONGS\._announceSongChange\(base, m\.lyrics\);/));
+  check('a restore writes the earlier version back the same way, keeping the song as it is first',
+    has(/function sbVerRestoreMain\(base, vid\) \{/) && has(/var m = _sbVerMainOf\(v\.lyrics, v\.transpose_steps, lib\.key, lib\.key\);/) &&
+    (SRC.match(/_sbVerReplaceMain\(base, lib, m\)\.then/g) || []).length === 2);
+  check('the earlier main versions are listed apart, each with a Restore, the oldest the original',
+    has(/<span>Earlier main versions<\/span>/) && has(/onclick="WO\.sbVerRestoreMain\(/) && has(/ver-pill--orig">Original</) &&
+    has(/sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept/));
+  check('and in the song library\'s History too', has(/WO\.sbVerRestoreMain\(song\.id, btn\.getAttribute\('data-restore-vid'\)\)/) &&
+    has(/var keptPromise = \(window\.WO && WO\.sbVerKept\) \? WO\.sbVerKept\(song\.id\)/));
   check('the sheet lists the saved versions and offers it', has(/<span>Saved versions<\/span><span class="ver-head__n">/) &&
     has(/onclick="WO\.sbVerMakeMain\(\)"/) && has(/sbVerMakeMain: sbVerMakeMain/));
   const mig = fs.existsSync(MIGRATION) ? MIGRATION : (fs.existsSync(MIGRATION_ALT) ? MIGRATION_ALT : null);
