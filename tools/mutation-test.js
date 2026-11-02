@@ -506,7 +506,7 @@ const CASES = [
   // Undo on one song deleted the last stroke of another, in the database,
   // with nothing on the screen to show for it.
   ['songbook-marks-harness.js', 'undo deletes the last stroke of any song',
-    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (D.undo[i].base === base) break;",
+    s => s.replace("    for (i = D.undo.length - 1; i >= 0; i--) if (shown.indexOf(D.undo[i].base) !== -1) break;",
                    "    i = D.undo.length - 1;")],
   ['songbook-marks-harness.js', 'undo skips a stroke that is still saving',
     s => s.replace("    if (String(u.local.id).indexOf('tmp_') === 0) {", "    if (false) {")],
@@ -865,7 +865,7 @@ const CASES = [
           .replace(/(\.wo-lyrics-chord-line,\s*#songbookLiveModal\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')
           // the reading view's own grid, on every screen but the upright phone
-          .replace(/(\.wo-lyrics-chord-line,\s*#sbmRoot #sbmLyrics:not\(\.sbm-lyrics--nochords\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
+          .replace(/(\.wo-lyrics-chord-line,\s*#sbmRoot :is\(#sbmLyrics, \.sbm-card--follow > \.sbm-lyrics\):not\(\.sbm-lyrics--nochords\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
                    '$1.wo-lyrics-NOPE$2')],
 
   ['blank-slide-harness.js', 'the write boundary stops pruning',
@@ -1389,6 +1389,77 @@ const CASES = [
                    '      _layout.push(Object.assign({}, {}, {')],
   ['liturgy-builder-harness.js', 'an item listed twice is collected twice again',
     s => s.replace('    return _woUniqueItems(items);', '    return items;')],
+
+  // The Songbook as step 2: medleys, the inbox, the shared song list. Each
+  // of these leaves a page that looks right until the second medley, the
+  // second copy of a shared link, or the first move past a medley.
+  //
+  // A song held by two medleys at once: which one it is sung in depends on
+  // which the reader happens to look at.
+  ['songbook-step-harness.js', 'a song is in two medleys at once',
+    s => s.replace('if (byId[id] && !used[id] && ids.indexOf(id) === -1) ids.push(id);',
+                   'if (byId[id] && ids.indexOf(id) === -1) ids.push(id);')],
+  ['songbook-step-harness.js', "a medley's songs are listed apart",
+    s => s.replace('      if (!m) { out.push(s); if (s.id) done[s.id] = true; return; }',
+                   '      if (true) { out.push(s); if (s.id) done[s.id] = true; return; }')],
+  ['songbook-step-harness.js', 'a song cannot change places inside its medley',
+    s => s.replace('    if (u.md && u.items[ii + delta]) {', '    if (false) {')],
+  ['songbook-step-harness.js', 'a dropped song splits the medley it lands in',
+    s => s.replace('    var units = _woUnits(seq, medleys);\r\n    var loc = function(id) {',
+                   '    var units = _woUnits(seq, []);\r\n    var loc = function(id) {')],
+  // The localStorage copy of a share carries the address as it was typed;
+  // untrimmed, the link a phone shared arrives in the inbox twice.
+  ['songbook-step-harness.js', 'a shared link and its stored copy are two items',
+    s => s.replace("    if (it.url) return 'u:' + String(it.url).trim();", "    if (it.url) return 'u:' + String(it.url);")],
+  ['songbook-step-harness.js', "moving a link takes the song's own copy with it",
+    s => s.replace('return !(d && d.url === url && d.inboxId === item.id);',
+                   'return !(d && d.url === url && (!d.inboxId || d.inboxId === item.id));')],
+  ['songbook-step-harness.js', 'the shared list loses its section headings',
+    s => s.replace("        if (r.section) lines.push('*' + r.section + '*');", '')],
+  // close() clears the pending share; set before it, the link never arrived.
+  ['songbook-step-harness.js', "the share picker's Send drops the link it sends",
+    s => s.replace(/(close\(\);\r?\n(?:\s*\/\/.*\r?\n)*)\s*window\._pendingShareItem = item;\r?\n/, '$1')],
+  ['songbook-step-harness.js', 'the Songbook lists a medley apart',
+    s => s.replace('    return _woRunWithMedleys(sorted, _woMedleys());', '    return sorted;')],
+  ['songbook-step-harness.js', "the builder's undo forgets medleys",
+    s => s.replace('      medleys: JSON.stringify((o.template && o.template.medleys) || []),\r\n', '')],
+
+  // Versions of a song. Each of these puts one service's drawings on
+  // another's song, or loses which version a service sings, on a page that
+  // looks right until the next service opens the song.
+  ['songbook-versions-harness.js', 'the card paints every version\'s remarks',
+    s => s.replace('    var marks = _sbmMarksOf(base, song && song.versionId), memo = {}, laid = [], byAnchor = {};',
+                   '    var marks = _sbmMarks[base] || [], memo = {}, laid = [], byAnchor = {};')],
+  ['songbook-versions-harness.js', 'a remark is drawn on Standard whatever the service sings',
+    s => s.replace('    if (_sbVerOk === true) mark.version_id = song.versionId || null;\r\n', '')],
+  ['songbook-versions-harness.js', 'a version shows remarks that are not its own',
+    s => s.replace("return (marks || []).filter(function(m) { return m && (m.version_id || '') === v; });",
+                   'return (marks || []).filter(function(m) { return !!m; });')],
+  ['songbook-versions-harness.js', 're-drawn words are not a change from the version',
+    s => s.replace('      return { key: false, words: _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) || _sbVerNorm(w.rich) !== _sbVerNorm(v.rich_lyrics) };',
+                   '      return { key: false, words: _sbVerNorm(w.lyrics) !== _sbVerNorm(v.lyrics) };')],
+  // A version written again from its song's new key has other steps and the
+  // same sound; without the sung comparison every service on it is told it
+  // has changed key and words, and offered an Update that would undo the move.
+  // Somebody's own drawing is theirs until they share it; without the
+  // check every private stroke on a chord sheet is drawn for everyone.
+  ['songbook-layers-harness.js', 'other people\'s private drawings are shown',
+    s => s.replace('    if (owner && m.shared === false) return false;\r\n', '')],
+  ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
+    s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
+  ['songbook-versions-harness.js', 'a version moved with its song reads as changed',
+    s => s.replace('    if (_sbVerHasChords(w.lyrics) && _sbVerSung(w.lyrics, s) === _sbVerSung(v.lyrics, sv)) return { key: false, words: false };\r\n', '')],
+  // Going back to Standard writes versionId '' over the stored one; a sync
+  // that only ever writes a version keeps the old one, and the reload undoes
+  // the choice.
+  ['songbook-versions-harness.js', 'going back to Standard is never synced',
+    s => s.replace("(snap.versionId || (base.customizations && base.customizations.versionId)) ? { versionId: snap.versionId || '' } : {}",
+                   'snap.versionId ? { versionId: snap.versionId } : {}')],
+  ['songbook-versions-harness.js', 'a link to one song opens the book at its index',
+    s => s.replace("        try { localStorage.setItem('lhc_sbm_song_' + _deepSb.replace(/^(order|sb)-/, ''), _deepSbSong); } catch (e) {}\r\n", '')],
+  ['songbook-versions-harness.js', 'a shared link gains a second question mark',
+    s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
+                   "    return url + '?' + key + '=' + encodeURIComponent(val);")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

@@ -229,6 +229,7 @@ function undoBox(current) {
   const env = { deleted: [], _sbmDraw: { undo: [] }, _sbmMarks: {}, cur: current };
   const f = new Function('env', 'var _sbmDraw = env._sbmDraw, _sbmMarks = env._sbmMarks;' +
     'function _sbmSong() { return { songId: env.cur }; } function _sbBaseSongId(s) { return s.songId; }' +
+    'function _sbmShownBases() { return [env.cur].concat(env.under || []); }' +
     'function _sbmMarkDelete(id, base) { env.deleted.push(id + "@" + base); }' +
     'function _sbmGroupStillDrawn() {} function _sbmMarksPaintAll() {} function _sbmPhoneMarks() {}\n' +
     undoSrc + '\nreturn sbmDrawUndo;');
@@ -247,6 +248,11 @@ const saving = U.add('tmp_1', 'A'); U.add('a0', 'A');
 U._sbmDraw.undo.reverse();   // the stroke still saving is the newest
 U.undo();
 check('a stroke still being saved is taken back, not the one before it', [U.deleted, saving.undone, U._sbmMarks.A.map(m => m.id)], [[], true, ['a0']]);
+U = undoBox('A');
+U.under = ['C'];   // a medley's next song, drawn under this one
+U.add('a1', 'A'); U.add('c1', 'C'); U.add('x1', 'X');
+U.undo();
+check('  a stroke on the medley song under this one is on the page, and goes first', U.deleted, ['c1@C']);
 
 console.log('\na chord line and its words share one row');
 // 40 characters of a 9.6px-wide monospace, on a phone card 339px wide.

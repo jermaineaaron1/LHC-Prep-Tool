@@ -450,6 +450,207 @@ console.log('\nThe Liturgy Builder');
     JSON.stringify(r.slides.map(s => s.content)) === JSON.stringify(plan.map(s => s.text)) && r.content.subLabel === 'Gospel Reading');
 })();
 
+// ---------------------------------------------------------------------------
+// Names written into attributes are escaped, quotes included
+// ---------------------------------------------------------------------------
+// The WO module's own escapeHtml goes through textContent / innerHTML, which
+// escapes & < > and leaves quotes alone. The builder writes song, liturgy and
+// section names into title=, aria-label= and value=, so _lbdEsc must escape
+// the quotes itself: a name with a double quote in it otherwise ends the
+// attribute and starts one of its own.
+console.log('[escaping]');
+(function() {
+  let esc;
+  try {
+    const fn = extractFn('_lbdEsc');
+    // As the WO module's escapeHtml behaves: & < > only.
+    const woEscape = 'function escapeHtml(t) { if (!t) return ""; return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }';
+    esc = new Function(woEscape + fn + ' return _lbdEsc;')();
+  } catch (e) {
+    check('the builder has its own escaper', false, e.message.split('\n')[0]);
+    return;
+  }
+  const hostile = 'Hymn" onmouseover="alert(1)" x=\'';
+  const out = esc(hostile);
+  check('a double quote in a name cannot end an attribute', out.indexOf('"') === -1, out);
+  check('nor can a single quote', out.indexOf("'") === -1, out);
+  check('and the name still reads the same once parsed',
+    out.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&') === hostile, out);
+  check('nothing at all comes out as nothing', esc(null) === '' && esc(undefined) === '');
+})();
+
+// ---------------------------------------------------------------------------
+// This date's readings, put in by themselves when an upcoming order opens.
+// A reading on the roster and not in the order goes in; one the order has
+// had from the roster, and somebody took out, stays out -- unless the roster
+// now names a different passage. A past order is never touched.
+// ---------------------------------------------------------------------------
+console.log('\n[readings put in by themselves]');
+(function() {
+  let R;
+  try {
+    R = new Function(buildModule([
+      extractFn('_monthFromDateStr'), extractFn('_yearForOrder'), extractFn('_woReadingsNoted'),
+      extractFn('_woReadingsTodo'), extractFn('_woNoteReadings'), extractFn('_woOrderIsUpcoming')
+    ], "var _RFR_MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']; var STATE = { rosterYear: 2026 };"))();
+  } catch (e) {
+    check('the automatic readings helpers exist', false, e.message.split('\n')[0]);
+    return;
+  }
+  const W = ['reading1', 'psalm', 'reading2', 'gospel'].map(r => ({ role: r, label: r }));
+  const roster = { reading1: 'Revelation 7:9-17', psalm: 'Psalm 34:1-10, 22', reading2: '1 John 3:1-3', gospel: 'Matthew 5:1-12' };
+  const roles = l => l.map(w => w.role).join(',');
+  check('an order with none gets all four', roles(R._woReadingsTodo(W, roster, {}, {})) === 'reading1,psalm,reading2,gospel');
+  check('an order missing one gets that one', roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, {})) === 'reading2');
+  check('one the roster does not have is not asked for', roles(R._woReadingsTodo(W, { gospel: 'John 1:1-5' }, {}, {})) === 'gospel');
+  check('one the order had from the roster and somebody took out stays out',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: '1 John 3:1-3' })) === '');
+  check('the same reference however it is spaced or cased is the same reading',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: ' 1 john  3:1-3 ' })) === '');
+  check('but a different passage on the roster is a new reading, and goes in',
+    roles(R._woReadingsTodo(W, roster, { reading1: 1, psalm: 1, gospel: 1 }, { reading2: '1 John 4:7-12' })) === 'reading2');
+  const o = { template: { rosterReadings: { psalm: 'Psalm 1' } } };
+  R._woNoteReadings(o, [{ role: 'reading1' }, { role: 'gospel' }], roster);
+  check('what an order had is noted on it, by role, with the roster\'s reference, keeping what was noted before',
+    JSON.stringify(o.template.rosterReadings) === JSON.stringify({ psalm: 'Psalm 1', reading1: 'Revelation 7:9-17', gospel: 'Matthew 5:1-12' }),
+    JSON.stringify(o.template.rosterReadings));
+  const bare = {}; R._woNoteReadings(bare, [{ role: 'psalm' }], roster);
+  check('an order with no template yet gets one', bare.template && bare.template.rosterReadings.psalm === 'Psalm 34:1-10, 22');
+  const now = new Date(2026, 10, 1, 15, 30);
+  check('a service today is upcoming, all day', R._woOrderIsUpcoming({ serviceDate: 'Nov 1', title: 'Service - Nov 1' }, now) === true);
+  check('next week is upcoming', R._woOrderIsUpcoming({ serviceDate: 'Nov 8', title: 'Service - 8 Nov 2026' }, now) === true);
+  check('last week is a record, not touched', R._woOrderIsUpcoming({ serviceDate: 'Oct 25', title: 'Service - 25 Oct 2026' }, now) === false);
+  check('the year in the title wins over the roster\'s', R._woOrderIsUpcoming({ serviceDate: 'Nov 8', title: 'Service - 8 Nov 2025' }, now) === false);
+  check('an order with no service date is left alone', R._woOrderIsUpcoming({ serviceDate: '', title: 'Christmas' }, now) === false &&
+    R._woOrderIsUpcoming({ serviceDate: 'TBC' }, now) === false);
+})();
+
+(function() {
+  const has = re => re.test(SRC);
+  check('opening the builder or LCD Projection puts them in',
+    has(/lbdRender\(\);\r?\n\s*_woAutoReadings\('liturgy'\);/) && has(/_lcdUpdateProgramBarrier\(\);\r?\n\s*_woAutoReadings\('service'\);/));
+  check('the builder\'s fill never edits the data under the LCD schedule (gotcha 35)',
+    has(/if \(_woLcdInPage\(\)\) return 0;\r?\n\s*var added = 0, labels = \[\];/));
+  check('and puts them in by itself only where the order has a place for readings',
+    has(/if \(opts\.auto && !secId\) return 0;/) && has(/var sid = _lbdScriptureSection\(!opts\.auto\);/));
+  check('the LCD\'s fill leaves out what was taken out, and notes what it dealt with',
+    has(/wanted = _woReadingsTodo\(wanted, byRole, null, _woReadingsNoted\(currentOrderData\)\);/) &&
+    has(/_woNoteReadings\(currentOrderData, dealt, byRole\);/));
+  check('a standalone songbook is never given readings', has(/if \(!o \|\| !o\.id \|\| _sbStandaloneId \|\| String\(o\.id\)\.indexOf\('standalone_'\) === 0\) return;/));
+})();
+
+// ---------------------------------------------------------------------------
+// Service liturgies: a whole liturgy kept for its occasion, used whole by a
+// later year's order of the same kind, and saved over or copied.
+// ---------------------------------------------------------------------------
+console.log('\n[service liturgies]');
+(function() {
+  let V;
+  try {
+    V = new Function(buildModule([extractFn('_woStripNum'), extractFn('_svlOccasionFor'), extractFn('_svlSnapshotOf'),
+      extractFn('_svlOutline'), extractFn('_svlCounts')]))();
+  } catch (e) {
+    check('the service liturgy helpers exist', false, e.message.split('\n')[0]);
+    return;
+  }
+  const occ = (d, t) => V._svlOccasionFor(d, t || 'traditional');
+  check('the Day of Pentecost is Pentecost', occ('Day of Pentecost') === 'pentecost' && occ('Pentecost Sunday') === 'pentecost');
+  check('a Sunday after Pentecost is an ordinary Sunday', occ('5th Sunday after Pentecost') === 'ordinary-traditional' &&
+    occ('3rd Sunday after Pentecost', 'contemporary') === 'ordinary-contemporary');
+  check('Holy Trinity is not Pentecost, and Easter\'s Sundays are Easter', occ('The Holy Trinity') === 'holy-trinity' && occ('2nd Sunday of Easter') === 'easter');
+  check('the days of Holy Week and Christmas are told apart', occ('Palm Sunday') === 'palm-sunday' && occ('Maundy Thursday') === 'maundy-thursday' &&
+    occ('Good Friday') === 'good-friday' && occ('Christmas Eve') === 'christmas-eve' && occ('Christmas Day') === 'christmas-day');
+  check('a day it does not know, or none, is the ordinary service of its kind', occ('All Saints Sunday') === 'ordinary-traditional' && occ('', 'contemporary') === 'ordinary-contemporary');
+
+  const order = {
+    sectionLayout: [{ id: 'wo-section-0', title: '1. Invocation' }, { id: 'wo-section-6', title: 'Scripture Readings', notes: 'Read slowly' }],
+    clearedSections: ['wo-section-3'],
+    allItems: [
+      { id: 'o__lit1', itemType: 'liturgy', sectionId: 'wo-section-0', title: 'Invocation', slides: [{ content: 'In the name of the Father' }] },
+      { id: 'o__lit1', itemType: 'liturgy', sectionId: 'wo-section-0', title: 'Invocation', slides: [] },
+      { id: 'o__sc1', itemType: 'scripture', sectionId: 'wo-section-6', title: 'Acts 2:1-21' },
+      { id: 'o__song1', itemType: 'song', title: 'kept apart' }
+    ],
+    template: { serviceNotes: 'Red paraments' }
+  };
+  const songs = [{ songId: 's1', title: 'Spirit of God', transposeSteps: '2', serviceSections: ['wo-section-6'], liturgistNotes: 'Verse 1 only' },
+                 { itemType: 'blank', songId: '' }, { title: 'no song id' }];
+  const snap = V._svlSnapshotOf(order, songs, s => s.serviceSections);
+  check('it keeps the sections, as they are, with their notes', snap.sectionLayout.length === 2 && snap.sectionLayout[1].notes === 'Read slowly' && snap.clearedSections[0] === 'wo-section-3');
+  check('and every liturgy and reading once, but no song item', snap.items.map(i => i.id).join(',') === 'o__lit1,o__sc1', snap.items.map(i => i.id).join(','));
+  check('the songs by library id, section and key, and nothing that is not a song', snap.songs.length === 1 &&
+    snap.songs[0].songId === 's1' && snap.songs[0].transposeSteps === 2 && snap.songs[0].sections[0] === 'wo-section-6' && snap.songs[0].liturgistNotes === 'Verse 1 only');
+  check('and the notes for the whole service', snap.serviceNotes === 'Red paraments');
+  check('a copy, not the order\'s own objects', snap.items[0] !== order.allItems[0] && snap.sectionLayout[0] !== order.sectionLayout[0]);
+  const out = V._svlOutline(snap);
+  check('its outline: each section, without its number, and what is in it', out[0].title === 'Invocation' && out[0].items[0].kind === 'liturgy' &&
+    out[1].items.map(x => x.kind + ':' + x.title).join(',') === 'reading:Acts 2:1-21,song:Spirit of God', JSON.stringify(out));
+  const c = V._svlCounts(snap);
+  check('and its counts', c.sections === 2 && c.liturgy === 1 && c.readings === 1 && c.songs === 1);
+  check('an empty or broken one is nothing, not a crash', V._svlOutline(null).length === 0 && V._svlCounts(undefined).sections === 0);
+})();
+
+(function() {
+  const has = re => re.test(SRC);
+  check('using one replaces the order\'s liturgy as one undoable change, each item with an id of this order',
+    has(/var ok = _lbdChange\(function\(\) \{\r?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/) &&
+    has(/\.map\(function\(it\) \{ it\.id = _lbdPfx\(\) \+ 'svl_' \+ _lbdUid\(\); return it; \}\);/));
+  check('its readings and songs come only when asked; else this date\'s readings come from the roster, in the same undo step',
+    has(/filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/) && has(/if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/) &&
+    has(/if \(n && _lbdUndoStack\.length === mark \+ 1\) _lbdUndoStack\.splice\(mark, 1\);/));
+  check('only by an order of the kind it was made for', has(/if \(\(r\.order_type \|\| 'traditional'\) !== _svlOrderType\(\)\) \{ showToast\('That liturgy was made for another kind of service'/));
+  check('the order remembers where its liturgy came from, and undo forgets it with the rest',
+    has(/currentOrderData\.template\.serviceLiturgy = \{ id: r\.id, title: r\.title, occasion: r\.occasion_id, year: r\.year \};/) &&
+    has(/svl: JSON\.stringify\(\(o\.template && o\.template\.serviceLiturgy\) \|\| null\),/) && has(/if \(svl\) currentOrderData\.template\.serviceLiturgy = svl; else delete currentOrderData\.template\.serviceLiturgy;/));
+  check('saving over the one it came from, or as a copy, and read back before it is reported',
+    has(/\? sup\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', from\.id\)\.select\(\) : sup\.from\('service_liturgies'\)\.insert\(row\)\.select\(\);/) &&
+    has(/return sup\.from\('service_liturgies'\)\.select\('id'\)\.eq\('id', saved\.id\)/));
+  check('the occasions are the Liturgy page\'s own', has(/getOccasions: function\(\) \{ return OCCASIONS\.map\(/));
+  check('it is offered as Save / Load in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('menu-svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'/) &&
+    has(/\['svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'\]/) && has(/label: 'Save \/ Load: this liturgy, or one from another year'/));
+  check('Add to Order starts closed, and an old saved "open" does not count',
+    has(/var _lbdLibOn = false;/) && has(/if \(typeof p\.lib === 'boolean' && p\.libV === 2\) _lbdLibOn = p\.lib;/));
+  check('Liturgy holds what the Liturgies menu did, and that menu is gone',
+    has(/case 'ins-liturgy': _lbdOpenLitMenu\(btn\); break;/) && !has(/b\('menu-liturgies'/));
+  check('Shift+Enter: a new slide is not tidied away while the cursor is in it',
+    has(/if \(_lbdIsActive\(\) && !_lbdFocusIn\(c\.item\)\) _lbdDropEmptySlides\(c\.item\);/));
+  check('and in a text slide the words after the cursor go on to a new one',
+    has(/if \(e\.key === 'Enter' && f === 'content-text' && \(e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey\)\) \{/) && has(/function _lbdBreakText\(el\) \{/));
+  check('on a touch screen Enter is the slide break, before it can become a new line',
+    has(/window\.matchMedia\('\(hover: none\) and \(pointer: coarse\)'\)\.matches/) &&
+    has(/if \(e\.key === 'Enter' && !e\.ctrlKey && !e\.metaKey && !e\.altKey && _lbdTouchKeys\(\)\) \{\r?\n\s*e\.preventDefault\(\);\r?\n\s*_lbdKeyDoneAt = Date\.now\(\);\r?\n\s*if \(e\.shiftKey\) _lbdNewLineAtCaret\(\);\r?\n\s*else if \(f === 'slide'\) _lbdBreakAt\(el\);\r?\n\s*else _lbdBreakText\(el\);/) &&
+    SRC.indexOf("_lbdTouchKeys()) {") < SRC.indexOf("if (e.key === 'Enter' && f === 'slide' && !e.altKey) { e.preventDefault(); _lbdLineBreak(); return; }"));
+  check('...and an Android keyboard\'s Enter and Backspace, which keydown cannot read, are caught as they would act, never twice',
+    has(/host\.addEventListener\('beforeinput', _lbdOnBeforeInput\);/) &&
+    has(/if \(Date\.now\(\) - _lbdKeyDoneAt < 400\) \{ e\.preventDefault\(\); return; \}/) &&
+    has(/if \(it === 'insertParagraph'\) \{\r?\n\s*e\.preventDefault\(\);\r?\n\s*if \(f === 'slide'\) _lbdBreakAt\(el\); else _lbdBreakText\(el\);/) &&
+    has(/if \(car && car\.collapsed && car\.start === 0 && c\.idx > 0\) \{ e\.preventDefault\(\); _lbdMergeAt\(c\.item, c\.idx\); \}/));
+  check('a New line key on the formatting bar and over the phone\'s keyboard, shown only on a touch screen',
+    has(/fb\('ins-line', /) && has(/kb\('ins-line', /) && has(/case 'ins-line': _lbdNewLineAtCaret\(\); break;/) &&
+    has(/\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: none; \}\r?\n@media \(hover: none\) and \(pointer: coarse\) \{\r?\n\s*\.lbw-fb\[data-act="ins-line"\], \.lbw-kb-b\[data-act="ins-line"\] \{ display: inline-flex; \}/));
+  check('Add a song offers a new song: in its head, and when a search finds nothing, titled with the search',
+    has(/'<button type="button" class="lbd-head-btn" data-sact="new-song"/) &&
+    has(/if \(!rows\.length && q\) box\.insertAdjacentHTML\('beforeend',\r?\n\s*'<button type="button" class="lbd-write" data-sact="new-song">/) &&
+    has(/\} else if \(act === 'new-song'\) \{\r?\n\s*var nsSec = st\.sectionId, nsAfter = st\.after, nsTitle = String\(st\.q \|\| ''\)\.trim\(\);\r?\n\s*_lbdCloseSheet\(\);\r?\n\s*_lbdNewSong\(nsSec, nsAfter, nsTitle\);/));
+  check('...the saved song goes into the section it was asked from, only while that order is in the builder',
+    has(/window\._lhcNewSongThen = function\(songId\) \{\r?\n\s*if \(!currentOrderData \|\| currentOrderData\.id !== orderId \|\| !_lbdIsActive\(\)\) \{/) &&
+    has(/if \(_lbdAddSong\(secId, lib, after\) !== false\) showToast\(/));
+  check('...the Add Song form hands it over once the library has it, taken before the form closes',
+    has(/var _then = window\._lhcNewSongThen;\r?\n\s*window\._lhcNewSongThen = null;/) &&
+    SRC.indexOf('var _then = window._lhcNewSongThen;') > 0 &&
+    SRC.indexOf('var _then = window._lhcNewSongThen;') < SRC.indexOf("closeModal('addSongModal');", SRC.indexOf('var _then = window._lhcNewSongThen;')) &&
+    has(/if \(typeof _then === 'function'\) \{ try \{ _then\(songData\.id\); \} catch \(e\) \{ console\.error\(e\); \} \}/));
+  check('...and a form closed without saving hands nothing over',
+    has(/if \(modalId === 'addSongModal'\) window\._lhcNewSongThen = null;/));
+  check('the pickers\' rows are told apart by a firmer border',
+    has(/\.lbd-result \{\r?\n\s*display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left;\r?\n\s*border: 2px solid #d6e4da;/));
+  const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
+  const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
+  check('the migration makes the table, readable through the app\'s key',
+    /create table if not exists public\.service_liturgies/.test(sql) && /occasion_id\s+text not null/.test(sql) && /data\s+jsonb not null/.test(sql) &&
+    /create policy "anon_all_service_liturgies"/.test(sql));
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {
