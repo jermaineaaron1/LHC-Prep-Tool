@@ -707,6 +707,20 @@ const CASES = [
     s => s.replace('    #songbookLiveModal .sb-badge-wrap { position:static !important; }',
                    '    #songbookLiveModal .sb-badge-wrap { position:relative !important; }')],
 
+  // What Browse online searches for: the song, its artist, and the word
+  // that turns a song into a chord sheet.
+  ['songbook-live-harness.js', 'the search forgets the word chords',
+    s => s.replace("            String((song && song.artist) || '').trim(), 'chords']",
+                   "            String((song && song.artist) || '').trim()]")],
+  ['songbook-live-harness.js', 'the search forgets the artist',
+    s => s.replace("    return [String((song && song.title) || '').trim(),\r\n            String((song && song.artist) || '').trim(), 'chords']",
+                   "    return [String((song && song.title) || '').trim(), 'chords']")],
+  ['songbook-live-harness.js', 'an absent artist leaves a gap in the search',
+    s => s.replace('      .filter(Boolean).join(\' \');', "      .join(' ');")],
+  ['songbook-live-harness.js', 'the box goes back to holding only the title',
+    s => s.replace("value=\"' + escapeHtml(_sbmFindQuery(song)) +",
+                   "value=\"' + escapeHtml(String(song.title || '').trim()) +")],
+
   // Getting to the songbooks, which live under seventy-two songs. The
   // branch that matters: on a phone the Songbooks TAB hides the
   // catalogue, so scrolling to a section it has hidden does nothing at

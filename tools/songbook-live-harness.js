@@ -172,6 +172,27 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
   check('the modal still goes through the same door',
     /sbShowAddLinkModal\(function\(url\) \{ _sbAddLinkToSong\(songId, url\); \}\);/.test(raw), true);
 
+  console.log('\nwhat Browse online searches for');
+  // The song, whoever wrote it, and the word that turns a song into a
+  // chord sheet. Put IN the box, not appended on the way out, so it can
+  // be read and changed before it is sent.
+  const Q = new Function(extract(/^  function _sbmFindQuery\(/, '_sbmFindQuery') +
+    '\nreturn _sbmFindQuery;')();
+  check('title, artist and the word chords',
+    Q({ title: 'Give Me Oil In My Lamp', artist: 'Traditional' }),
+    'Give Me Oil In My Lamp Traditional chords');
+  check('no artist, no empty gap', Q({ title: 'Silent Night' }), 'Silent Night chords');
+  check('an artist of spaces counts as none',
+    Q({ title: 'Silent Night', artist: '   ' }), 'Silent Night chords');
+  check('nothing at all still asks for chords', Q({}), 'chords');
+  check('the box is filled from it, not from the title',
+    /value="' \+ escapeHtml\(_sbmFindQuery\(song\)\) \+/.test(raw), true);
+  // One search, not four: the three site buttons were each a worse
+  // search than the web's.
+  check('there is one place to search',
+    /var _SBM_SEARCH = 'https:\/\/duckduckgo\.com\/\?q=';/.test(raw), true);
+  check('  and the site-by-site list is gone', /_SBM_FIND/.test(raw), false);
+
   console.log('\nand the app is never framed inside itself');
   // sbBuildProxyUrl built "<this app's own URL>?proxy=<the site>". Under
   // Apps Script that was a server that fetched the page; on Vercel it is

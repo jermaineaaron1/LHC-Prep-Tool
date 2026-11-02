@@ -53000,20 +53000,28 @@ var WO = (function() {
   // engine or tab site lets itself be framed (gotcha 43), so pretending
   // otherwise would just be a blank panel. The paste box is waiting
   // underneath for when you come back.
-  var _SBM_FIND = [
-    ['Ultimate Guitar', 'https://www.ultimate-guitar.com/search.php?search_type=title&value=', 'fa-guitar'],
-    ['Worship Together', 'https://www.worshiptogether.com/search/?q=', 'fa-church'],
-    ['Hymnary', 'https://hymnary.org/search?qu=', 'fa-book-open'],
-    ['The web', 'https://duckduckgo.com/?q=', 'fa-magnifying-glass']
-  ];
+  // One search, not four. The three site buttons that were here were a
+  // guess at where a song lives, and each was a worse search than the
+  // web's: Ultimate Guitar's own search wants the exact title, Hymnary
+  // holds hymns only, Worship Together only what it publishes. A web
+  // search reaches all three and everything else.
+  var _SBM_SEARCH = 'https://duckduckgo.com/?q=';
+
+  // What to search for: the song, whoever wrote it, and the word that
+  // turns a song into a chord sheet. Put IN the box rather than
+  // appended on the way out, so it can be read and changed first.
+  function _sbmFindQuery(song) {
+    return [String((song && song.title) || '').trim(),
+            String((song && song.artist) || '').trim(), 'chords']
+      .filter(Boolean).join(' ');
+  }
   var _SBM_NOTE = 'margin:8px 0 14px;font-size:.78rem;color:#64748b;line-height:1.45;';
 
   function sbmBrowse() {
     var song = _sbmSong(); if (!song) return;
-    var find = _SBM_FIND.map(function(f, n) {
-      return '<button class="sbm-btn" onclick="WO.sbmFind(' + n + ')">' +
-        '<i class="fa-solid ' + f[2] + '"></i>' + escapeHtml(f[0]) + '</button>';
-    }).join('');
+    var find = '<button class="sbm-btn sbm-btn--primary sbm-btn--block" onclick="WO.sbmFind()" ' +
+      'style="margin-top:8px;min-height:48px;font-size:.95rem;">' +
+      '<i class="fa-solid fa-globe" style="font-size:1.15rem;"></i>Search the web</button>';
 
     // Every saved link on this song -- which is every saved link anyone
     // else sees, because they live on the song and the song is in the
@@ -53035,23 +53043,52 @@ var WO = (function() {
 
     _sbmSheet('Browse online',
       '<div class="sbm-label"><i class="fa-solid fa-magnifying-glass"></i>Look for it</div>' +
-      '<input id="sbmFindQ" class="sbm-input" value="' + escapeHtml(String(song.title || '').trim()) +
+      '<input id="sbmFindQ" class="sbm-input" value="' + escapeHtml(_sbmFindQuery(song)) +
         '" placeholder="What are you looking for?">' +
-      '<div class="sbm-menu" style="margin-top:8px;">' + find + '</div>' +
-      '<p style="' + _SBM_NOTE + '">These open in a new tab. No search engine or tab site allows ' +
-        'itself to be shown inside another page, so copy the address you land on and paste it below.</p>' +
+      find +
+      '<p style="' + _SBM_NOTE + '">This opens in a new tab \u2014 no search engine lets itself be ' +
+        'shown inside another page. On a phone, Share the page you find straight back to this app ' +
+        'and it will offer to save it here. On a desk, copy the address and paste it below.</p>' +
       '<div class="sbm-label"><i class="fa-solid fa-link"></i>Save a link you found</div>' +
       '<input id="sbmSaveUrl" class="sbm-input" placeholder="Paste the address here">' +
+      '<button class="sbm-btn sbm-btn--block" style="margin-top:8px;" onclick="WO.sbmPasteFound()">' +
+        '<i class="fa-solid fa-clipboard"></i>Paste what you copied</button>' +
       '<button class="sbm-btn sbm-btn--primary sbm-btn--block" style="margin-top:8px;" onclick="WO.sbmBrowseSave()">' +
         '<i class="fa-solid fa-plus"></i>Save it for everyone</button>' +
       '<div class="sbm-label" style="margin-top:16px;"><i class="fa-solid fa-bookmark"></i>Saved links &middot; ' +
         res.length + '</div>' + list);
   }
 
-  function sbmFind(n) {
-    var f = _SBM_FIND[n]; if (!f) return;
+  function sbmFind() {
     var box = document.getElementById('sbmFindQ');
-    window.open(f[1] + encodeURIComponent(box ? String(box.value || '').trim() : ''), '_blank', 'noopener');
+    var q = box ? String(box.value || '').trim() : '';
+    window.open(_SBM_SEARCH + encodeURIComponent(q), '_blank', 'noopener');
+  }
+
+  // On a desk there is no share sheet to send a page back with, so the
+  // address has to be copied -- but pasting it need not be a hunt for
+  // the field. Reading the clipboard needs a gesture and the reader's
+  // permission; refused, it says so and the field still works.
+  function sbmPasteFound() {
+    var box = document.getElementById('sbmSaveUrl');
+    if (!box) return;
+    var nav = window.navigator;
+    if (!nav || !nav.clipboard || !nav.clipboard.readText) {
+      showToast('This browser will not hand over the clipboard \u2014 paste into the box instead', 'info');
+      box.focus(); return;
+    }
+    nav.clipboard.readText().then(function(t) {
+      var v = String(t || '').trim();
+      if (!v) { showToast('Nothing copied yet', 'info'); box.focus(); return; }
+      if (!/^https?:\/\//i.test(v) && !/^[\w-]+(\.[\w-]+)+\//.test(v)) {
+        showToast('What you copied is not a web address', 'error'); box.focus(); return;
+      }
+      box.value = v;
+      showToast('Pasted \u2014 press Save it for everyone', 'success');
+    }).catch(function() {
+      showToast('Could not read the clipboard \u2014 paste into the box instead', 'info');
+      box.focus();
+    });
   }
 
   function sbmBrowseSave() {
@@ -89114,6 +89151,7 @@ var WO = (function() {
     sbmShowEveryone: sbmShowEveryone, sbmLinkOpenCur: sbmLinkOpenCur,
     sbmShareAttach: sbmShareAttach,
     sbmBrowse: sbmBrowse, sbmFind: sbmFind, sbmBrowseSave: sbmBrowseSave,
+    sbmPasteFound: sbmPasteFound,
     sbmBrowseRemove: sbmBrowseRemove,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmInstRecord: sbmInstRecord,
