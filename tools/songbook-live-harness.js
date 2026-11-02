@@ -192,6 +192,19 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
   check('there is one place to search',
     /var _SBM_SEARCH = 'https:\/\/duckduckgo\.com\/\?q=';/.test(raw), true);
   check('  and the site-by-site list is gone', /_SBM_FIND/.test(raw), false);
+  // Found by looking at it on a phone, not by reading it. `.sbm-input`
+  // is sized for a flex ROW -- `flex: 1 1 auto; min-width: 0`, beside a
+  // button sharing the line. On a line of its OWN none of that applies
+  // and the box falls back to the browser's default input width: 209px
+  // under a 347px button, so the query the panel had just written was
+  // cut off at "Make Room (In Your Hea" and could be neither read nor
+  // edited. Every box in this sheet is on a line of its own, so every
+  // one of them must say so -- including the next one somebody adds.
+  const browseSrc = extract(/^  function sbmBrowse\(\) \{/, 'sbmBrowse');
+  const plainInputs = (browseSrc.match(/class="sbm-input(?!--|[\w-]* sbm-input--block)[^"]*"/g) || []);
+  check('every box in Browse online is laid out as a block', plainInputs, []);
+  check('  and that is what the class means',
+    /\.sbm-input--block \{ width: 100%; \}/.test(raw), true);
 
   console.log('\nand the app is never framed inside itself');
   // sbBuildProxyUrl built "<this app's own URL>?proxy=<the site>". Under

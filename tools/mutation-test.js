@@ -720,6 +720,14 @@ const CASES = [
   ['songbook-live-harness.js', 'the box goes back to holding only the title',
     s => s.replace("value=\"' + escapeHtml(_sbmFindQuery(song)) +",
                    "value=\"' + escapeHtml(String(song.title || '').trim()) +")],
+  // A box on a line of its own with only `.sbm-input` is 209px wide
+  // under a 347px button, so the query is cut off mid-word.
+  ['songbook-live-harness.js', 'the query box is laid out as a flex child again',
+    s => s.replace('<input id="sbmFindQ" class="sbm-input sbm-input--block"',
+                   '<input id="sbmFindQ" class="sbm-input"')],
+  ['songbook-live-harness.js', 'the block class stops meaning full width',
+    s => s.replace('.sbm-input--block { width: 100%; }',
+                   '.sbm-input--block { width: auto; }')],
 
   // Getting to the songbooks, which live under seventy-two songs. The
   // branch that matters: on a phone the Songbooks TAB hides the
