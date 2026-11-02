@@ -953,6 +953,43 @@ the anon key -- verify as `postgres`, not as the app.
     (`setTimeout 0`), or the redraw swallows the click that moved the
     cursor.
 
+42. **A new function in these IIFEs can silently steal an old one's
+    name.** `function foo(){}` twice in one scope is not an error in
+    JavaScript: the later declaration wins and every existing caller of
+    the first is rerouted to it. In a 113,000-line file that is easy to
+    do by accident -- a `_sbmLinkView` added for shared links was first
+    called `_sbmLinkFrame`, which was already the drawn remarks'
+    two-anchor helper, so remark links began being handed URLs.
+    `node --check` is happy with it and no harness covered that call, so
+    the suite stayed green. **Grep the name before you add a function.**
+    A mechanical check was tried and dropped: without real scope
+    analysis it cannot tell one IIFE's top level from another's, and it
+    reports 11 existing pairs (`sbIsChordLine`, `prevSlide`,
+    `updatePreview`...) that are almost certainly harmless.
+
+43. **A website cannot be shown inside the app unless it allows it.**
+    `_sbmLinkView(url)` is the one place that decides: YouTube and
+    Spotify by their embed address, Google documents and Drive through
+    `sbBuildEmbedUrl`, any PDF or Office file through Google's viewer,
+    an image as an image -- and **everything else as a card naming the
+    site that refused, with a button to open the tab**. Most sites
+    (Ultimate Guitar among them) send `X-Frame-Options`/`frame-ancestors`
+    and will never frame. `sbBuildProxyUrl` was the old answer and is
+    retired to `return null`: it built `<this app's own URL>?proxy=...`,
+    which under Apps Script was a server that fetched the page and on
+    Vercel is THIS APP, so the panel loaded a second songbook inside
+    itself. Framing a page that forbids it needs a server that fetches
+    it; there isn't one.
+
+44. **`sbm-live-<key>` carries two events, not one.** `changed` means
+    "go and look" (gotcha 32). `show` carries `{url, title, from}` and
+    every open book OPENS it -- except a screen that is projecting
+    (`_sbLiveFullscreen` or `_sbmPageView`), which gets a toast with an
+    Open action instead, because a panel across the words mid-verse is
+    the one place this must not barge in. The channel is
+    `broadcast: { self: false }`, so a sender never hears its own and
+    opens its copy directly.
+
 ## Quick Commands for Claude Code
 
 ```bash

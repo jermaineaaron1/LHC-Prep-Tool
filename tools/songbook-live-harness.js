@@ -93,6 +93,65 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
   check('  a probe that cannot tell reads everything, as before', await P.changed('o1'), true);
   check('another order is read in full on its first poll', await P.changed('o2'), true);
 
+  // -------------------------------------------------------------------
+  console.log('\nhow a shared link can be shown inside the app');
+  // The matrix, end to end: detectMediaType -> sbIsNativelyEmbeddable ->
+  // sbBuildEmbedUrl -> _sbmLinkFrame. Sliced together rather than stubbed,
+  // because the bug this replaces was a DISAGREEMENT between them.
+  const F = new Function('window',
+    extract(/^  function extractYoutubeId\(/, 'extractYoutubeId') + '\n' +
+    extract(/^  function detectMediaType\(/, 'detectMediaType') + '\n' +
+    extract(/^  function sbIsNativelyEmbeddable\(/, 'sbIsNativelyEmbeddable') + '\n' +
+    extract(/^  function sbBuildEmbedUrl\(/, 'sbBuildEmbedUrl') + '\n' +
+    extract(/^  function _sbmLinkView\(/, '_sbmLinkView') + '\n' +
+    'window.detectMediaType = detectMediaType;\n' +
+    'return _sbmLinkView;')({});
+
+  const mode = u => F(u).mode;
+  check('a YouTube link plays in the app', mode('https://youtu.be/dQw4w9WgXcQ'), 'embed');
+  check('  through its embed address',
+    /\/embed\//.test(F('https://youtu.be/dQw4w9WgXcQ').src), true);
+  check('a Spotify track plays in the app', mode('https://open.spotify.com/track/abc123'), 'embed');
+  check('a Google Doc opens in the app',
+    mode('https://docs.google.com/document/d/AbC_1/edit'), 'embed');
+  check('a Drive file opens in the app',
+    /\/preview$/.test(F('https://drive.google.com/file/d/AbC_1/view').src), true);
+  check('a PDF anywhere goes through a viewer that allows it',
+    /docs\.google\.com\/viewer/.test(F('https://example.org/sheet.pdf').src), true);
+  check('an image is just an image', mode('https://example.org/chart.png'), 'image');
+
+  // The link the question was actually about. It must NOT pretend.
+  const ug = F('https://tabs.ultimate-guitar.com/tab/x/y-123');
+  check('a site that refuses framing is offered as a link, not a frame', ug.mode, 'open');
+  check('  and it names the site that refused',
+    /tabs\.ultimate-guitar\.com/.test(ug.why), true);
+  check('nothing at all is still answerable', F('').mode, 'open');
+
+  console.log('\nand the app is never framed inside itself');
+  // sbBuildProxyUrl built "<this app's own URL>?proxy=<the site>". Under
+  // Apps Script that was a server that fetched the page; on Vercel it is
+  // THIS APP, so the panel loaded a second songbook inside itself. Every
+  // caller is `sbBuildProxyUrl(u) || <the embed it already had>`.
+  check('the proxy no longer builds an address',
+    /function sbBuildProxyUrl\(\) \{ return null; \}/.test(raw), true);
+  check('  and nothing points an iframe at our own origin',
+    /window\.location\.origin \+ window\.location\.pathname;[\s\S]{0,120}\?proxy=/.test(raw), false);
+
+  console.log('\nsharing a link with everyone');
+  check('the channel listens for one',
+    /\.on\('broadcast', \{ event: 'show' \}, function\(m\)/.test(raw), true);
+  check('  and there is a sender for it',
+    /_sbmLive\.channel\.send\(\{ type: 'broadcast', event: 'show',/.test(raw), true);
+  // A panel across the words mid-verse is the one place this must not
+  // barge in.
+  check('the projector is told, not covered',
+    /if \(!force && \(_sbLiveFullscreen \|\| _sbmPageView\)\) \{/.test(raw), true);
+  check('  with a way to open it when ready',
+    /actionLabel: 'Open',/.test(raw), true);
+  // A URL is somebody else's text and may hold a quote.
+  check('no URL is written into an onclick',
+    /onclick="WO\.sbmLinkOpenCur\(\)"/.test(raw), true);
+
   const failed = results.filter(r => !r).length;
   console.log('\n' + (failed ? failed + ' of ' + results.length + ' checks FAILED' : 'All ' + results.length + ' checks passed.'));
   process.exit(failed ? 1 : 0);

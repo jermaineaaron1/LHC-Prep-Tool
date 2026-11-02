@@ -49690,6 +49690,14 @@ var WO = (function() {
       try {
         _sbmLive.channel = sup.channel('sbm-live-' + key, { config: { broadcast: { self: false } } })
           .on('broadcast', { event: 'changed' }, function() { _sbmLiveCheck(false); })
+          // Somebody is showing the rest of us something. `self: false`
+          // above means the sender never hears its own, which is why it
+          // opens its own copy directly.
+          .on('broadcast', { event: 'show' }, function(m) {
+            var p = (m && m.payload) || {};
+            if (!p.url) return;
+            _sbmShowLink(p.url, p.title || '', p.from || '', p.by || '');
+          })
           .subscribe();
       } catch (e) { _sbmLive.channel = null; }
     }
@@ -49718,6 +49726,19 @@ var WO = (function() {
     clearTimeout(_sbmLiveAdoptT);
     _sbmLiveAdoptT = setTimeout(function() { if (_sbmLive) _sbmLiveCheck(true); }, 2500);
   }
+  // Put a link on every open copy of this book. Returns whether there
+  // was a channel to send it on -- not whether anyone heard, which
+  // without presence on this channel nobody can know.
+  function _sbmLiveShow(url, title, from) {
+    if (!_sbmLive || !_sbmLive.channel) return false;
+    try {
+      _sbmLive.channel.send({ type: 'broadcast', event: 'show',
+        payload: { url: String(url || ''), title: String(title || ''),
+                   from: String(from || ''), at: Date.now() } });
+      return true;
+    } catch (e) { return false; }
+  }
+
   function _sbmHash(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h); }
   function _sbmLiveFingerprint(ids) {
     var sup = window._supabase; if (!sup || !ids.length) return Promise.resolve(null);
@@ -50708,6 +50729,68 @@ var WO = (function() {
     _sbmSheet('More', html + '</div>');
   }
 
+  // How a link can be shown INSIDE the app:
+  //
+  //   embed   an iframe the site actually allows
+  //   image   an <img>
+  //   open    it cannot be framed, so say which site refused and offer
+  //           the tab
+  //
+  // The third case is the honest one and it is what was missing. A site
+  // that refuses framing used to be handed to sbBuildProxyUrl, which
+  // built "<this app's own URL>?proxy=<the site>". Under Apps Script
+  // that was a server that fetched the page; on Vercel it is this app,
+  // so the panel loaded a second copy of the songbook inside itself.
+  function _sbmLinkView(url) {
+    var u = String(url == null ? '' : url).trim();
+    if (!u) return { mode: 'open', src: '', why: '' };
+    var info = window.detectMediaType ? window.detectMediaType(u) : null;
+    // YouTube and Spotify carry their own embed address.
+    if (info && info.embedUrl) return { mode: 'embed', src: info.embedUrl, why: '' };
+    if (info && info.subtype === 'image') return { mode: 'image', src: u, why: '' };
+    // Google's own documents, and anything Google's viewer will render.
+    if (typeof sbIsNativelyEmbeddable === 'function' && sbIsNativelyEmbeddable(u)) {
+      return { mode: 'embed', src: (typeof sbBuildEmbedUrl === 'function' ? sbBuildEmbedUrl(u) : u), why: '' };
+    }
+    if (/[.](pdf|docx?|pptx?|xlsx?)([?#]|$)/i.test(u)) {
+      return { mode: 'embed',
+               src: 'https://docs.google.com/viewer?url=' + encodeURIComponent(u) + '&embedded=true', why: '' };
+    }
+    return { mode: 'open', src: u,
+      why: (u.replace(/^https?:\/\//, '').split('/')[0] || 'That site') +
+           ' does not allow itself to be shown inside another page.' };
+  }
+
+  // The link the open panel is showing. Held here rather than written
+  // into an onclick: a URL is somebody else's text and may hold a quote.
+  var _sbmLinkCur = '';
+  function sbmLinkOpenCur() { if (_sbmLinkCur) window.open(_sbmLinkCur, '_blank', 'noopener'); }
+
+  // The body of the panel for one link, shared by opening it here and by
+  // being shown one.
+  function _sbmLinkBody(url, title, extraHtml) {
+    var f = _sbmLinkView(url);
+    _sbmLinkCur = String(url == null ? '' : url);
+    var open = '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" ' +
+      'onclick="WO.sbmLinkOpenCur()">' +
+      '<i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>';
+    var body;
+    if (f.mode === 'image') {
+      body = '<img src="' + escapeHtml(f.src) + '" alt="" style="width:100%;border-radius:12px;">';
+    } else if (f.mode === 'embed') {
+      body = '<div class="sbm-embed" style="aspect-ratio:3/4;"><iframe src="' + escapeHtml(f.src) + '"></iframe></div>';
+    } else {
+      // No blank box. Say which site refused and why.
+      body = '<div class="sbm-card" style="text-align:center;padding:18px 14px;">' +
+        '<i class="fa-solid fa-up-right-from-square" style="font-size:1.6rem;color:#64748b;"></i>' +
+        '<div style="margin-top:8px;font-weight:700;color:#1e293b;word-break:break-all;">' +
+          escapeHtml(String(url).replace(/^https?:\/\//, '')) + '</div>' +
+        '<div style="margin-top:6px;font-size:.82rem;color:#64748b;line-height:1.45;">' +
+          escapeHtml(f.why) + '</div></div>';
+    }
+    return body + open + (extraHtml || '');
+  }
+
   function sbmResources() {
     var song = _sbmSong(); if (!song) return;
     var res = _sbmResources(song);
@@ -50720,12 +50803,44 @@ var WO = (function() {
         '<div class="sbm-res__thumb">' + thumb + '</div>' +
         '<div><span class="sbm-res__kind sbm-res__kind--' + r.kind + '"><i class="' + (icon.indexOf('fa-brands') === 0 ? icon : 'fa-solid ' + icon) + '"></i>' + kind + '</span>' +
           '<div class="sbm-res__title">' + escapeHtml(r.title) + '</div><div class="sbm-res__sub">' + escapeHtml(r.sub || '') + '</div></div>' +
+        '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmShowEveryone(' + i + ')" aria-label="Show this to everyone"><i class="fa-solid fa-bullhorn"></i></button>' +
         '<button class="sbm-res__more" onclick="event.stopPropagation();WO.sbmOpenExternal(' + i + ')" aria-label="Open in a new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></div>';
     }).join('') : '<p class="sbm-empty">Nothing attached to this song yet.</p>';
     html += '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAttachFile(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-paperclip"></i>Attach a file</button>' +
       '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbAddSongLink(\'' + escapeHtml(song.id) + '\')"><i class="fa-solid fa-link"></i>Add a link</button></div>';
     _sbmSheet('Attached resources (' + res.length + ')', html);
   }
+  // Put this link on everyone's screen, and on this one.
+  function sbmShowEveryone(i) {
+    var song = _sbmSong(); if (!song) return;
+    var r = _sbmResources(song)[i]; if (!r || !r.url) return;
+    var sent = _sbmLiveShow(r.url, r.title || '', song.title || '');
+    _sbmShowLink(r.url, r.title || '', song.title || '', '');
+    showToast(sent ? 'Sent to everyone with this songbook open'
+                   : 'Opened here \u2014 this songbook is not connected right now', 'success');
+  }
+
+  // Shown one. `from` is the song it belongs to, which may not be the
+  // song the reader is on.
+  function _sbmShowLink(url, title, from, by, force) {
+    // Never over the projector. A panel across the words mid-verse is
+    // the one place this must not barge in, so that screen is told
+    // quietly and opens it when it is ready.
+    if (!force && (_sbLiveFullscreen || _sbmPageView)) {
+      // A panel across the words mid-verse is the one place this must
+      // not barge in. Told, with the way in, and opened when ready.
+      showToast((from ? from + ': ' : '') + (title || 'A link') + ' is being shown', 'info', {
+        actionLabel: 'Open',
+        onAction: function() { _sbmShowLink(url, title, from, by, true); }
+      });
+      return;
+    }
+    _sbmSheet((title || 'Shared link') + (from ? ' \u00b7 ' + from : ''),
+      (by ? '<p class="sbm-hint" style="margin:0 0 8px;"><i class="fa-solid fa-bullhorn"></i> ' +
+            escapeHtml(by) + ' is showing this</p>' : '') +
+      _sbmLinkBody(url, title, ''));
+  }
+
   function sbmOpenExternal(i) {
     var song = _sbmSong(); if (!song) return;
     var r = _sbmResources(song)[i]; if (!r || !r.url) return;
@@ -50734,15 +50849,25 @@ var WO = (function() {
   function sbmOpenResource(i) {
     var song = _sbmSong(); if (!song) return;
     var r = _sbmResources(song)[i]; if (!r) return;
+    // Every kind gets the same footer. The three branches below each
+    // used to return early, so "Show everyone" reached generic links
+    // only -- and a YouTube video is the likeliest thing anyone wants
+    // to put on the others' screens.
+    var share = '<button class="sbm-btn sbm-btn--block" style="margin-top:8px;" onclick="WO.sbmShowEveryone(' + i + ')">' +
+      '<i class="fa-solid fa-bullhorn"></i>Show everyone</button>';
     if (r.kind === 'pdf' && typeof sbmOpenPdf === 'function') { sbmOpenPdf(r); return; }
     if (r.ytId) {
-      _sbmSheet(r.title, '<div class="sbm-embed"><iframe src="https://www.youtube.com/embed/' + escapeHtml(r.ytId) + '?rel=0&autoplay=1" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>');
+      _sbmLinkCur = r.url || '';
+      _sbmSheet(r.title, '<div class="sbm-embed"><iframe src="https://www.youtube.com/embed/' + escapeHtml(r.ytId) + '?rel=0&autoplay=1" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>' +
+        (r.url ? '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmLinkOpenCur()"><i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>' : '') +
+        share);
       return;
     }
-    if (r.kind === 'img') { _sbmSheet(r.title, '<img src="' + escapeHtml(r.url) + '" alt="" style="width:100%;border-radius:12px;">'); return; }
-    var emb = (typeof sbBuildEmbedUrl === 'function') ? sbBuildEmbedUrl(r.url) : r.url;
-    _sbmSheet(r.title, '<div class="sbm-embed" style="aspect-ratio:3/4;"><iframe src="' + escapeHtml(emb) + '"></iframe></div>' +
-      '<button class="sbm-btn sbm-btn--block" style="margin-top:10px;" onclick="WO.sbmOpenExternal(' + i + ')"><i class="fa-solid fa-arrow-up-right-from-square"></i>Open in a new tab</button>');
+    if (r.kind === 'img') {
+      _sbmSheet(r.title, '<img src="' + escapeHtml(r.url) + '" alt="" style="width:100%;border-radius:12px;">' + share);
+      return;
+    }
+    _sbmSheet(r.title, _sbmLinkBody(r.url, r.title, share));
   }
 
   // ---- paint ----
@@ -64962,13 +65087,21 @@ var WO = (function() {
   // 661 — Build a GAS-proxy URL for external websites that block iframe embedding.
   // GAS fetches the page server-side (bypassing X-Frame-Options) and returns it
   // from the same origin as this web app, so the browser never sees the restriction.
-  function sbBuildProxyUrl(url) {
-    // Already a Google/YouTube embed — no proxy needed
-    if (/google\.com|youtube\.com|youtu\.be|spotify\.com/i.test(url)) return null;
-    // Get the base GAS webapp URL (strip query + hash)
-    var gasBase = window.location.origin + window.location.pathname;
-    return gasBase + '?proxy=' + encodeURIComponent(url);
-  }
+  // Retired, and returning null on purpose: every caller is
+  // `sbBuildProxyUrl(u) || <the embed it already had>`, so null is the
+  // fallback they were written for.
+  //
+  // It used to build "<this app's own URL>?proxy=<the site>". Under
+  // Apps Script that address was a server that fetched the page and
+  // returned it from our own origin, which is what got round the site's
+  // refusal to be framed. On Vercel that address is THIS APP, so a
+  // panel asked to show a site that blocks framing loaded a second copy
+  // of the whole songbook inside itself.
+  //
+  // Showing a page that forbids it needs a server that fetches it.
+  // Until there is one, _sbmLinkView says which site refused and
+  // offers the tab, which is worth more than a recursive panel.
+  function sbBuildProxyUrl() { return null; }
 
   // Returns true for URLs that embed natively without a proxy
   function sbIsNativelyEmbeddable(url) {
@@ -83579,6 +83712,7 @@ var WO = (function() {
     sbmView: sbmView, sbmPart: sbmPart, sbmRecord: sbmRecord, sbmEdit: sbmEdit, sbmPageView: sbmPageView,
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
+    sbmShowEveryone: sbmShowEveryone, sbmLinkOpenCur: sbmLinkOpenCur,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmLineMics: sbmLineMics,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
