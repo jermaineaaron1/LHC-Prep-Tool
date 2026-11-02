@@ -127,6 +127,51 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
     /tabs\.ultimate-guitar\.com/.test(ug.why), true);
   check('nothing at all is still answerable', F('').mode, 'open');
 
+  console.log('\nwhere a saved link goes');
+  // Browse online saves through the SAME function the Add-a-link modal
+  // saves through, because the decision is three-way -- media to
+  // customYoutube, a document to customDocs, an ordinary site to
+  // sbLinks -- and a second copy of it would drift from the first.
+  // Extracted from the modal callback, so this is the live routing.
+  const A = new Function('window', 'document', 'songOrderSections', 'detectMediaType',
+    'sbDomainLabel', '$', 'buildSongMediaArea', 'updateQuickList', 'renderSongbookLive',
+    'sbAutoSave', 'sbToggleSongLink', 'setTimeout',
+    extract(/^  function _sbAddLinkToSong\(/, '_sbAddLinkToSong') +
+    '\nreturn _sbAddLinkToSong;');
+
+  // It reads window.detectMediaType, not a bare one -- so the classifier
+  // goes on the window it is handed. Passed as a plain argument first,
+  // every link routed to sbLinks and four of these checks failed, which
+  // is the stub being wrong rather than the app.
+  const dm = new Function('url',
+    extract(/^  function extractYoutubeId\(/, 'extractYoutubeId') + '\n' +
+    extract(/^  function detectMediaType\(/, 'detectMediaType') + '\nreturn detectMediaType(url);');
+
+  const route = (url) => {
+    const song = { id: 's1', title: 'A song' };
+    A({ detectMediaType: dm }, { getElementById: () => null }, [song], dm,
+      (u) => String(u).replace(/^https?:\/\//, '').split('/')[0],
+      () => null, () => '', () => {}, () => {}, () => {}, () => {}, () => {})('s1', url);
+    return { yt: (song.customYoutube || []).length, docs: (song.customDocs || []).length,
+             links: (song.sbLinks || []).length };
+  };
+
+  check('a YouTube link is filed as media', route('https://youtu.be/abc'), { yt: 1, docs: 0, links: 0 });
+  check('a Spotify link is filed as media',
+    route('https://open.spotify.com/track/abc123'), { yt: 1, docs: 0, links: 0 });
+  check('a Google Doc is filed as a document',
+    route('https://docs.google.com/document/d/A1/edit'), { yt: 0, docs: 1, links: 0 });
+  check('a PDF is filed as a document',
+    route('https://example.org/chart.pdf'), { yt: 0, docs: 1, links: 0 });
+  // The one the Browse panel exists for.
+  check('an ordinary site is filed as a link',
+    route('https://tabs.ultimate-guitar.com/tab/x/y-123'), { yt: 0, docs: 0, links: 1 });
+  check('an address typed without https still saves',
+    route('tabs.ultimate-guitar.com/tab/x/y'), { yt: 0, docs: 0, links: 1 });
+  check('nothing typed saves nothing', route(''), { yt: 0, docs: 0, links: 0 });
+  check('the modal still goes through the same door',
+    /sbShowAddLinkModal\(function\(url\) \{ _sbAddLinkToSong\(songId, url\); \}\);/.test(raw), true);
+
   console.log('\nand the app is never framed inside itself');
   // sbBuildProxyUrl built "<this app's own URL>?proxy=<the site>". Under
   // Apps Script that was a server that fetched the page; on Vercel it is

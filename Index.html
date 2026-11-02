@@ -52271,7 +52271,7 @@ var WO = (function() {
       return;
     }
     _sbmSheet((title || 'Shared link') + (from ? ' \u00b7 ' + from : ''),
-      (by ? '<p class="sbm-hint" style="margin:0 0 8px;"><i class="fa-solid fa-bullhorn"></i> ' +
+      (by ? '<p style="' + _SBM_NOTE + '"><i class="fa-solid fa-bullhorn"></i> ' +
             escapeHtml(by) + ' is showing this</p>' : '') +
       _sbmLinkBody(url, title, ''));
   }
@@ -52896,6 +52896,85 @@ var WO = (function() {
     showToast('The medley is broken up; its songs stay in the service', 'info', _woUndoOpts());
   }
 
+  // ---- Browse online -----------------------------------------------
+  //
+  // Going looking, saving what you find, and seeing what everyone else
+  // saved, in one place. The search buttons open a real tab: no search
+  // engine or tab site lets itself be framed (gotcha 43), so pretending
+  // otherwise would just be a blank panel. The paste box is waiting
+  // underneath for when you come back.
+  var _SBM_FIND = [
+    ['Ultimate Guitar', 'https://www.ultimate-guitar.com/search.php?search_type=title&value=', 'fa-guitar'],
+    ['Worship Together', 'https://www.worshiptogether.com/search/?q=', 'fa-church'],
+    ['Hymnary', 'https://hymnary.org/search?qu=', 'fa-book-open'],
+    ['The web', 'https://duckduckgo.com/?q=', 'fa-magnifying-glass']
+  ];
+  var _SBM_NOTE = 'margin:8px 0 14px;font-size:.78rem;color:#64748b;line-height:1.45;';
+
+  function sbmBrowse() {
+    var song = _sbmSong(); if (!song) return;
+    var find = _SBM_FIND.map(function(f, n) {
+      return '<button class="sbm-btn" onclick="WO.sbmFind(' + n + ')">' +
+        '<i class="fa-solid ' + f[2] + '"></i>' + escapeHtml(f[0]) + '</button>';
+    }).join('');
+
+    // Every saved link on this song -- which is every saved link anyone
+    // else sees, because they live on the song and the song is in the
+    // database. Indices are _sbmResources' own, so opening, showing and
+    // removing all go through the functions that already do those.
+    var res = _sbmResources(song).map(function(r, i) { r._i = i; return r; })
+      .filter(function(r) { return r.url && /^https?:/i.test(r.url); });
+    var list = res.length ? res.map(function(r) {
+      return '<div class="sbm-res sbm-res--acts">' +
+        '<div class="sbm-res__thumb"><i class="fa-solid fa-link"></i></div>' +
+        '<div><div class="sbm-res__title">' + escapeHtml(r.title || r.url) + '</div>' +
+          '<div class="sbm-res__sub">' + escapeHtml(r.sub || '') + '</div></div>' +
+        '<div class="sbm-res__acts">' +
+          '<button class="sbm-res__more" onclick="WO.sbmOpenResource(' + r._i + ')" aria-label="Look at it"><i class="fa-solid fa-eye"></i></button>' +
+          '<button class="sbm-res__more" onclick="WO.sbmShowEveryone(' + r._i + ')" aria-label="Show this to everyone"><i class="fa-solid fa-bullhorn"></i></button>' +
+          (r.src ? '<button class="sbm-res__more" onclick="WO.sbmBrowseRemove(' + r._i + ')" aria-label="Remove this link"><i class="fa-solid fa-xmark"></i></button>' : '') +
+        '</div></div>';
+    }).join('') : '<p class="sbm-empty">No links saved for this song yet.</p>';
+
+    _sbmSheet('Browse online',
+      '<div class="sbm-label"><i class="fa-solid fa-magnifying-glass"></i>Look for it</div>' +
+      '<input id="sbmFindQ" class="sbm-input" value="' + escapeHtml(String(song.title || '').trim()) +
+        '" placeholder="What are you looking for?">' +
+      '<div class="sbm-menu" style="margin-top:8px;">' + find + '</div>' +
+      '<p style="' + _SBM_NOTE + '">These open in a new tab. No search engine or tab site allows ' +
+        'itself to be shown inside another page, so copy the address you land on and paste it below.</p>' +
+      '<div class="sbm-label"><i class="fa-solid fa-link"></i>Save a link you found</div>' +
+      '<input id="sbmSaveUrl" class="sbm-input" placeholder="Paste the address here">' +
+      '<button class="sbm-btn sbm-btn--primary sbm-btn--block" style="margin-top:8px;" onclick="WO.sbmBrowseSave()">' +
+        '<i class="fa-solid fa-plus"></i>Save it for everyone</button>' +
+      '<div class="sbm-label" style="margin-top:16px;"><i class="fa-solid fa-bookmark"></i>Saved links &middot; ' +
+        res.length + '</div>' + list);
+  }
+
+  function sbmFind(n) {
+    var f = _SBM_FIND[n]; if (!f) return;
+    var box = document.getElementById('sbmFindQ');
+    window.open(f[1] + encodeURIComponent(box ? String(box.value || '').trim() : ''), '_blank', 'noopener');
+  }
+
+  function sbmBrowseSave() {
+    var song = _sbmSong(); if (!song) return;
+    var box = document.getElementById('sbmSaveUrl');
+    var url = box ? String(box.value || '').trim() : '';
+    if (!url) { showToast('Paste an address first', 'error'); return; }
+    _sbAddLinkToSong(song.id, url);
+    // It is on the song, so everyone has it. Nudged as well, so they see
+    // it without waiting for the next poll.
+    if (typeof _sbmLiveSend === 'function') _sbmLiveSend();
+    showToast('Saved \u2014 everyone with this songbook has it now', 'success');
+    setTimeout(function() { if (_sbmSong()) sbmBrowse(); }, 400);
+  }
+
+  function sbmBrowseRemove(i) {
+    sbmResRemove(i);
+    setTimeout(function() { if (_sbmSong()) sbmBrowse(); }, 400);
+  }
+
   function sbmOpenExternal(i) {
     var song = _sbmSong(); if (!song) return;
     var r = _sbmResources(song)[i]; if (!r || !r.url) return;
@@ -53286,6 +53365,7 @@ var WO = (function() {
       '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
+      '<button class="sbm-tile" onclick="WO.sbmBrowse()" title="Go looking for this song online, and save what you find for everyone"><i class="fa-solid fa-globe"></i>Browse</button>' +
       '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
       (verTile ? '<button class="sbm-tile' + (verHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmVersions()" title="Versions of this song: a key, words and drawings to sing it with"><i class="fa-solid fa-code-branch"></i>Versions</button>' : '') +
       // Links and Files opened the same sheet, so every book -- a service's or
@@ -86577,7 +86657,17 @@ var WO = (function() {
   // ── 383/384: Song page link management ──────────────────────────────────────
 
   function sbAddSongLink(songId) {
-    sbShowAddLinkModal(function(url) {
+    sbShowAddLinkModal(function(url) { _sbAddLinkToSong(songId, url); });
+  }
+
+  // Where a saved link goes, decided once.
+  //
+  // Three places depending on what the URL is -- customYoutube for
+  // media, customDocs for a document, sbLinks for an ordinary site --
+  // and the Browse panel saves through this same function rather than
+  // keeping a second copy of the decision to drift from this one.
+  function _sbAddLinkToSong(songId, url) {
+    (function(url) {
       if (!url) return;
       if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
       var info = window.detectMediaType ? window.detectMediaType(url) : null;
@@ -86614,7 +86704,7 @@ var WO = (function() {
       if (newSbIdx !== undefined) {
         setTimeout(function() { sbToggleSongLink(songId, newSbIdx); }, 200);
       }
-    });
+    })(url);
   }
 
   function sbToggleSongLink(songId, linkIdx, noScroll, alwaysOpen) {
@@ -88873,6 +88963,8 @@ var WO = (function() {
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmShowEveryone: sbmShowEveryone, sbmLinkOpenCur: sbmLinkOpenCur,
+    sbmBrowse: sbmBrowse, sbmFind: sbmFind, sbmBrowseSave: sbmBrowseSave,
+    sbmBrowseRemove: sbmBrowseRemove,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmInstRecord: sbmInstRecord,
     // Step 2: the inbox, adding a song, medleys
