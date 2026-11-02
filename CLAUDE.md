@@ -151,7 +151,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
      keydown as key 229; what they would do is caught again at `beforeinput`
      (`_lbdOnBeforeInput`: `insertParagraph` breaks the slide,
      `deleteContentBackward` at a slide's start joins it), never twice for
-     one key (`_lbdKeyDoneAt`). Edits the order's data directly; see gotchas 34-37,
+     one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save / Load; a
+     phone's More; the Liturgy Book's Share) sends the order of service --
+     each section with its songs in the key sung, its readings by reference,
+     its liturgy by name -- or every word of the liturgy, built by the pure
+     `_lbdShareMessage` from `_lbdShareSections` (the page's order), each with
+     a link that opens the order in its Liturgy Book (`?order=<id>&view=liturgy`).
+     A waiting autosave goes first, so the link opens what was shared. Over
+     3,500 characters the message is not put in a wa.me link: a phone's share
+     sheet takes it whole, and a desk copies it and opens WhatsApp to paste
+     (`_lbdSendWhatsApp`). Edits the order's data directly; see gotchas 34-37,
      39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
@@ -172,7 +181,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      to play or delete, with an audio file to add (gotcha 52). Between the
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
-     as the song needs (gotcha 53).
+     as the song needs (gotcha 53). A green WhatsApp button beside the
+     book's name (the desk's top bar, under the name on a phone) shares the
+     whole songbook at once (`sbShareWhatsApp`); one song is under Share.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
