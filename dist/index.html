@@ -28567,9 +28567,66 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       }, 500);
     }
 
-    // Handle ?shareInbox= param (Web Share Target — Android/Chrome shares URL to this app)
-    if (window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim()) {
-      var _siUrl   = window.__SHARE_INBOX_URL.trim();
+    // What arrived in a share, and where the reader wants it.
+    //
+    // The song you were last reading, if it was recent. A share leaves
+    // the app and comes back a fresh page, so this is the only way to
+    // offer the song you went off to find something for. Twelve hours,
+    // because a Saturday evening's hunting is for Sunday morning; older
+    // than that and the offer would be guessing.
+    window._lhcShareLast = function() {
+      try {
+        var r = JSON.parse(localStorage.getItem('lhc_share_last') || 'null');
+        if (!r || !r.sid) return null;
+        if (!r.at || Date.now() - r.at > 12 * 3600 * 1000) return null;
+        return r;
+      } catch (e) { return null; }
+    };
+
+    // Two or three plain choices, drawn here rather than borrowed: this
+    // runs at boot, before the songbook or any of its sheets exist.
+    window._lhcShareAsk = function(heading, note, choices) {
+      var old = document.getElementById('lhcShareAsk');
+      if (old) old.remove();
+      var bd = document.createElement('div');
+      bd.id = 'lhcShareAsk';
+      bd.style.cssText = 'position:fixed;inset:0;z-index:12000;background:rgba(2,10,22,.55);' +
+        'display:flex;align-items:flex-end;justify-content:center;';
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#fff;border-radius:16px 16px 0 0;width:min(560px,100%);' +
+        'padding:18px 16px 22px;box-shadow:0 -12px 40px rgba(0,0,0,.35);font-family:inherit;';
+      var h = document.createElement('div');
+      h.style.cssText = 'font-weight:800;font-size:1rem;color:#1e293b;';
+      h.textContent = heading;
+      card.appendChild(h);
+      if (note) {
+        var p = document.createElement('div');
+        p.style.cssText = 'margin-top:5px;font-size:.82rem;color:#64748b;line-height:1.45;word-break:break-word;';
+        p.textContent = note;
+        card.appendChild(p);
+      }
+      choices.forEach(function(c) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.style.cssText = 'display:block;width:100%;margin-top:10px;padding:13px 14px;border-radius:11px;' +
+          'border:1px solid ' + (c.primary ? 'transparent' : '#cbd5e1') + ';background:' +
+          (c.primary ? '#0e9f6e' : '#fff') + ';color:' + (c.primary ? '#fff' : '#334155') +
+          ';font-size:.9rem;font-weight:700;cursor:pointer;text-align:left;font-family:inherit;';
+        b.textContent = c.label;
+        b.onclick = function() { bd.remove(); try { c.go(); } catch (e) { console.error(e); } };
+        card.appendChild(b);
+      });
+      bd.appendChild(card);
+      bd.addEventListener('click', function(e) { if (e.target === bd) bd.remove(); });
+      document.body.appendChild(bd);
+    };
+
+    // Handle a Web Share Target arrival. A URL, or selected TEXT, or
+    // both -- it used to begin `if (url)`, so sharing the chords you had
+    // just selected did nothing whatever.
+    if ((window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim()) ||
+        (window.__SHARE_INBOX_TEXT && window.__SHARE_INBOX_TEXT.trim())) {
+      var _siUrl   = (window.__SHARE_INBOX_URL || '').trim();
       var _siTitle = (window.__SHARE_INBOX_TITLE || '').trim();
       var _siText  = (window.__SHARE_INBOX_TEXT  || '').trim();
 
@@ -28593,10 +28650,30 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
           .catch(function(e) { console.warn('idea_inbox save error:', e); });
       }
 
-      // Navigate to Orders — renderSavedOrders() reads _pendingShareItem and
-      // enters share mode automatically (Send buttons + pending strip banner)
-      setActiveView('worshipOrderView');
-      try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
+      // Where it goes. A link with nowhere in mind behaves as it always
+      // did -- the Inbox, then Orders to file it. Anything else is asked
+      // about, because a share of words has no obvious home and guessing
+      // one would either lose them or overwrite a song.
+      var _siRef = window._lhcShareLast();
+      var _siWhat = _siUrl
+        ? (_siUrl.replace(/^https?:\/\//, '').split('/')[0] || _siUrl)
+        : (_siText.split(/\r?\n/).filter(function(l) { return l.trim(); }).length + ' lines of text');
+      var _siChoices = [];
+      if (_siRef) {
+        _siChoices.push({ primary: true,
+          label: (_siUrl ? 'Save it on \u201c' : 'Put the words into \u201c') + (_siRef.title || 'the song') + '\u201d',
+          go: function() { if (window.WO && WO.sbmShareAttach) WO.sbmShareAttach(_siRef, _siUrl, _siText); } });
+      }
+      _siChoices.push({
+        label: _siUrl ? 'Keep it in the Inbox and file it into a service' : 'Keep it in the Inbox',
+        go: function() {
+          if (!_siUrl) { showToast('Kept in the Inbox', 'success'); return; }
+          setActiveView('worshipOrderView');
+          try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
+        } });
+      _siChoices.push({ label: 'Not now', go: function() {} });
+
+      window._lhcShareAsk('Shared with the songbook', _siWhat, _siChoices);
     }
 
     // Handle share when app is ALREADY RUNNING in background (no page reload)
@@ -51551,9 +51628,29 @@ var WO = (function() {
     return html + '</div></div>';
   }
 
+  // Where the reader was, for a share that arrives later.
+  //
+  // A share navigates the app to /?shareText=... and comes back a fresh
+  // page, so by the time one lands the songbook is shut and there is
+  // nothing on screen to attach it to. This is the only record of what
+  // you were looking at when you went off to find it.
+  function _sbmNoteLastSong(sid) {
+    var song = (songOrderSections || []).find(function(s) { return s && s.id === sid; });
+    try {
+      localStorage.setItem('lhc_share_last', JSON.stringify({
+        book: _sbStandaloneId ? ('sb-' + _sbStandaloneId) : '',
+        order: (!_sbStandaloneId && currentOrderData) ? (currentOrderData.id || '') : '',
+        sid: sid,
+        title: (song && song.title) || '',
+        at: Date.now()
+      }));
+    } catch (e) {}
+  }
+
   function sbmSelectSong(sid) {
     _sbmSid = sid;
     _sbmIndexOpen = false;
+    _sbmNoteLastSong(sid);
     try { localStorage.setItem('lhc_sbm_song_' + (_sbStandaloneId || (currentOrderData && currentOrderData.id) || ''), sid); } catch (e) {}
     _sbmCloseSheet();
     _sbmRender();
@@ -52973,6 +53070,48 @@ var WO = (function() {
   function sbmBrowseRemove(i) {
     sbmResRemove(i);
     setTimeout(function() { if (_sbmSong()) sbmBrowse(); }, 400);
+  }
+
+  // Open the book the reader was in, find the song, and put the share on
+  // it: a link onto the song, words into the editor.
+  //
+  // The book has to be loaded first and loading is asynchronous, so this
+  // waits for the song to appear rather than guessing a delay -- and
+  // gives up out loud after ten seconds instead of failing quietly.
+  function sbmShareAttach(ref, url, text) {
+    if (!ref || !ref.sid) return;
+    // The remembered key is the one the songbook LIST uses, 'sb-<id>';
+    // this opener wants the bare id, the way the deep-link path strips
+    // it too. Passed whole it loads nothing and the wait below times
+    // out against a book that never arrives.
+    if (ref.book && typeof openSongbookStandalone === 'function') {
+      openSongbookStandalone(String(ref.book).replace(/^sb-/, ''));
+    } else if (ref.order && typeof openSongbookByOrderId === 'function') {
+      openSongbookByOrderId(ref.order);
+    }
+    var waited = 0;
+    var tick = setInterval(function() {
+      var there = (songOrderSections || []).some(function(s) { return s && s.id === ref.sid; });
+      if (!there) {
+        waited += 250;
+        if (waited < 25000) return;
+        clearInterval(tick);
+        showToast('Could not open that songbook \u2014 the share is in the Inbox', 'error');
+        return;
+      }
+      clearInterval(tick);
+      if (typeof sbmSelectSong === 'function') sbmSelectSong(ref.sid);
+      setTimeout(function() {
+        if (url) {
+          _sbAddLinkToSong(ref.sid, url);
+          if (typeof _sbmLiveSend === 'function') _sbmLiveSend();
+          showToast('Saved on ' + (ref.title || 'the song') + ' \u2014 everyone has it', 'success');
+        } else if (text) {
+          sbOpenLyricsEditor(ref.sid, text);
+          showToast('The shared words are in the editor \u2014 nothing is saved until you press Save Lyrics', 'info');
+        }
+      }, 400);
+    }, 250);
   }
 
   function sbmOpenExternal(i) {
@@ -64450,18 +64589,28 @@ var WO = (function() {
   }
 
   // Open the Lyrics Editor modal for a specific Songbook song
-  function sbOpenLyricsEditor(sid) {
+  // `seed` is words handed in from somewhere else -- today, a share of
+  // selected text. Nothing is written until Save Lyrics, so opening on a
+  // seed shows the words beside the song's own and lets the reader
+  // decide; it never overwrites on arrival.
+  function sbOpenLyricsEditor(sid, seed) {
     var s = (songOrderSections || []).find(function(x) { return x.id === sid; });
     if (!s) return;
     // A song showing its choir parts is edited as choir parts. Done here
     // rather than at the button so anything else that opens "the editor"
     // for this song lands in the same place.
-    if ((typeof _sbChoirView === 'function') && _sbChoirView(s) === 'choir') {
+    //
+    // Unless words were handed in. A seed says "edit the lyrics, with
+    // these" and means it whichever pages the song is showing: shared
+    // words sent to a song in choir view used to open the parts editor
+    // and drop them on the floor.
+    if (!(seed && String(seed).trim()) &&
+        (typeof _sbChoirView === 'function') && _sbChoirView(s) === 'choir') {
       var _baseId = s.songId || String(sid).split('--')[0];
       if (_baseId && typeof sbEditChoirParts === 'function') { sbEditChoirParts(_baseId); return; }
     }
     _sbEditingSid = sid;
-    var lyrics = s.customLyrics || s.lyrics || '';
+    var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');
 
     // Borrow the existing lyrics editor modal
     var modal = document.getElementById('lyricsEditorModal');
@@ -88963,6 +89112,7 @@ var WO = (function() {
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmShowEveryone: sbmShowEveryone, sbmLinkOpenCur: sbmLinkOpenCur,
+    sbmShareAttach: sbmShareAttach,
     sbmBrowse: sbmBrowse, sbmFind: sbmFind, sbmBrowseSave: sbmBrowseSave,
     sbmBrowseRemove: sbmBrowseRemove,
     sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,

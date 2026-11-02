@@ -791,6 +791,40 @@ const CASES = [
   // Floors, not sizes. The sizes are taste and have moved once already;
   // what must not move is that each of these is something a thumb has to
   // find on a phone.
+  // A share is somebody's only copy of what they went looking for, and
+  // the url-only gate meant sharing selected chords did nothing at all.
+  ['share-target-harness.js', 'a share of selected text is ignored again',
+    s => s.replace("    if ((window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim()) ||\r\n        (window.__SHARE_INBOX_TEXT && window.__SHARE_INBOX_TEXT.trim())) {",
+                   '    if (window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim()) {')],
+  // The manifest checks are not mutated: this tool rewrites Index.html
+  // and nothing else, so a case aimed at public/manifest.json would be a
+  // guaranteed false pass -- the same trap the header of this file
+  // records for the app/api harnesses.
+  // Nothing is written until Save Lyrics; seeding must not become
+  // overwriting.
+  ['share-target-harness.js', 'shared words overwrite the song instead of opening in the editor',
+    s => s.replace("    var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');",
+                   "    var lyrics = s.customLyrics || s.lyrics || '';")],
+  ['share-target-harness.js', 'the reader stops noting which song it shows',
+    s => s.replace('    _sbmNoteLastSong(sid);\r\n', '')],
+  // The book loads asynchronously; a fixed delay attaches to nothing on
+  // a slow connection and says it worked.
+  ['share-target-harness.js', 'attaching guesses a delay instead of waiting',
+    s => s.replace('    var waited = 0;\r\n    var tick = setInterval(function() {',
+                   '    var waited = 0;\r\n    var tick = setTimeout(function() {')],
+  ['share-target-harness.js', 'a shared link stops going through the one save path',
+    s => s.replace('          _sbAddLinkToSong(ref.sid, url);',
+                   '          (song.sbLinks = song.sbLinks || []).push({ url: url });')],
+  // Both of these were found by running the flow, not by reading it.
+  ['share-target-harness.js', "the book key is passed whole to an opener that wants it bare",
+    s => s.replace("      openSongbookStandalone(String(ref.book).replace(/^sb-/, ''));",
+                   '      openSongbookStandalone(ref.book);')],
+  ['share-target-harness.js', 'the wait is shorter than a cold open takes',
+    s => s.replace('if (waited < 25000) return;', 'if (waited < 8000) return;')],
+  ['share-target-harness.js', 'shared words are diverted to the choir parts editor',
+    s => s.replace("    if (!(seed && String(seed).trim()) &&\r\n        (typeof _sbChoirView === 'function') && _sbChoirView(s) === 'choir') {",
+                   "    if ((typeof _sbChoirView === 'function') && _sbChoirView(s) === 'choir') {")],
+
   ['roster-touch-edit-harness.js', 'the appbar menu shrinks past a thumb',
     s => s.replace('        width: 28px; height: 28px; border-radius: 9px; color: #fff; font-size: 12px;',
                    '        width: 22px; height: 22px; border-radius: 9px; color: #fff; font-size: 12px;')],
