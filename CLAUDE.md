@@ -160,7 +160,21 @@ than a bash heredoc, which quietly eats a level of backslashes.
      A waiting autosave goes first, so the link opens what was shared. Over
      3,500 characters the message is not put in a wa.me link: a phone's share
      sheet takes it whole, and a desk copies it and opens WhatsApp to paste
-     (`_lbdSendWhatsApp`). Edits the order's data directly; see gotchas 34-37,
+     (`_lbdSendWhatsApp`). **Export** (beside it; a phone's More) downloads
+     the whole liturgy as a PDF or a Word .docx, both from one model
+     (`_lbdExportModel`, over `_lbdSecOrder`, the page's order): the title,
+     date and occasion, each section a heading, and in it its songs (their
+     words, chords taken out), readings (verse numbers raised), liturgy and
+     text, with the liturgist's notes. Who speaks is set in its own column and
+     carries on to the lines after, into the next slide, until somebody else
+     is named -- except into a slide that names its own speakers, and never
+     from an empty "C :" (`_lbdExportParas`); the people's lines are bold. The
+     PDF is laid out line by line with jsPDF's Times (`_lbdExportPdf`); its
+     fonts know only the Windows Latin set, so `_lbdPdfText` changes or drops
+     the rest. The .docx is built with JSZip (`_lbdExportDocx`) on Word's own
+     Heading 1 / Heading 2, A4, with a numbered footer; Word rejects a
+     formatting block whose settings are out of the schema's order, and the
+     harness checks every one. Edits the order's data directly; see gotchas 34-37,
      39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step

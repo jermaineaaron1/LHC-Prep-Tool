@@ -669,7 +669,7 @@ console.log('\n[service liturgies]');
     has(/\{ label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function\(\) \{ lbdShareWhatsApp\(false\); \} \}/) &&
     has(/function lb2Share\(btn\) \{ _lbdShareMenu\(btn \|\| /) && !has(/showToast\('Share coming soon'/));
   check('...its parts in the page\'s order: songs (a medley as one, in the key sung), then the slotted readings, then the rest',
-    has(/_woUnits\(songs, md\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
+    has(/_woUnits\(so\.songs, md\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
     has(/items\.forEach\(function\(it\) \{ if \(!used\[it\.id\]\) ordered\.push\(\{ it: it, label: '' \}\); \}\);/));
   check('...with a link that opens the order in its Liturgy Book, and the deep link does',
     has(/return base \+ '\?order=' \+ encodeURIComponent\(currentOrderData\.id\) \+ '&view=liturgy';/) &&
@@ -683,6 +683,71 @@ console.log('\n[service liturgies]');
   check('the Songbook has WhatsApp first of its desk top bar\'s buttons, before the Inbox, and under its name on a phone',
     has(/'<div class="sbm-top__right">' \+\r?\n[^\n]*\r?\n\s*'<button class="sbm-top__wa" onclick="WO\.sbShareWhatsApp\(\)"/) &&
     has(/'<button class="sbm-hero__wa" onclick="event\.stopPropagation\(\);WO\.sbShareWhatsApp\(\)"/));
+  // Export: the whole liturgy as a PDF or a Word document.
+  check('Export is in the ribbon beside WhatsApp, and in a phone\'s More: a PDF or a Word document',
+    has(/b\('menu-export', 'fa-solid fa-file-arrow-down', 'Export' \+ dd, /) && has(/case 'menu-export': _lbdExportMenu\(btn\); break;/) &&
+    has(/\{ label: 'Export: a PDF document', icon: 'fa-regular fa-file-pdf', run: function\(\) \{ lbdExport\('pdf'\); \} \}/) &&
+    has(/\{ label: 'Export: a Word document', icon: 'fa-regular fa-file-word', run: function\(\) \{ lbdExport\('docx'\); \} \}/));
+  const paraSrc = extractFn('_lbdExportParas', true), spkVar = extractVar('_LBD_SPK', true), pplVar = extractVar('_LBD_SPK_PEOPLE', true);
+  check('the words are read into paragraphs of lines, each with its speaker', !!(paraSrc && spkVar && pplVar));
+  if (paraSrc && spkVar && pplVar) {
+    const paras = new Function('isChordLineGlobal', spkVar + '\n' + pplVar + '\n' + paraSrc + '\nreturn _lbdExportParas;')(l => /^[A-G][#b]?m?(\s+[A-G][#b]?m?)*\s*$/.test(l.trim()));
+    const lit = paras(['L: The Lord be with you\n  \nC: And also with you.', 'Prayer of The Day\n  \nL: Let us pray\n  \nC :', 'Grant us your peace.']);
+    const flat = lit.reduce((a, p) => a.concat(p.lines), []);
+    const line = t => flat.find(l => l.text === t) || {};
+    check('a speaker is named once and the people\'s lines are theirs',
+      line('The Lord be with you').who === 'L' && !line('The Lord be with you').people && line('And also with you.').people);
+    check('...a slide that names its own speakers starts afresh, so its title is nobody\'s',
+      line('Prayer of The Day').who === '' && !line('Prayer of The Day').people && !line('Prayer of The Day').indent);
+    check('...and a name with no words after it ("C :") carries nothing into the next slide',
+      !line('Grant us your peace.').people && !line('Grant us your peace.').indent);
+    const conf = paras(['C: we confess that we are in bondage to sin', 'We have sinned against You in thought, word and deed,']).reduce((a, p) => a.concat(p.lines), []);
+    check('...but the people\'s confession runs on into a slide that names nobody', conf.length === 2 && conf[1].people && conf[1].who === '');
+    const song = paras(['[Verse]\nD G D\nCome, now is the time to worship\n\n[Chorus]\nOne day every tongue'], { song: true });
+    check('a song\'s section names become labels and its chord lines are left out',
+      JSON.stringify(song.map(p => p.label || p.lines.map(l => l.text).join('/'))) === JSON.stringify(['Verse', 'Come, now is the time to worship', 'Chorus', 'One day every tongue']), JSON.stringify(song));
+  }
+  const pdfText = extractFn('_lbdPdfText', true);
+  if (pdfText) {
+    const T = new Function(pdfText + '\nreturn _lbdPdfText;')();
+    check('the PDF keeps the Windows Latin set (quotes, dashes) and changes or drops what its fonts cannot draw',
+      T('\u201cA\u201d \u2013 B \u2014 \u2018c\u2019 \u266a \u2192 \u00e9 \u2026') === '\u201cA\u201d \u2013 B \u2014 \u2018c\u2019  -> \u00e9 \u2026', JSON.stringify(T('\u201cA\u201d \u2013 B \u2014 \u2018c\u2019 \u266a \u2192 \u00e9 \u2026')));
+  }
+  const docxNames = ['_lbdX', '_lbdDocxRun', '_lbdDocxP', '_lbdVerseRuns', '_lbdExportCol', '_lbdDocxXml', '_lbdDocxStyles'];
+  const docxSrc = docxNames.map(n => extractFn(n, true));
+  check('the Word document is written by its own functions', docxSrc.every(Boolean));
+  if (docxSrc.every(Boolean)) {
+    const D = new Function(docxSrc.join('\n') + '\nreturn {' + docxNames.join(',') + '};')();
+    const model = { service: 'Nov 8 & "Test" <draft>', date: 'Sunday, 8 November 2026', occasion: 'Pentecost 24', notes: 'Banner',
+      sections: [
+        { num: 1, title: 'Invocation', notes: 'Stand', parts: [{ kind: 'Liturgy', title: 'Invocation', paras: [{ label: '', lines: [{ who: 'L', people: false, indent: true, text: 'In the Name' }, { who: 'C', people: true, indent: true, text: 'Amen.' }] }] }] },
+        { num: 2, title: 'Praise', notes: '', parts: [{ kind: 'Song', title: 'Come', meta: 'Key D', notes: 'Soft', paras: [{ label: 'Verse', lines: [] }, { label: '', lines: [{ who: '', people: false, indent: false, text: 'Come, now' }] }] }] },
+        { num: 3, title: 'Readings', notes: '', parts: [{ kind: 'Gospel', title: 'Matthew 25', verses: true, paras: [{ label: '', lines: [{ who: '', people: false, indent: false, text: '[1] Then the kingdom' }] }] }] },
+        { num: 4, title: 'Sermon', notes: '', parts: [] },
+        { num: 5, title: 'Welcome', notes: '', parts: [{ kind: 'Text', title: '', paras: [{ label: '', lines: [{ who: '', people: false, indent: false, text: 'Hello' }] }] }] }
+      ] };
+    const xml = D._lbdDocxXml(model), sty = D._lbdDocxStyles();
+    // The children of a w:pPr or w:rPr, in the order they appear (one level down).
+    const kids = body => { const out = []; let depth = 0; const re = /<(\/?)w:([A-Za-z]+)[^>]*?(\/?)>/g; let m; while ((m = re.exec(body))) { if (m[1]) { depth--; continue; } if (!depth) out.push(m[2]); if (!m[3]) depth++; } return out; };
+    const PPR = ['pStyle', 'keepNext', 'keepLines', 'pageBreakBefore', 'framePr', 'widowControl', 'numPr', 'suppressLineNumbers', 'pBdr', 'shd', 'tabs', 'suppressAutoHyphens', 'kinsoku', 'wordWrap', 'overflowPunct', 'topLinePunct', 'autoSpaceDE', 'autoSpaceDN', 'bidi', 'adjustRightInd', 'snapToGrid', 'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap', 'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl', 'divId', 'cnfStyle', 'rPr', 'sectPr', 'pPrChange'];
+    const RPR = ['rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps', 'strike', 'dstrike', 'outline', 'shadow', 'emboss', 'imprint', 'noProof', 'snapToGrid', 'vanish', 'webHidden', 'color', 'spacing', 'w', 'kern', 'position', 'sz', 'szCs', 'highlight', 'u', 'effect', 'bdr', 'shd', 'fitText', 'vertAlign', 'rtl', 'cs', 'em', 'lang', 'eastAsianLayout', 'specVanish', 'oMath'];
+    const badOrder = (text, tag, seq) => { const bad = []; const re = new RegExp('<w:' + tag + '>([\\s\\S]*?)</w:' + tag + '>', 'g'); let m; while ((m = re.exec(text))) { const k = kids(m[1]), at = k.map(x => seq.indexOf(x)); if (at.some(i => i < 0) || at.some((v, i) => i && v < at[i - 1])) bad.push(k.join(',')); } return bad; };
+    const bad = badOrder(xml, 'pPr', PPR).concat(badOrder(sty, 'pPr', PPR), badOrder(xml, 'rPr', RPR), badOrder(sty, 'rPr', RPR));
+    check('every paragraph\'s and run\'s formatting lists its settings in the order Word\'s schema demands', bad.length === 0, bad.join(' | '));
+    check('...the sections are Word\'s own Heading 1, the parts Heading 2, the speakers\' lines hang from a tab',
+      (xml.match(/<w:pStyle w:val="Heading1"\/>/g) || []).length === 5 && (xml.match(/<w:pStyle w:val="Heading2"\/>/g) || []).length === 3 &&
+      /<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"\/>/.test(sty) && /<w:ind w:left="600" w:hanging="600"\/>/.test(sty) &&
+      /<w:pStyle w:val="LbdLine"\/><\/w:pPr><w:r><w:rPr><w:b\/><w:color w:val="14532D"\/><\/w:rPr><w:t xml:space="preserve">L:<\/w:t><\/w:r><w:r><w:tab\/><\/w:r>/.test(xml));
+    check('...a verse number is raised, a plain text slide has no heading of its own, and names are escaped',
+      /<w:vertAlign w:val="superscript"\/><\/w:rPr><w:t xml:space="preserve">1<\/w:t>/.test(xml) && xml.indexOf('>Text<') === -1 &&
+      xml.indexOf('Nov 8 &amp; &quot;Test&quot; &lt;draft&gt;') > 0 && xml.indexOf('<draft>') === -1);
+    check('...on A4, with a footer that numbers the pages',
+      /<w:sectPr><w:footerReference w:type="default" r:id="rId2"\/><w:pgSz w:w="11906" w:h="16838"\/>/.test(xml) &&
+      has(/<w:fldSimple w:instr=" PAGE ">/) && has(/<w:fldSimple w:instr=" NUMPAGES ">/));
+  }
+  check('the PDF is A4 and compressed; the .docx is deflated, under Word\'s own type',
+    has(/var doc = new J\(\{ unit: 'pt', format: 'a4', compress: true \}\);/) &&
+    has(/zip\.generateAsync\(\{ type: 'blob', compression: 'DEFLATE', compressionOptions: \{ level: 6 \}, mimeType: 'application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document' \}\)/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',
