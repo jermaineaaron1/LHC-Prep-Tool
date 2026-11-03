@@ -303,22 +303,26 @@ if (T) {
 console.log('\nThe song list the Songbook shares');
 if (T) {
   const msg = T._sbShareMessage({ title: 'Service - 30 Aug', date: 'Aug 30', rows: [
-    { section: 'Praise & Worship', text: 'This Is Amazing Grace (G)' },
-    { section: 'Praise & Worship', text: 'Medley: Lord, I Need You (D) + 10,000 Reasons' },
-    { section: 'Song of Response', text: 'Hari Ini (F)' }
+    { section: 'Praise & Worship', text: 'This Is Amazing Grace (G)', medley: '' },
+    { section: 'Praise & Worship', text: 'Lord, I Need You (D)', medley: 'start' },
+    { section: 'Praise & Worship', text: '10,000 Reasons', medley: 'in' },
+    { section: 'Praise & Worship', text: 'Way Maker (A)', medley: '' },
+    { section: 'Song of Response', text: 'Hari Ini (F)', medley: '' }
   ], songbookUrl: 'https://x/?sb=order-1', playlistUrl: 'https://x/?playlist=abc' });
   const ln = msg.split('\n');
   check('titled, dated', ln[0] === '*Service - 30 Aug*' && ln[1] === '_Aug 30_');
   check('each section named once, above its songs',
-    msg.split('*Praise & Worship*').length === 2 && ln.indexOf('*Song of Response*') > ln.indexOf('2. Medley: Lord, I Need You (D) + 10,000 Reasons'));
-  check('songs numbered straight through the service', ln.indexOf('1. This Is Amazing Grace (G)') !== -1 && ln.indexOf('3. Hari Ini (F)') !== -1);
-  check('a medley is one line', ln.filter(l => /^\d+\. /.test(l)).length === 3);
+    msg.split('*Praise & Worship*').length === 2 && ln.indexOf('*Song of Response*') > ln.indexOf('4. Way Maker (A)'));
+  check('songs numbered straight through the service', ln.indexOf('1. This Is Amazing Grace (G)') !== -1 && ln.indexOf('5. Hari Ini (F)') !== -1);
+  check('each song of a medley has its own number, under a Medley line, with a gap after it',
+    msg.indexOf('1. This Is Amazing Grace (G)\n_Medley_\n2. Lord, I Need You (D)\n3. 10,000 Reasons\n\n4. Way Maker (A)') !== -1 &&
+    ln.filter(l => /^\d+\. /.test(l)).length === 5 && ln.filter(l => l === '_Medley_').length === 1, msg);
   const sbAt = ln.indexOf('Open Songbook: https://x/?sb=order-1');
   check('the Songbook, a line, then the song playlist by its new name, then the signature',
-    sbAt > ln.indexOf('3. Hari Ini (F)') && ln[sbAt + 1] === '' && ln[sbAt + 2] === 'Song Playlist (YouTube): https://x/?playlist=abc' &&
+    sbAt > ln.indexOf('5. Hari Ini (F)') && ln[sbAt + 1] === '' && ln[sbAt + 2] === 'Song Playlist (YouTube): https://x/?playlist=abc' &&
     ln[ln.length - 1] === '_LHC Worship Prep_', JSON.stringify(ln.slice(sbAt)));
   check('...its sections by their names, as the builder has them, without their numbers',
-    /section: _sbmSectionLabel\(u\.items\[0\], true\)/.test(SRC) && /return bare \? list\[i\]\.title : \(i \+ 1\) \+ '\. ' \+ list\[i\]\.title;/.test(SRC));
+    /var sec = _sbmSectionLabel\(u\.items\[0\], true\);/.test(SRC) && /return bare \? list\[i\]\.title : \(i \+ 1\) \+ '\. ' \+ list\[i\]\.title;/.test(SRC));
   const plain = T._sbShareMessage({ title: 'Book', rows: [{ section: '', text: 'One' }, { section: '', text: 'Two' }] });
   check('a book without sections lists its songs with no headings', plain === '*Book*\n\n1. One\n2. Two\n\n\n_LHC Worship Prep_', JSON.stringify(plain));
 }
@@ -388,7 +392,10 @@ console.log('\nThe wiring');
   check('the songbook\'s drag moves a medley as one', has(/var next = _woDropInSeq\(songOrderSections, fromId, toId,/));
   check('the builder\'s Move up and Move down step past a medley as one', has(/var next = _woStepInSeq\(inSec, songId, delta, _woMedleys\(\)\);/));
   check('the builder\'s undo covers medleys', has(/medleys: JSON\.stringify\(\(o\.template && o\.template\.medleys\) \|\| \[\]\)/));
-  check('the shared song list is built from the running order', has(/rows: _sbShareRows\(\),/) && has(/return _woUnits\(_sbmSongs\(\), md\)\.map/));
+  check('the shared song list is built from the running order, a line for each song',
+    has(/rows: _sbShareRows\(\),/) && has(/_woUnits\(_sbmSongs\(\), md\)\.forEach\(function\(u\) \{/) &&
+    has(/rows\.push\(\{ section: sec, text: \(s\.title \|\| 'Untitled'\) \+ \(key \? ' \(' \+ key \+ '\)' : ''\), medley: u\.md \? \(k \? 'in' : 'start'\) : '' \}\);/));
+  check('...and its playlist link carries the songs\' names and the service\'s', has(/try \{ playlistUrl = window\.lhcPlaylistLink\(plItems, name\); \} catch\(e\) \{\}/));
   check('a song taken out of the songbook comes off LCD Projection\'s schedule too', has(/_woLcdDropSong\(baseSongId\);/));
   // Recording line by line: two boxes on every line -- its takes, then the
   // microphone -- and the takes listed from the badge, each to play or delete.
