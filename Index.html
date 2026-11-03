@@ -72738,6 +72738,7 @@ var WO = (function() {
       '</div>' +
       '<div class="lbw-rgroup" role="group" aria-label="Share">' +
         b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: the order of service, or every word, with a link to its Liturgy Book', ' aria-haspopup="menu"') +
+        b('menu-export', 'fa-solid fa-file-arrow-down', 'Export' + dd, 'Download the whole liturgy as a PDF or a Word document', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup lbw-rgroup--end" role="group" aria-label="Panes">' +
         b('nav-toggle', 'fa-solid fa-list-ol', 'Outline', 'Show or hide the order outline', ' aria-pressed="false" aria-label="Order outline"') +
@@ -74341,6 +74342,8 @@ var WO = (function() {
       { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
       { label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
       { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
+      { label: 'Export: a PDF document', icon: 'fa-regular fa-file-pdf', run: function() { lbdExport('pdf'); } },
+      { label: 'Export: a Word document', icon: 'fa-regular fa-file-word', run: function() { lbdExport('docx'); } },
       '-',
       { label: allFolded ? 'Expand all sections' : 'Collapse all sections', icon: allFolded ? 'fa-solid fa-angles-down' : 'fa-solid fa-angles-up',
         run: function() { _lbdFoldAll(); } },
@@ -74363,29 +74366,34 @@ var WO = (function() {
       { label: 'Every word of the liturgy', icon: 'fa-solid fa-align-left', run: function() { lbdShareWhatsApp(true); } }
     ]);
   }
-  // The parts of each section in the page's order: its songs, then its
-  // readings in the template's slots, then the rest.
+  // A section's parts in the page's order: its songs, then its readings in
+  // the template's slots, then the rest. The WhatsApp message and the
+  // exports both read the order this way.
+  function _lbdSecOrder(sec, list) {
+    var songs = songOrderSections.filter(function(s) { return s && s.itemType !== 'blank' && _woSongSectionIds(s, list).indexOf(sec.id) !== -1; });
+    var items = _woSectionItems(sec.id), slots = _lbdSlotLabels(sec.id), used = {}, ordered = [];
+    slots.forEach(function(label) {
+      var role = _roleForSlotLabel(label), hit = null;
+      items.forEach(function(it) {
+        if (hit || used[it.id] || it.itemType !== 'scripture') return;
+        var sub = (it.content && it.content.subLabel) || '';
+        if (sub === label || (role && _roleForSlotLabel(sub) === role)) hit = it;
+      });
+      if (hit) { used[hit.id] = true; ordered.push({ it: hit, label: label }); }
+    });
+    items.forEach(function(it) { if (!used[it.id]) ordered.push({ it: it, label: '' }); });
+    return { songs: songs, ordered: ordered };
+  }
   function _lbdShareSections(words) {
     var list = _woSectionList(), md = _woMedleys();
     return list.map(function(sec, i) {
-      var songs = songOrderSections.filter(function(s) { return s && s.itemType !== 'blank' && _woSongSectionIds(s, list).indexOf(sec.id) !== -1; });
+      var so = _lbdSecOrder(sec, list);
       var lines = [];
-      _woUnits(songs, md).forEach(function(u) {
+      _woUnits(so.songs, md).forEach(function(u) {
         var bits = u.items.map(function(s) { var k = _sbSungKey(s); return (s.title || 'Song') + (k ? ' (' + k + ')' : ''); });
         lines.push({ text: '♪ ' + (u.md ? 'Medley: ' + bits.join(' + ') : bits[0]), words: '' });
       });
-      var items = _woSectionItems(sec.id), slots = _lbdSlotLabels(sec.id), used = {}, ordered = [];
-      slots.forEach(function(label) {
-        var role = _roleForSlotLabel(label), hit = null;
-        items.forEach(function(it) {
-          if (hit || used[it.id] || it.itemType !== 'scripture') return;
-          var sub = (it.content && it.content.subLabel) || '';
-          if (sub === label || (role && _roleForSlotLabel(sub) === role)) hit = it;
-        });
-        if (hit) { used[hit.id] = true; ordered.push({ it: hit, label: label }); }
-      });
-      items.forEach(function(it) { if (!used[it.id]) ordered.push({ it: it, label: '' }); });
-      ordered.forEach(function(o) {
+      so.ordered.forEach(function(o) {
         var it = o.it, t = it.itemType, title = String(it.title || '').trim();
         if (t === 'scripture') {
           var lab = o.label || (it.content && it.content.subLabel) || 'Reading';
@@ -74456,6 +74464,380 @@ var WO = (function() {
     if (!copied && navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).catch(function() {}); copied = true; }
     window.open('https://wa.me/', '_blank', 'noopener');
     showToast(copied ? 'The whole liturgy is copied: paste it into the WhatsApp chat' : 'Too long to send from here. Try the order of service instead', copied ? 'success' : 'error', { duration: 6000 });
+  }
+
+  // ── Export: the whole liturgy as a PDF or a Word document ──────────────
+  // One model of the service, written two ways: a PDF laid out here with
+  // jsPDF, and a real .docx put together with JSZip (both already loaded by
+  // the page). The model is the page's: its sections in order, and in each
+  // its songs (their words, chords taken out), its readings with their
+  // verses, its liturgy and its text, with the liturgist's notes. Who says a
+  // line (L:, P:, C:, All:) is set in its own column, and the people's lines
+  // in bold, as a service book prints them.
+  function _lbdExportMenu(anchor) {
+    _lbdOpenMenu(anchor, 'Export the liturgy', [
+      { label: 'PDF document', icon: 'fa-regular fa-file-pdf', run: function() { lbdExport('pdf'); } },
+      { label: 'Word document (.docx)', icon: 'fa-regular fa-file-word', run: function() { lbdExport('docx'); } }
+    ]);
+  }
+  var _LBD_SPK = /^\s*(L|P|C|A|All|Leader|Liturgist|Pastor|Minister|Congregation|People)\s*:\s*/i;
+  var _LBD_SPK_PEOPLE = /^(c|a|all|congregation|people)$/i;
+  // Words as paragraphs of lines. A blank line, or the end of a slide, ends a
+  // paragraph; a line with no speaker of its own keeps the one before it in
+  // its paragraph. A song's section names become labels and its chord lines
+  // are left out.
+  function _lbdExportParas(texts, opts) {
+    opts = opts || {};
+    var paras = [];
+    // Who is speaking carries on to the lines after, over a blank line and
+    // into the next slide, until somebody else is named: a confession that
+    // runs over three slides is the people's all the way. A slide that names
+    // its own speakers starts afresh (its first line may be its title), and
+    // a name with no words after it ("C :") carries nothing.
+    var spk = '';
+    texts.forEach(function(t) {
+      var cur = null;
+      var rows = String(t || '').replace(/\r/g, '').split('\n');
+      if (rows.some(function(r) { return _LBD_SPK.test(r); })) spk = '';
+      rows.forEach(function(raw, n) {
+        var line = raw.replace(/\s+$/, '');
+        if (!line.trim()) { cur = null; return; }
+        if (opts.song) {
+          var sec = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+          if (sec) { paras.push({ label: sec[1].trim(), lines: [] }); cur = null; return; }
+          if (typeof isChordLineGlobal === 'function' && isChordLineGlobal(line, rows[n + 1] || '')) return;
+        }
+        var m = _LBD_SPK.exec(line), who = '';
+        if (m) { who = m[1]; line = line.slice(m[0].length); }
+        var text = line.replace(/^\s+/, ''), by = who || spk;
+        if (!cur) { cur = { label: '', lines: [] }; paras.push(cur); }
+        cur.lines.push({ who: who, people: !!by && _LBD_SPK_PEOPLE.test(by), indent: !!by, text: text });
+        if (who) spk = text ? who : '';
+      });
+    });
+    return paras.filter(function(p) { return p.label || p.lines.length; });
+  }
+  // A part with any speaker in it keeps the speakers' column for all of it,
+  // so its lines line up; a reading's verses keep the full width.
+  function _lbdExportCol(p) {
+    return !p.verses && p.paras.some(function(pa) { return pa.lines.some(function(ln) { return ln.indent; }); });
+  }
+  // A reading's verse numbers, "[18]", as small raised numbers.
+  function _lbdVerseRuns(text) {
+    var out = [], re = /\[(\d{1,3})\]\s*/g, last = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) out.push({ t: text.slice(last, m.index) });
+      out.push({ t: m[1], sup: true });
+      out.push({ t: ' ' });
+      last = re.lastIndex;
+    }
+    if (last < text.length) out.push({ t: text.slice(last) });
+    return out.length ? out : [{ t: text }];
+  }
+  function _lbdExportModel() {
+    var o = currentOrderData, list = _woSectionList(), md = _woMedleys();
+    var slideTexts = function(it) { return (Array.isArray(it.slides) ? it.slides : []).map(function(sl) { return (sl && sl.content) || ''; }); };
+    return {
+      service: o.orderName || o.title || 'Order of Worship',
+      date: _lbdLongDate(o), occasion: _lbdOccasion(),
+      notes: String((o.template && o.template.serviceNotes) || '').trim(),
+      sections: list.map(function(sec, i) {
+        var so = _lbdSecOrder(sec, list), parts = [];
+        _woUnits(so.songs, md).forEach(function(u) {
+          u.items.forEach(function(s, j) {
+            var lib = _lbdLibSong(s.songId), k = _sbSungKey(s);
+            var words = (s.hasCustomLyrics && s.customLyrics) ? s.customLyrics : (s.lyrics || s.masterLyrics || (lib && lib.lyrics) || '');
+            parts.push({ kind: 'Song', title: s.title || 'Song',
+              meta: [k ? 'Key ' + k : '', s.artist || (lib && lib.artist) || '', u.md ? 'Medley, ' + (j + 1) + ' of ' + u.items.length : ''].filter(Boolean).join(' · '),
+              notes: String(s.liturgistNotes || '').trim(), paras: _lbdExportParas([words], { song: true }) });
+          });
+        });
+        so.ordered.forEach(function(x) {
+          var it = x.it, t = it.itemType;
+          if (t === 'scripture') parts.push({ kind: x.label || (it.content && it.content.subLabel) || 'Reading', title: it.title || '', verses: true, paras: _lbdExportParas(slideTexts(it)) });
+          else if (t === 'liturgy') parts.push({ kind: _lbdKindOf(it, ''), title: it.title || '', paras: _lbdExportParas(slideTexts(it)) });
+          else if (t === 'content') {
+            var tx = String((it.content && it.content.text) || '').trim();
+            if (tx) parts.push({ kind: 'Text', title: '', paras: _lbdExportParas([tx]) });
+          } else parts.push({ kind: _lbdKindOf(it, ''), title: it.title || '', meta: 'shown in LCD Projection', paras: [] });
+        });
+        return { num: i + 1, title: sec.title || ('Section ' + (i + 1)), notes: String(sec.notes || '').trim(), parts: parts };
+      })
+    };
+  }
+  function _lbdExportName(ext) {
+    var o = currentOrderData || {};
+    return (String(o.orderName || o.title || 'Service') + ' - Order of Worship').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() + '.' + ext;
+  }
+  function _lbdDownload(blob, name) {
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { try { URL.revokeObjectURL(url); } catch (e) {} if (a.parentNode) a.parentNode.removeChild(a); }, 4000);
+  }
+  function lbdExport(kind) {
+    if (!currentOrderData) return;
+    var pdf = kind === 'pdf', name = _lbdExportName(pdf ? 'pdf' : 'docx'), what = pdf ? 'PDF' : 'Word document';
+    var fail = function(e) { console.error(e); showToast('Could not make the ' + what + ': ' + ((e && e.message) || e || 'unknown error'), 'error'); };
+    try {
+      var m = _lbdExportModel();
+      if (pdf) {
+        var doc = _lbdExportPdf(m);
+        if (!doc) return;
+        _lbdDownload(doc.output('blob'), name);
+        showToast('Downloaded ' + name, 'success');
+      } else {
+        var p = _lbdExportDocx(m);
+        if (p) p.then(function(blob) { _lbdDownload(blob, name); showToast('Downloaded ' + name, 'success'); }, fail);
+      }
+    } catch (e) { fail(e); }
+  }
+
+  // ---- the PDF: A4, Times, laid out line by line ----
+  // The standard PDF fonts know only the Windows Latin set, so anything
+  // outside it is changed or dropped rather than printed as a wrong letter.
+  function _lbdPdfText(s) {
+    return String(s == null ? '' : s).replace(/[‐-‒−]/g, '-').replace(/→/g, '->').replace(/[   ]/g, ' ')
+      .replace(/[^\t\n -~¡-ÿŒœŠšŸŽžƒˆ˜–—‘-‚“-„†-•…‰‹›€™]/g, '');
+  }
+  function _lbdExportPdf(m) {
+    var J = window.jspdf && window.jspdf.jsPDF;
+    if (!J) { showToast('The PDF maker has not loaded yet. Check the connection and try again.', 'error'); return null; }
+    var doc = new J({ unit: 'pt', format: 'a4', compress: true });
+    var W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    var L = 64, R = W - 64, TOP = 66, BOT = H - 70, y = TOP;
+    var INK = [31, 41, 51], GREEN = [20, 83, 45], GREY = [107, 114, 128], GOLD = [184, 142, 47], NOTE = [75, 85, 99];
+    var BODY = 11.5, LEAD = 16, COL = 30;
+    doc.setProperties({ title: m.service + ' - Order of Worship', subject: [m.date, m.occasion].filter(Boolean).join(' - '), creator: 'LHC Worship Prep' });
+    var font = function(r) {
+      doc.setFont(r.f || 'times', r.b && r.i ? 'bolditalic' : r.b ? 'bold' : r.i ? 'italic' : 'normal');
+      doc.setFontSize(r.sup ? (r.s || BODY) * 0.62 : (r.s || BODY));
+    };
+    // Runs to lines that fit the width, word by word.
+    var wrap = function(runs, width) {
+      var lines = [[]], w = 0;
+      runs.forEach(function(r) {
+        font(r);
+        _lbdPdfText(r.t).split(/(\s+)/).forEach(function(tok) {
+          if (!tok) return;
+          var sp = /^\s+$/.test(tok);
+          if (sp && !w) return;
+          var tw = doc.getTextWidth(sp ? ' ' : tok);
+          if (!sp && w + tw > width && lines[lines.length - 1].length) {
+            var last = lines[lines.length - 1];
+            while (last.length && /^\s+$/.test(last[last.length - 1].t)) last.pop();
+            lines.push([]); w = 0;
+          }
+          lines[lines.length - 1].push({ r: r, t: sp ? ' ' : tok, w: tw });
+          w += tw;
+        });
+      });
+      return lines.filter(function(l) { return l.length; });
+    };
+    var draw = function(frags, x, base) {
+      frags.forEach(function(fr) {
+        font(fr.r);
+        doc.setTextColor.apply(doc, fr.r.c || INK);
+        doc.text(fr.t, x, base - (fr.r.sup ? (fr.r.s || BODY) * 0.36 : 0));
+        x += fr.w;
+      });
+    };
+    var room = function(h) { if (y + h > BOT) { doc.addPage(); y = TOP; return true; } return false; };
+    var block = function(runs, x, width, lead, gapAfter) {
+      wrap(runs, width).forEach(function(ln) { room(lead); draw(ln, x, y + lead * 0.74); y += lead; });
+      y += gapAfter || 0;
+    };
+    // The title.
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor.apply(doc, GOLD);
+    doc.text('ORDER OF WORSHIP', L, y + 8, { charSpace: 1.6 });
+    y += 18;
+    block([{ t: m.service, b: true, s: 24 }], L, R - L, 29, 2);
+    var sub = [m.date, m.occasion].filter(Boolean).join('  ·  ');
+    if (sub) block([{ t: sub, i: true, s: 12, c: GREY }], L, R - L, 16, 0);
+    y += 8;
+    doc.setDrawColor.apply(doc, GOLD); doc.setLineWidth(1); doc.line(L, y, R, y);
+    y += 16;
+    var note = function(text, label) {
+      var y0 = y;
+      block([{ t: label + ' ', b: true, i: true, s: 10.5, c: NOTE }, { t: text, i: true, s: 10.5, c: NOTE }], L + 12, R - L - 12, 14.5, 0);
+      doc.setDrawColor.apply(doc, GOLD); doc.setLineWidth(2);
+      if (y > y0) doc.line(L + 3, y0 + 2, L + 3, y - 2);
+      y += 8;
+    };
+    if (m.notes) note(m.notes, 'Service notes:');
+    m.sections.forEach(function(sec) {
+      // A heading keeps its first part with it.
+      if (!room(34 + 20 + LEAD * 2) && y > TOP) y += 12;
+      font({ b: true, s: 15 }); doc.setTextColor.apply(doc, GREEN);
+      doc.text(_lbdPdfText(sec.num + '.'), L, y + 14);
+      block([{ t: sec.title, b: true, s: 15, c: GREEN }], L + 24, R - L - 24, 19, 2);
+      doc.setDrawColor.apply(doc, GOLD); doc.setLineWidth(0.6); doc.line(L, y, R, y);
+      y += 10;
+      if (sec.notes) note(sec.notes, 'Note:');
+      if (!sec.parts.length) { y += 4; return; }
+      sec.parts.forEach(function(p, pi) {
+        room(18 + LEAD * 2);
+        if (pi) y += 4;
+        if (p.kind !== 'Text' || p.title) {
+          var head = [{ t: p.kind.toUpperCase() + '   ', f: 'helvetica', b: true, s: 7.5, c: GREY }];
+          if (p.title) head.push({ t: p.title, b: true, s: 12.5 });
+          if (p.meta) head.push({ t: '   ' + p.meta, i: true, s: 10, c: GREY });
+          block(head, L, R - L, 17, 3);
+        }
+        if (p.notes) note(p.notes, 'Note:');
+        var partCol = _lbdExportCol(p);
+        p.paras.forEach(function(para) {
+          if (para.label) { room(LEAD + 14); block([{ t: para.label, i: true, s: 10, c: GREY }], L, R - L, 14, 1); }
+          var hasCol = partCol || para.lines.some(function(ln) { return ln.indent; });
+          para.lines.forEach(function(ln) {
+            var runs = p.verses ? _lbdVerseRuns(ln.text) : [{ t: ln.text }];
+            runs.forEach(function(r) { r.b = ln.people; });
+            var x = L + (hasCol ? COL : 0), lines = wrap(runs, R - x);
+            if (!lines.length) lines = [[]];
+            lines.forEach(function(frags, k) {
+              room(LEAD);
+              var base = y + LEAD * 0.74;
+              if (!k && ln.who) { font({ b: true }); doc.setTextColor.apply(doc, GREEN); doc.text(_lbdPdfText(ln.who + ':'), L, base); }
+              draw(frags, x, base);
+              y += LEAD;
+            });
+          });
+          y += 6;
+        });
+      });
+      y += 6;
+    });
+    // The foot of every page: the service, and the page of how many.
+    var n = doc.getNumberOfPages();
+    for (var i = 1; i <= n; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor.apply(doc, GREY);
+      doc.setDrawColor(225, 228, 232); doc.setLineWidth(0.5); doc.line(L, H - 46, R, H - 46);
+      doc.text(_lbdPdfText(m.service + '  ·  Order of Worship'), L, H - 32);
+      var pg = 'Page ' + i + ' of ' + n;
+      doc.text(pg, R - doc.getTextWidth(pg), H - 32);
+    }
+    return doc;
+  }
+
+  // ---- the Word document: a real .docx, with Word's own heading styles ----
+  function _lbdX(s) {
+    return String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function _lbdDocxRun(t, o) {
+    o = o || {};
+    var pr = (o.font ? '<w:rFonts w:ascii="' + o.font + '" w:hAnsi="' + o.font + '" w:cs="' + o.font + '"/>' : '') +
+      (o.b ? '<w:b/>' : '') + (o.i ? '<w:i/>' : '') + (o.caps ? '<w:caps/>' : '') +
+      (o.color ? '<w:color w:val="' + o.color + '"/>' : '') + (o.spacing ? '<w:spacing w:val="' + o.spacing + '"/>' : '') +
+      (o.sz ? '<w:sz w:val="' + o.sz + '"/><w:szCs w:val="' + o.sz + '"/>' : '') + (o.sup ? '<w:vertAlign w:val="superscript"/>' : '');
+    return '<w:r>' + (pr ? '<w:rPr>' + pr + '</w:rPr>' : '') + (o.tab ? '<w:tab/>' : '') +
+      (t ? '<w:t xml:space="preserve">' + _lbdX(t) + '</w:t>' : '') + '</w:r>';
+  }
+  function _lbdDocxP(style, runs, extra) {
+    return '<w:p><w:pPr><w:pStyle w:val="' + style + '"/>' + (extra || '') + '</w:pPr>' + runs + '</w:p>';
+  }
+  function _lbdDocxXml(m) {
+    var P = _lbdDocxP, Rn = _lbdDocxRun, body = '';
+    body += P('LbdKicker', Rn('Order of Worship'));
+    body += P('Title', Rn(m.service));
+    var sub = [m.date, m.occasion].filter(Boolean).join('  ·  ');
+    if (sub) body += P('Subtitle', Rn(sub));
+    if (m.notes) body += P('LbdNote', Rn('Service notes: ', { b: true }) + Rn(m.notes));
+    m.sections.forEach(function(sec) {
+      body += P('Heading1', Rn(sec.num + '.', {}) + Rn('', { tab: true }) + Rn(sec.title));
+      if (sec.notes) body += P('LbdNote', Rn('Note: ', { b: true }) + Rn(sec.notes));
+      sec.parts.forEach(function(p) {
+        if (p.kind !== 'Text' || p.title) {
+          var head = Rn(p.kind, { font: 'Arial', b: true, caps: true, sz: 15, color: '6B7280', spacing: 20 }) + Rn('   ');
+          if (p.title) head += Rn(p.title);
+          if (p.meta) head += Rn('   ' + p.meta, { b: false, i: true, sz: 20, color: '6B7280' });
+          body += P('Heading2', head);
+        }
+        if (p.notes) body += P('LbdNote', Rn('Note: ', { b: true }) + Rn(p.notes));
+        var partCol = _lbdExportCol(p);
+        p.paras.forEach(function(para) {
+          if (para.label) body += P('LbdLabel', Rn(para.label));
+          var hasCol = partCol || para.lines.some(function(ln) { return ln.indent; });
+          para.lines.forEach(function(ln, k) {
+            var last = k === para.lines.length - 1;
+            var runs = (p.verses ? _lbdVerseRuns(ln.text) : [{ t: ln.text }]).map(function(r) {
+              return Rn(r.t, { b: ln.people, sup: !!r.sup });
+            }).join('');
+            if (hasCol) runs = (ln.who ? Rn(ln.who + ':', { b: true, color: '14532D' }) : '') + Rn('', { tab: true }) + runs;
+            body += P(hasCol ? 'LbdLine' : 'LbdBody', runs, last ? '<w:spacing w:after="140"/>' : '');
+          });
+        });
+      });
+    });
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<w:body>' + body +
+      '<w:sectPr><w:footerReference w:type="default" r:id="rId2"/><w:pgSz w:w="11906" w:h="16838"/>' +
+      '<w:pgMar w:top="1247" w:right="1247" w:bottom="1247" w:left="1247" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>' +
+      '</w:body></w:document>';
+  }
+  function _lbdDocxStyles() {
+    var st = function(id, name, ppr, rpr, extra) {
+      return '<w:style w:type="paragraph"' + (id === 'Normal' ? ' w:default="1"' : '') + ' w:styleId="' + id + '"><w:name w:val="' + name + '"/>' +
+        (id === 'Normal' ? '' : '<w:basedOn w:val="Normal"/><w:next w:val="Normal"/>') + (extra || '') + '<w:qFormat/>' +
+        (ppr ? '<w:pPr>' + ppr + '</w:pPr>' : '') + (rpr ? '<w:rPr>' + rpr + '</w:rPr>' : '') + '</w:style>';
+    };
+    var gold = '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="B88E2F"/></w:pBdr>';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia" w:eastAsia="Georgia" w:cs="Georgia"/>' +
+        '<w:color w:val="1F2933"/><w:sz w:val="23"/><w:szCs w:val="23"/><w:lang w:val="en-GB"/></w:rPr></w:rPrDefault>' +
+        '<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
+      st('Normal', 'Normal') +
+      st('LbdKicker', 'Order kicker', '<w:spacing w:after="40"/>', '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:b/><w:caps/><w:color w:val="B88E2F"/><w:spacing w:val="40"/><w:sz w:val="17"/>') +
+      st('Title', 'Title', '<w:keepNext/><w:spacing w:after="60"/>', '<w:b/><w:sz w:val="48"/><w:szCs w:val="48"/>') +
+      st('Subtitle', 'Subtitle', gold + '<w:spacing w:after="280"/>', '<w:i/><w:color w:val="6B7280"/><w:sz w:val="24"/>') +
+      st('Heading1', 'heading 1', '<w:keepNext/><w:keepLines/>' + gold + '<w:tabs><w:tab w:val="left" w:pos="480"/></w:tabs><w:spacing w:before="360" w:after="140"/><w:outlineLvl w:val="0"/>',
+        '<w:b/><w:color w:val="14532D"/><w:sz w:val="30"/><w:szCs w:val="30"/>') +
+      st('Heading2', 'heading 2', '<w:keepNext/><w:keepLines/><w:spacing w:before="200" w:after="80"/><w:outlineLvl w:val="1"/>', '<w:b/><w:sz w:val="25"/><w:szCs w:val="25"/>') +
+      st('LbdLabel', 'Song section', '<w:keepNext/><w:spacing w:before="100" w:after="20"/>', '<w:i/><w:color w:val="6B7280"/><w:sz w:val="20"/>') +
+      st('LbdBody', 'Liturgy words') +
+      st('LbdLine', 'Liturgy line', '<w:tabs><w:tab w:val="left" w:pos="600"/></w:tabs><w:ind w:left="600" w:hanging="600"/>') +
+      st('LbdNote', 'Liturgist note', '<w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="B88E2F"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="FBF7EC"/><w:spacing w:before="60" w:after="140"/><w:ind w:left="200"/>',
+        '<w:i/><w:color w:val="4B5563"/><w:sz w:val="21"/>') +
+      st('Footer', 'footer', '<w:jc w:val="center"/>', '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:color w:val="6B7280"/><w:sz w:val="16"/>') +
+      '</w:styles>';
+  }
+  function _lbdExportDocx(m) {
+    var Z = window.JSZip;
+    if (!Z) { showToast('The Word maker has not loaded yet. Check the connection and try again.', 'error'); return null; }
+    var zip = new Z(), W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    var Rn = _lbdDocxRun, now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+      '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+      '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' +
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>');
+    zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>');
+    zip.file('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>');
+    zip.file('word/document.xml', _lbdDocxXml(m));
+    zip.file('word/styles.xml', _lbdDocxStyles());
+    zip.file('word/footer1.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="' + W + '">' +
+      '<w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr>' + Rn(m.service + '  ·  Order of Worship  ·  Page ') +
+      '<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>' + Rn(' of ') +
+      '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p></w:ftr>');
+    zip.file('docProps/core.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
+      'xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+      '<dc:title>' + _lbdX(m.service + ' - Order of Worship') + '</dc:title><dc:creator>LHC Worship Prep</dc:creator>' +
+      '<dcterms:created xsi:type="dcterms:W3CDTF">' + now + '</dcterms:created></cp:coreProperties>');
+    return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
   }
 
   function _lbdFoldAll() {
@@ -74999,6 +75381,7 @@ var WO = (function() {
       case 'menu-templates': _lbdOpenTplMenu(btn); break;
       case 'menu-svl': _lbdOpenSvlMenu(btn); break;
       case 'share-wa': _lbdShareMenu(btn); break;
+      case 'menu-export': _lbdExportMenu(btn); break;
       case 'menu-liturgies': _lbdOpenLitMenu(btn); break;
       case 'more-menu': _lbdOpenMoreMenu(btn); break;
       case 'sec-insert':
@@ -106311,6 +106694,7 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-fsep { flex: 0 0 auto; width: 1px; height: 22px; margin: 0 6px; background: var(--lbw-line); }
 .lbw-fmt-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
 .lbw-rb[data-act="share-wa"] > i:first-child { color: #1faa59; }
+.lbw-rb[data-act="menu-export"] > i:first-child { color: #b45309; }
 /* What needs the cursor in the words of a slide is dimmed until it is. */
 .lbw:not(.lbw--rich) [data-need="rich"], .lbw:not(.lbw--words) [data-need="words"] { opacity: 0.4; }
 /* New line is only for a touch screen, where Enter starts a new slide. */
