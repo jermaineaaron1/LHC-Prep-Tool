@@ -1447,6 +1447,27 @@ the anon key -- verify as `postgres`, not as the app.
     `broadcast: { self: false }`, so a sender never hears its own and
     opens its copy directly.
 
+54. **The builder's All Slides is the words as one text, held to the parts
+    by their headings.** The ribbon's All Slides (a phone's More) opens the
+    whole liturgy; a part's own button, or its options, opens just that part
+    (`lbdAllSlides(itemId)`). `# 1. Invocation` is a section, `## Liturgy:
+    Invocation` a part (`## Text` a text part, `## Song: <title>` a song,
+    whose words stay in the Songbook), and a line of `---` starts a slide
+    (`_lbdAsText` / `_lbdAsParse`, pure). The k-th `##` heading is the k-th
+    part, so a heading added or taken out, words under a song, or words
+    under a section but no part are REFUSED with a message rather than
+    guessed at; the parts never move. Apply is one `_lbdChange` (one Undo),
+    and none when nothing changed. `_lbdAsPut` keeps each unchanged slide as
+    the same object wherever it moved -- formatting (`richHtml`) and
+    background with it -- and a changed slide keeps the background of the
+    slide in its place and becomes plain words, as `_lbdSetSlide` does; a
+    heading's new name becomes the title; a text part given more slides
+    becomes that many text parts. Words differing only by trailing spaces
+    are not a change. Closing with changes not applied asks first, through
+    the Songbook's labelled confirm (`_sbVerAsk`): the app's `customConfirm`
+    is a delete dialog and says Delete. It is not LCD Projection's All Slides,
+    which reads that step's DOM (gotcha 35).
+
 ## Quick Commands for Claude Code
 
 ```bash
