@@ -108,7 +108,14 @@ than a bash heredoc, which quietly eats a level of backslashes.
 
 ### 3. Worship Orders
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
-- One order, three numbered steps, as tabs under the editor header:
+- The Orders menu lists the latest ten orders, the most recently edited first
+  (`_woOrderTime`); **See more** lists the rest under an Archived heading
+  (`WO_ORDERS_SHOWN`, `_woShowArchive`). A search looks through all of them.
+  Each card keeps its index into the whole `savedOrders`, which every handler
+  on it uses -- never its place on screen.
+- One order, three numbered steps, as tabs under the editor header, each in a
+  colour of its own on the order's landing and on the tabs' numbers: the
+  builder green, the Songbook blue, LCD Projection a light red:
   1. **Liturgy Builder** (order of worship) -- the sections, and in each the
      songs, liturgy, readings and the liturgist's notes, as a word processor.
      On a desk, three columns: the Order Outline (numbered sections, drag a
@@ -152,11 +159,14 @@ than a bash heredoc, which quietly eats a level of backslashes.
      (`_lbdOnBeforeInput`: `insertParagraph` breaks the slide,
      `deleteContentBackward` at a slide's start joins it), never twice for
      one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save / Load; a
-     phone's More; the Liturgy Book's Share) sends the order of service --
-     each section with its songs in the key sung, its readings by reference,
-     its liturgy by name -- or every word of the liturgy, built by the pure
-     `_lbdShareMessage` from `_lbdShareSections` (the page's order), each with
-     a link that opens the order in its Liturgy Book (`?order=<id>&view=liturgy`).
+     phone's More; the Liturgy Book's Share) sends a link to the order of
+     service -- the title, the date and a link that opens the order in the
+     Liturgy Builder (`?order=<id>&view=builder`), so whoever opens it sees
+     the order as it is then, not as it was sent -- or every word of the
+     liturgy: each section with its songs in the key sung, its readings by
+     reference and its liturgy word for word, built by the pure
+     `_lbdShareMessage` from `_lbdShareSections` (the page's order), with a
+     link that opens its Liturgy Book (`&view=liturgy`).
      A waiting autosave goes first, so the link opens what was shared. Over
      3,500 characters the message is not put in a wa.me link: a phone's share
      sheet takes it whole, and a desk copies it and opens WhatsApp to paste
@@ -195,10 +205,14 @@ than a bash heredoc, which quietly eats a level of backslashes.
      to play or delete, with an audio file to add (gotcha 52). Between the
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
-     as the song needs (gotcha 53). A green WhatsApp button -- first of the
-     desk top bar's buttons, before the Inbox; under the book's name on a
-     phone -- shares the whole songbook at once (`sbShareWhatsApp`); one song
-     is under Share.
+     as the song needs (gotcha 53). A song's videos are the red YouTube tile
+     next to More (`sbmVideos`: one plays at once, several are listed; a song
+     with none is offered Add a link), not a chip in its header. A green
+     WhatsApp button -- first of the desk top bar's buttons, before the
+     Inbox; under the book's name on a phone -- shares the whole songbook at
+     once (`sbShareWhatsApp`): each section by its name alone, as the builder
+     names it (`_sbmSectionLabel(song, true)`), the Songbook's link, a blank
+     line, then the "Song Playlist (YouTube)"; one song is under Share.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a

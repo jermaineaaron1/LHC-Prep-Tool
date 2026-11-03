@@ -711,10 +711,9 @@ console.log('\n[service liturgies]');
       { title: '6. Readings', lines: [{ text: 'Gospel: Matthew 25:1-13', words: '' }] },
       { title: '8. Sermon', lines: [] }
     ];
-    const outline = msg({ title: 'Service - Nov 8', sub: 'Sunday, 8 November 2026', sections: sections, link: 'https://x/?order=o1&view=liturgy' });
-    check('the order of service: the title, the date, each section and its parts as bullets, an empty section by name',
-      outline.indexOf('*Service - Nov 8*\n_Sunday, 8 November 2026_\n\n*1. Invocation*\n\u2022 Invocation\n\n*4. Praise*\n\u2022 \u266a Medley: A (D) + B (G)') === 0 &&
-      outline.indexOf('*8. Sermon*\n\nEvery word, in the Liturgy Book: https://x/?order=o1&view=liturgy') > 0 && outline.indexOf('L: In the Name') === -1, outline);
+    const outline = msg({ title: 'Service - Nov 8', sub: 'Sunday, 8 November 2026', sections: sections, link: 'https://x/?order=o1&view=builder' });
+    check('the order of service: the title, the date and a link that opens it in the Liturgy Builder, and none of what is in it',
+      outline === '*Service - Nov 8*\n_Sunday, 8 November 2026_\n\nThe order of service, in the Liturgy Builder:\nhttps://x/?order=o1&view=builder\n\n_LHC Worship Prep_', JSON.stringify(outline));
     const words = msg({ title: 'Service - Nov 8', words: true, sections: sections, link: 'https://x/?order=o1&view=liturgy' });
     check('every word: each part by name and then its words, a reading by its reference, and no run of empty lines',
       words.indexOf('*1. Invocation*\n_Invocation_\nL: In the Name of the Father.\n\nC: Amen.\n\n*4. Praise*\n\u266a Medley') > 0 &&
@@ -722,14 +721,16 @@ console.log('\n[service liturgies]');
   }
   check('WhatsApp is in the ribbon after Save / Load, in a phone\'s More, and the Liturgy Book\'s Share opens it',
     has(/b\('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' \+ dd, /) && has(/case 'share-wa': _lbdShareMenu\(btn\); break;/) &&
-    has(/\{ label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function\(\) \{ lbdShareWhatsApp\(false\); \} \}/) &&
+    has(/\{ label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function\(\) \{ lbdShareWhatsApp\(false\); \} \}/) &&
     has(/function lb2Share\(btn\) \{ _lbdShareMenu\(btn \|\| /) && !has(/showToast\('Share coming soon'/));
   check('...its parts in the page\'s order: songs (a medley as one, in the key sung), then the slotted readings, then the rest',
     has(/_woUnits\(so\.songs, md\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
     has(/items\.forEach\(function\(it\) \{ if \(!used\[it\.id\]\) ordered\.push\(\{ it: it, label: '' \}\); \}\);/));
-  check('...with a link that opens the order in its Liturgy Book, and the deep link does',
-    has(/return base \+ '\?order=' \+ encodeURIComponent\(currentOrderData\.id\) \+ '&view=liturgy';/) &&
-    has(/\} else if \(deepView === 'liturgy'\) \{/) && has(/window\.WO\.openLiturgyBook\(\);\r?\n\s*\}\r?\n\s*\}, 500\);/));
+  check('...every word ending with a link to its Liturgy Book, the order of service a link to the builder, and the deep links open them',
+    has(/return base \+ '\?order=' \+ encodeURIComponent\(currentOrderData\.id\) \+ '&view=' \+ \(view \|\| 'liturgy'\);/) &&
+    has(/sections: words \? _lbdShareSections\(\) : \[\], link: _lbdShareUrl\(words \? 'liturgy' : 'builder'\) \}\);/) &&
+    has(/\} else if \(deepView === 'liturgy'\) \{/) && has(/window\.WO\.openLiturgyBook\(\);\r?\n\s*\}\r?\n\s*\}, 500\);/) &&
+    has(/\} else if \(deepView === 'builder'\) \{/) && has(/window\.WO\.selectOrder\('liturgy'\);\r?\n\s*\}\r?\n\s*\}, 500\);/));
   check('...saving first anything still waiting, so the link opens what was shared',
     has(/function lbdShareWhatsApp\(words\) \{\r?\n[^\n]*\r?\n[^\n]*\r?\n\s*if \(_autoSaveTimer\) \{ clearTimeout\(_autoSaveTimer\); _autoSaveTimer = null; try \{ saveCurrentOrder\(true\); \} catch \(e\) \{\} \}/));
   check('a long message goes by a phone\'s share sheet, or is copied with WhatsApp opened, not crammed into a link',
