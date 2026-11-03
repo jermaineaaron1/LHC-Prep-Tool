@@ -213,6 +213,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      once (`sbShareWhatsApp`): each section by its name alone, as the builder
      names it (`_sbmSectionLabel(song, true)`), the Songbook's link, a blank
      line, then the "Song Playlist (YouTube)"; one song is under Share.
+     A song the service sings twice is listed in both sections, each copy
+     with a notice saying where else it is sung, **Copy arrangement** (from
+     the other copy, or from an earlier service) and **Own drawings**
+     (gotcha 55).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1481,6 +1485,36 @@ the anon key -- verify as `postgres`, not as the app.
     the Songbook's labelled confirm (`_sbVerAsk`): the app's `customConfirm`
     is a delete dialog and says Delete. It is not LCD Projection's All Slides,
     which reads that step's DOM (gotcha 35).
+
+55. **A song sung in two sections is two copies.** It used to be ONE
+    entry whose `serviceSections` named both, so the Songbook -- which lists
+    each entry once -- showed it only under the first, and a key or a word
+    changed for one moment changed the other. Adding a song the order already
+    sings in another section (`_lbdAddSong`, `_woAddSongToSection`) now makes
+    a copy for that section (`_woSongCopy`: the same key, words, version, page
+    marks, links and slides, but not the liturgist's note, which was about
+    the other moment); one waiting in no section is still placed. A section
+    duplicated copies its songs. An entry stored the old way is split as the
+    order opens (`_woSplitSharedSongs`, in `openOrderInEditor` and in the
+    shared Songbook link's `openSongbookByOrderId`): it keeps its id -- and
+    with it its medley -- and its first section, and each other section gets
+    a copy with the id `<entry id>_in_<section id>`, so two devices opening
+    it make the same copy and either save writes one row; a section that
+    already has a copy only loses the shared entry. Find a song in a section
+    with `_woSongCopyIn(libId, secId)`, never by one entry per library id.
+    The copies' DRAWINGS are still their version's (gotcha 46): two copies on
+    Standard share them, which the notice says, and **Own drawings**
+    (`sbmOwnVersion`) saves the copy as a version named for its section and
+    service through the Versions sheet's own save (`_sbVerSaveAs`), copying
+    the drawings it shows, so what is drawn after stays on it. **Copy an
+    arrangement** (`sbmArrangements`, also in More) lists the other copies in
+    this service and the song's copies in earlier services (`_sbArrEarlier`,
+    newest first, standalone songbooks left out) and puts one's key, words,
+    version (if it still exists) and page marks on this copy, with Undo
+    (`sbArrCopy`). The playlist plays a video once however many copies carry
+    it. The shared Songbook link now loads each copy's `versionId` -- without
+    it any change made there wrote every copy back to Standard -- and the
+    order's own `sectionLayout`.
 
 ## Quick Commands for Claude Code
 

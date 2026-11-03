@@ -35015,6 +35015,10 @@ var WO = (function() {
     // whether template._inbox is authoritative (i.e. was explicitly saved).
     currentOrderData._inboxPresent = order._inboxPresent || false;
     songOrderSections = order.songs || [];
+    // A song in two sections stored as one entry: a copy for each.
+    if (songOrderSections.some(function(s) { return s && Array.isArray(s.serviceSections) && s.serviceSections.length > 1; })) {
+      _woSplitSharedSongs(songOrderSections, _woSectionList());
+    }
     serviceSectionSongs = order.serviceSectionSongs || {};
 
     // Populate in-memory mediaLinks.
@@ -40594,6 +40598,66 @@ var WO = (function() {
     return entry;
   }
 
+  // A second copy of a song the order already sings, for another section:
+  // the same arrangement -- key, words and chords, version, page markings,
+  // links and slides -- as an entry of its own, so the two can be changed
+  // apart. The liturgist's note was about the other moment and comes only
+  // with keepNotes (a section duplicated, an old entry split); a medley is
+  // the first copy's, by its id.
+  function _woSongCopy(src, secId, id, keepNotes) {
+    var c = JSON.parse(JSON.stringify(src));
+    c.id = id || ('wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+    c.serviceSections = [secId];
+    c.sectionId = secId;
+    if (!keepNotes) c.liturgistNotes = '';
+    delete c.backendId;
+    return c;
+  }
+
+  // The order's copy of a library song in a section -- or, with no secId,
+  // its first copy anywhere, placed or not. A song sung twice is two copies.
+  function _woSongCopyIn(libId, secId, list) {
+    list = list || _woSectionList();
+    for (var i = 0; i < songOrderSections.length; i++) {
+      var s = songOrderSections[i];
+      if (!s || s.itemType === 'blank' || s.songId !== libId) continue;
+      if (!secId || _woSongSectionIds(s, list).indexOf(secId) !== -1) return s;
+    }
+    return null;
+  }
+
+  // A song placed in two sections used to be ONE entry in both: the
+  // Songbook listed it once, under the first, and a change made for one
+  // moment changed the other. An entry stored that way is split as the order
+  // opens: it keeps its first section (and with it its medley), and each
+  // other section gets a copy with the same arrangement, its id made from
+  // the entry's and the section's -- so two devices opening the order make
+  // the same copy, and either one's save writes the one row. A section that
+  // already has a copy of the song only loses the shared entry. Returns how
+  // many copies were made.
+  function _woSplitSharedSongs(songs, list) {
+    var made = 0;
+    for (var i = 0; i < songs.length; i++) {
+      var s = songs[i];
+      if (!s || s.itemType === 'blank' || !Array.isArray(s.serviceSections) || s.serviceSections.length < 2) continue;
+      var ids = _woSongSectionIds(s, list);
+      if (ids.length < 2) continue;
+      s.serviceSections = [ids[0]];
+      s.sectionId = ids[0];
+      var at = i;
+      ids.slice(1).forEach(function(sec) {
+        var have = songs.some(function(o) {
+          return o && o !== s && o.itemType !== 'blank' && o.songId === s.songId && _woSongSectionIds(o, list).indexOf(sec) !== -1;
+        });
+        if (have) return;
+        songs.splice(++at, 0, _woSongCopy(s, sec, s.id + '_in_' + sec, true));
+        made++;
+      });
+      i = at;
+    }
+    return made;
+  }
+
   // A library song put in one section of the order, from the Songbook. With
   // LCD Projection's schedule in the page its slides are drawn into that
   // section the way the LCD's own library adds a song; otherwise it goes
@@ -40602,17 +40666,17 @@ var WO = (function() {
     if (!currentOrderData || !libSong || !secId) return null;
     if (!_woLcdInPage()) return _lbdAddSong(secId, libSong, null) || null;
     var list = _woSectionList();
-    var entry = null;
-    songOrderSections.forEach(function(s) { if (!entry && s && s.itemType !== 'blank' && s.songId === libSong.id) entry = s; });
-    if (entry && _woSongSectionIds(entry, list).indexOf(secId) !== -1) {
+    if (_woSongCopyIn(libSong.id, secId, list)) {
       showToast('“' + (libSong.title || 'That song') + '” is already in that section', 'info');
       return null;
     }
-    if (entry) {
+    // A song waiting in no section is placed; one sung elsewhere gets a copy.
+    var entry = _woSongCopyIn(libSong.id, '', list);
+    if (entry && !_woSongSectionIds(entry, list).length) {
       _lbdPlaceSong(entry, secId, list);
       entry.savedSlides = null;
     } else {
-      entry = _woNewSongEntry(libSong, secId);
+      entry = entry ? _woSongCopy(entry, secId) : _woNewSongEntry(libSong, secId);
       songOrderSections.push(entry);
     }
     _lbdSortSongsByService();
@@ -48642,7 +48706,11 @@ var WO = (function() {
           slides: item.slides || [], savedSlides: item.slides || [],
           sectionId: item.sectionId || '', backgrounds: item.backgrounds || {},
           richLyrics: (cust.customRichLyrics) || null, masterRichLyrics: null,
-          liturgistNotes: cust.liturgistNotes || ''
+          liturgistNotes: cust.liturgistNotes || '',
+          // The version it sings: without it, any change made here wrote
+          // every copy back to Standard (SBQ.syncItems clears a version the
+          // snapshot does not name).
+          versionId: cust.versionId || ''
         });
       });
       _sbStandaloneId = null;
@@ -48655,7 +48723,13 @@ var WO = (function() {
         createdDate: orderMeta.createdDate || '', lastEdited: orderMeta.lastEdited || '',
         createdBy: orderMeta.createdBy || ''
       };
+        // Its own sections, as the editor opens them: without them the
+        // songs were placed by the order type's template.
+        if (orderMeta.template && Array.isArray(orderMeta.template.sectionLayout) && orderMeta.template.sectionLayout.length) {
+          currentOrderData.sectionLayout = orderMeta.template.sectionLayout;
+        }
         songOrderSections = songs;
+        _woSplitSharedSongs(songOrderSections, _woSectionList());
         openSongbook();
       }).catch(function(err) {
         console.error('openSongbookByOrderId error:', err);
@@ -52280,6 +52354,7 @@ var WO = (function() {
     }
     if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
     if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()']);
+    if (song && order) rows.push(['fa-clone', 'Copy an arrangement: as this service or an earlier one sang it', 'WO.sbmArrangements()']);
     rows = rows.concat([
       ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)'],
       ['fa-book-open', 'Read in full screen', 'WO.sbmCloseSheet();WO.sbOpenFullscreen()'],
@@ -52692,7 +52767,7 @@ var WO = (function() {
     rows.sort(function(a, b) { return String(a.title).localeCompare(String(b.title)); });
     box.innerHTML = rows.slice(0, 60).map(function(s) {
       var o = inOrder[s.id];
-      var here = o && _woSongSectionIds(o, list).indexOf(secId) !== -1;
+      var here = !!(o && _woSongCopyIn(s.id, secId, list));
       var badge = here ? '<span class="sbm-add__badge">In this section</span>'
                 : (o ? '<span class="sbm-add__badge sbm-add__badge--soft">In this service</span>' : '');
       return '<button class="sbm-add__song"' + (here ? ' disabled' : '') + ' onclick="WO.sbmAddSongPick(\'' + escapeJsArg(s.id) + '\')">' +
@@ -52707,10 +52782,12 @@ var WO = (function() {
     if (!secId) return;
     var entry = _woAddSongToSection(secId, lib);
     if (!entry) return;
-    // The book's record of the song's own words, as openSongbook seeds it.
+    // The book's record of the song's own words, as openSongbook seeds it,
+    // and of its page markings (a second copy brings the first's).
     songOriginalLyrics[entry.id] = entry.masterLyrics || entry.lyrics || '';
     songOriginalRichLyrics[entry.id] = entry.richLyrics || formatLyricsWithHighlights(songOriginalLyrics[entry.id]);
     if (entry.transposeSteps) sbTransposeSteps[entry.id] = entry.transposeSteps;
+    _sbArrSeedMarks(entry);
     _sbmCloseSheet();
     _sbmSid = entry.id;
     _sbmIndexOpen = false;
@@ -52748,6 +52825,204 @@ var WO = (function() {
     var song = _sbmSong();
     if (!song || !currentOrderData) return;
     openMedleyEditor(song.id);
+  }
+
+  // ---- a song sung more than once ----
+  // A song the service sings in two sections is two copies (_woSongCopy).
+  // The copies of this one's song elsewhere in the service, as sung.
+  function _sbmOtherCopies(song) {
+    if (!song || !song.songId || _sbStandaloneId || !currentOrderData) return [];
+    return _sbmSongs().filter(function(s) { return s && s !== song && s.itemType !== 'blank' && s.songId === song.songId; });
+  }
+  // On such a song: where else it is sung, that this copy's key, words and
+  // markings are its own, and whose drawings it shows -- they belong to the
+  // version it sings, so two copies on one version share them -- with the
+  // way to copy an arrangement onto it and, while it shares, to make its
+  // drawings its own.
+  function _sbmTwiceRibbon(song) {
+    var others = _sbmOtherCopies(song);
+    if (!others.length) return '';
+    var name = function(s) { return _sbmSectionLabel(s, true) || 'another part of the service'; };
+    var names = function(list) { return list.map(function(s) { return '<b>' + escapeHtml(name(s)) + '</b>'; }).join(' and '); };
+    // Each other copy's section is the way to it.
+    var where = others.map(function(s) {
+      return '<button class="sbm-twice__go" onclick="WO.sbmSelectSong(\'' + escapeJsArg(s.id) + '\')" title="Go to it">' + escapeHtml(name(s)) + '</button>';
+    }).join(' and ');
+    var same = others.filter(function(s) { return (s.versionId || '') === (song.versionId || ''); });
+    var v = song.versionId && _sbVerOk === true ? _sbVerById(_sbBaseSongId(song), song.versionId) : null;
+    var drawn = same.length
+      ? '; its drawings are shared with ' + names(same) + ' (' + (v ? '“' + escapeHtml(v.name) + '”' : song.versionId ? 'one version' : 'Standard') + ').'
+      : ', and so are its drawings.';
+    return '<div class="sbm-twice"><div class="sbm-twice__t"><i class="fa-solid fa-clone" aria-hidden="true"></i>' +
+      '<span>Also sung in ' + where + '. Key, words and markings here are this copy’s own' + drawn + '</span></div>' +
+      '<div class="sbm-twice__acts">' +
+        '<button onclick="WO.sbmArrangements()" title="Copy the way another copy, or an earlier service, sang it">Copy arrangement</button>' +
+        (same.length && _sbVerOk === true ? '<button onclick="WO.sbmOwnVersion()" title="Save this copy as a version of its own, so what is drawn on it stays on it">Own drawings</button>' : '') +
+      '</div></div>';
+  }
+
+  // ---- copying an arrangement ----
+  //
+  // An arrangement is the way a copy of a song is sung: its key, its words
+  // and chords, the version it sings (and with it the drawings) and its
+  // marks on the page. Copying one -- from another copy in this service, or
+  // from a service that sang the song before -- puts all that on this copy,
+  // with Undo. After that it is this copy's own: changed here, it changes
+  // nothing else, but for the drawings, which are its version's until
+  // Own drawings saves it as a version of its own.
+  var _sbArrRows = [];
+  var _SB_ARR_MARKS = ['annotations', 'imgAnnotations', 'textAnnotations', 'sbLyricsColumns'];
+  function _sbArrOf(s) {
+    return { steps: _sbVerSteps(s), versionId: s.versionId || '', customLyrics: s.customLyrics || '', lyrics: s.lyrics || '',
+             richLyrics: s.richLyrics || null, annotations: s.annotations || [], imgAnnotations: s.imgAnnotations || {},
+             textAnnotations: Array.isArray(s.textAnnotations) ? s.textAnnotations : (sbTextAnnots[s.id] || []),
+             sbLyricsColumns: s.sbLyricsColumns || 1 };
+  }
+  // The book's live record of a copy's page markings, from the copy.
+  function _sbArrSeedMarks(song) {
+    sbPaths[song.id] = (song.annotations || []).slice();
+    sbTextAnnots[song.id] = (song.textAnnotations || []).slice();
+    sbImgPaths[song.id] = JSON.parse(JSON.stringify(song.imgAnnotations || {}));
+  }
+  function _sbArrSnap(song) {
+    var o = _sbVerSnap(song);
+    _SB_ARR_MARKS.forEach(function(k) { o[k] = song[k] == null ? song[k] : JSON.parse(JSON.stringify(song[k])); });
+    return o;
+  }
+  function _sbArrRestore(song, snap) {
+    _sbVerRestore(song, snap);
+    _SB_ARR_MARKS.forEach(function(k) { song[k] = snap[k]; });
+    _sbArrSeedMarks(song);
+  }
+  function _sbArrApply(song, src) {
+    var base = _sbBaseSongId(song);
+    song.versionId = (src.versionId && _sbVerById(base, src.versionId)) ? src.versionId : '';
+    // Words of its own, or the song's own words.
+    _sbVerSetWords(song, (src.customLyrics || src.richLyrics)
+      ? { lyrics: src.customLyrics || src.lyrics || '', rich_lyrics: src.richLyrics || null } : null);
+    song.annotations = JSON.parse(JSON.stringify(src.annotations || []));
+    song.imgAnnotations = JSON.parse(JSON.stringify(src.imgAnnotations || {}));
+    song.textAnnotations = JSON.parse(JSON.stringify(src.textAnnotations || []));
+    song.sbLyricsColumns = src.sbLyricsColumns || 1;
+    _sbArrSeedMarks(song);
+    _sbVerSetKey(song, parseInt(src.steps, 10) || 0);
+  }
+
+  // The song's copies in earlier services, the newest service first. A
+  // standalone songbook is not a service.
+  function _sbArrEarlier(song) {
+    var sup = window._supabase, base = _sbBaseSongId(song);
+    var here = currentOrderData && currentOrderData.id;
+    if (!sup || !base) return Promise.resolve([]);
+    return sup.from('order_items').select('id, order_id, section_id, customizations, ta:content->textAnnotations, cols:content->sbLyricsColumns')
+      .eq('source_id', base).eq('item_type', 'song').then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        var rows = (r.data || []).filter(function(x) { return x.order_id && x.order_id !== here && String(x.order_id).indexOf('standalone_') !== 0; });
+        var ids = rows.map(function(x) { return x.order_id; }).filter(function(id, i, a) { return a.indexOf(id) === i; });
+        if (!ids.length) return [];
+        return sup.from('orders').select('id, title, created_date, layout:template->sectionLayout').in('id', ids).then(function(o) {
+          if (o.error) throw new Error(o.error.message);
+          var byId = {};
+          (o.data || []).forEach(function(x) { byId[x.id] = x; });
+          return rows.filter(function(x) { return byId[x.order_id]; }).map(function(x) {
+            var ord = byId[x.order_id], cust = x.customizations || {};
+            var sec = (Array.isArray(ord.layout) ? ord.layout : []).filter(function(l) { return l && l.id === x.section_id; })[0];
+            return { title: ord.title || 'An earlier service', sub: sec ? _woStripNum(sec.title) : '', at: ord.created_date || '',
+              src: { steps: parseInt(cust.transposeSteps, 10) || 0, versionId: cust.versionId || '',
+                     customLyrics: cust.customLyrics || '', lyrics: cust.customLyrics || '', richLyrics: cust.customRichLyrics || null,
+                     annotations: cust.annotations || [], imgAnnotations: cust.imgAnnotations || {},
+                     textAnnotations: Array.isArray(x.ta) ? x.ta : [], sbLyricsColumns: parseInt(x.cols, 10) || 1 } };
+          }).sort(function(a, b) { return String(b.at).localeCompare(String(a.at)); }).slice(0, 12);
+        });
+      });
+  }
+
+  function sbmArrangements() {
+    var song = _sbmSong(); if (!song) return;
+    _sbArrRows = [];
+    _sbmSheet('Copy an arrangement', '<p class="sbm-empty">Looking for the times “' + escapeHtml(song.title || 'this song') + '” was sung…</p>');
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'arrangements');
+    var base = _sbBaseSongId(song);
+    var vers = _sbVerSupport().then(function(ok) { return ok ? _sbVerLoad(base).catch(function() {}) : null; });
+    Promise.all([_sbArrEarlier(song).catch(function(e) { return { failed: e }; }), vers]).then(function(rs) {
+      var now = document.getElementById('sbmSheet');
+      if (_sbmSong() !== song || !now || now.getAttribute('data-sheet') !== 'arrangements') return;
+      _sbArrRender(song, Array.isArray(rs[0]) ? rs[0] : [], rs[0] && rs[0].failed);
+    });
+  }
+
+  function _sbArrRender(song, earlier, failed) {
+    var base = _sbBaseSongId(song), libKey = (_lbdLibSong(base) || {}).key;
+    var here = _sbmOtherCopies(song).map(function(s) {
+      return { title: _sbmSectionLabel(s, true) || 'Elsewhere in this service', sub: 'This service', here: true, src: _sbArrOf(s) };
+    });
+    _sbArrRows = here.concat(earlier);
+    var vName = function(id) {
+      if (!id) return 'Standard';
+      var v = _sbVerOk === true ? _sbVerById(base, id) : null;
+      return v ? v.name : 'A version since deleted';
+    };
+    var card = function(r, i) {
+      var src = r.src, n = (src.annotations || []).length + (src.textAnnotations || []).length;
+      var chips = [
+        ['fa-key', _sbVerKeyText(song, src.steps, libKey)],
+        ['fa-code-branch', vName(src.versionId)],
+        ['fa-align-left', (src.customLyrics || src.richLyrics) ? 'Its own words' : 'The song’s own words'],
+        ['fa-pen', n ? n + ' mark' + (n === 1 ? '' : 's') + ' on the page' : 'No marks on the page']
+      ];
+      return '<div class="ver-card">' +
+        '<div class="ver-card__top"><div class="ver-card__name"><i class="fa-solid ' + (r.here ? 'fa-clone' : 'fa-clock-rotate-left') + '" aria-hidden="true"></i>' +
+          '<span class="ver-card__t">' + escapeHtml(r.title) + '</span></div>' +
+          '<div class="ver-card__acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbArrCopy(' + i + ')">Copy</button></div></div>' +
+        '<div class="ver-chips">' + chips.map(function(c) { return '<span class="ver-chip"><i class="fa-solid ' + c[0] + '" aria-hidden="true"></i>' + escapeHtml(c[1]) + '</span>'; }).join('') + '</div>' +
+        (r.sub ? '<div class="ver-card__foot">' + escapeHtml(r.sub) + '</div>' : '') + '</div>';
+    };
+    var html = '<div class="ver">' +
+      '<p class="arr-lead">Copying puts its key, its words and chords, the version it sings and its marks on the page onto this copy of “' + escapeHtml(_sbmClip(song.title || 'the song', 40)) + '”. ' +
+        'What is changed here afterwards changes nothing else. The drawings belong to the version, so this copy shares them with every copy on that version' +
+        (_sbVerOk === true ? ' until it is given its own (Own drawings, or Versions).' : '.') + '</p>' +
+      (here.length ? '<div class="ver-head"><span>In this service</span><span class="ver-head__n">' + here.length + '</span></div>' +
+        '<div class="ver-list">' + here.map(function(r, i) { return card(r, i); }).join('') + '</div>' : '') +
+      '<div class="ver-head"><span>Earlier services</span><span class="ver-head__n">' + earlier.length + '</span></div>' +
+      '<div class="ver-list">' + (earlier.length ? earlier.map(function(r, i) { return card(r, here.length + i); }).join('')
+        : '<div class="ver-empty">' + (failed ? 'The earlier services could not be read just now. Try again in a moment.' : 'Not sung in an earlier service yet.') + '</div>') + '</div>' +
+      (_sbVerOk === true ? '<button class="sbm-btn sbm-btn--block" onclick="WO.sbmVersions()"><i class="fa-solid fa-code-branch"></i>Saved versions of this song</button>' : '') +
+      '</div>';
+    _sbmSheet('Copy an arrangement', html);
+    var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'arrangements');
+  }
+
+  function sbArrCopy(i) {
+    var song = _sbmSong(), r = _sbArrRows[i];
+    if (!song || !r) return;
+    var before = _sbArrSnap(song);
+    _sbArrApply(song, r.src);
+    _sbVerSaved();
+    _sbmCloseSheet();
+    showToast('Copied the arrangement from ' + r.title + (r.here || !r.sub ? '' : ' (' + r.sub + ')'), 'success', { action: 'Undo', duration: 6000, onAction: function() {
+      if (_sbmSong() !== song) sbmSelectSong(song.id);
+      _sbArrRestore(song, before);
+      _sbVerSaved();
+    } });
+  }
+
+  // This copy's drawings made its own: it is saved as a version named for
+  // its part of the service, with a copy of the drawings it shows now, and
+  // sings it -- so what is drawn on it from now on stays on it, and the
+  // other copies, and earlier services, keep theirs as they were.
+  function sbmOwnVersion() {
+    var song = _sbmSong(); if (!song) return;
+    var svc = (currentOrderData && (currentOrderData.title || currentOrderData.orderName)) || '';
+    var name = [_sbmSectionLabel(song, true), svc].filter(Boolean).join(' · ').slice(0, 60) || 'Its own';
+    var base = _sbBaseSongId(song);
+    _sbVerSupport().then(function(ok) {
+      if (!ok) { showToast('Versions need a one-time update to the database first: open Versions for how', 'info'); return; }
+      return Promise.all([_sbVerLoad(base), _sbmLoadMarks(song, true)]).then(function() {
+        return _sbVerSaveAs(song, name).catch(function() {});   // it says why itself
+      }, function(err) {
+        showToast('Could not read this song’s versions just now (' + (err && err.message || 'no answer') + ')', 'error');
+      });
+    });
   }
 
   // ---- saved medleys: kept, to be sung again ----
@@ -53561,7 +53836,7 @@ var WO = (function() {
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
     if (wide) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
     var mdHere = currentOrderData ? _woMedleyOf(song.id) : null;
-    songCard += '<div class="sbm-song__badges">' + badges + '</div>' + (mdHere ? _sbmMedleyRibbon(song, mdHere) : '') + '</div>';
+    songCard += '<div class="sbm-song__badges">' + badges + '</div>' + (mdHere ? _sbmMedleyRibbon(song, mdHere) : '') + _sbmTwiceRibbon(song) + '</div>';
 
     // -- toolbar --
     var toolbar = '<div class="sbm-toolbar">' +
@@ -55980,15 +56255,22 @@ var WO = (function() {
     var inp = document.getElementById('sbVerName'), btn = document.getElementById('sbVerSaveBtn');
     var name = String((inp && inp.value) || '').trim().slice(0, 60);
     if (!name) { showToast('Give the version a name first', 'info'); if (inp) inp.focus(); return; }
-    var sup = window._supabase;
-    if (!sup) { showToast('Could not save the version: not connected to the database', 'error'); return; }
-    var base = _sbBaseSongId(song), from = song.versionId || '';
     if (btn) btn.disabled = true;
+    _sbVerSaveAs(song, name).then(null, function() { if (btn) btn.disabled = false; });
+  }
+  // This copy's way of the song saved as a new version called name, with a
+  // copy of the drawings on the version it sang (that one stays exactly as
+  // it was), and sung from now on, so new drawings go on it alone. Says
+  // what happened; resolves the version.
+  function _sbVerSaveAs(song, name) {
+    var sup = window._supabase;
+    if (!sup) { showToast('Could not save the version: not connected to the database', 'error'); return Promise.reject(new Error('not connected')); }
+    var base = _sbBaseSongId(song), from = song.versionId || '';
     var w = _sbVerWordsOf(song);
     var row = { song_id: base, name: name, transpose_steps: _sbVerSteps(song), lyrics: w.lyrics, rich_lyrics: w.rich,
                 made_from: (currentOrderData && currentOrderData.id) || null };
     var v = null;
-    sup.from('song_versions').insert(row).select().then(function(r) {
+    return sup.from('song_versions').insert(row).select().then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the version did not come back from the database');
       v = r.data[0];
       // Read back, as the next service will read it: a save that cannot be
@@ -56011,11 +56293,13 @@ var WO = (function() {
         _sbVerSaved();
         _sbVerReshow(song);
         if (r2 && r2.error) showToast('Saved “' + v.name + '”, but its drawings could not be copied: ' + r2.error.message, 'warning');
-        else showToast('Saved “' + v.name + '”. This service sings it now, and drawings go on it.', 'success');
+        else showToast('Saved “' + v.name + '”. ' + (_sbmOtherCopies(song).length
+          ? 'This copy sings it now, and what is drawn on it stays on it.' : 'This service sings it now, and drawings go on it.'), 'success');
+        return v;
       });
     }).catch(function(err) {
-      if (btn) btn.disabled = false;
       showToast('Could not save the version: ' + (err && err.message || 'no answer'), 'error');
+      throw err;
     });
   }
 
@@ -71671,24 +71955,27 @@ var WO = (function() {
   }
 
   // afterSongId: the song the cursor is on, which a new song follows. A song
-  // already in the order and added to one more section keeps its place in
-  // the running order, which its other sections share.
+  // waiting in no section is placed; one the order already sings in another
+  // section gets a copy of its own here, with the same arrangement
+  // (_woSongCopy), so the Songbook lists it in both and each can be changed
+  // apart.
   function _lbdAddSong(secId, libSong, afterSongId) {
     var list = _woSectionList();
-    var existing = null, placed = null;
-    songOrderSections.forEach(function(s) { if (!existing && s && s.itemType !== 'blank' && s.songId === libSong.id) existing = s; });
-    if (existing && _woSongSectionIds(existing, list).indexOf(secId) !== -1) {
+    var placed = null;
+    if (_woSongCopyIn(libSong.id, secId, list)) {
       showToast('“' + (libSong.title || 'That song') + '” is already in this section', 'info');
       return false;
     }
+    var existing = _woSongCopyIn(libSong.id, '', list);
+    var loose = !!existing && !_woSongSectionIds(existing, list).length;
     var ok = _lbdChange(function() {
-      if (existing) {
+      if (loose) {
         _lbdPlaceSong(existing, secId, list);
         _lbdSortSongsByService();
         placed = existing;
         return;
       }
-      var entry = _woNewSongEntry(libSong, secId);
+      var entry = existing ? _woSongCopy(existing, secId) : _woNewSongEntry(libSong, secId);
       var after = afterSongId ? songOrderSections.indexOf(_lbdSong(afterSongId)) : -1;
       if (after >= 0) songOrderSections.splice(after + 1, 0, entry);
       else songOrderSections.push(entry);
@@ -73375,7 +73662,7 @@ var WO = (function() {
     rows.sort(function(a, b) { return String(a.title).localeCompare(String(b.title)); });
     var html = rows.slice(0, max).map(function(s) {
       var o = inOrder[s.id];
-      var here = !!(o && sec && _woSongSectionIds(o, list).indexOf(sec) !== -1);
+      var here = !!(o && sec && _woSongCopyIn(s.id, sec, list));
       var badge = here ? '<span class="lbw-badge">In this section</span>' : o ? '<span class="lbw-badge lbw-badge--soft">In this order</span>' : '';
       return _lbdCard('song', s.id, 'fa-solid fa-music', s.title, [s.artist, s.key ? 'Key ' + s.key : ''].filter(Boolean).join(' · '), badge, here || !sec);
     }).join('');
@@ -73717,7 +74004,8 @@ var WO = (function() {
         } else c.id = _lbdPfx() + (t === 'scripture' ? 'scripture_' : 'content_') + nid + '_' + _lbdUid();
         currentOrderData.allItems.push(c);
       });
-      songs.forEach(function(s) { _lbdPlaceSong(s, nid); });
+      // Its songs as copies of their own, notes and all.
+      songs.forEach(function(s) { songOrderSections.push(_woSongCopy(s, nid, null, true)); });
       if (songs.length) _lbdSortSongsByService();
     });
     if (!ok) { _lbdRenaming = null; return; }
@@ -76336,7 +76624,7 @@ var WO = (function() {
     if (!lib.length) { box.innerHTML = '<p class="lbd-empty">The song library is still loading…</p>'; return; }
     box.innerHTML = rows.slice(0, 80).map(function(s) {
       var o = inOrder[s.id];
-      var here = o && _woSongSectionIds(o, list).indexOf(st.sectionId) !== -1;
+      var here = !!(o && _woSongCopyIn(s.id, st.sectionId, list));
       var badge = here ? '<span class="lbd-badge">In this section</span>'
                 : (o ? '<span class="lbd-badge lbd-badge--soft">In this order</span>' : '');
       return '<button type="button" class="lbd-result" data-sact="pick-song" data-id="' + _lbdEsc(s.id) + '"' + (here ? ' disabled' : '') + '>' +
@@ -88721,23 +89009,7 @@ var WO = (function() {
   // Open the new playlist player with all YouTube links from the current songbook,
   // in the order the songs are sung
   function sbOpenPlaylist() {
-    var items = [];
-    _sbmSongs().forEach(function(song) {
-      var removed = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
-      var libUrls = (Array.isArray(song.youtube) ? song.youtube :
-        (typeof song.youtube === 'string' && song.youtube.trim() ?
-          song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []))
-        .filter(function(u) { return removed.indexOf(u) === -1; });
-      var custUrls = Array.isArray(song.customYoutube) ? song.customYoutube : [];
-      var sbYt = (Array.isArray(song.sbLinks) ? song.sbLinks : [])
-        .filter(function(lnk) { var i = window.detectMediaType ? window.detectMediaType(lnk.url||'') : null; return i && i.type === 'youtube'; })
-        .map(function(lnk) { return lnk.url; });
-      libUrls.concat(custUrls).concat(sbYt).forEach(function(url) {
-        if (!url) return;
-        var info = window.detectMediaType ? window.detectMediaType(url) : null;
-        items.push({ url: url, songTitle: song.title, label: song.title, mediaType: info });
-      });
-    });
+    var items = _sbCurrentPlaylistItems();
     if (!items.length) { showToast('No YouTube links in this songbook', 'warning'); return; }
     window.openPlaylistPlayer(items);
   }
@@ -88745,7 +89017,7 @@ var WO = (function() {
   // Build a compact playlist array from current songbook (for encoding in share URL),
   // in the order the songs are sung
   function _sbCurrentPlaylistItems() {
-    var items = [];
+    var items = [], seen = {};
     _sbmSongs().forEach(function(song) {
       var removed = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
       var libUrls = (Array.isArray(song.youtube) ? song.youtube :
@@ -88757,7 +89029,8 @@ var WO = (function() {
         .filter(function(lnk) { var i = window.detectMediaType ? window.detectMediaType(lnk.url||'') : null; return i && i.type === 'youtube'; })
         .map(function(lnk) { return lnk.url; });
       libUrls.concat(custUrls).concat(sbYt).forEach(function(url) {
-        if (!url) return;
+        if (!url || seen[url]) return;
+        seen[url] = true;
         var info = window.detectMediaType ? window.detectMediaType(url) : null;
         items.push({ url: url, songTitle: song.title, label: song.title, mediaType: info });
       });
@@ -89925,7 +90198,7 @@ var WO = (function() {
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdsMore: mdsMore, mdsFind: mdsFind, mdsUse: mdsUse, mdsKeys: mdsKeys, mdsDelete: mdsDelete, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
-    sbmVersions: sbmVersions, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
+    sbmVersions: sbmVersions, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
     sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
@@ -109212,6 +109485,24 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
 }
 .sbm-tile--gold { color: #8a6510; background: var(--sbm-gold-soft); border-color: transparent; }
+/* A song the service sings more than once: where else, and what is its own. */
+.sbm-twice {
+  margin-top: 10px; padding: 8px 8px 8px 10px; border-radius: 10px;
+  background: rgba(96,165,250,0.16); border: 1px solid rgba(147,197,253,0.45); color: #fff; font: 500 13px/1.4 var(--sbm-font-ui);
+}
+.sbm-twice__t { display: flex; align-items: flex-start; gap: 8px; }
+.sbm-twice__t > i { color: #93c5fd; margin-top: 3px; }
+.sbm-twice__t b { font-weight: 700; }
+.sbm-twice__go {
+  display: inline; padding: 0; border: 0; background: none; color: #fff; cursor: pointer;
+  font: 700 13px/1.4 var(--sbm-font-ui); text-decoration: underline; text-decoration-color: rgba(147,197,253,0.8); text-underline-offset: 2px;
+}
+.sbm-twice__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sbm-twice__acts button {
+  min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
+}
+.arr-lead { margin: 0 0 12px; font: 500 13px/1.45 var(--sbm-font-ui); color: var(--sbm-text-2); }
 /* The song's video, in YouTube's red beside More. */
 .sbm-tile--yt { position: relative; color: #fff; background: linear-gradient(160deg, #ff4136, #d61f1f); border-color: transparent; box-shadow: 0 4px 12px rgba(214,31,31,0.28); }
 .sbm-tile--yt i { font-size: 21px; }
