@@ -28508,6 +28508,19 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
                   window.WO.openLiturgyBook();
                 }
               }, 500);
+            } else if (deepView === 'builder') {
+              // The order of service shared on WhatsApp opens in the
+              // Liturgy Builder, as the order is now.
+              var lbdViewAttempts = 0;
+              var lbdViewInterval = setInterval(function() {
+                lbdViewAttempts++;
+                if (lbdViewAttempts > 15) { clearInterval(lbdViewInterval); return; }
+                var editor = document.getElementById('woEditor');
+                if (editor && editor.style.display !== 'none' && window.WO.selectOrder) {
+                  clearInterval(lbdViewInterval);
+                  window.WO.selectOrder('liturgy');
+                }
+              }, 500);
             }
           }, 500);
         }
@@ -33306,6 +33319,20 @@ var WO = (function() {
       });
   }
 
+  // The list keeps to the latest ten orders, the most recently edited first;
+  // the rest are the archive, listed under them on See more. A search looks
+  // through every order, the archive too.
+  var WO_ORDERS_SHOWN = 10;
+  var _woShowArchive = false;
+  function _woOrderTime(o) {
+    var t = new Date((o && (o.lastEdited || o.createdDate)) || 0).getTime();
+    return isNaN(t) ? 0 : t;
+  }
+  function _woToggleArchive(on) {
+    _woShowArchive = !!on;
+    renderSavedOrders();
+  }
+
   function _woApplyFilters() {
     var input = $('woOrderSearchInput');
     _woSearchQuery = input ? input.value : '';
@@ -33398,7 +33425,13 @@ var WO = (function() {
       return;
     }
 
-    var html = filtered.map(function(entry) {
+    // Newest first, and only the latest ten unless the archive is open or a
+    // search is looking through all of them.
+    filtered = filtered.slice().sort(function(a, b) { return _woOrderTime(b.order) - _woOrderTime(a.order); });
+    var archived = (_woSearchQuery || '').trim() ? 0 : Math.max(0, filtered.length - WO_ORDERS_SHOWN);
+    var shown = (archived && !_woShowArchive) ? filtered.slice(0, WO_ORDERS_SHOWN) : filtered;
+
+    var html = shown.map(function(entry, n) {
       var order = entry.order, idx = entry.idx;
       var type = order.type || 'traditional';
       var typeIcon = type === 'traditional' ? 'fa-church' : (type === 'contemporary' ? 'fa-music' : 'fa-star');
@@ -33447,7 +33480,9 @@ var WO = (function() {
 
       // data-order-idx: the open gesture is delegated from the list, so the card
       // has to say which order it is rather than relying on a closure.
-      return '<div class="wo-saved-order-item' + rowExtra + ' data-order-idx="' + idx + '">' +
+      var archHead = (archived && n === WO_ORDERS_SHOWN)
+        ? '<div class="wo-orders-archive-head"><i class="fa-solid fa-box-archive"></i> Archived <span>' + archived + '</span></div>' : '';
+      return archHead + '<div class="wo-saved-order-item' + rowExtra + ' data-order-idx="' + idx + '">' +
         checkbox +
         // The icon is the type on a phone, where the badge is hidden, so it says so.
         '<div class="wo-order-card-icon ' + type + '" title="' + type + '" aria-label="' + type + ' order"><i class="fa-solid ' + typeIcon + '"></i></div>' +
@@ -33470,7 +33505,10 @@ var WO = (function() {
       '</div>';
     }).join('');
 
-    container.innerHTML = strip + html;
+    var more = !archived ? '' : (_woShowArchive
+      ? '<button class="wo-orders-more" onclick="WO._woToggleArchive(false)"><i class="fa-solid fa-chevron-up"></i> Show only the latest ' + WO_ORDERS_SHOWN + '</button>'
+      : '<button class="wo-orders-more" onclick="WO._woToggleArchive(true)"><i class="fa-solid fa-box-archive"></i> See more <span>' + archived + ' archived</span></button>');
+    container.innerHTML = strip + html + more;
     _bindOrderCardOpenGestures();
   }
 
@@ -49394,13 +49432,14 @@ var WO = (function() {
   }
 
   // The section a song is first sung in, numbered as the service runs, for
-  // the reading view's lists. '' for a song in no section, or a standalone book.
-  function _sbmSectionLabel(song) {
+  // the reading view's lists; bare, its name alone, as the builder names it
+  // (the shared song list). '' for a song in no section, or a standalone book.
+  function _sbmSectionLabel(song, bare) {
     if (_sbStandaloneId || !currentOrderData || !song) return '';
     var list = _woSectionList();
     var ids = _woSongSectionIds(song, list);
     for (var i = 0; i < list.length; i++) {
-      if (ids.indexOf(list[i].id) !== -1) return (i + 1) + '. ' + list[i].title;
+      if (ids.indexOf(list[i].id) !== -1) return bare ? list[i].title : (i + 1) + '. ' + list[i].title;
     }
     return '';
   }
@@ -53192,6 +53231,16 @@ var WO = (function() {
     _sbmSheet(r.title, _sbmLinkBody(r.url, r.title, share));
   }
 
+  // The song's videos: one plays straight away, several are listed with
+  // the rest of what the song has.
+  function sbmVideos() {
+    var song = _sbmSong(); if (!song) return;
+    var at = [];
+    _sbmResources(song).forEach(function(r, i) { if (r.kind === 'yt') at.push(i); });
+    if (at.length === 1) { sbmOpenResource(at[0]); return; }
+    sbmResources();
+  }
+
   // ---- paint ----
   // The part whose takes the practice page shows; '' is every part.
   var _sbmPracPart = '';
@@ -53508,7 +53557,6 @@ var WO = (function() {
     // The version it sings, when it is not Standard.
     var verHere = (_sbVerOk === true && song.versionId) ? _sbVerById(_sbBaseSongId(song), song.versionId) : null;
     if (verHere) badges += '<span class="sbm-badge sbm-badge--ver sbm-badge--tap" onclick="WO.sbmVersions()" title="The version of the song this service sings"><i class="fa-solid fa-code-branch"></i>' + escapeHtml(verHere.name) + '</span>';
-    if (nVid) badges += '<span class="sbm-badge sbm-badge--yt sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-brands fa-youtube"></i>' + nVid + ' video' + (nVid === 1 ? '' : 's') + '</span>';
     if (nPdf) badges += '<span class="sbm-badge sbm-badge--pdf sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-file-pdf"></i>PDF' + (nPdf > 1 ? ' \u00d7' + nPdf : '') + '</span>';
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
     if (wide) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
@@ -53562,7 +53610,14 @@ var WO = (function() {
       // Links and Files opened the same sheet, so every book -- a service's or
       // a standalone one -- has the medley tile in that place.
       '<button class="sbm-tile' + (mdHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmMedley()" title="' + (mdHere ? 'Edit the medley this song is in' : 'Make a medley: songs sung one straight into the next') + '"><i class="fa-solid fa-layer-group"></i>Medley</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button></div></div>';
+      '<button class="sbm-tile" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button>' +
+      // The song's videos, next to More and in YouTube's red: one plays at
+      // once, several are listed. A song without one is offered the way to
+      // add one.
+      (nVid ? '<button class="sbm-tile sbm-tile--yt" onclick="WO.sbmVideos()" title="Play this song\'s video' + (nVid === 1 ? '' : 's') + '"><i class="fa-brands fa-youtube"></i>YouTube' +
+                (nVid > 1 ? '<span class="sbm-tile__count">' + nVid + '</span>' : '') + '</button>'
+            : '<button class="sbm-tile sbm-tile--yt-none" onclick="WO.sbAddSongLink(\'' + escapeJsArg(song.id) + '\')" title="Add a YouTube video to this song"><i class="fa-brands fa-youtube"></i>YouTube</button>') +
+      '</div></div>';
 
     // -- choir parts --
     var lanes = (V && hasChoir) ? V.lanes(_sbVoiceRowsFor(song)) : [];
@@ -72737,7 +72792,7 @@ var WO = (function() {
         b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load one saved in another year', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup" role="group" aria-label="Share">' +
-        b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: the order of service, or every word, with a link to its Liturgy Book', ' aria-haspopup="menu"') +
+        b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: a link to the order of service, or every word of it', ' aria-haspopup="menu"') +
         b('menu-export', 'fa-solid fa-file-arrow-down', 'Export' + dd, 'Download the whole liturgy as a PDF or a Word document', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup lbw-rgroup--end" role="group" aria-label="Panes">' +
@@ -74344,7 +74399,7 @@ var WO = (function() {
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
       { label: 'Templates', icon: 'fa-regular fa-calendar-days', run: function() { _lbdShowLib('tpl', ''); } },
       { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
-      { label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
+      { label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
       { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
       { label: 'Export: a PDF document', icon: 'fa-regular fa-file-pdf', run: function() { lbdExport('pdf'); } },
       { label: 'Export: a Word document', icon: 'fa-regular fa-file-word', run: function() { lbdExport('docx'); } },
@@ -74360,14 +74415,15 @@ var WO = (function() {
   }
 
   // ── Sharing the liturgy on WhatsApp ─────────────────────────────────────
-  // Two messages: the order of service -- each section with its songs (in
-  // the key they are sung in, a medley on one line), its readings and its
-  // liturgy by name -- or every word of the liturgy, the L: and C: lines as
-  // the slides have them. Both end with a link that opens this order's
-  // Liturgy Book (?order=<id>&view=liturgy).
+  // Two messages: the order of service, which is a link that opens this
+  // order in the Liturgy Builder (?order=<id>&view=builder), the order as it
+  // is when it is opened; or every word of the liturgy -- each section with
+  // its songs (in the key they are sung in, a medley on one line), its
+  // readings, and its liturgy with the L: and C: lines as the slides have
+  // them -- ending with a link that opens its Liturgy Book (&view=liturgy).
   function _lbdShareMenu(anchor) {
     _lbdOpenMenu(anchor, 'Share on WhatsApp', [
-      { label: 'The order of service', icon: 'fa-solid fa-list-ol', run: function() { lbdShareWhatsApp(false); } },
+      { label: 'A link to the order of service', icon: 'fa-solid fa-link', run: function() { lbdShareWhatsApp(false); } },
       { label: 'Every word of the liturgy', icon: 'fa-solid fa-align-left', run: function() { lbdShareWhatsApp(true); } }
     ]);
   }
@@ -74389,7 +74445,7 @@ var WO = (function() {
     items.forEach(function(it) { if (!used[it.id]) ordered.push({ it: it, label: '' }); });
     return { songs: songs, ordered: ordered };
   }
-  function _lbdShareSections(words) {
+  function _lbdShareSections() {
     var list = _woSectionList(), md = _woMedleys();
     return list.map(function(sec, i) {
       var so = _lbdSecOrder(sec, list);
@@ -74407,10 +74463,10 @@ var WO = (function() {
         }
         if (t === 'content') {
           var tx = String((it.content && it.content.text) || '').trim();
-          if (tx) lines.push(words ? { text: '', words: tx } : { text: _lbdPeek(tx.split('\n')[0], 60), words: '' });
+          if (tx) lines.push({ text: '', words: tx });
           return;
         }
-        var body = !words || t !== 'liturgy' ? '' : (Array.isArray(it.slides) ? it.slides : [])
+        var body = t !== 'liturgy' ? '' : (Array.isArray(it.slides) ? it.slides : [])
           .map(function(sl) { return String((sl && sl.content) || '').replace(/\r/g, '').replace(/[ \t]+$/gm, '').trim(); }).filter(Boolean).join('\n\n');
         lines.push({ text: title || _lbdKindOf(it, o.label), words: body });
       });
@@ -74421,22 +74477,29 @@ var WO = (function() {
   function _lbdShareMessage(o) {
     var out = ['*' + (o.title || 'Order of Worship') + '*'];
     if (o.sub) out.push('_' + o.sub + '_');
+    if (!o.words) {
+      out.push('', 'The order of service, in the Liturgy Builder:');
+      if (o.link) out.push(o.link);
+      out.push('', '_LHC Worship Prep_');
+      return out.join('\n');
+    }
     (o.sections || []).forEach(function(sec) {
       out.push('', '*' + sec.title + '*');
       (sec.lines || []).forEach(function(l) {
-        if (!o.words) { if (l.text) out.push('• ' + l.text); return; }
         if (l.text) out.push(l.words ? '_' + l.text + '_' : l.text);
         if (l.words) out.push(l.words, '');
       });
     });
     out.push('');
-    if (o.link) out.push((o.words ? 'Open it in the Liturgy Book: ' : 'Every word, in the Liturgy Book: ') + o.link);
+    if (o.link) out.push('Open it in the Liturgy Book: ' + o.link);
     out.push('', '_LHC Worship Prep_');
     return out.join('\n').replace(/\n{3,}/g, '\n\n');
   }
-  function _lbdShareUrl() {
+  // view: 'builder' opens the order in the Liturgy Builder, 'liturgy' in
+  // its Liturgy Book.
+  function _lbdShareUrl(view) {
     var base = String(window.__WEBAPP_URL || window.location.href).split('#')[0].split('?')[0];
-    return base + '?order=' + encodeURIComponent(currentOrderData.id) + '&view=liturgy';
+    return base + '?order=' + encodeURIComponent(currentOrderData.id) + '&view=' + (view || 'liturgy');
   }
   function lbdShareWhatsApp(words) {
     if (!currentOrderData || !currentOrderData.id) { showToast('Save the order first, then share it', 'info'); return; }
@@ -74445,7 +74508,7 @@ var WO = (function() {
     var o = currentOrderData;
     var sub = [_lbdLongDate(o), _lbdOccasion()].filter(Boolean).join(' · ');
     var text = _lbdShareMessage({ title: o.orderName || o.title || 'Order of Worship', sub: sub, words: !!words,
-                                  sections: _lbdShareSections(!!words), link: _lbdShareUrl() });
+                                  sections: words ? _lbdShareSections() : [], link: _lbdShareUrl(words ? 'liturgy' : 'builder') });
     _lbdSendWhatsApp(text);
   }
   // A short message goes in the WhatsApp link. A long one is more than a
@@ -88770,8 +88833,8 @@ var WO = (function() {
   }
 
   // The shared list's lines: the songs as the service runs, each under the
-  // section it is first sung in and with the key it is sung in, and a
-  // medley as one line.
+  // section it is first sung in (by its name, without its number) and with
+  // the key it is sung in, and a medley as one line.
   function _sbShareRows() {
     var md = currentOrderData ? _woMedleys() : [];
     return _woUnits(_sbmSongs(), md).map(function(u) {
@@ -88779,7 +88842,7 @@ var WO = (function() {
         var k = _sbSungKey(s);
         return (s.title || 'Untitled') + (k ? ' (' + k + ')' : '');
       });
-      return { section: _sbmSectionLabel(u.items[0]), text: u.md ? 'Medley: ' + bits.join(' + ') : bits[0] };
+      return { section: _sbmSectionLabel(u.items[0], true), text: u.md ? 'Medley: ' + bits.join(' + ') : bits[0] };
     });
   }
 
@@ -88799,7 +88862,8 @@ var WO = (function() {
     });
     lines.push('');
     if (o.songbookUrl) lines.push('Open Songbook: ' + o.songbookUrl);
-    if (o.playlistUrl) lines.push('Playlist: ' + o.playlistUrl);
+    if (o.songbookUrl && o.playlistUrl) lines.push('');
+    if (o.playlistUrl) lines.push('Song Playlist (YouTube): ' + o.playlistUrl);
     lines.push('', '_LHC Worship Prep_');
     return lines.join('\n');
   }
@@ -89388,6 +89452,7 @@ var WO = (function() {
     renderSavedOrders: renderSavedOrders,
     _woApplyFilters: _woApplyFilters,
     _woSetFilter: _woSetFilter,
+    _woToggleArchive: _woToggleArchive,
     _woToggleSelectMode: _woToggleSelectMode,
     _woToggleMoreMenu: _woToggleMoreMenu,
     silentPreloadOrders: silentPreloadOrders,
@@ -89842,7 +89907,7 @@ var WO = (function() {
     closeSongbook: closeSongbook,
     sbmSelectSong: sbmSelectSong, sbmStep: sbmStep, sbmScale: sbmScale, sbmTranspose: sbmTranspose,
     sbmView: sbmView, sbmPart: sbmPart, sbmRecord: sbmRecord, sbmEdit: sbmEdit, sbmPageView: sbmPageView,
-    sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources,
+    sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources, sbmVideos: sbmVideos,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
     sbmShowEveryone: sbmShowEveryone, sbmLinkOpenCur: sbmLinkOpenCur,
     sbmShareAttach: sbmShareAttach,
@@ -98672,8 +98737,12 @@ function filterLiturgyItems() {
        three account for the 20: ~10 off the two-line heading, 6 and 4 off the two
        margins under it. Nothing you press changes size. */
     .wo-hero-title { font-size: 1.75rem; margin-bottom: 6px; }
-    .wo-hero-subtitle { margin-bottom: 12px; }
+    .wo-hero-subtitle { margin-bottom: 8px; }
     .wo-hero-eyebrow { margin-bottom: 8px; }
+    /* And 25px more for the list of orders (November 2026): 12 off the
+       hero's padding, 9 off the gap under it, 4 off the line under its words
+       (the subtitle's margin, above). Again nothing you press changes size. */
+    .wo-hero { padding-top: 14px; padding-bottom: 14px; margin-bottom: 13px; }
 
     /* One line each, and the counts beside the date rather than under it. */
     .wo-saved-order-item { padding: 8px 10px !important; gap: 9px !important; margin-bottom: 6px !important; align-items: center !important; }
@@ -98715,6 +98784,13 @@ function filterLiturgyItems() {
   .wo-filter-pill { border: none; background: transparent; color: #556180; font-size: .78rem; font-weight: 600; padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: 'Poppins',sans-serif; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, color .15s; }
   .wo-filter-pill:hover { background: rgba(24,142,68,.1); }
   .wo-filter-pill.active { background: #0b2a14; color: #fff; }
+  /* The latest ten, then See more: the archive, under a heading of its own. */
+  .wo-orders-more { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin: 4px 0 10px; padding: 11px 14px; border: 1.5px dashed #b9d8c4; border-radius: 12px; background: #f6fbf8; color: #146c3a; font: 600 .84rem 'Poppins',sans-serif; cursor: pointer; }
+  .wo-orders-more:hover { background: #eaf6ee; border-color: #22a957; }
+  .wo-orders-more span { font-weight: 500; color: #5b7a68; }
+  .wo-orders-archive-head { display: flex; align-items: center; gap: 8px; margin: 14px 2px 8px; color: #6b7c72; font: 700 .7rem 'Poppins',sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+  .wo-orders-archive-head span { padding: 1px 8px; border-radius: 99px; background: #eef2f0; letter-spacing: 0; }
+  .wo-orders-archive-head::after { content: ''; flex: 1 1 auto; height: 1px; background: #e3ebe6; }
 
   /* ── Always-visible orders panel ─────────────────────────────────── */
   .wo-orders-panel { max-width: 1040px; margin: 0 auto; text-align: left; }
@@ -106559,6 +106635,24 @@ function filterLiturgyItems() {
 #worshipOrderView .wo-mode-card--liturgy { border-color: #bfe3cb; box-shadow: 0 0 0 3px rgba(34,169,87,0.08); }
 #worshipOrderView .wo-mode-card-name { font-size: 1.04rem; }
 #worshipOrderView .wo-mode-card-kicker { font: 600 0.72rem 'Poppins', sans-serif; color: #188e44; letter-spacing: 0.04em; margin-top: -2px; }
+/* Each step its own colour, so the three read apart at a glance: the
+   builder green, the Songbook blue, LCD Projection a light red. The tabs in
+   the bar above carry the same colours on their numbers. */
+#worshipOrderView .wo-mode-card--song { border-color: #c9dcf6; }
+#worshipOrderView .wo-mode-card--song:hover { border-color: #2f6fd6; background: #f4f8ff; }
+#worshipOrderView .wo-mode-card--song .wo-mode-card-icon { background: linear-gradient(135deg, #173f8a, #3b82f6); color: #fff; }
+#worshipOrderView .wo-mode-card--song .wo-mode-card-kicker { color: #2563c9; }
+#worshipOrderView .wo-mode-card--song .wo-mode-card-step { background: #eaf2fe; color: #2563c9; }
+#worshipOrderView .wo-mode-card--lcd { border-color: #f5d0d0; }
+#worshipOrderView .wo-mode-card--lcd:hover { border-color: #e06666; background: #fff6f6; }
+#worshipOrderView .wo-mode-card--lcd .wo-mode-card-icon { background: linear-gradient(135deg, #c24141, #f28b8b); color: #fff; }
+#worshipOrderView .wo-mode-card--lcd .wo-mode-card-kicker { color: #c94848; }
+#worshipOrderView .wo-mode-card--lcd .wo-mode-card-step { background: #fdeeee; color: #c94848; }
+#worshipOrderView #woLiturgyBuilderBtn .wo-step-num { background: #22a957; }
+#worshipOrderView #woSongbookStepBtn .wo-step-num { background: #3b82f6; }
+#worshipOrderView #woServiceOrderBtn .wo-step-num { background: #ec7a7a; }
+#worshipOrderView #woServiceOrderBtn.active .wo-step-num { background: #d95454; }
+#worshipOrderView #woServiceOrderBtn.active i { color: #d95454; }
 #worshipOrderView .wo-mode-card-sub { font-size: 0.78rem; line-height: 1.55; }
 #worshipOrderView .wo-mode-landing-flow {
   margin: 18px auto 0; max-width: 620px; text-align: center;
@@ -109118,6 +109212,11 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
 }
 .sbm-tile--gold { color: #8a6510; background: var(--sbm-gold-soft); border-color: transparent; }
+/* The song's video, in YouTube's red beside More. */
+.sbm-tile--yt { position: relative; color: #fff; background: linear-gradient(160deg, #ff4136, #d61f1f); border-color: transparent; box-shadow: 0 4px 12px rgba(214,31,31,0.28); }
+.sbm-tile--yt i { font-size: 21px; }
+.sbm-tile--yt-none { color: #c2302a; background: #fff7f7; border: 1px dashed rgba(214,31,31,0.4); }
+.sbm-tile__count { position: absolute; top: 4px; right: 5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: #fff; color: #d61f1f; font: 700 10px/16px var(--sbm-font-ui); }
 
 /* the medley editor */
 .md-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }

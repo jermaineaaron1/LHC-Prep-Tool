@@ -303,18 +303,22 @@ if (T) {
 console.log('\nThe song list the Songbook shares');
 if (T) {
   const msg = T._sbShareMessage({ title: 'Service - 30 Aug', date: 'Aug 30', rows: [
-    { section: '4. Praise & Worship', text: 'This Is Amazing Grace (G)' },
-    { section: '4. Praise & Worship', text: 'Medley: Lord, I Need You (D) + 10,000 Reasons' },
-    { section: '9. Song of Response', text: 'Hari Ini (F)' }
+    { section: 'Praise & Worship', text: 'This Is Amazing Grace (G)' },
+    { section: 'Praise & Worship', text: 'Medley: Lord, I Need You (D) + 10,000 Reasons' },
+    { section: 'Song of Response', text: 'Hari Ini (F)' }
   ], songbookUrl: 'https://x/?sb=order-1', playlistUrl: 'https://x/?playlist=abc' });
   const ln = msg.split('\n');
   check('titled, dated', ln[0] === '*Service - 30 Aug*' && ln[1] === '_Aug 30_');
   check('each section named once, above its songs',
-    msg.split('*4. Praise & Worship*').length === 2 && ln.indexOf('*9. Song of Response*') > ln.indexOf('2. Medley: Lord, I Need You (D) + 10,000 Reasons'));
+    msg.split('*Praise & Worship*').length === 2 && ln.indexOf('*Song of Response*') > ln.indexOf('2. Medley: Lord, I Need You (D) + 10,000 Reasons'));
   check('songs numbered straight through the service', ln.indexOf('1. This Is Amazing Grace (G)') !== -1 && ln.indexOf('3. Hari Ini (F)') !== -1);
   check('a medley is one line', ln.filter(l => /^\d+\. /.test(l)).length === 3);
-  check('the Songbook and the playlist follow, then the signature',
-    ln.indexOf('Open Songbook: https://x/?sb=order-1') > ln.indexOf('3. Hari Ini (F)') && /Playlist: https:\/\/x\/\?playlist=abc/.test(msg) && ln[ln.length - 1] === '_LHC Worship Prep_');
+  const sbAt = ln.indexOf('Open Songbook: https://x/?sb=order-1');
+  check('the Songbook, a line, then the song playlist by its new name, then the signature',
+    sbAt > ln.indexOf('3. Hari Ini (F)') && ln[sbAt + 1] === '' && ln[sbAt + 2] === 'Song Playlist (YouTube): https://x/?playlist=abc' &&
+    ln[ln.length - 1] === '_LHC Worship Prep_', JSON.stringify(ln.slice(sbAt)));
+  check('...its sections by their names, as the builder has them, without their numbers',
+    /section: _sbmSectionLabel\(u\.items\[0\], true\)/.test(SRC) && /return bare \? list\[i\]\.title : \(i \+ 1\) \+ '\. ' \+ list\[i\]\.title;/.test(SRC));
   const plain = T._sbShareMessage({ title: 'Book', rows: [{ section: '', text: 'One' }, { section: '', text: 'Two' }] });
   check('a book without sections lists its songs with no headings', plain === '*Book*\n\n1. One\n2. Two\n\n\n_LHC Worship Prep_', JSON.stringify(plain));
 }
@@ -322,6 +326,13 @@ if (T) {
 console.log('\nThe wiring');
 {
   const has = re => re.test(SRC);
+  check('a song\'s YouTube is a red tile next to More, not a chip in the song\'s header',
+    has(/'<button class="sbm-tile" onclick="WO\.sbmMore\(\)"><i class="fa-solid fa-ellipsis"><\/i>More<\/button>' \+\r?\n(\s*\/\/[^\n]*\r?\n)*\s*\(nVid \? '<button class="sbm-tile sbm-tile--yt" onclick="WO\.sbmVideos\(\)"/) &&
+    !has(/sbm-badge sbm-badge--yt sbm-badge--tap/) && has(/sbmVideos: sbmVideos,/) &&
+    has(/\.sbm-tile--yt \{ position: relative; color: #fff; background: linear-gradient\(160deg, #ff4136, #d61f1f\);/));
+  check('...one video plays at once, several are listed, and none offers the way to add one',
+    has(/if \(at\.length === 1\) \{ sbmOpenResource\(at\[0\]\); return; \}\r?\n\s*sbmResources\(\);/) &&
+    has(/: '<button class="sbm-tile sbm-tile--yt-none" onclick="WO\.sbAddSongLink\(/));
   check('step 2 of an order opens the Songbook',
     has(/id="woSongbookStepBtn" onclick="WO\.openSongbook\(\)"/));
   check('a share that arrives with an order open lands in its inbox',
