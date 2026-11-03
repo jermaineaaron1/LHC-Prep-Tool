@@ -72742,6 +72742,7 @@ var WO = (function() {
       '<div class="lbw-rgroup lbw-rgroup--end" role="group" aria-label="Panes">' +
         b('nav-toggle', 'fa-solid fa-list-ol', 'Outline', 'Show or hide the order outline', ' aria-pressed="false" aria-label="Order outline"') +
         b('lib-toggle', 'fa-solid fa-table-columns', 'Add to Order', 'Show or hide Add to Order, the library of things to add', ' aria-pressed="false" aria-label="Add to Order"') +
+        b('all-slides', 'fa-solid fa-align-left', 'All Slides', 'Every slide of the service as one text, to rewrite at once') +
         b('open-book', 'fa-solid fa-book-open', 'Liturgy Book', 'Read and print the whole liturgy as a book') +
       '</div>' +
     '</div>';
@@ -72998,7 +72999,10 @@ var WO = (function() {
     var kind = _lbdKindOf(it, slotLabel);
     var prayer = t === 'liturgy' && kind === 'Prayer';
     var open0 = '<div class="lbw-el lbw-el--' + _lbdEsc(t) + (prayer ? ' lbw-el--prayer' : '') + (cur ? ' is-current' : '');
-    var tools = '<span class="lbw-tools"><button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' +
+    var tools = '<span class="lbw-tools">' +
+      (t === 'liturgy' || t === 'scripture' || t === 'content'
+        ? '<button type="button" class="lbw-tb" data-act="el-allslides" title="All Slides: this part\'s slides as one text" aria-label="All Slides for ' + _lbdEsc(it.title || kind) + '"><i class="fa-solid fa-align-left"></i></button>' : '') +
+      '<button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' +
       _lbdEsc(it.title || kind) + '"><i class="fa-solid fa-ellipsis"></i></button></span>';
     if (t === 'content') {
       return open0 + '" data-item="' + _lbdEsc(it.id) + '">' +
@@ -74345,6 +74349,7 @@ var WO = (function() {
       { label: allFolded ? 'Expand all sections' : 'Collapse all sections', icon: allFolded ? 'fa-solid fa-angles-down' : 'fa-solid fa-angles-up',
         run: function() { _lbdFoldAll(); } },
       { label: 'Liturgy Book: preview and print', icon: 'fa-solid fa-book-open', run: openLiturgyBook },
+      { label: 'All Slides: the whole liturgy as one text', icon: 'fa-solid fa-align-left', run: function() { lbdAllSlides(); } },
       '-',
       { label: 'Songbook (step 2)', icon: 'fa-solid fa-book-open', run: function() { openSongbook(); } },
       { label: 'LCD Projection (step 3)', icon: 'fa-solid fa-display', run: function() { selectOrder('service'); } }
@@ -74878,6 +74883,7 @@ var WO = (function() {
                    run: function() { if (_lbdOpen[key]) delete _lbdOpen[key]; else _lbdOpen[key] = true; lbdRender(); } });
     }
     if (words) items.push({ label: 'Add a slide', icon: 'fa-solid fa-plus', run: function() { lbdAddSlide(it.id); } });
+    if (words || it.itemType === 'content') items.push({ label: 'All Slides: edit as one text', icon: 'fa-solid fa-align-left', run: function() { lbdAllSlides(it.id); } });
     if (items.length) items.push('-');
     items.push(
       { label: 'Move up', icon: 'fa-solid fa-arrow-up', disabled: j <= 0, run: function() { lbdMoveItem(it.id, -1); } },
@@ -74887,6 +74893,179 @@ var WO = (function() {
       { label: 'Remove', icon: 'fa-solid fa-trash-can', danger: true, run: function() { lbdRemoveItem(it.id); } }
     );
     _lbdOpenMenu(anchor, it.title || (it.itemType === 'content' ? 'Text' : 'Item'), items);
+  }
+
+  // ── All Slides: the words as one text ──────────────────────────────────
+  // The whole liturgy (the ribbon's All Slides) or one part (its own
+  // button), as plain text to rewrite at once, as LCD Projection's All Slides
+  // does for a group. "# 1. Invocation" is a section, "## Liturgy: Invocation"
+  // a part, and a line of three dashes starts a new slide. The headings hold
+  // each part's words to its place, so the parts stay where they are: Apply
+  // changes words and titles, as one step Undo takes back. A song is named
+  // and its words left to the Songbook. A slide whose words are unchanged
+  // keeps its formatting and background; a changed one keeps its background
+  // and is plain words, as typing over it on the page would leave it. A text
+  // part given more slides becomes that many text parts.
+  function _lbdAsNorm(s) {
+    return String(s == null ? '' : s).replace(/\r/g, '').split('\n').map(function(l) { return l.replace(/\s+$/, ''); }).join('\n').replace(/^\n+|\n+$/g, '');
+  }
+  function _lbdAsSlides(body) {
+    return String(body || '').replace(/\r/g, '').split(/^[ \t]*-{3,}[ \t]*$/m).map(_lbdAsNorm);
+  }
+  // The parts in the page's order: each section, its songs, its words.
+  function _lbdAsEntries(onlyId) {
+    var list = _woSectionList(), out = [];
+    var entry = function(it) {
+      var t = it.itemType;
+      if (t === 'content') return { type: 'item', id: it.id, head: 'Text', slides: [_lbdAsNorm(it.content && it.content.text)] };
+      var kind = t === 'scripture' ? ((it.content && it.content.subLabel) || 'Reading') : _lbdKindOf(it, '');
+      var sl = Array.isArray(it.slides) && it.slides.length ? it.slides : [{ content: '' }];
+      return { type: 'item', id: it.id, head: kind + ': ' + String(it.title || '').trim(), slides: sl.map(function(x) { return _lbdAsNorm(x && x.content); }) };
+    };
+    if (onlyId) { var one = _lbdItem(onlyId); return one ? [entry(one)] : []; }
+    list.forEach(function(sec, i) {
+      out.push({ type: 'section', head: (i + 1) + '. ' + sec.title });
+      songOrderSections.forEach(function(s) {
+        if (s && s.itemType !== 'blank' && _woSongSectionIds(s, list).indexOf(sec.id) !== -1) out.push({ type: 'song', id: s.id, head: 'Song: ' + (s.title || 'Song'), title: s.title || 'Song' });
+      });
+      _woSectionItems(sec.id).forEach(function(it) {
+        if (it.itemType === 'liturgy' || it.itemType === 'scripture' || it.itemType === 'content') out.push(entry(it));
+      });
+    });
+    return out;
+  }
+  // The text, from the parts (pure).
+  function _lbdAsText(entries) {
+    var out = [];
+    entries.forEach(function(e) {
+      if (e.type === 'section') { if (out.length) out.push(''); out.push('# ' + e.head); return; }
+      if (out.length && out[out.length - 1] !== '' && !/^# /.test(out[out.length - 1])) out.push('');
+      out.push('## ' + e.head);
+      if (e.type === 'item') out.push(e.slides.join('\n---\n'));
+    });
+    return out.join('\n');
+  }
+  // ...and the parts back from the text (pure): { parts } or { error }.
+  function _lbdAsParse(text, entries) {
+    var heads = entries.filter(function(e) { return e.type !== 'section'; });
+    var blocks = [], cur = null, stray = false;
+    String(text || '').replace(/\r/g, '').split('\n').forEach(function(line) {
+      if (/^#[ \t]/.test(line)) { cur = null; return; }
+      if (/^##[ \t]/.test(line)) { cur = { head: line.replace(/^##[ \t]+/, '').trim(), lines: [] }; blocks.push(cur); return; }
+      if (cur) cur.lines.push(line); else if (line.trim()) stray = true;
+    });
+    if (blocks.length !== heads.length) {
+      return { error: 'Each part keeps its own "##" heading line: ' + heads.length + ' were here and ' + blocks.length + ' are now. Put the heading lines back as they were, or Cancel.' };
+    }
+    if (stray) return { error: 'Some words sit under a section ("#") line but not under a part ("##"). Move them under the part they belong to.' };
+    var out = [];
+    for (var i = 0; i < blocks.length; i++) {
+      var slides = _lbdAsSlides(blocks[i].lines.join('\n'));
+      if (heads[i].type === 'song' && slides.some(Boolean)) {
+        return { error: 'The words of “' + heads[i].title + '” are kept in the Songbook. Take out the lines under its heading.' };
+      }
+      out.push({ id: heads[i].id, type: heads[i].type, head: blocks[i].head, slides: slides });
+    }
+    return { parts: out };
+  }
+  // One part's new words and title, onto the part. True if anything changed.
+  function _lbdAsPut(it, part) {
+    var slides = part.slides, changed = false;
+    if (it.itemType === 'content') {
+      if (!it.content) it.content = {};
+      var first = slides[0] || '';
+      if (_lbdAsNorm(it.content.text) !== first) { it.content.text = first; changed = true; }
+      var after = it.id;
+      slides.slice(1).forEach(function(t) {
+        if (!t) return;
+        var nu = { id: _lbdPfx() + 'content_' + it.sectionId + '_' + _lbdUid(), itemType: 'content', sectionId: it.sectionId, sourceId: '', title: '',
+                   content: { text: t }, customizations: {}, slides: [] };
+        _lbdInsertItem(nu, after);
+        after = nu.id;
+        changed = true;
+      });
+      return changed;
+    }
+    var m = /^[^:]*:\s*([\s\S]*)$/.exec(part.head || ''), title = m ? m[1].trim() : '';
+    if (title && title !== String(it.title || '').trim()) { it.title = title; changed = true; }
+    var old = Array.isArray(it.slides) ? it.slides : [];
+    if (old.length === slides.length && slides.every(function(t, i) { return _lbdAsNorm(old[i] && old[i].content) === t; })) return changed;
+    // Each unchanged slide is the old one, wherever it has moved to.
+    var used = {}, res = new Array(slides.length);
+    slides.forEach(function(t, i) {
+      for (var k = 0; k < old.length; k++) { if (!used[k] && old[k] && _lbdAsNorm(old[k].content) === t) { used[k] = true; res[i] = old[k]; return; } }
+    });
+    slides.forEach(function(t, i) {
+      if (res[i]) return;
+      var o = old[i] && !used[i] ? old[i] : null;
+      if (o) used[i] = true;
+      res[i] = { index: i, content: t, richHtml: null, background: (o && o.background) || '' };
+    });
+    it.slides = res;
+    _lbdRenumber(it.slides);
+    return true;
+  }
+  function lbdAllSlides(itemId) {
+    if (!currentOrderData) return;
+    _lbdFlushTyping();
+    var entries = _lbdAsEntries(itemId || '');
+    if (!entries.length) return;
+    var one = !!itemId, text = one ? entries[0].slides.join('\n---\n') : _lbdAsText(entries);
+    _lbdSheet(one ? 'All Slides: <b>' + _lbdEsc(entries[0].head) + '</b>' : 'All Slides: <b>the whole liturgy</b>',
+      '<p class="lbd-hint lbd-as-help">' + (one ? 'A line of three dashes, <code>---</code>, starts a new slide.'
+        : 'Lines starting <code>#</code> are the sections and <code>##</code> the parts. Keep them, and write each part’s words under its own heading. A line of three dashes, <code>---</code>, starts a new slide. A song’s words are kept in the Songbook.') + '</p>' +
+      '<textarea class="lbd-as-text" data-sfield="as-text" data-autofocus spellcheck="true" aria-label="All slides">' + _lbdEsc(text) + '</textarea>' +
+      '<p class="lbd-error" id="lbdAsErr" hidden></p>' +
+      '<div class="lbd-sheet-foot"><span class="lbd-hint" id="lbdAsCount"></span>' +
+        '<button type="button" class="lbd-btn" data-sact="close">Cancel</button>' +
+        '<button type="button" class="lbd-btn lbd-btn--primary" data-sact="as-apply"><i class="fa-solid fa-check"></i> Apply</button></div>',
+      { kind: 'allslides', item: itemId || '', entries: entries, orig: text });
+    var sh = $('lbdSheet'), box = sh && sh.querySelector('.lbd-sheet');
+    if (box) box.classList.add('lbd-sheet--wide');
+    _lbdAsCount(text);
+  }
+  function _lbdAsParsed(text) {
+    var st = _lbdSheetState;
+    return st.item ? { parts: [{ id: st.item, type: 'item', head: st.entries[0].head, slides: _lbdAsSlides(text) }] } : _lbdAsParse(text, st.entries);
+  }
+  function _lbdAsCount(text) {
+    var st = _lbdSheetState, el = $('lbdAsCount');
+    if (!st || st.kind !== 'allslides' || !el) return;
+    var p = _lbdAsParsed(text), err = $('lbdAsErr');
+    if (err && !p.error) err.hidden = true;
+    if (p.error) { el.textContent = ''; return; }
+    var parts = p.parts.filter(function(x) { return x.type === 'item'; }), n = 0;
+    parts.forEach(function(x) { n += x.slides.length; });
+    el.textContent = n + ' slide' + (n === 1 ? '' : 's') + (st.item ? '' : ' in ' + parts.length + ' part' + (parts.length === 1 ? '' : 's'));
+  }
+  function _lbdAsApply() {
+    var st = _lbdSheetState, sh = $('lbdSheet');
+    var ta = sh && sh.querySelector('[data-sfield="as-text"]');
+    if (!st || st.kind !== 'allslides' || !ta) return;
+    var p = _lbdAsParsed(ta.value), err = $('lbdAsErr');
+    if (p.error) { if (err) { err.textContent = p.error; err.hidden = false; } return; }
+    var changed = 0;
+    _lbdChange(function() {
+      p.parts.forEach(function(part) {
+        if (part.type !== 'item') return;
+        var it = _lbdItem(part.id);
+        if (it && _lbdAsPut(it, part)) changed++;
+      });
+      if (!changed) return false;
+    });
+    _lbdCloseSheet();
+    showToast(!changed ? 'Nothing changed' : st.item ? 'Slides updated' : changed + ' part' + (changed === 1 ? '' : 's') + ' updated', changed ? 'success' : 'info');
+  }
+  // Closing All Slides with changes not applied asks first.
+  function _lbdSheetDismiss() {
+    var st = _lbdSheetState, sh = $('lbdSheet');
+    var ta = st && st.kind === 'allslides' && sh ? sh.querySelector('[data-sfield="as-text"]') : null;
+    if (ta && ta.value !== st.orig) {
+      // The songbook's labelled confirm: the app's own one says Delete.
+      _sbVerAsk('Close without applying?', 'The changes made here will be lost.', 'Discard changes').then(function(ok) { if (ok) _lbdCloseSheet(); });
+      return;
+    }
+    _lbdCloseSheet();
   }
 
   // ── Events ──────────────────────────────────────────────────────────────
@@ -74994,6 +75173,7 @@ var WO = (function() {
       case 'ins-section': _lbdInsert('section'); break;
       case 'ins-note': _lbdInsert('note'); break;
       case 'ins-break': _lbdBreakAtCaret(); break;
+      case 'all-slides': lbdAllSlides(); break;
       case 'ins-line': _lbdNewLineAtCaret(); break;
       case 'menu-import': _lbdOpenImportMenu(btn); break;
       case 'menu-templates': _lbdOpenTplMenu(btn); break;
@@ -75011,6 +75191,7 @@ var WO = (function() {
       case 'sec-dup': lbdDuplicateSection(c.sec); break;
       case 'sec-del': lbdRemoveSection(c.sec); break;
       case 'el-menu': _lbdOpenElMenu(btn, c); break;
+      case 'el-allslides': lbdAllSlides(c.item); break;
       case 'song-songbook': soOpenInSongbook(c.song); break;
       case 'add-reading': _lbdInsert('reading', c.sec, btn.getAttribute('data-slot') || ''); break;
       case 'merge-break': _lbdMergeAt(c.item, c.idx); break;
@@ -75537,13 +75718,14 @@ var WO = (function() {
   }
 
   function _lbdSheetClick(e) {
-    if (e.target === e.currentTarget) { _lbdCloseSheet(); return; }
+    if (e.target === e.currentTarget) { _lbdSheetDismiss(); return; }
     var btn = e.target.closest && e.target.closest('[data-sact]');
     if (!btn || btn.disabled) return;
     var st = _lbdSheetState;
     var act = btn.getAttribute('data-sact');
-    if (act === 'close') { _lbdCloseSheet(); return; }
+    if (act === 'close') { _lbdSheetDismiss(); return; }
     if (!st) return;
+    if (act === 'as-apply') { _lbdAsApply(); return; }
     if (act === 'ins') {
       var ik = btn.getAttribute('data-kind'), isec = st.sectionId;
       _lbdCloseSheet();
@@ -75600,6 +75782,7 @@ var WO = (function() {
   function _lbdSheetInput(e) {
     var f = e.target.getAttribute && e.target.getAttribute('data-sfield');
     if (!_lbdSheetState) return;
+    if (f === 'as-text') { _lbdAsCount(e.target.value); return; }
     if (f === 'q') {
       _lbdSheetState.q = e.target.value;
       if (_lbdSheetState.kind === 'song') _lbdRenderSongResults();
@@ -75646,7 +75829,7 @@ var WO = (function() {
   }
 
   function _lbdSheetKey(e) {
-    if (e.key === 'Escape') { e.preventDefault(); _lbdCloseSheet(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); _lbdSheetDismiss(); return; }
     var f = e.target.getAttribute && e.target.getAttribute('data-sfield');
     if (e.key === 'Enter' && f === 'ref') { e.preventDefault(); _lbdLookupPassage(); }
   }
@@ -106873,6 +107056,16 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .lbd-passage-text sup { margin-right: 2px; font-size: 0.65em; color: #16a34a; }
 .lbd-error { margin: 0; font-size: 0.8rem; color: #b91c1c; }
 .lbd-sheet-foot { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+/* All Slides: the words as one text */
+.lbd-sheet--wide { width: min(980px, 100%); max-height: 94vh; }
+.lbd-as-help code { padding: 0 4px; border-radius: 4px; background: #eef3ef; color: #14532d; font-size: 0.95em; }
+.lbd-as-text {
+  width: 100%; min-height: 58vh; box-sizing: border-box; padding: 14px 16px; resize: vertical;
+  border: 1.5px solid #d6e4da; border-radius: 10px; background: #fffef9; color: #1f2933;
+  font: 15px/1.6 Georgia, 'Times New Roman', serif; white-space: pre-wrap; tab-size: 4;
+}
+.lbd-as-text:focus { outline: none; border-color: #22a957; box-shadow: 0 0 0 3px rgba(34,169,87,0.15); }
+#lbdAsErr:not([hidden]) { padding: 8px 10px; border-radius: 8px; background: #fef2f2; }
 /* ---- Service liturgies ---- */
 .svl-card { margin: 10px 0; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
 .svl-card.is-from { border-color: #22a957; box-shadow: inset 3px 0 0 #22a957; }

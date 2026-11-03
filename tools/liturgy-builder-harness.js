@@ -616,6 +616,62 @@ console.log('\n[service liturgies]');
     has(/if \(_lbdIsActive\(\) && !_lbdFocusIn\(c\.item\)\) _lbdDropEmptySlides\(c\.item\);/));
   check('and in a text slide the words after the cursor go on to a new one',
     has(/if \(e\.key === 'Enter' && f === 'content-text' && \(e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey\)\) \{/) && has(/function _lbdBreakText\(el\) \{/));
+  // All Slides: the whole liturgy, or one part, as one text.
+  check('All Slides is in the ribbon, a phone\'s More, each part\'s own button and its options',
+    has(/b\('all-slides', 'fa-solid fa-align-left', 'All Slides', /) && has(/case 'all-slides': lbdAllSlides\(\); break;/) &&
+    has(/case 'el-allslides': lbdAllSlides\(c\.item\); break;/) && has(/data-act="el-allslides"/) &&
+    has(/\{ label: 'All Slides: the whole liturgy as one text', icon: 'fa-solid fa-align-left', run: function\(\) \{ lbdAllSlides\(\); \} \}/) &&
+    has(/run: function\(\) \{ lbdAllSlides\(it\.id\); \} \}\);/));
+  const asNames = ['_lbdAsNorm', '_lbdAsSlides', '_lbdAsText', '_lbdAsParse'];
+  const asSrc = asNames.map(n => extractFn(n, true));
+  check('the text and its reading back are functions of their own', asSrc.every(Boolean));
+  if (asSrc.every(Boolean)) {
+    const A = new Function(asSrc.join('\n') + '\nreturn {' + asNames.join(',') + '};')();
+    const entries = [
+      { type: 'section', head: '1. Invocation' },
+      { type: 'item', id: 'i1', head: 'Liturgy: Invocation', slides: ['L: In the Name\n\nC: Amen.', 'L: Almighty God'] },
+      { type: 'section', head: '2. Praise' },
+      { type: 'song', id: 's1', head: 'Song: Come', title: 'Come' },
+      { type: 'item', id: 't1', head: 'Text', slides: ['Welcome'] }
+    ];
+    const text = A._lbdAsText(entries);
+    check('the text: "#" a section, "##" a part, "---" between slides, a song by name alone',
+      text === '# 1. Invocation\n## Liturgy: Invocation\nL: In the Name\n\nC: Amen.\n---\nL: Almighty God\n\n# 2. Praise\n## Song: Come\n\n## Text\nWelcome', JSON.stringify(text));
+    const back = A._lbdAsParse(text, entries);
+    check('...and read back, each part has its own words again',
+      !back.error && back.parts.length === 3 && JSON.stringify(back.parts[0].slides) === JSON.stringify(entries[1].slides) &&
+      back.parts[1].type === 'song' && JSON.stringify(back.parts[2].slides) === JSON.stringify(['Welcome']), JSON.stringify(back));
+    const edited = A._lbdAsParse(text.replace('L: Almighty God', 'L: Almighty God,\n---\nwho knows our hearts').replace('## Liturgy: Invocation', '## Liturgy: The Invocation'), entries);
+    check('...a new "---" is a new slide, and a heading\'s new name is read', !edited.error && edited.parts[0].slides.length === 3 && edited.parts[0].head === 'Liturgy: The Invocation');
+    check('...a heading taken out is refused, not guessed at', !!A._lbdAsParse(text.replace('## Text\n', ''), entries).error);
+    check('...and so are words under a song, which are kept in the Songbook', /Songbook/.test(A._lbdAsParse(text.replace('## Song: Come\n', '## Song: Come\nla la\n'), entries).error || ''));
+    check('...and words under a section but no part', !!A._lbdAsParse('# 1. Invocation\nstray words\n' + text.split('\n').slice(1).join('\n'), entries).error);
+  }
+  const putSrc = extractFn('_lbdAsPut', true), insSrc = extractFn('_lbdInsertItem', true), renSrc = extractFn('_lbdRenumber', true);
+  if (putSrc && insSrc && renSrc && asSrc.every(Boolean)) {
+    const P = new Function('var currentOrderData = { id: "o1", allItems: [] };\nfunction _lbdPfx() { return "o1__"; }\nvar _n = 0; function _lbdUid() { return "u" + (++_n); }\n' +
+      asSrc.join('\n') + '\n' + insSrc + '\n' + renSrc + '\n' + putSrc + '\nreturn { put: _lbdAsPut, data: function() { return currentOrderData; } };')();
+    const A0 = { index: 0, content: 'A', richHtml: '<b>A</b>', background: 'bg-a' }, B0 = { index: 1, content: 'B', richHtml: null, background: 'bg-b' }, C0 = { index: 2, content: 'C', richHtml: null, background: '' };
+    const lit = { id: 'l1', itemType: 'liturgy', title: 'Invocation', sectionId: 's', slides: [A0, B0, C0] };
+    const ch = P.put(lit, { head: 'Liturgy: Invocation', slides: ['A', 'X', 'C'] });
+    check('Apply keeps an unchanged slide as it was (its formatting too), and a changed one keeps its background, as plain words',
+      ch && lit.slides[0] === A0 && lit.slides[2] === C0 && lit.slides[1].content === 'X' && lit.slides[1].richHtml === null && lit.slides[1].background === 'bg-b');
+    const lit2 = { id: 'l2', itemType: 'liturgy', title: 'Gloria', sectionId: 's', slides: [A0, C0] };
+    P.put(lit2, { head: 'Liturgy: Gloria in Excelsis', slides: ['C', 'A'] });
+    check('...a slide moved is the same slide, and a new name is the part\'s title', lit2.slides[0] === C0 && lit2.slides[1] === A0 && lit2.title === 'Gloria in Excelsis' && lit2.slides[0].index === 0);
+    const same = { id: 'l3', itemType: 'liturgy', title: 'Creed', sectionId: 's', slides: [{ index: 0, content: 'We believe  \n', background: '' }] };
+    check('...and words unchanged but for trailing spaces are not a change', P.put(same, { head: 'Liturgy: Creed', slides: ['We believe'] }) === false);
+    const d = P.data(), tx = { id: 'o1__content_s_1', itemType: 'content', sectionId: 's', content: { text: 'Welcome' }, slides: [] };
+    d.allItems.push(tx);
+    P.put(tx, { head: 'Text', slides: ['Welcome!', 'Notices'] });
+    check('a text part given two slides becomes two text parts, the new one straight after it',
+      tx.content.text === 'Welcome!' && d.allItems.length === 2 && d.allItems[1].itemType === 'content' && d.allItems[1].content.text === 'Notices' && d.allItems[1].sectionId === 's');
+  }
+  check('Apply is one undoable change, and none at all when nothing changed',
+    has(/_lbdChange\(function\(\) \{\r?\n\s*p\.parts\.forEach\(function\(part\) \{\r?\n\s*if \(part\.type !== 'item'\) return;\r?\n\s*var it = _lbdItem\(part\.id\);\r?\n\s*if \(it && _lbdAsPut\(it, part\)\) changed\+\+;\r?\n\s*\}\);\r?\n\s*if \(!changed\) return false;/));
+  check('closing All Slides with changes not applied asks first, with its own words',
+    has(/_lbdSheetDismiss\(\); return; \}\r?\n\s*var btn = e\.target\.closest/) && has(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); _lbdSheetDismiss\(\); return; \}/) &&
+    has(/_sbVerAsk\('Close without applying\?', 'The changes made here will be lost\.', 'Discard changes'\)/));
   check('on a touch screen Enter is the slide break, before it can become a new line',
     has(/window\.matchMedia\('\(hover: none\) and \(pointer: coarse\)'\)\.matches/) &&
     has(/if \(e\.key === 'Enter' && !e\.ctrlKey && !e\.metaKey && !e\.altKey && _lbdTouchKeys\(\)\) \{\r?\n\s*e\.preventDefault\(\);\r?\n\s*_lbdKeyDoneAt = Date\.now\(\);\r?\n\s*if \(e\.shiftKey\) _lbdNewLineAtCaret\(\);\r?\n\s*else if \(f === 'slide'\) _lbdBreakAt\(el\);\r?\n\s*else _lbdBreakText\(el\);/) &&
