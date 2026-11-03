@@ -644,6 +644,45 @@ console.log('\n[service liturgies]');
     has(/if \(modalId === 'addSongModal'\) window\._lhcNewSongThen = null;/));
   check('the pickers\' rows are told apart by a firmer border',
     has(/\.lbd-result \{\r?\n\s*display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left;\r?\n\s*border: 2px solid #d6e4da;/));
+  // Sharing the liturgy on WhatsApp: the message itself, run.
+  const msgSrc = extractFn('_lbdShareMessage', true);
+  check('the liturgy\'s WhatsApp message is built by a pure function', !!msgSrc);
+  if (msgSrc) {
+    const msg = new Function(msgSrc + '\nreturn _lbdShareMessage;')();
+    const sections = [
+      { title: '1. Invocation', lines: [{ text: 'Invocation', words: 'L: In the Name of the Father.\n\nC: Amen.' }] },
+      { title: '4. Praise', lines: [{ text: '\u266a Medley: A (D) + B (G)', words: '' }] },
+      { title: '6. Readings', lines: [{ text: 'Gospel: Matthew 25:1-13', words: '' }] },
+      { title: '8. Sermon', lines: [] }
+    ];
+    const outline = msg({ title: 'Service - Nov 8', sub: 'Sunday, 8 November 2026', sections: sections, link: 'https://x/?order=o1&view=liturgy' });
+    check('the order of service: the title, the date, each section and its parts as bullets, an empty section by name',
+      outline.indexOf('*Service - Nov 8*\n_Sunday, 8 November 2026_\n\n*1. Invocation*\n\u2022 Invocation\n\n*4. Praise*\n\u2022 \u266a Medley: A (D) + B (G)') === 0 &&
+      outline.indexOf('*8. Sermon*\n\nEvery word, in the Liturgy Book: https://x/?order=o1&view=liturgy') > 0 && outline.indexOf('L: In the Name') === -1, outline);
+    const words = msg({ title: 'Service - Nov 8', words: true, sections: sections, link: 'https://x/?order=o1&view=liturgy' });
+    check('every word: each part by name and then its words, a reading by its reference, and no run of empty lines',
+      words.indexOf('*1. Invocation*\n_Invocation_\nL: In the Name of the Father.\n\nC: Amen.\n\n*4. Praise*\n\u266a Medley') > 0 &&
+      words.indexOf('Gospel: Matthew 25:1-13') > 0 && !/\n\n\n/.test(words) && words.indexOf('Open it in the Liturgy Book: https://x/?order=o1&view=liturgy') > 0, words);
+  }
+  check('WhatsApp is in the ribbon after Save / Load, in a phone\'s More, and the Liturgy Book\'s Share opens it',
+    has(/b\('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' \+ dd, /) && has(/case 'share-wa': _lbdShareMenu\(btn\); break;/) &&
+    has(/\{ label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function\(\) \{ lbdShareWhatsApp\(false\); \} \}/) &&
+    has(/function lb2Share\(btn\) \{ _lbdShareMenu\(btn \|\| /) && !has(/showToast\('Share coming soon'/));
+  check('...its parts in the page\'s order: songs (a medley as one, in the key sung), then the slotted readings, then the rest',
+    has(/_woUnits\(songs, md\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
+    has(/items\.forEach\(function\(it\) \{ if \(!used\[it\.id\]\) ordered\.push\(\{ it: it, label: '' \}\); \}\);/));
+  check('...with a link that opens the order in its Liturgy Book, and the deep link does',
+    has(/return base \+ '\?order=' \+ encodeURIComponent\(currentOrderData\.id\) \+ '&view=liturgy';/) &&
+    has(/\} else if \(deepView === 'liturgy'\) \{/) && has(/window\.WO\.openLiturgyBook\(\);\r?\n\s*\}\r?\n\s*\}, 500\);/));
+  check('...saving first anything still waiting, so the link opens what was shared',
+    has(/function lbdShareWhatsApp\(words\) \{\r?\n[^\n]*\r?\n[^\n]*\r?\n\s*if \(_autoSaveTimer\) \{ clearTimeout\(_autoSaveTimer\); _autoSaveTimer = null; try \{ saveCurrentOrder\(true\); \} catch \(e\) \{\} \}/));
+  check('a long message goes by a phone\'s share sheet, or is copied with WhatsApp opened, not crammed into a link',
+    has(/if \(text\.length <= 3500\) \{ window\.open\('https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(text\), '_blank', 'noopener'\); return; \}/) &&
+    has(/if \(touch && navigator\.share\) \{ navigator\.share\(\{ text: text \}\)\.catch\(function\(\) \{\}\); return; \}/) &&
+    has(/copied = document\.execCommand\('copy'\);/));
+  check('the Songbook has WhatsApp first of its desk top bar\'s buttons, before the Inbox, and under its name on a phone',
+    has(/'<div class="sbm-top__right">' \+\r?\n[^\n]*\r?\n\s*'<button class="sbm-top__wa" onclick="WO\.sbShareWhatsApp\(\)"/) &&
+    has(/'<button class="sbm-hero__wa" onclick="event\.stopPropagation\(\);WO\.sbShareWhatsApp\(\)"/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
   check('the migration makes the table, readable through the app\'s key',

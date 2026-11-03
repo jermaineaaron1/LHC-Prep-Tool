@@ -11814,7 +11814,7 @@ I once was lost but now am found"
         <div class="lb2-tool-group">
           <span id="lb2SaveStatus" style="font-size:0.75rem;color:#86efac;opacity:0.85;min-width:80px;text-align:right;"></span>
           <button class="lb2-tool-btn" id="lb2GoToOrderBtn" style="background:rgba(22,163,74,0.35);border:1.5px solid #86efac;color:#dcfce7;font-weight:600;" onclick="WO.lb2GoToOrder()" title="Back to the Liturgy Builder, where sections, songs, liturgy and readings are changed"><i class="fa-solid fa-arrow-left"></i><span>Builder</span></button>
-          <button class="lb2-tool-btn" onclick="WO.lb2Share()" title="Share" style="background:rgba(22,163,74,0.25);border:1.5px solid #86efac;color:#bbf7d0;"><i class="fa-solid fa-share-nodes"></i><span>Share</span></button>
+          <button class="lb2-tool-btn" onclick="WO.lb2Share(this)" title="Share this liturgy on WhatsApp" style="background:rgba(22,163,74,0.25);border:1.5px solid #86efac;color:#bbf7d0;"><i class="fa-solid fa-share-nodes"></i><span>Share</span></button>
           <button class="lb2-tool-btn" id="lb2ChordsBtn" onclick="WO.lb2ToggleChords()" title="Toggle Lyrics + Chords"><i class="fa-solid fa-guitar"></i><span>Chords</span></button>
           <button class="lb2-tool-btn" id="lb2TwoColBtn" onclick="WO.lb2ToggleTwoCol()" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i><span>2 Col</span></button>
           <button class="lb2-tool-btn" id="lb2FullscreenBtn" onclick="WO.lb2ToggleFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
@@ -28494,6 +28494,18 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
                 if (editor && editor.style.display !== 'none') {
                   clearInterval(songViewInterval);
                   window.WO.openSongbook();
+                }
+              }, 500);
+            } else if (deepView === 'liturgy') {
+              // A liturgy shared on WhatsApp opens in its Liturgy Book.
+              var litViewAttempts = 0;
+              var litViewInterval = setInterval(function() {
+                litViewAttempts++;
+                if (litViewAttempts > 15) { clearInterval(litViewInterval); return; }
+                var editor = document.getElementById('woEditor');
+                if (editor && editor.style.display !== 'none' && window.WO.openLiturgyBook) {
+                  clearInterval(litViewInterval);
+                  window.WO.openLiturgyBook();
                 }
               }, 500);
             }
@@ -53322,6 +53334,8 @@ var WO = (function() {
       '<div class="sbm-top__brand"><i class="fa-solid fa-book-open"></i><div><div class="sbm-top__title">Worship Songbook</div>' +
         '<div class="sbm-top__sub">' + (orderTitle ? escapeHtml(orderTitle) : 'LHC Worship Prep') + '</div></div></div>' +
       '<div class="sbm-top__right">' +
+        // First of the book's buttons, before the Inbox.
+        '<button class="sbm-top__wa" onclick="WO.sbShareWhatsApp()" title="Share the songbook on WhatsApp: the songs as the service runs, with the link"><i class="fa-brands fa-whatsapp"></i><span>WhatsApp</span></button>' +
         (_sbmOrderBook() ? '<button class="sbm-btn sbm-btn--ghost sbm-top__inbox" onclick="WO.sbmInbox()" title="Inbox: links and files shared to this service"><i class="fa-solid fa-inbox"></i><span class="lbl">Inbox</span>' + _sbmInboxBadge() + '</button>' : '') +
         '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmPageView(true)" title="Page view — the printed pages: annotate, set page breaks, print"><i class="fa-solid fa-file-lines"></i><span class="lbl">Page view</span></button>' +
         '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbOpenPlaylist()" title="Playlist"><i class="fa-solid fa-headphones"></i><span class="lbl">Playlist</span></button>' +
@@ -53440,6 +53454,7 @@ var WO = (function() {
       '<div class="sbm-hero__kicker">LHC WORSHIP PREP</div>' +
       '<div class="sbm-hero__title">Worship Songbook</div>' +
       '<div class="sbm-hero__sub">' + (orderTitle ? escapeHtml(orderTitle).toUpperCase() : 'SONGS \u2022 PREPARE \u2022 WORSHIP TOGETHER') + '</div>' +
+      '<button class="sbm-hero__wa" onclick="event.stopPropagation();WO.sbShareWhatsApp()" title="Share the songbook on WhatsApp"><i class="fa-brands fa-whatsapp"></i>WhatsApp</button>' +
       '</div></div>' +
       (_sbmOrderBook() ? '<button class="sbm-hero__inbox" onclick="WO.sbmInbox()" aria-label="Inbox: links shared to this service"><i class="fa-solid fa-inbox"></i>' + _sbmInboxBadge() + '</button>' : '') +
       '<button class="sbm-hero__close" onclick="WO.closeSongbook()" aria-label="Close songbook"><i class="fa-solid fa-xmark"></i></button></div>';
@@ -72721,6 +72736,9 @@ var WO = (function() {
         b('menu-templates', 'fa-regular fa-calendar-days', 'Templates' + dd, 'Sections from a service template', ' aria-haspopup="menu"') +
         b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load one saved in another year', ' aria-haspopup="menu"') +
       '</div>' +
+      '<div class="lbw-rgroup" role="group" aria-label="Share">' +
+        b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: the order of service, or every word, with a link to its Liturgy Book', ' aria-haspopup="menu"') +
+      '</div>' +
       '<div class="lbw-rgroup lbw-rgroup--end" role="group" aria-label="Panes">' +
         b('nav-toggle', 'fa-solid fa-list-ol', 'Outline', 'Show or hide the order outline', ' aria-pressed="false" aria-label="Order outline"') +
         b('lib-toggle', 'fa-solid fa-table-columns', 'Add to Order', 'Show or hide Add to Order, the library of things to add', ' aria-pressed="false" aria-label="Add to Order"') +
@@ -74321,6 +74339,8 @@ var WO = (function() {
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
       { label: 'Templates', icon: 'fa-regular fa-calendar-days', run: function() { _lbdShowLib('tpl', ''); } },
       { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
+      { label: 'WhatsApp: the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
+      { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
       '-',
       { label: allFolded ? 'Expand all sections' : 'Collapse all sections', icon: allFolded ? 'fa-solid fa-angles-down' : 'fa-solid fa-angles-up',
         run: function() { _lbdFoldAll(); } },
@@ -74329,6 +74349,113 @@ var WO = (function() {
       { label: 'Songbook (step 2)', icon: 'fa-solid fa-book-open', run: function() { openSongbook(); } },
       { label: 'LCD Projection (step 3)', icon: 'fa-solid fa-display', run: function() { selectOrder('service'); } }
     ]);
+  }
+
+  // ── Sharing the liturgy on WhatsApp ─────────────────────────────────────
+  // Two messages: the order of service -- each section with its songs (in
+  // the key they are sung in, a medley on one line), its readings and its
+  // liturgy by name -- or every word of the liturgy, the L: and C: lines as
+  // the slides have them. Both end with a link that opens this order's
+  // Liturgy Book (?order=<id>&view=liturgy).
+  function _lbdShareMenu(anchor) {
+    _lbdOpenMenu(anchor, 'Share on WhatsApp', [
+      { label: 'The order of service', icon: 'fa-solid fa-list-ol', run: function() { lbdShareWhatsApp(false); } },
+      { label: 'Every word of the liturgy', icon: 'fa-solid fa-align-left', run: function() { lbdShareWhatsApp(true); } }
+    ]);
+  }
+  // The parts of each section in the page's order: its songs, then its
+  // readings in the template's slots, then the rest.
+  function _lbdShareSections(words) {
+    var list = _woSectionList(), md = _woMedleys();
+    return list.map(function(sec, i) {
+      var songs = songOrderSections.filter(function(s) { return s && s.itemType !== 'blank' && _woSongSectionIds(s, list).indexOf(sec.id) !== -1; });
+      var lines = [];
+      _woUnits(songs, md).forEach(function(u) {
+        var bits = u.items.map(function(s) { var k = _sbSungKey(s); return (s.title || 'Song') + (k ? ' (' + k + ')' : ''); });
+        lines.push({ text: '♪ ' + (u.md ? 'Medley: ' + bits.join(' + ') : bits[0]), words: '' });
+      });
+      var items = _woSectionItems(sec.id), slots = _lbdSlotLabels(sec.id), used = {}, ordered = [];
+      slots.forEach(function(label) {
+        var role = _roleForSlotLabel(label), hit = null;
+        items.forEach(function(it) {
+          if (hit || used[it.id] || it.itemType !== 'scripture') return;
+          var sub = (it.content && it.content.subLabel) || '';
+          if (sub === label || (role && _roleForSlotLabel(sub) === role)) hit = it;
+        });
+        if (hit) { used[hit.id] = true; ordered.push({ it: hit, label: label }); }
+      });
+      items.forEach(function(it) { if (!used[it.id]) ordered.push({ it: it, label: '' }); });
+      ordered.forEach(function(o) {
+        var it = o.it, t = it.itemType, title = String(it.title || '').trim();
+        if (t === 'scripture') {
+          var lab = o.label || (it.content && it.content.subLabel) || 'Reading';
+          lines.push({ text: title && title.toLowerCase().indexOf(lab.toLowerCase()) !== 0 ? lab + ': ' + title : (title || lab), words: '' });
+          return;
+        }
+        if (t === 'content') {
+          var tx = String((it.content && it.content.text) || '').trim();
+          if (tx) lines.push(words ? { text: '', words: tx } : { text: _lbdPeek(tx.split('\n')[0], 60), words: '' });
+          return;
+        }
+        var body = !words || t !== 'liturgy' ? '' : (Array.isArray(it.slides) ? it.slides : [])
+          .map(function(sl) { return String((sl && sl.content) || '').replace(/\r/g, '').replace(/[ \t]+$/gm, '').trim(); }).filter(Boolean).join('\n\n');
+        lines.push({ text: title || _lbdKindOf(it, o.label), words: body });
+      });
+      return { title: (i + 1) + '. ' + sec.title, lines: lines };
+    });
+  }
+  // The message, from those sections. Pure, for the harness.
+  function _lbdShareMessage(o) {
+    var out = ['*' + (o.title || 'Order of Worship') + '*'];
+    if (o.sub) out.push('_' + o.sub + '_');
+    (o.sections || []).forEach(function(sec) {
+      out.push('', '*' + sec.title + '*');
+      (sec.lines || []).forEach(function(l) {
+        if (!o.words) { if (l.text) out.push('• ' + l.text); return; }
+        if (l.text) out.push(l.words ? '_' + l.text + '_' : l.text);
+        if (l.words) out.push(l.words, '');
+      });
+    });
+    out.push('');
+    if (o.link) out.push((o.words ? 'Open it in the Liturgy Book: ' : 'Every word, in the Liturgy Book: ') + o.link);
+    out.push('', '_LHC Worship Prep_');
+    return out.join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+  function _lbdShareUrl() {
+    var base = String(window.__WEBAPP_URL || window.location.href).split('#')[0].split('?')[0];
+    return base + '?order=' + encodeURIComponent(currentOrderData.id) + '&view=liturgy';
+  }
+  function lbdShareWhatsApp(words) {
+    if (!currentOrderData || !currentOrderData.id) { showToast('Save the order first, then share it', 'info'); return; }
+    // The link opens what is saved: a change still waiting goes now.
+    if (_autoSaveTimer) { clearTimeout(_autoSaveTimer); _autoSaveTimer = null; try { saveCurrentOrder(true); } catch (e) {} }
+    var o = currentOrderData;
+    var sub = [_lbdLongDate(o), _lbdOccasion()].filter(Boolean).join(' · ');
+    var text = _lbdShareMessage({ title: o.orderName || o.title || 'Order of Worship', sub: sub, words: !!words,
+                                  sections: _lbdShareSections(!!words), link: _lbdShareUrl() });
+    _lbdSendWhatsApp(text);
+  }
+  // A short message goes in the WhatsApp link. A long one is more than a
+  // link can be trusted to carry: a phone's share sheet takes it whole, and
+  // elsewhere it is copied and WhatsApp opened, to paste it into the chat.
+  function _lbdSendWhatsApp(text) {
+    if (text.length <= 3500) { window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener'); return; }
+    var touch = false;
+    try { touch = window.matchMedia('(hover: none) and (pointer: coarse)').matches; } catch (e) {}
+    if (touch && navigator.share) { navigator.share({ text: text }).catch(function() {}); return; }
+    var copied = false;
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+    if (!copied && navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).catch(function() {}); copied = true; }
+    window.open('https://wa.me/', '_blank', 'noopener');
+    showToast(copied ? 'The whole liturgy is copied: paste it into the WhatsApp chat' : 'Too long to send from here. Try the order of service instead', copied ? 'success' : 'error', { duration: 6000 });
   }
 
   function _lbdFoldAll() {
@@ -74871,6 +74998,7 @@ var WO = (function() {
       case 'menu-import': _lbdOpenImportMenu(btn); break;
       case 'menu-templates': _lbdOpenTplMenu(btn); break;
       case 'menu-svl': _lbdOpenSvlMenu(btn); break;
+      case 'share-wa': _lbdShareMenu(btn); break;
       case 'menu-liturgies': _lbdOpenLitMenu(btn); break;
       case 'more-menu': _lbdOpenMoreMenu(btn); break;
       case 'sec-insert':
@@ -76261,7 +76389,9 @@ var WO = (function() {
   function lb2Undo() { /* TODO */ }
   function lb2Redo() { /* TODO */ }
   function lb2GoToOrder() { closeLiturgyBook(); }
-  function lb2Share() { showToast('Share coming soon', 'info'); }
+  // The book's Share: the builder's WhatsApp choices, the order of service
+  // or every word.
+  function lb2Share(btn) { _lbdShareMenu(btn || document.querySelector('#liturgyBookModal .lb2-tool-btn')); }
   function lb2Refresh() { renderLiturgyBookLive(); showToast('Liturgy Book refreshed', 'success'); }
   function lb2Save() { saveCurrentOrder(true); showToast('Order saved', 'success'); }
   function lb2PrintPDF() {
@@ -106180,6 +106310,7 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-fb i { color: #3c5446; }
 .lbw-fsep { flex: 0 0 auto; width: 1px; height: 22px; margin: 0 6px; background: var(--lbw-line); }
 .lbw-fmt-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
+.lbw-rb[data-act="share-wa"] > i:first-child { color: #1faa59; }
 /* What needs the cursor in the words of a slide is dimmed until it is. */
 .lbw:not(.lbw--rich) [data-need="rich"], .lbw:not(.lbw--words) [data-need="words"] { opacity: 0.4; }
 /* New line is only for a touch screen, where Enter starts a new slide. */
@@ -107681,6 +107812,14 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-top .sbm-btn { min-height: 40px; padding: 0 12px; font-size: 14px; }
 .sbm-top__saved { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(127,217,184,0.5); background: rgba(14,159,110,0.22); color: #bff0da; font: 600 13px/1 var(--sbm-font-ui); cursor: pointer; white-space: nowrap; }
 .sbm-top__close { position: static; }
+.sbm-top__wa, .sbm-hero__wa {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 999px; background: #1faa59; color: #fff;
+  font: 700 13px/1 var(--sbm-font-ui); cursor: pointer; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.sbm-top__wa { min-height: 40px; padding: 0 14px; }
+.sbm-top__wa i, .sbm-hero__wa i { font-size: 16px; }
+.sbm-top__wa:hover, .sbm-hero__wa:hover { background: #178f4a; }
+.sbm-hero__wa { min-height: 30px; padding: 0 12px; margin-top: 10px; font-size: 12px; }
 .sbm-wide { display: grid; grid-template-columns: 272px minmax(0, 1fr); align-items: start; }
 .sbm-side { position: sticky; top: 64px; max-height: calc(100vh - 64px); overflow-y: auto; padding: 18px 12px 24px 18px; border-right: 1px solid var(--sbm-line); }
 .sbm-side__hdr { display: flex; align-items: center; gap: 8px; font: 700 11px/1 var(--sbm-font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--sbm-muted); padding: 6px 10px 12px; }
