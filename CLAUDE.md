@@ -181,9 +181,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      to play or delete, with an audio file to add (gotcha 52). Between the
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
-     as the song needs (gotcha 53). A green WhatsApp button beside the
-     book's name (the desk's top bar, under the name on a phone) shares the
-     whole songbook at once (`sbShareWhatsApp`); one song is under Share.
+     as the song needs (gotcha 53). A green WhatsApp button -- first of the
+     desk top bar's buttons, before the Inbox; under the book's name on a
+     phone -- shares the whole songbook at once (`sbShareWhatsApp`); one song
+     is under Share.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a

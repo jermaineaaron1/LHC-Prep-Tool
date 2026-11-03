@@ -680,8 +680,8 @@ console.log('\n[service liturgies]');
     has(/if \(text\.length <= 3500\) \{ window\.open\('https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(text\), '_blank', 'noopener'\); return; \}/) &&
     has(/if \(touch && navigator\.share\) \{ navigator\.share\(\{ text: text \}\)\.catch\(function\(\) \{\}\); return; \}/) &&
     has(/copied = document\.execCommand\('copy'\);/));
-  check('the Songbook has WhatsApp beside its name, on a desk and on a phone',
-    has(/'<button class="sbm-top__wa" onclick="WO\.sbShareWhatsApp\(\)"/) &&
+  check('the Songbook has WhatsApp first of its desk top bar\'s buttons, before the Inbox, and under its name on a phone',
+    has(/'<div class="sbm-top__right">' \+\r?\n[^\n]*\r?\n\s*'<button class="sbm-top__wa" onclick="WO\.sbShareWhatsApp\(\)"/) &&
     has(/'<button class="sbm-hero__wa" onclick="event\.stopPropagation\(\);WO\.sbShareWhatsApp\(\)"/));
   const MIG = path.join(__dirname, '..', 'migrations', '2026-11-01_service_liturgies.sql');
   const sql = fs.existsSync(MIG) ? fs.readFileSync(MIG, 'utf8') : '';
