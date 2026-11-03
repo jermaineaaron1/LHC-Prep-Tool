@@ -143,6 +143,39 @@ check('the playlist plays a video once, however many copies carry it',
   has(/if \(!url \|\| seen\[url\]\) return;\r?\n\s*seen\[url\] = true;/) &&
   has(/function sbOpenPlaylist\(\) \{\r?\n\s*var items = _sbCurrentPlaylistItems\(\);/));
 
+console.log('\nA copy\'s library links follow the library');
+const syncFns = ['function _woLinkList(', 'function _woSyncLibLinks('].map(extract);
+check('the library\'s links are taken by a function of their own', syncFns.every(Boolean));
+if (syncFns.every(Boolean)) {
+  const W = { LHC_STATE: { songs: [
+    { id: 'song_wpy', youtube: ['https://www.youtube.com/watch?v=NEW'], attachments: [{ url: 'https://x/new.pdf', name: 'Chart' }] },
+    { id: 'song_str', youtube: 'https://youtu.be/A, https://youtu.be/B', attachments: [] }
+  ] } };
+  const S = new Function('window', 'var songOrderSections = [];\n' + syncFns.join('\n') + '\nreturn function(songs) { return _woSyncLibLinks(songs); };')(W);
+  const copy = { id: 'c1', songId: 'song_wpy', youtube: ['https://www.youtube.com/watch?v=OLD'], attachments: [],
+                 customYoutube: ['https://youtu.be/MINE'], removedLibraryYoutubeUrls: ['https://www.youtube.com/watch?v=OLD'] };
+  const other = { id: 'c2', songId: 'song_str', youtube: [], attachments: [] };
+  const gone = { id: 'c3', songId: 'song_deleted', youtube: ['https://youtu.be/KEEP'] };
+  const blank = { id: 'b1', itemType: 'blank', songId: 'song_wpy' };
+  const n = S([copy, other, gone, blank]);
+  check('a video replaced in the library replaces the copy\'s, one for one (the old refresh took only MORE videos)',
+    JSON.stringify(copy.youtube) === '["https://www.youtube.com/watch?v=NEW"]' && copy.attachments[0].name === 'Chart', JSON.stringify(copy));
+  check('...the service\'s own links and its hidden ones are left as they are',
+    JSON.stringify(copy.customYoutube) === '["https://youtu.be/MINE"]' && copy.removedLibraryYoutubeUrls.length === 1);
+  check('...a library list kept as text is read as a list', JSON.stringify(other.youtube) === '["https://youtu.be/A","https://youtu.be/B"]');
+  check('...a song no longer in the library, and a notes page, are not touched',
+    JSON.stringify(gone.youtube) === '["https://youtu.be/KEEP"]' && blank.youtube === undefined && n === 2, n);
+  check('...and run again it changes nothing', S([copy, other, gone]) === 0);
+  W.LHC_STATE.songs = [];
+  copy.youtube = ['x'];
+  check('with the library not loaded yet it waits, rather than emptying every copy', S([copy]) === 0 && copy.youtube[0] === 'x');
+}
+check('it runs as an order opens, as the Songbook opens and redraws, and as the library reloads',
+  has(/\/\/ The library's links as the library has them now\.\r?\n\s*_woSyncLibLinks\(\);/) &&
+  has(/\/\/ Each song's library links as the library has them now\.\r?\n\s*_woSyncLibLinks\(\);/) &&
+  has(/function renderSongbookLive\(\) \{\r?\n(\s*\/\/[^\n]*\r?\n)*\s*_woSyncLibLinks\(\);/) &&
+  has(/lcdRefreshLibrary: function\(\) \{\r?\n(\s*\/\/[^\n]*\r?\n)*\s*if \(_woSyncLibLinks\(\) && _sbmBookOpen\(\)\) renderSongbookLive\(\);/));
+
 console.log('\nIn the Songbook');
 check('a song sung twice says where else, on its card', has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ _sbmTwiceRibbon\(song\) \+ '<\/div>';/) &&
   has(/'<span>Also sung in ' \+ where \+ '\. Key, words and markings here are this copy’s own' \+ drawn \+ '<\/span><\/div>'/));

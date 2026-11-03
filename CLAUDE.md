@@ -1516,6 +1516,25 @@ the anon key -- verify as `postgres`, not as the app.
     it any change made there wrote every copy back to Standard -- and the
     order's own `sectionLayout`.
 
+56. **A copy's library links are the library's, read again whenever the
+    library is known.** An order's copy of a song carries `youtube` and
+    `attachments` -- the library song's links, copied when it was added and
+    saved in `order_items.content` -- and about twenty-five views read them
+    there (the Songbook's links and YouTube tile, the playlist, LCD
+    Projection, print). Nothing refreshed them in the Songbook, and the old
+    refresh in Song Order and the LCD took the library's videos only when
+    there were MORE of them, so a video replaced in the Edit Song form never
+    reached a service already planned. `_woSyncLibLinks()` puts the library
+    song's current links on every copy: as an order opens, as the Songbook
+    opens and on every `renderSongbookLive`, and when the library reloads
+    (`loadSongs` calls `WO.lcdRefreshLibrary`, which also redraws an open
+    Songbook). With the library not loaded yet it does nothing, rather than
+    empty every copy. What the service did with those links is kept apart and
+    never touched: hidden ones (`removedLibraryYoutubeUrls`,
+    `removedLibraryDocUrls`, by address) and its own (`customYoutube`,
+    `customDocs`, `sbLinks`). The stored copy catches up on the next full
+    save; `SBQ.syncItems` does not write `content.youtube`.
+
 ## Quick Commands for Claude Code
 
 ```bash

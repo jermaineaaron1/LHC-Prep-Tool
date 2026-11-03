@@ -35019,6 +35019,8 @@ var WO = (function() {
     if (songOrderSections.some(function(s) { return s && Array.isArray(s.serviceSections) && s.serviceSections.length > 1; })) {
       _woSplitSharedSongs(songOrderSections, _woSectionList());
     }
+    // The library's links as the library has them now.
+    _woSyncLibLinks();
     serviceSectionSongs = order.serviceSectionSongs || {};
 
     // Populate in-memory mediaLinks.
@@ -40596,6 +40598,37 @@ var WO = (function() {
     entry.customYoutube = [];
     entry.customDocs = [];
     return entry;
+  }
+
+  // A copy's LIBRARY links -- its youtube and attachments -- are the library
+  // song's, copied when it was added and saved with the order. The library
+  // is where they are changed (the Edit Song form), so they are taken from
+  // it again whenever it is known: as an order opens and as the Songbook
+  // opens or redraws. What the service did with them stays apart and is
+  // untouched -- links hidden (removedLibrary*), its own added (customYoutube,
+  // customDocs, sbLinks). The old refresh took the library's videos only
+  // when there were MORE of them, so a video replaced by another never
+  // reached the order. Returns how many copies changed.
+  function _woLinkList(v) {
+    if (Array.isArray(v)) return v.filter(function(u) { return typeof u === 'string' && u.trim(); }).map(function(u) { return u.trim(); });
+    return (typeof v === 'string' && v.trim()) ? v.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : [];
+  }
+  function _woSyncLibLinks(songs) {
+    var lib = (window.LHC_STATE && Array.isArray(window.LHC_STATE.songs)) ? window.LHC_STATE.songs : [];
+    if (!lib.length) return 0;
+    var byId = {}, changed = 0;
+    lib.forEach(function(m) { if (m && m.id) byId[m.id] = m; });
+    (songs || songOrderSections).forEach(function(e) {
+      var m = (e && e.songId && e.itemType !== 'blank') ? byId[e.songId] : null;
+      if (!m) return;
+      var yt = _woLinkList(m.youtube), att = Array.isArray(m.attachments) ? m.attachments : [];
+      var was = JSON.stringify([_woLinkList(e.youtube), Array.isArray(e.attachments) ? e.attachments : []]);
+      if (was === JSON.stringify([yt, att])) return;
+      e.youtube = yt;
+      e.attachments = JSON.parse(JSON.stringify(att));
+      changed++;
+    });
+    return changed;
   }
 
   // A second copy of a song the order already sings, for another section:
@@ -49019,6 +49052,8 @@ var WO = (function() {
     // Load per-song last-view preferences from localStorage
     try { sbSongLastView = JSON.parse(localStorage.getItem('lhc_sb_lastview') || '{}'); } catch(e) { sbSongLastView = {}; }
 
+    // Each song's library links as the library has them now.
+    _woSyncLibLinks();
     // 343: seed sbPaths from stored annotations — clear first to avoid stale data
     sbPaths = {};
     sbImgPaths = {};
@@ -56582,6 +56617,9 @@ var WO = (function() {
   }
 
   function renderSongbookLive() {
+    // A song edited in the library while the book was open (its videos,
+    // its documents) shows as it now is.
+    _woSyncLibLinks();
     // Arrangements the songbook needs, fetched once and redrawn when they
     // land. Book mode and print read the cache synchronously, so without
     // this a freshly opened songbook would print a song's lyrics and
@@ -89752,6 +89790,9 @@ var WO = (function() {
     // flagged a songbook edit (the realtime path resets these caches itself,
     // which is why live pings worked and reloads did not).
     lcdRefreshLibrary: function() {
+      // The library reloaded (a song was saved, or it has just arrived):
+      // the open order's copies take its links, and an open Songbook shows them.
+      if (_woSyncLibLinks() && _sbmBookOpen()) renderSongbookLive();
       _lcdResetLyricStatusCache();
       // A songbook edit just landed: apply it to this order's slides before
       // anything renders, so the rail draws the red cell and the operator is
