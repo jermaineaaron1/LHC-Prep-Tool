@@ -89049,7 +89049,7 @@ var WO = (function() {
   function sbOpenPlaylist() {
     var items = _sbCurrentPlaylistItems();
     if (!items.length) { showToast('No YouTube links in this songbook', 'warning'); return; }
-    window.openPlaylistPlayer(items);
+    window.openPlaylistPlayer(items, { name: (currentOrderData && currentOrderData.title) || '' });
   }
 
   // Build a compact playlist array from current songbook (for encoding in share URL),
@@ -89113,17 +89113,8 @@ var WO = (function() {
     var serviceDate = (currentOrderData && currentOrderData.serviceDate) || '';
     var plItems = _sbCurrentPlaylistItems();
     var playlistUrl = '';
-    if (plItems.length) {
-      try {
-        var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(
-          plItems.map(function(i) {
-            var m = i.url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-            return m ? ('y:' + m[1]) : i.url;
-          })
-        ))));
-        var base = (window.__WEBAPP_URL || window.location.href).split('?')[0];
-        playlistUrl = base + '?playlist=' + encoded;
-      } catch(e) {}
+    if (plItems.length && window.lhcPlaylistLink) {
+      try { playlistUrl = window.lhcPlaylistLink(plItems, name); } catch(e) {}
     }
     var msg = _sbShareMessage({ title: name, date: serviceDate, rows: _sbShareRows(),
                                 songbookUrl: _sbShareUrl(), playlistUrl: playlistUrl });
@@ -89143,31 +89134,37 @@ var WO = (function() {
     try { return String(transposeChord(key, steps)).trim() || key; } catch (e) { return key; }
   }
 
-  // The shared list's lines: the songs as the service runs, each under the
-  // section it is first sung in (by its name, without its number) and with
-  // the key it is sung in, and a medley as one line.
+  // The shared list's lines: the songs as the service runs, one line and one
+  // number each, under the section each is first sung in (by its name,
+  // without its number) and with the key it is sung in. A medley's songs are
+  // marked: the first opens it ('start'), the others follow it ('in').
   function _sbShareRows() {
     var md = currentOrderData ? _woMedleys() : [];
-    return _woUnits(_sbmSongs(), md).map(function(u) {
-      var bits = u.items.map(function(s) {
-        var k = _sbSungKey(s);
-        return (s.title || 'Untitled') + (k ? ' (' + k + ')' : '');
+    var rows = [];
+    _woUnits(_sbmSongs(), md).forEach(function(u) {
+      var sec = _sbmSectionLabel(u.items[0], true);
+      u.items.forEach(function(s, k) {
+        var key = _sbSungKey(s);
+        rows.push({ section: sec, text: (s.title || 'Untitled') + (key ? ' (' + key + ')' : ''), medley: u.md ? (k ? 'in' : 'start') : '' });
       });
-      return { section: _sbmSectionLabel(u.items[0], true), text: u.md ? 'Medley: ' + bits.join(' + ') : bits[0] };
     });
+    return rows;
   }
 
   // The message itself, from those lines. Pure, for the harness.
   function _sbShareMessage(o) {
     var lines = ['*' + (o.title || 'Songbook') + '*'];
     if (o.date) lines.push('_' + o.date + '_');
-    var sec = null, n = 0;
+    var sec = null, n = 0, inMd = false;
     (o.rows || []).forEach(function(r) {
       if (r.section !== sec) {
         lines.push('');
         if (r.section) lines.push('*' + r.section + '*');
         sec = r.section;
-      }
+      } else if (inMd && r.medley !== 'in') lines.push('');
+      // A medley under a line of its own, and a gap after it.
+      if (r.medley === 'start') lines.push('_Medley_');
+      inMd = !!r.medley;
       n++;
       lines.push(n + '. ' + r.text);
     });
@@ -119235,21 +119232,23 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
      ===================================================================== -->
 <div id="plPlayerOverlay" style="display:none;position:fixed;inset:0;z-index:9900;background:#0f172a;flex-direction:column;">
   <!-- Header -->
-  <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;background:#1e293b;border-bottom:1px solid #334155;flex-shrink:0;">
-    <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#0e9f6e,#088d4f);display:flex;align-items:center;justify-content:center;">
+  <div class="pl-head" style="display:flex;align-items:center;gap:12px;padding:14px 18px;background:#1e293b;border-bottom:1px solid #334155;flex-shrink:0;">
+    <div class="pl-head__icon" style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#0e9f6e,#088d4f);display:flex;align-items:center;justify-content:center;">
       <i class="fa-solid fa-headphones" style="color:white;font-size:15px;"></i>
     </div>
     <div style="flex:1;min-width:0;">
       <div style="color:white;font-weight:700;font-size:1rem;font-family:'Cinzel',serif;letter-spacing:0.03em;">Service Playlist</div>
-      <div id="plPlayerSubtitle" style="color:#94a3b8;font-size:0.75rem;">Loading…</div>
+      <div id="plPlayerSubtitle" style="color:#94a3b8;font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Loading…</div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button onclick="plPrev()" title="Previous" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-backward-step"></i></button>
-      <button onclick="plNext()" title="Next" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-forward-step"></i></button>
-      <button onclick="plToggleAutoplay()" id="plAutoplayBtn" title="Toggle autoplay" style="height:32px;padding:0 12px;border-radius:16px;background:#0e9f6e;border:none;color:white;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px;">
+    <div class="pl-hbtns" style="display:flex;align-items:center;gap:8px;">
+      <button class="pl-hbtn" onclick="plShare()" title="Share this playlist on WhatsApp" aria-label="Share this playlist on WhatsApp" style="width:36px;height:36px;border-radius:50%;background:#25d366;border:none;color:white;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;"><i class="fa-brands fa-whatsapp"></i></button>
+      <button class="pl-hbtn" onclick="plOpenYouTube()" id="plYouTubeBtn" title="Play the whole list in the YouTube app" aria-label="Play the whole list in the YouTube app" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#ff4d4d;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;"><i class="fa-brands fa-youtube"></i></button>
+      <button class="pl-hbtn" onclick="plPrev()" title="Previous" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-backward-step"></i></button>
+      <button class="pl-hbtn" onclick="plNext()" title="Next" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-forward-step"></i></button>
+      <button onclick="plToggleAutoplay()" id="plAutoplayBtn" title="Auto: each song plays straight into the next. Tap for Manual" style="height:32px;padding:0 12px;border-radius:16px;background:#0e9f6e;border:none;color:white;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px;">
         <i class="fa-solid fa-rotate" id="plAutoplayIcon"></i> <span id="plAutoplayLabel">Auto</span>
       </button>
-      <button onclick="closePlaylistPlayer()" title="Close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#94a3b8;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-xmark"></i></button>
+      <button class="pl-hbtn" onclick="closePlaylistPlayer()" title="Close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#94a3b8;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-xmark"></i></button>
     </div>
   </div>
 
@@ -119263,6 +119262,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       <div id="plNowPlaying" style="padding:10px 16px 6px;background:#0f172a;border-bottom:1px solid #1e293b;flex-shrink:0;">
         <div id="plNowTitle" style="color:white;font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div>
         <div id="plNowSong" style="color:#94a3b8;font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        <div id="plHint" style="display:none;margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(14,159,110,0.16);color:#a7f3d0;font-size:0.78rem;line-height:1.35;"><i class="fa-solid fa-circle-play"></i> Tap play once. After that every song plays straight into the next, and the list starts again at the end.</div>
       </div>
       <div id="plEmbedArea" style="flex:1;display:flex;align-items:center;justify-content:center;background:#0f172a;position:relative;overflow:hidden;"></div>
     </div>
@@ -119299,6 +119299,15 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .pl-track-item .pl-info .t { color:#e2e8f0;font-size:0.8rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .pl-track-item .pl-info .s { color:#64748b;font-size:0.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .pl-track-item.active .pl-info .t { color:white; }
+/* A phone's width: the buttons smaller and the name kept. */
+@media (max-width: 600px) {
+  #plPlayerOverlay .pl-head { padding: 10px !important; gap: 8px !important; }
+  #plPlayerOverlay .pl-head__icon { display: none !important; }
+  #plPlayerOverlay .pl-hbtns { gap: 5px !important; }
+  #plPlayerOverlay .pl-hbtn { width: 32px !important; height: 32px !important; }
+  #plAutoplayBtn { padding: 0 9px !important; }
+  #plAutoplayLabel { display: none; }
+}
 </style>
 
 <script>
@@ -119312,6 +119321,37 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   var _ytPlayer = null;
   var _ytReady = false;
   var _pendingYtId = null;
+  var _ytPlayerOk = false;   // the player in the page is ready for its next video
+  var _meta = {};            // { name, fromLink }
+  var _plErrors = 0;         // videos in a row that would not play
+  var _plPlaying = false;
+
+  // A ?playlist= link: the tracks (YouTube as y:<id>, anything else by its
+  // address) with their songs' names, and the service's name -- all in the
+  // link, so it plays anywhere with nothing to look up. The base64 is
+  // escaped: a '+' left bare in a link reads back as a space.
+  window.lhcPlaylistLink = function(items, name) {
+    var tracks = (items || []).map(function(i) {
+      var url = String((i && i.url) || '');
+      var m = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+      var u = m ? 'y:' + m[1] : url;
+      var t = String((i && i.songTitle) || '').trim();
+      return t ? { u: u, t: t } : u;
+    });
+    var data = name ? { n: String(name), i: tracks } : tracks;
+    var base = String(window.__WEBAPP_URL || window.location.href).split('#')[0].split('?')[0];
+    return base + '?playlist=' + encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(data)))));
+  };
+  // The same videos as a queue in YouTube itself, which plays the whole list
+  // in its app -- the way to keep it going in a car. '' with no videos.
+  window.lhcYouTubeQueue = function(items) {
+    var ids = [];
+    (items || []).forEach(function(i) {
+      var m = String((i && i.url) || '').match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+      if (m && ids.indexOf(m[1]) === -1) ids.push(m[1]);
+    });
+    return ids.length ? 'https://www.youtube.com/watch_videos?video_ids=' + ids.join(',') : '';
+  };
 
   // Decode base64 JSON playlist data safely
   function decodePl(b64) {
@@ -119411,7 +119451,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     var subEl = document.getElementById('plPlayerSubtitle');
     if (titleEl) titleEl.textContent = item.label || info.label || 'Track ' + (idx + 1);
     if (songEl) songEl.textContent = item.songTitle || '';
-    if (subEl) subEl.textContent = (idx + 1) + ' of ' + _items.length;
+    if (subEl) subEl.textContent = (_meta.name ? _meta.name + ' · ' : '') + (idx + 1) + ' of ' + _items.length;
 
     // Fetch real YouTube title via oEmbed (no API key needed)
     if (info.type === 'youtube' && info.id) {
@@ -119437,10 +119477,18 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     var embedArea = document.getElementById('plEmbedArea');
     if (!embedArea) return;
 
+    // One YouTube player for the whole list: the next video goes into the
+    // player already playing. A new player for every song needed a new tap
+    // on a phone, which is why a list stopped after its first song.
+    if (info.type === 'youtube' && info.id && _ytPlayer && _ytPlayerOk && document.getElementById('plYtContainer')) {
+      try { _ytPlayer.loadVideoById(info.id); return; } catch (e) {}
+    }
+
     // Destroy existing YT player if needed
     if (_ytPlayer) {
       try { _ytPlayer.destroy(); } catch(e) {}
       _ytPlayer = null;
+      _ytPlayerOk = false;
     }
 
     embedArea.innerHTML = buildEmbed(item);
@@ -119462,18 +119510,56 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   }
 
   function _createYtPlayer(videoId) {
+    _ytPlayerOk = false;
     _ytPlayer = new YT.Player('plYtContainer', {
       videoId: videoId,
-      playerVars: { autoplay: 1, rel: 0, modestbranding: 1 },
+      // playsinline: on an iPhone the video stays in the page, where the
+      // list can take it on to the next, rather than going full screen.
+      playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
       events: {
+        onReady: function() { _ytPlayerOk = true; },
         onStateChange: function(e) {
+          if (e.data === YT.PlayerState.PLAYING) { _plErrors = 0; _plPlaying = true; _plHint(false); _plWake(); }
+          else if (e.data === YT.PlayerState.PAUSED) { _plPlaying = false; _plUnwake(); }
           if (e.data === YT.PlayerState.ENDED && _autoplay) {
             plNext();
           }
-        }
+        },
+        // A video that will not play here -- taken down, or not allowed in
+        // other sites -- is passed over, so the list keeps going.
+        onError: function() { _plSkipBroken(); }
       }
     });
   }
+  function _plSkipBroken() {
+    var sub = document.getElementById('plPlayerSubtitle');
+    if (sub) sub.textContent = 'That video cannot be played here' + (_autoplay && _items.length > 1 ? ', so on to the next' : '');
+    if (!_autoplay || _items.length < 2 || ++_plErrors >= _items.length) return;
+    setTimeout(function() { plNext(); }, 1500);
+  }
+  function _plHint(on) {
+    var h = document.getElementById('plHint');
+    if (h) h.style.display = on ? '' : 'none';
+  }
+  // While it plays the screen stays on -- a phone in a car, a computer at
+  // work -- since a phone that goes to sleep stops the video, and the list
+  // with it. Let go when paused or closed; taken again when the page is
+  // shown again, which lets it go by itself.
+  var _wake = null;
+  function _plWake() {
+    if (_wake || !navigator.wakeLock || document.visibilityState !== 'visible') return;
+    navigator.wakeLock.request('screen').then(function(l) {
+      _wake = l;
+      l.addEventListener('release', function() { _wake = null; });
+    }).catch(function() {});
+  }
+  function _plUnwake() {
+    if (_wake) { try { _wake.release(); } catch (e) {} _wake = null; }
+  }
+  document.addEventListener('visibilitychange', function() {
+    var ov = document.getElementById('plPlayerOverlay');
+    if (document.visibilityState === 'visible' && _plPlaying && ov && ov.style.display !== 'none') _plWake();
+  });
 
   // YouTube IFrame API callback
   window.onYouTubeIframeAPIReady = function() {
@@ -119518,6 +119604,25 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     if (icon) icon.className = _autoplay ? 'fa-solid fa-rotate' : 'fa-solid fa-rotate-right';
     if (label) label.textContent = _autoplay ? 'Auto' : 'Manual';
   };
+  // Share the list on WhatsApp: its songs by name, a link that plays them all
+  // here one after another, and the same list in the YouTube app.
+  window.plShare = function() {
+    if (!_items.length) return;
+    var name = _meta.name || '';
+    var lines = ['*Song Playlist (YouTube)*'];
+    if (name) lines.push('_' + name + '_');
+    lines.push('');
+    _items.forEach(function(it, i) { lines.push((i + 1) + '. ' + (it.songTitle || it.label || 'Track ' + (i + 1))); });
+    lines.push('', 'Play them all, one after another: ' + window.lhcPlaylistLink(_items, name));
+    var q = window.lhcYouTubeQueue(_items);
+    if (q) lines.push('', 'Or in the YouTube app: ' + q);
+    lines.push('', '_LHC Worship Prep_');
+    window.open('https://wa.me/?text=' + encodeURIComponent(lines.join('\n')), '_blank', 'noopener');
+  };
+  window.plOpenYouTube = function() {
+    var q = window.lhcYouTubeQueue(_items);
+    if (q) window.open(q, '_blank', 'noopener');
+  };
   window.plToggleMobileList = function() {
     var drawer = document.getElementById('plMobileDrawer');
     if (!drawer) return;
@@ -119531,9 +119636,17 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   };
 
   // Open player with an array of media items
-  window.openPlaylistPlayer = function(items) {
+  // opts: { name: the service's, fromLink: opened from a shared link }.
+  window.openPlaylistPlayer = function(items, opts) {
     _items = items || [];
     _idx = 0;
+    _meta = opts || {};
+    _plErrors = 0;
+    var ytBtn = document.getElementById('plYouTubeBtn');
+    if (ytBtn) ytBtn.style.display = window.lhcYouTubeQueue(_items) ? '' : 'none';
+    // A link opened from a message cannot start the sound by itself: the
+    // browser waits for one tap, and after it the list plays through.
+    _plHint(!!_meta.fromLink);
     var overlay = document.getElementById('plPlayerOverlay');
     if (!overlay) return;
     overlay.style.display = 'flex';
@@ -119559,19 +119672,23 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     var overlay = document.getElementById('plPlayerOverlay');
     if (overlay) overlay.style.display = 'none';
     document.body.style.overflow = '';
+    _plPlaying = false;
+    _plUnwake();
     if (_ytPlayer) {
       try { _ytPlayer.stopVideo(); } catch(e) {}
     }
   };
 
-  // On load: check for deep-link ?playlist= parameter
-  document.addEventListener('DOMContentLoaded', function() {
-    var encoded = window.__DEEPLINK_PLAYLIST || '';
-    if (!encoded || !encoded.trim()) return;
-    var items = decodePl(encoded.trim());
-    if (!items || !items.length) return;
+  // A ?playlist= link read back: { name, items }, or null. A link made
+  // before names were carried is a bare list of tracks, and still reads; so
+  // does one whose '+' arrived as a space.
+  function _plReadLink(encoded) {
+    var data = decodePl(String(encoded || '').trim().replace(/ /g, '+'));
+    var name = '';
+    if (data && !Array.isArray(data) && Array.isArray(data.i)) { name = String(data.n || ''); data = data.i; }
+    if (!Array.isArray(data) || !data.length) return null;
     // Support compact array: strings (raw URL or y:ID / st:ID compact codes) and legacy objects
-    items = items.map(function(item) {
+    var items = data.map(function(item) {
       var encoded = (typeof item === 'string') ? item : (item.url || item.u || '');
       // Decode compact codes back to full URLs
       var rawUrl = encoded;
@@ -119591,8 +119708,15 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       }
       return normalized;
     });
+    return { name: name, items: items };
+  }
+
+  // On load: check for deep-link ?playlist= parameter
+  document.addEventListener('DOMContentLoaded', function() {
+    var got = _plReadLink(window.__DEEPLINK_PLAYLIST || '');
+    if (!got) return;
     // Delay slightly so page finishes rendering
-    setTimeout(function() { window.openPlaylistPlayer(items); }, 400);
+    setTimeout(function() { window.openPlaylistPlayer(got.items, { name: got.name, fromLink: true }); }, 400);
   });
 })();
 </script>

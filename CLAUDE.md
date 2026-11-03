@@ -211,8 +211,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      WhatsApp button -- first of the desk top bar's buttons, before the
      Inbox; under the book's name on a phone -- shares the whole songbook at
      once (`sbShareWhatsApp`): each section by its name alone, as the builder
-     names it (`_sbmSectionLabel(song, true)`), the Songbook's link, a blank
-     line, then the "Song Playlist (YouTube)"; one song is under Share.
+     names it (`_sbmSectionLabel(song, true)`), every song its own number --
+     a medley's under a `_Medley_` line, with a gap after it -- the
+     Songbook's link, a blank line, then the "Song Playlist (YouTube)"
+     (gotcha 57); one song is under Share.
      A song the service sings twice is listed in both sections, each copy
      with a notice saying where else it is sung, **Copy arrangement** (from
      the other copy, or from an earlier service) and **Own drawings**
@@ -1534,6 +1536,30 @@ the anon key -- verify as `postgres`, not as the app.
     `removedLibraryDocUrls`, by address) and its own (`customYoutube`,
     `customDocs`, `sbLinks`). The stored copy catches up on the next full
     save; `SBQ.syncItems` does not write `content.youtube`.
+
+57. **A playlist is played by ONE YouTube player, and its link carries the
+    list.** The player (`#plPlayerOverlay`, its own IIFE near the end of the
+    page; `?playlist=` opens it) used to build a new `YT.Player` for every
+    song, and a phone will not start a new player's sound without a tap, so
+    a list "on autoplay" stopped after its first song. Now the next YouTube
+    video goes into the player already there (`loadVideoById`, once
+    `onReady` has said it can), with `playsinline` for the iPhone; only a
+    track of another kind tears it down. A video that will not play
+    (`onError`) is passed over after a moment, but not round a list where
+    none will (`_plErrors`), and while it plays the screen is kept on
+    (`navigator.wakeLock`), let go when paused or closed: a phone that
+    sleeps stops the video. A list opened from a link still needs one tap
+    to start -- no browser lets a page start sound by itself -- so it says
+    so (`#plHint`) until it plays. A link is made by
+    `window.lhcPlaylistLink(items, name)`: `{ n: service, i: [{ u: 'y:<id>',
+    t: song }] }` as escaped base64 (a bare `+` reads back as a space), and
+    read by `_plReadLink`, which still reads the old bare list of tracks.
+    The list is IN the link, so a link already sent never changes; the
+    player's bar shares it on WhatsApp (`plShare`: the songs by name, the
+    link, and the same videos as a YouTube-app queue,
+    `window.lhcYouTubeQueue` -> `youtube.com/watch_videos?video_ids=...`,
+    which keeps going in a car where a browser tab will not), and opens
+    that queue (`plOpenYouTube`).
 
 ## Quick Commands for Claude Code
 
