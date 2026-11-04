@@ -21587,11 +21587,26 @@ window.transposeToKey = transposeToKey;
 function closeLyricsEditor() {
   var modal = document.getElementById('lyricsEditorModal');
   modal.classList.remove('show');
+  // Borrowed by the Songbook: it lets go of the song it was editing.
+  if (currentLyricsMode === '__sb__') {
+    currentLyricsMode = 'new';
+    if (window.WO && WO.sbLyricsEditorClosed) WO.sbLyricsEditorClosed();
+  }
 }
 
 function saveLyricsEditor() {
   var textarea = document.getElementById('lyricsEditorTextarea');
   var lyrics = textarea.value;
+  // The Songbook borrows this editor for one of its songs, and the words go
+  // back to that song and are saved there, not staged in the song form.
+  // Nothing ever passed them on: Save Lyrics closed the editor and the edit
+  // was gone. Refused, with the editor left open, while somebody else has
+  // the song.
+  if (currentLyricsMode === '__sb__') {
+    if (window.WO && WO.sbSaveLyricsFromModal && WO.sbSaveLyricsFromModal(lyrics) === false) return;
+    closeLyricsEditor();
+    return;
+  }
   songData[currentLyricsMode].lyrics = lyrics;
   
   // Update hidden field
@@ -50352,21 +50367,41 @@ var WO = (function() {
   function _sbmFitChordPairs() {
     document.querySelectorAll('#sbmRoot .sbm-lyrics').forEach(_sbmFitChordPairsIn);
   }
+  // The width a line's words need at full size, from its font, measured on
+  // a canvas -- never on the line as it is laid out. That width moves with
+  // the very factor being decided, and an iPhone rounds it differently at
+  // each size, so a pair near the edge came out a little smaller, then a
+  // little larger, every pass; each change re-queued the fit 24ms later,
+  // and the line shook. A phone held upright does not set these lines in a
+  // monospaced face, so the old count of characters times the first one's
+  // width was a guess there as well.
+  var _sbmFitCtx = null;
+  function _sbmTextPx(el, text, cur) {
+    if (!_sbmFitCtx) { var c = document.createElement('canvas'); _sbmFitCtx = c.getContext ? c.getContext('2d') : null; }
+    if (!_sbmFitCtx || !text) return 0;
+    var cs = getComputedStyle(el), k = cur || 1;
+    _sbmFitCtx.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + ((parseFloat(cs.fontSize) || 16) / k) + 'px ' + cs.fontFamily;
+    var w = _sbmFitCtx.measureText(text).width, ls = parseFloat(cs.letterSpacing);
+    return ls ? w + (ls / k) * text.length : w;
+  }
   function _sbmFitChordPairsIn(ly) {
     if (!ly || ly.classList.contains('sbm-lyrics--nochords')) return;
     var avail = ly.clientWidth; if (!avail) return;
+    var now = Date.now();
     Array.prototype.forEach.call(ly.querySelectorAll('.wo-lyrics-chord-line'), function(cl) {
       var lyr = cl.nextElementSibling;
       if (!lyr || !lyr.classList.contains('wo-lyrics-lyric-line')) return;
-      var text = cl.firstChild && cl.firstChild.nodeType === 3 ? cl.firstChild : null; if (!text || !text.nodeValue.length) return;
-      // one character's width at the size it has now, and so at full size
-      var rg = document.createRange(); rg.setStart(text, 0); rg.setEnd(text, 1);
+      var ct = String(cl.textContent).replace(/\s+$/, ''), lt = String(lyr.textContent).replace(/\s+$/, '');
+      if (!ct.length) return;
       var cur = parseFloat(cl.style.getPropertyValue('--sbm-fit')) || 1;
-      var charPx = rg.getBoundingClientRect().width / cur;
       var fontPx = parseFloat(getComputedStyle(cl).fontSize) / cur;
-      var chars = Math.max(String(cl.textContent).replace(/\s+$/, '').length, String(lyr.textContent).replace(/\s+$/, '').length);
-      var k = Math.round(_sbmFitFactor(chars, charPx, avail, fontPx, 11) * 1000) / 1000;
-      if (Math.abs(k - cur) < 0.005) return;
+      var need = Math.max(_sbmTextPx(cl, ct, cur), _sbmTextPx(lyr, lt, cur));
+      var k = Math.round(_sbmFitFactor(1, need, avail, fontPx, 11) * 1000) / 1000;
+      if (Math.abs(k - cur) < 0.01) return;
+      // Settling takes a change or two. Past that, in two seconds, the line
+      // is left as it is rather than moved again.
+      if (!cl.__fitAt || now - cl.__fitAt > 2000) { cl.__fitAt = now; cl.__fitN = 0; }
+      if (++cl.__fitN > 3) return;
       [cl, lyr].forEach(function(el) { if (k >= 0.999) el.style.removeProperty('--sbm-fit'); else el.style.setProperty('--sbm-fit', String(k)); });
     });
   }
@@ -51294,6 +51329,7 @@ var WO = (function() {
   function _sbmLiveStart() {
     if (!_sbmBookOpen()) return;
     var key = _sbmLiveKey(); if (!key) return;
+    _edEnsureChannel();
     var ids = _sbmSongs().map(function(x) { return _sbBaseSongId(x); }).filter(Boolean);
     if (_sbmLive && _sbmLive.key === key) {
       // A song added or taken out here changes which rows the fingerprint
@@ -51304,7 +51340,7 @@ var WO = (function() {
       return;
     }
     _sbmLiveStop();
-    _sbmLive = { key: key, ids: ids, channel: null, timer: 0, seen: null, busy: false };
+    _sbmLive = { key: key, ids: ids, channel: null, timer: 0, seen: null, busy: false, pendingAt: 0, confirmT: 0 };
     var sup = window._supabase;
     if (sup && typeof sup.channel === 'function') {
       try {
@@ -51329,6 +51365,7 @@ var WO = (function() {
   function _sbmLiveStop() {
     if (!_sbmLive) return;
     clearInterval(_sbmLive.timer);
+    clearTimeout(_sbmLive.confirmT);
     document.removeEventListener('visibilitychange', _sbmLiveVisible);
     var sup = window._supabase;
     if (_sbmLive.channel && sup) { try { sup.removeChannel(_sbmLive.channel); } catch (e) {} }
@@ -51360,6 +51397,43 @@ var WO = (function() {
   }
 
   function _sbmHash(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h); }
+  // What a reader sees of each part, and nothing else (pure, for the
+  // harness). The fingerprint used to take the rows as stored: the book's
+  // items, carrying each device's own page breaks, margins, fonts and
+  // slides; the songs' last-edited times; the newest line's updated_at. So
+  // a save that changed no word -- and every device saves the book as it
+  // lays it out -- or a word typed and taken out again still raised the
+  // banner, and Refresh showed nothing new. Now: the words and chords, the
+  // key, the version, the songs' order, the choir parts' text.
+  function _sbmLivePlain(t) {
+    return String(t == null ? '' : t).replace(/\r/g, '').replace(/[ \t]+$/gm, '').replace(/\n+$/, '');
+  }
+  function _sbmLiveText(html) {
+    return _sbmLivePlain(String(html == null ? '' : html)
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p|li|h\d)>/gi, '\n').replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\xa0/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'").replace(/&amp;/g, '&'));
+  }
+  function _sbmLiveBookOf(row) {
+    var items = Array.isArray(row && row.items) ? row.items : [];
+    return JSON.stringify({ songs: (row && row.song_ids) || [], items: items.map(function(it) {
+      it = it || {};
+      return [it.songId || '', _sbmLivePlain(it.customLyrics), it.richLyrics ? _sbmLiveText(it.richLyrics) : '',
+              parseInt(it.transposeSteps, 10) || 0, it.versionId || ''];
+    }) });
+  }
+  function _sbmLiveSongsOf(rows) {
+    return JSON.stringify((rows || []).map(function(r) {
+      return [r.id || '', r.title || '', r.key || '', _sbmLivePlain(r.lyrics), r.voice_layout || ''];
+    }).sort(function(a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; }));
+  }
+  function _sbmLiveLinesOf(rows) {
+    return JSON.stringify((rows || []).map(function(r) {
+      return [r.song_id || '', parseInt(r.sort_order, 10) || 0, r.part || '', r.section || '', String(r.text == null ? '' : r.text).replace(/\s+$/, ''), !!r.sustained];
+    }).sort(function(a, b) {
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] - b[1]) || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
+    }));
+  }
   function _sbmLiveFingerprint(ids) {
     var sup = window._supabase; if (!sup || !ids.length) return Promise.resolve(null);
     var latest = function(table, col) {
@@ -51367,15 +51441,17 @@ var WO = (function() {
         .then(function(r) { return r.error ? 'na' : (r.count || 0) + '@' + ((r.data && r.data[0]) ? r.data[0][col] : ''); })
         .catch(function() { return 'na'; });
     };
+    var hashOf = function(q, of) {
+      return q.then(function(r) { return r.error ? 'na' : _sbmHash(of(r.data || [])); }).catch(function() { return 'na'; });
+    };
     var book = _sbStandaloneId
-      ? sup.from('songbooks').select('song_ids,items').eq('id', _sbStandaloneId).then(function(r) { return r.error ? 'na' : _sbmHash(JSON.stringify((r.data && r.data[0]) || {})); }).catch(function() { return 'na'; })
+      ? hashOf(sup.from('songbooks').select('song_ids,items').eq('id', _sbStandaloneId), function(d) { return _sbmLiveBookOf(d[0] || {}); })
       : Promise.resolve('');
     return Promise.all([
       latest('song_marks', 'created_at'),
       latest('song_recordings', 'created_at'),
-      latest('song_voice_lines', 'updated_at'),
-      sup.from('songs').select('id,last_edited,display_style,voice_layout').in('id', ids)
-        .then(function(r) { return r.error ? 'na' : _sbmHash(JSON.stringify((r.data || []).slice().sort(function(a, b) { return a.id < b.id ? -1 : 1; }))); }).catch(function() { return 'na'; }),
+      hashOf(sup.from('song_voice_lines').select('song_id,sort_order,part,section,text,sustained').in('song_id', ids).order('song_id').order('sort_order'), _sbmLiveLinesOf),
+      hashOf(sup.from('songs').select('id,title,key,lyrics,voice_layout').in('id', ids), _sbmLiveSongsOf),
       book
     ]).then(function(a) { return { marks: a[0], recs: a[1], lines: a[2], songs: a[3], book: a[4] }; });
   }
@@ -51394,11 +51470,20 @@ var WO = (function() {
       if (_sbmLive !== L) return;
       L.busy = false;
       if (!fp) return;
-      if (adopt || !L.seen || Date.now() - _sbmLiveOwnAt < 15000) { L.seen = fp; _sbmLiveBanner(false); return; }
+      if (adopt || !L.seen || Date.now() - _sbmLiveOwnAt < 15000) { L.seen = fp; L.pendingAt = 0; _sbmLiveBanner(false); return; }
       var d = _sbmLiveDiff(L.seen, fp), song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
       if (d.marks) { L.seen.marks = fp.marks; if (song) { delete _sbmMarksAt[base]; _sbmLoadMarks(song, true); } }
       if (d.recs) { L.seen.recs = fp.recs; if (base) _sbmRecRefresh(base); }
-      _sbmLiveBanner(d.structural);
+      if (!d.structural) { L.pendingAt = 0; _sbmLiveBanner(false); return; }
+      // Only a change that is still there a few seconds on: a word typed
+      // and taken straight out again never reaches the banner.
+      if (!L.pendingAt) {
+        L.pendingAt = Date.now();
+        clearTimeout(L.confirmT);
+        L.confirmT = setTimeout(function() { if (_sbmLive === L) _sbmLiveCheck(false); }, 8000);
+        return;
+      }
+      if (Date.now() - L.pendingAt >= 7000) _sbmLiveBanner(true);
     }).catch(function() { if (_sbmLive === L) L.busy = false; });
   }
   function _sbmLiveBanner(show) {
@@ -53915,7 +54000,7 @@ var WO = (function() {
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
       '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
       '<button class="sbm-tile" onclick="WO.sbmBrowse()" title="Go looking for this song online, and save what you find for everyone"><i class="fa-solid fa-globe"></i>Browse</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (hasChoir && view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
       (verTile ? '<button class="sbm-tile' + (verHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmVersions()" title="Versions of this song: a key, words and drawings to sing it with"><i class="fa-solid fa-code-branch"></i>Versions</button>' : '') +
       // Links and Files opened the same sheet, so every book -- a service's or
       // a standalone one -- has the medley tile in that place.
@@ -54008,6 +54093,7 @@ var WO = (function() {
     _sbmMarksMount();
     _sbmFollowAfter();
     _sbmLiveStart();
+    _sbmMarkEditTile();
     _sbmPhoneFollowSoon();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     // Versions, once the database has them: the tile appears, and the name
@@ -54371,6 +54457,7 @@ var WO = (function() {
     host.id = 'sbmPad'; host.className = 'sbm' + (wide ? ' sbm-pad--desktop' : '');
     var labels = {}; (o.roles || []).forEach(function(r) { labels[r.key] = r.label; });
     _sbmPad = { host: host, o: o, colours: Object.assign({}, o.colours || {}), labels: labels, dirty: false };
+    if (o.base) edTryClaim(_sbEditKey(o.base), (_sbmMe() || {}).name || '');
     var roles = o.roles || [];
     var q = function(k) { return escapeHtml(k).replace(/'/g, '&#39;'); };
     host.innerHTML = (wide ? '<div class="sbm-pad__dlg" role="dialog" aria-label="Overview edit">' : '') +
@@ -54490,10 +54577,13 @@ var WO = (function() {
     document.removeEventListener('keydown', _sbmPadKey, true);
     if (_sbmPadTimer) { clearTimeout(_sbmPadTimer); _sbmPadTimer = null; }
     if (_sbmPad && _sbmPad.host && _sbmPad.host.parentNode) _sbmPad.host.remove();
+    var base = _sbmPad && _sbmPad.o ? _sbmPad.o.base : '';
     _sbmPad = null;
+    _sbEditRelease(base);
   }
   function sbmPadSave() {
     var P = _sbmPad; if (!P || P.saving) return;   // one save at a time, by key as by button
+    if (P.o && P.o.base && !_sbEditMayWrite(P.o.base)) return;
     var ta = _sbmPadTa(), text = ta ? ta.value : '';
     var colours = P.colours;
     var btn = P.host.querySelector('.sbm-ed__foot .sbm-btn--primary'); if (btn) btn.disabled = true;
@@ -54526,7 +54616,9 @@ var WO = (function() {
   function _sbLinesUnread() { showToast('The choir parts could not be loaded \u2014 check the connection and try again', 'error'); }
   function _sbOverviewOpen(base, sid, title, sectionName, run) {
     var V = window.lhcVoiceLines; if (!V || !base) return;
-    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run); }, _sbLinesUnread);
+    if (!_sbEditClaim({ songId: base, title: title })) return;
+    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run); },
+      function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
   }
   function _sbOverviewOpenNow(base, sid, title, sectionName, run) {
     var V = window.lhcVoiceLines;
@@ -54545,7 +54637,7 @@ var WO = (function() {
     // showed both runs as one and the save dropped the second.
     var text = (sectionName != null) ? _sbmPadText(rows, lyrics, sectionName, isChord, run) : full;
     _sbmCloseSheet();
-    _sbmPadOpen({ title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
+    _sbmPadOpen({ base: base, title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
       onSave: function(t, colours) {
         var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t, run) : t;
         return _sbmPadSaveSong(base, sid, whole, colours);
@@ -54575,7 +54667,7 @@ var WO = (function() {
     var nk = String(name || '').trim().toLowerCase();
     var run = f ? ed.sections.slice(0, f.si + 1).filter(function(x) { return String(x.name || '').trim().toLowerCase() === nk; }).length : null;
     _sbmCloseSheet();
-    _sbmPadOpen({ title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord, run),
+    _sbmPadOpen({ base: ed.base, title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord, run),
       roles: _sbmPadRoles(rowsAll), colours: ed.pendingColours || _sbPartColours(ed.base), saveLabel: 'Apply',
       onSave: function(t, colours) {
         if (_sbmEd !== ed) return Promise.resolve();   // the editor was closed underneath
@@ -55177,6 +55269,7 @@ var WO = (function() {
                desktop: !!o.desktop, previewOpts: o.previewOpts || null,
                onSave: (typeof o.onSave === 'function') ? o.onSave : null,
                onText: (typeof o.onText === 'function') ? o.onText : null };
+    if (o.base) edTryClaim(_sbEditKey(o.base), (_sbmMe() || {}).name || '');
     // Capture phase, so the songbook's own Escape never sees a key meant
     // for the dialog sitting over it.
     document.addEventListener('keydown', _sbmEdKey, true);
@@ -55187,6 +55280,7 @@ var WO = (function() {
   // page, which is where it lives.
   function sbmEditParts() {
     var song = _sbmSong(); if (!song) return;
+    if (!_sbEditClaim(song)) return;
     var base = _sbBaseSongId(song);
     var wide = !_sbFoldPhone();
     _sbmStopPlayer();
@@ -55195,7 +55289,7 @@ var WO = (function() {
                    rows: rows, lyrics: song.lyrics || '',
                    desktop: wide, previewOpts: { compact: true },
                    onText: wide ? function(t) { sbmPageView(true); setTimeout(function() { _sbChoirTextEditor(base, t); }, 80); } : null });
-    }, _sbLinesUnread);
+    }, function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
   }
   // Anyone else's entry: the dialog. The library's Choir parts tab uses it
   // with its own save.
@@ -55532,13 +55626,16 @@ var WO = (function() {
     document.removeEventListener('keydown', _sbmEdKey, true);
     if (_sbmEdPvTimer) { clearTimeout(_sbmEdPvTimer); _sbmEdPvTimer = null; }
     var host = document.getElementById('sbmEdit'); if (host) host.remove();
+    var base = _sbmEd ? _sbmEd.base : '';
     _sbmEd = null;
+    _sbEditRelease(base);
   }
   function sbmEdSave() {
     var ed = _sbmEd; if (!ed) return;
     // One save at a time: the loader blocks clicks, not keys, and two
     // whole-arrangement writes interleaved can leave every line twice.
     if (ed.saving) return;
+    if (ed.base && !_sbEditMayWrite(ed.base)) return;
     var V = window.lhcVoiceLines;
     var parsed = V.parseVoiceText(_sbmEdToText(ed));
     if (!parsed.length) { showToast('Nothing to save \u2014 there are no lines', 'error'); return; }
@@ -60934,6 +61031,8 @@ var WO = (function() {
   // page is the one place the grammar is still typed.
   function sbEditChoirParts(baseSongId) {
     if (_sbFoldPhone() || typeof _sbmEdOpen !== 'function') { _sbChoirTextEditor(baseSongId); return; }
+    var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; });
+    if (!_sbEditClaim(item || { songId: baseSongId })) return;
     _sbOpenPartsDialogFor(baseSongId, null);
   }
   function _sbOpenPartsDialogFor(baseSongId, text) {
@@ -62152,7 +62251,7 @@ var WO = (function() {
     var now = Date.now();
     Object.keys(_edMyLocks).forEach(function(k) {
       _edSend('ed_lock', { key: k, owner: _edClientId,
-                           label: _edMyLocks[k].label || '', at: now });
+                           label: _edMyLocks[k].label || '', at: now, since: _edMyLocks[k].since || now });
     });
   }
 
@@ -62162,10 +62261,15 @@ var WO = (function() {
     // arrived first, so the tie is broken on a value both sides already
     // agree on -- the lower client id keeps it. Each client runs the same
     // comparison and reaches the opposite answer, so exactly one lets go.
+    // Both sides claimed. Whoever started first keeps it -- each claim
+    // carries when it began -- and only a tie falls to the client ids, which
+    // both sides compare alike, so exactly one lets go. A claim with no
+    // start (a page from before this) yields to ours.
     if (_edMyLocks[p.key]) {
-      if (p.owner < _edClientId) {
+      var mineSince = _edMyLocks[p.key].since || 0, theirs = (typeof p.since === 'number') ? p.since : Infinity;
+      if (theirs < mineSince || (theirs === mineSince && p.owner < _edClientId)) {
         edRelease(p.key);
-        showToastWO('Someone else started editing this first — your lock was released.', 'warning');
+        showToastWO((p.label && p.key.indexOf('sbedit:') === 0 ? p.label : 'Someone else') + ' started editing this first — your lock was released.', 'warning');
       } else {
         return; // we keep it; they will stand down when they hear our claim
       }
@@ -62194,12 +62298,12 @@ var WO = (function() {
     _edEnsureChannel();
     if (edIsLockedByOther(key)) return false;
     var mine = _edMyLocks[key];
-    _edMyLocks[key] = { at: Date.now(), label: label || '', autoMs: autoMs || 0 };
+    _edMyLocks[key] = { at: Date.now(), since: (mine && mine.since) || Date.now(), label: label || '', autoMs: autoMs || 0 };
     // Draw our own frame straight away: nothing arrives over the channel to
     // tell us about a lock we just took ourselves.
     setTimeout(_edApplyLockUI, 0);
     if (!mine) {
-      _edSend('ed_lock', { key: key, owner: _edClientId, label: label || '', at: Date.now() });
+      _edSend('ed_lock', { key: key, owner: _edClientId, label: label || '', at: Date.now(), since: _edMyLocks[key].since });
     }
     return true;
   }
@@ -62262,6 +62366,7 @@ var WO = (function() {
   }
 
   function _edApplyLockUI() {
+    _sbmMarkEditTile();
     // Nothing held by anybody and nothing marked: the common case, so it costs
     // no DOM work. Our own locks count now -- they are drawn too.
     if (!_edMarkedEls.length && !Object.keys(_edLocks).length &&
@@ -65038,7 +65143,10 @@ var WO = (function() {
       var _baseId = s.songId || String(sid).split('--')[0];
       if (_baseId && typeof sbEditChoirParts === 'function') { sbEditChoirParts(_baseId); return; }
     }
+    // One editor at a time for a song: refused while somebody else has it.
+    if (!_sbEditClaim(s)) return;
     _sbEditingSid = sid;
+    _sbLyricsEditBase = _sbBaseSongId(s);
     var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');
 
     // Borrow the existing lyrics editor modal
@@ -65065,27 +65173,94 @@ var WO = (function() {
     }
     if (typeof updateLyricsLivePreview === 'function') updateLyricsLivePreview();
     if (typeof renderLyricsEditorDocs === 'function') renderLyricsEditorDocs('__sb__');
+    if (typeof window._lyricsSetEditorState === 'function') window._lyricsSetEditorState(false);
   }
 
   // Called by saveLyricsEditor() when in SB mode - saves lyrics back to songbook
   function sbSaveLyricsFromModal(lyrics) {
     if (!_sbEditingSid) return;
     var sid = _sbEditingSid;
-    _sbEditingSid = null;
     var song = (songOrderSections || []).find(function(x) { return x.id === sid; });
-    if (!song) return;
+    if (!song) { _sbEditingSid = null; return; }
+    if (!_sbEditMayWrite(song)) return false;
+    _sbEditingSid = null;
     song.lyrics = lyrics;
     song.richLyrics = formatLyricsWithHighlights(lyrics);
     song.customLyrics = lyrics;
     song.customRichLyrics = song.richLyrics;
     song.hasCustomLyrics = true;
+    // The transposition's baseline is the words as they now are.
+    songOriginalLyrics[sid] = lyrics;
+    songOriginalRichLyrics[sid] = song.richLyrics;
+    _sbCanonicalText[sid] = lyrics;
     var el = document.getElementById('sbLyrics-' + sid);
     if (el) {
       el.innerHTML = song.richLyrics;
       if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+      // The printed page shows them in the key they are sung in.
+      if (sbTransposeSteps[sid]) sbTranspose(sid, 0);
     }
-    _sbCanonicalText[sid] = lyrics;
+    // Saved both ways, as a version chosen is: the quick sync, and the full
+    // save that keeps the words (a standalone book reads them from it).
     sbAutoSave();
+    autoSaveOrder();
+    _sbmLiveSend();
+    renderSongbookLive();
+    showToast('Saved the words of \u201c' + (song.title || 'the song') + '\u201d', 'success');
+    return true;
+  }
+  // The editor closed, saved or not: the song is let go.
+  function sbLyricsEditorClosed() {
+    var base = _sbLyricsEditBase;
+    _sbEditingSid = null;
+    _sbLyricsEditBase = '';
+    _sbEditRelease(base);
+  }
+
+  // ---- one editor at a time, per song ----
+  // The Lyrics & Chords editor, the choir parts editor and the Overview each
+  // save a song whole, so two people in one at once meant the second save
+  // quietly undid the first. Whoever opens one first holds the song, over
+  // the book's lock channel (edTryClaim), until they close it; anyone else
+  // is told who has it, and the Edit tile shows it locked. The Overview
+  // opened from the parts editor shares the parts editor's hold.
+  var _sbLyricsEditBase = '';
+  function _sbEditKey(base) { return 'sbedit:' + base; }
+  function _sbEditWho(base) {
+    var h = _edLocks[_sbEditKey(base)];
+    return (h && h.label) ? h.label : 'Someone';
+  }
+  function _sbEditClaim(song) {
+    var base = song ? _sbBaseSongId(song) : ''; if (!base) return true;
+    var me = _sbmMe();
+    if (edTryClaim(_sbEditKey(base), me ? me.name : '')) return true;
+    showToast(_sbEditWho(base) + ' is editing \u201c' + ((song && song.title) || 'this song') + '\u201d right now. It is yours to edit as soon as they close it.', 'warning', { duration: 6000 });
+    return false;
+  }
+  // At a save: whoever started first keeps the song, and a save from anyone
+  // else is refused with their editor left open, so nothing typed is lost.
+  function _sbEditMayWrite(songOrBase) {
+    var base = typeof songOrBase === 'string' ? songOrBase : _sbBaseSongId(songOrBase);
+    if (!base || !edIsLockedByOther(_sbEditKey(base))) return true;
+    showToast(_sbEditWho(base) + ' started editing this song first, so this was not saved. Copy anything you want to keep; you can edit it once they are done.', 'warning', { duration: 8000 });
+    return false;
+  }
+  function _sbEditRelease(base) {
+    if (!base) return;
+    if ((_sbmEd && _sbmEd.base === base) || (_sbmPad && _sbmPad.o && _sbmPad.o.base === base) || _sbLyricsEditBase === base) return;
+    edRelease(_sbEditKey(base));
+  }
+  // The reading view's Edit tile: locked, and who has it, while somebody
+  // else is editing the song in front of you.
+  function _sbmMarkEditTile() {
+    var t = document.querySelector('#sbmRoot [data-sbm-edit]'); if (!t) return;
+    var base = t.getAttribute('data-sbm-edit'), on = !!base && edIsLockedByOther(_sbEditKey(base));
+    var who = on ? _sbEditWho(base) : '';
+    if (t.classList.contains('sbm-tile--locked') === on && (t.getAttribute('data-by') || '') === who) return;
+    t.classList.toggle('sbm-tile--locked', on);
+    t.setAttribute('data-by', who);
+    t.title = on ? who + ' is editing this song' : '';
+    var i = t.querySelector('i'); if (i) i.className = on ? 'fa-solid fa-lock' : 'fa-solid fa-pen';
   }
 
   function sbGetEditingSid() { return _sbEditingSid; }
@@ -90350,6 +90525,7 @@ var WO = (function() {
     sbChordZoneBlur: sbChordZoneBlur,
     sbOpenLyricsEditor: sbOpenLyricsEditor,
     sbSaveLyricsFromModal: sbSaveLyricsFromModal,
+    sbLyricsEditorClosed: sbLyricsEditorClosed,
     sbGetEditingSid: sbGetEditingSid,
     sbClearEditingSid: sbClearEditingSid,
     sbApplySectionBadges: sbApplySectionBadges,
@@ -108397,6 +108573,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 #songbookLiveModal.sbm-on #sbmRoot { display: flex !important; }
 
 #sbmRoot {
+  /* An iPhone enlarges text it thinks too small to read, and recomputes it as
+     the layout moves -- under the fit's own changes, a second hand on the
+     same sizes. The reading view sizes its own words. */
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
   flex: 1 1 auto; min-height: 0; flex-direction: column;
   overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   background: linear-gradient(180deg, var(--sbm-navy-ink) 0, var(--sbm-navy) 190px, var(--sbm-surface) 420px, var(--sbm-surface) 100%);
@@ -109523,6 +109703,8 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
 }
 .sbm-tile--gold { color: #8a6510; background: var(--sbm-gold-soft); border-color: transparent; }
+/* Somebody else is editing the song: the tile says so, and its tap says who. */
+.sbm-tile--locked { color: #64748b; background: #f1f5f9; border-style: dashed; }
 /* A song the service sings more than once: where else, and what is its own. */
 .sbm-twice {
   margin-top: 10px; padding: 8px 8px 8px 10px; border-radius: 10px;
