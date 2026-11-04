@@ -400,7 +400,7 @@ console.log('\nThe wiring');
   // Recording line by line: two boxes on every line -- its takes, then the
   // microphone -- and the takes listed from the badge, each to play or delete.
   check('every line\'s slot has a takes badge, then the microphone',
-    has(/'<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-line="' \+ id \+ '" ' \+\r?\n[^\n]*\r?\n\s*'<i class="fa-solid fa-list-ul" aria-hidden="true"><\/i><span class="vl-rec-n">0<\/span><\/button>' \+\r?\n\s*'<button type="button" class="vl-rec-btn" data-rec-act="toggle"/));
+    has(/'<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-line="' \+ id \+ '" ' \+\r?\n[^\n]*\r?\n\s*'<i class="fa-solid fa-play" aria-hidden="true"><\/i><span class="vl-rec-lbl">Playback<\/span><span class="vl-rec-n">0<\/span><\/button>' \+\r?\n\s*'<button type="button" class="vl-rec-btn" data-rec-act="toggle"/));
   check('...shown on every line of the reading view, with no switch to turn them on',
     has(/\.sbm-score \.vl-rec-list, \.sbm-score \.vl-rec-btn \{\r?\n\s*display: inline-flex;/) && has(/\.sbm-score \.vl-imp-btn, \.sbm-score \.vl-rec-takes \{ display: none; \}/) &&
     !has(/sbm-score--mics/) && !has(/Line mics<\/button>/) && !has(/sbmLineMics/));

@@ -9158,6 +9158,15 @@
   .vl-pop-txt { flex: 1 1 auto; min-width: 0; }
   .vl-pop-name { font-size: 13px; font-weight: 600; color: #0b1930; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vl-pop-sub { margin-top: 1px; font-size: 11.5px; color: #64748b; }
+  /* A take's timeline: the played part filled, a thumb a finger can hold. */
+  .vl-pop-seek { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .vl-pop-range { --vl-at: 0%; flex: 1 1 auto; min-width: 0; height: 22px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; }
+  .vl-pop-range::-webkit-slider-runnable-track { height: 6px; border-radius: 99px; background: linear-gradient(90deg, #0d9488 var(--vl-at), #dbe4ec var(--vl-at)); }
+  .vl-pop-range::-moz-range-track { height: 6px; border-radius: 99px; background: #dbe4ec; }
+  .vl-pop-range::-moz-range-progress { height: 6px; border-radius: 99px; background: #0d9488; }
+  .vl-pop-range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; background: #fff; border: 2px solid #0d9488; box-shadow: 0 1px 4px rgba(11,25,48,0.25); }
+  .vl-pop-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid #0d9488; }
+  .vl-pop-at { flex: 0 0 auto; font-size: 11px; font-variant-numeric: tabular-nums; color: #475569; }
   .vl-pop-del { flex: 0 0 auto; width: 38px; height: 38px; border: 1px solid rgba(220,38,38,0.25); border-radius: 50%; background: #fef2f2; color: #b91c1c; font-size: 13px; cursor: pointer; }
   .vl-pop-none { padding: 14px 10px; font-size: 13px; line-height: 1.45; color: #64748b; }
   .vl-pop-foot { flex: 0 0 auto; padding: 8px 12px 12px; border-top: 1px solid #eef1f5; }
@@ -15450,6 +15459,21 @@ window.lhcVoiceRec = {
         else R.pickFile(L.root, L.lineId);
       }
     });
+    var rangeOf = function(e) { var r = e.target; return (r && r.classList && r.classList.contains('vl-pop-range')) ? r : null; };
+    el.addEventListener('input', function(e) {
+      var r = rangeOf(e); if (!r) return;
+      R._seeking = true;
+      var v = Number(r.value) || 0;
+      R._paintSeek(r, v);
+      if (R._audio && String(R._playing) === String(r.getAttribute('data-rec-id'))) { try { R._audio.currentTime = v; } catch (x) {} }
+    });
+    el.addEventListener('change', function(e) {
+      var r = rangeOf(e); if (!r || !R._list) return;
+      R._seeking = false;
+      var v = Number(r.value) || 0;
+      if (R._audio && String(R._playing) === String(r.getAttribute('data-rec-id'))) { try { R._audio.currentTime = v; } catch (x) {} return; }
+      R.play(R._list.root, r.getAttribute('data-rec-id'), r.getAttribute('data-rec-path'), v);
+    });
     R._listAway = function(e) {
       var L = R._list;
       if (!L || L.el.contains(e.target)) return;
@@ -15577,11 +15601,19 @@ window.lhcVoiceRec = {
           var name = esc(t.name || 'Take');
           // Which instrument, by its name now: one renamed since is shown so.
           var inst = sec && R.slotLabel ? R.slotLabel(sid, R._slotOf(t.storage_path)) : '';
+          // Its timeline: where the take has got to, and dragged, where it
+          // plays from. The length is the file's own once it is playing.
+          var au = on ? R._audio : null;
+          var len = (au && au.duration && isFinite(au.duration)) ? au.duration : (Number(t.duration_sec) || 0);
+          var at = (au && !isNaN(au.currentTime)) ? Math.min(au.currentTime, len) : 0;
+          var seek = len > 0 ? '<div class="vl-pop-seek"><input type="range" class="vl-pop-range" min="0" max="' + len.toFixed(2) + '" step="0.05" value="' + at.toFixed(2) + '" ' +
+              'data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" aria-label="Where to play ' + name + ' from" style="--vl-at:' + (len ? (at / len * 100).toFixed(1) : 0) + '%">' +
+              '<span class="vl-pop-at" data-rec-at="' + esc(t.id) + '">' + esc(R._dur(at)) + ' / ' + esc(R._dur(len)) + '</span></div>' : '';
           return '<div class="vl-pop-take' + (on ? ' is-playing' : '') + '">' +
             '<button type="button" class="vl-pop-play" data-pop-act="play" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" aria-label="' + (on ? 'Stop ' : 'Play ') + name + '">' +
               '<i class="fa-solid fa-' + (on ? 'stop' : 'play') + '" aria-hidden="true"></i></button>' +
             '<div class="vl-pop-txt"><div class="vl-pop-name">' + name + '</div>' +
-              '<div class="vl-pop-sub">' + (inst ? esc(inst) + ' · ' : '') + esc(R._dur(t.duration_sec)) + (t.created_at ? ' · ' + esc(R._when(t.created_at)) : '') + '</div></div>' +
+              '<div class="vl-pop-sub">' + (inst ? esc(inst) + ' · ' : '') + esc(R._dur(t.duration_sec)) + (t.created_at ? ' · ' + esc(R._when(t.created_at)) : '') + '</div>' + seek + '</div>' +
             '<button type="button" class="vl-pop-del" data-pop-act="del" data-rec-id="' + esc(t.id) + '" data-rec-path="' + esc(t.storage_path) + '" title="Delete ' + name + '" aria-label="Delete ' + name + '">' +
               '<i class="fa-solid fa-trash-can" aria-hidden="true"></i></button></div>';
         }).join('') : '<div class="vl-pop-none">' + (sec ? 'Nothing recorded here yet. Record it with the microphone beside its badge: each instrument on its own, as many as the song needs.'
@@ -15884,7 +15916,26 @@ window.lhcVoiceRec = {
     });
   },
 
-  play: function(root, id, path) {
+  // A timeline's place shown: the filled part and the time beside it.
+  _paintSeek: function(r, v) {
+    var R = window.lhcVoiceRec, max = Number(r.max) || 0;
+    r.style.setProperty('--vl-at', (max ? Math.min(100, v / max * 100) : 0).toFixed(1) + '%');
+    var lbl = r.parentNode && r.parentNode.querySelector('.vl-pop-at');
+    if (lbl) lbl.textContent = R._dur(v) + ' / ' + R._dur(max);
+  },
+  // The playing take's timeline moved as it plays, without redrawing the
+  // list -- and never under a finger dragging it.
+  _tickList: function() {
+    var R = window.lhcVoiceRec, L = R._list, a = R._audio;
+    if (!L || !a || R._seeking) return;
+    var r = Array.prototype.filter.call(L.el.querySelectorAll('.vl-pop-range'), function(x) { return x.getAttribute('data-rec-id') === String(R._playing); })[0];
+    if (!r) return;
+    if (a.duration && isFinite(a.duration) && Math.abs((Number(r.max) || 0) - a.duration) > 0.2) r.max = a.duration.toFixed(2);
+    r.value = a.currentTime;
+    R._paintSeek(r, a.currentTime);
+  },
+  // from: where in the take to start, in seconds (its timeline, let go).
+  play: function(root, id, path, from) {
     var R = window.lhcVoiceRec;
     var sb = R._sb();
     if (R._audio) { R._audio.pause(); R._audio = null; }
@@ -15895,6 +15946,12 @@ window.lhcVoiceRec = {
     R._playing = id;
     var url = sb.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(path).data.publicUrl;
     R._audio = new Audio(url);
+    var au = R._audio, start = Number(from) || 0;
+    if (start > 0) {
+      try { au.currentTime = start; } catch (e) {}
+      au.addEventListener('loadedmetadata', function() { try { if (au.currentTime < start - 0.3) au.currentTime = start; } catch (e) {} }, { once: true });
+    }
+    au.ontimeupdate = function() { if (R._audio === au) R._tickList(); };
     R._audio.onended = function() { R._playing = null; R._audio = null; R.paintAll(root); };
     R._audio.onerror = function() { R._playing = null; R._audio = null; R.paintAll(root); showToast('That take would not play', 'error'); };
     // onerror covers a missing or unreadable file. It does NOT cover a
@@ -16918,7 +16975,7 @@ window.lhcVoiceLines = {
       // of them. Elsewhere the takes are chips and the badge is not shown.
       '<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-line="' + id + '" ' +
       'title="No takes of this line yet" aria-label="No takes of this line yet" aria-haspopup="dialog">' +
-      '<i class="fa-solid fa-list-ul" aria-hidden="true"></i><span class="vl-rec-n">0</span></button>' +
+      '<i class="fa-solid fa-play" aria-hidden="true"></i><span class="vl-rec-lbl">Playback</span><span class="vl-rec-n">0</span></button>' +
       '<button type="button" class="vl-rec-btn" data-rec-act="toggle" data-rec-line="' + id + '" ' +
       'title="Record this line" aria-label="Record this line">' +
       '<i class="fa-solid fa-microphone"></i></button>' +
@@ -49675,7 +49732,7 @@ var WO = (function() {
       '<span class="sbm-inst__rec">' +
         '<button type="button" class="vl-rec-list" data-rec-act="list" data-rec-sec="' + escapeHtml(key) + '" data-rec-label="' + escapeHtml(label) + '" ' +
           'title="Nothing recorded here yet" aria-label="Nothing recorded here yet" aria-haspopup="dialog">' +
-          '<i class="fa-solid fa-list-ul" aria-hidden="true"></i><span class="vl-rec-n">0</span></button>' +
+          '<i class="fa-solid fa-play" aria-hidden="true"></i><span class="vl-rec-lbl">Playback</span><span class="vl-rec-n">0</span></button>' +
         '<button type="button" class="sbm-sec-mic sbm-inst__mic' + (live ? ' is-recording' : '') + '" data-section="' + escapeHtml(key) + '" onclick="WO.sbmInstRecord(this)" ' +
           'title="' + (live ? 'Stop recording' : 'Record an instrument here') + '" aria-label="Record an instrument: ' + escapeHtml(label) + '">' +
           '<i class="fa-solid fa-' + (live ? 'stop' : 'microphone') + '"></i></button>' +
@@ -50645,8 +50702,8 @@ var WO = (function() {
   }
   function _sbmDrawChip() {
     if (_sbmMarksOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. ' +
-      (_sbmLayersOk === true ? 'Only you see it, until you share it.' : 'Everyone sees it.') + '"><i class="fa-solid fa-pen-nib"></i>Draw</button>';
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. ' +
+      (_sbmLayersOk === true ? 'When you finish, you choose who sees it.' : 'Everyone sees it.') + '"><i class="fa-solid fa-pen-nib"></i>' + (_sbmDraw ? 'Drawing\u2026' : 'Draw') + '</button>';
   }
 
   // ---- drawing ----
@@ -50715,6 +50772,7 @@ var WO = (function() {
       '<label class="sbm-label" for="sbmWhoName"><i class="fa-solid fa-user"></i>Your name</label>' +
       '<input class="sbm-input" id="sbmWhoName" list="sbmWhoNames" maxlength="40" autocomplete="name" placeholder="Your name" value="' + escapeHtml(name) + '">' +
       '<datalist id="sbmWhoNames"></datalist>' +
+      '<p class="who-note"><i class="fa-solid fa-mobile-screen"></i>Kept on this device only \u2014 nobody signs in. Your drawings carry this name, so the same name on another device finds them.</p>' +
       '<p class="who-note"><i class="fa-solid fa-users"></i>When you finish drawing, you choose who sees it: everyone, only you, or one part of the band.</p>' +
       '<div class="who-foot"><button class="sbm-btn" onclick="WO.sbmCloseSheet()">Cancel</button>' +
         '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWhoSave(' + (thenDraw ? 'true' : 'false') + ')">' + (thenDraw ? '<i class="fa-solid fa-pen-nib"></i>Start drawing' : 'Save') + '</button></div></div>';
@@ -50913,9 +50971,11 @@ var WO = (function() {
           var all = L.me.by[c[0]] === L.me.n;
           return '<button type="button" class="who-part' + (all ? ' is-on' : '') + '" onclick="WO.sbmLayersAudience(\'' + c[0] + '\')">' + escapeHtml(c[2]) + '</button>';
         }).join('') + '</div>' : '') +
-        '<div class="lay-acts"><button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '?</button></div>';
+        '<div class="lay-acts"><button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '? Change the name</button></div>' +
+        _sbmWhoNote();
     } else {
-      html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>';
+      html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>' +
+        _sbmWhoNote();
     }
     html += '<div class="ver-head lay-h2"><span>By others</span><span class="ver-head__n">' + L.others.length + '</span></div>';
     html += L.others.length ? '<div class="lay-list">' + L.others.map(function(p) {
@@ -50932,6 +50992,17 @@ var WO = (function() {
     html += '</div>';
     _sbmSheet('Layers — ' + _sbmClip(song.title || 'this song', 30), html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
+  }
+  // How the app knows who is drawing, said where it is used: nobody signs
+  // in, so it is a name kept on this device -- given the first time someone
+  // here draws -- and the parts chosen above are this device's too.
+  function _sbmWhoNote() {
+    return '<details class="lay-how"><summary><i class="fa-solid fa-circle-question"></i>How does it know who I am?</summary>' +
+      '<p>Nobody signs in. The first time someone draws on this phone or computer, the app asks their name (offering the names already drawing, then the roster\u2019s) and keeps it on this device. ' +
+      'Every drawing made here carries that name, so the same name on another device brings your drawings back there.</p>' +
+      '<p>What you play or sing is what you choose under \u201cDrawings meant for\u201d, also kept on this device: it decides which drawings meant for one part of the band you see. ' +
+      'When you finish drawing, you choose who sees it: everyone, only you, or one part.</p>' +
+      '<p>Lending your phone? Change the name first, or the drawings are made in yours. This is about what each person is shown, not a lock: it is not a password.</p></details>';
   }
   function sbmLayerToggle(key) {
     var h = _sbmLayersHidden();
@@ -109044,6 +109115,13 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-score .vl-rec-list { min-width: 48px; gap: 6px; padding: 0 10px; color: var(--sbm-muted); font: 700 13px/1 var(--sbm-font-ui); }
 .sbm-score .vl-rec-list i { font-size: 12px; }
 .sbm-score .vl-rec-list.has-takes { background: #e6f7f4; border-color: #8fd5c9; color: #0f766e; }
+/* Playback: a play mark, the word, and how many takes there are to hear. */
+#sbmRoot .vl-rec-list .vl-rec-lbl { font-weight: 700; }
+#sbmRoot .vl-rec-list .vl-rec-n { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: rgba(15, 23, 42, 0.08); text-align: center; }
+#sbmRoot .vl-rec-list.has-takes .vl-rec-n { background: #0f766e; color: #fff; }
+#sbmRoot .vl-rec-list.has-takes { box-shadow: 0 2px 8px rgba(15, 118, 110, 0.18); }
+/* A phone's score lines have room for the mark and the count only. */
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-rec-lbl { display: none; }
 .sbm-score .vl-imp-btn, .sbm-score .vl-rec-takes { display: none; }
 .sbm-score .vl-rec-btn.is-recording { background: #dc2626; border-color: #dc2626; color: #fff; }
 .sbm-score .vl-rec-takes { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
@@ -109430,6 +109508,15 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
 .sbm-card.is-drawing { outline: 2px dashed rgba(37,99,235,0.5); outline-offset: 3px; }
 .sbm-chip--draw.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
+.lay-how { margin: 10px 0 4px; padding: 10px 12px; border-radius: var(--sbm-radius-md); background: var(--sbm-surface, #f1f5f9); font: 500 12.5px/1.5 var(--sbm-font-ui); color: var(--sbm-text-2); }
+.lay-how summary { cursor: pointer; font-weight: 700; color: var(--sbm-text); list-style: none; display: flex; align-items: center; gap: 8px; }
+.lay-how summary::-webkit-details-marker { display: none; }
+.lay-how summary i { color: var(--sbm-teal); }
+.lay-how p { margin: 8px 0 0; }
+/* Draw stands out from Layers beside it: filled, where Layers is outlined. */
+#sbmRoot .sbm-chip--pen { background: linear-gradient(135deg, #7c3aed, #a855f7); border-color: transparent; color: #fff; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3); }
+#sbmRoot .sbm-chip--pen:hover { filter: brightness(1.06); }
+#sbmRoot .sbm-chip--pen.is-on { background: var(--sbm-navy); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.35); }
 .sbm-drawbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3700; background: var(--sbm-navy); color: #fff; border-radius: 22px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); max-width: calc(100vw - 16px);
   /* left: 50% would cap its shrink-to-fit width at half the screen, and a
      phone got a column of buttons seven rows tall */

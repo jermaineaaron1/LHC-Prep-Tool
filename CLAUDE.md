@@ -1395,10 +1395,16 @@ the anon key -- verify as `postgres`, not as the app.
 
 52. **A line's takes are a badge and a list, on every line.** In the
     reading view each line of the choir score ends in two boxes
-    (`lhcVoiceLines._recSlot`): a badge with the line's count of takes
-    (`.vl-rec-list`, teal once it has one), then the microphone. The badge
-    opens `lhcVoiceRec.openList`, ONE line's takes, newest first, each to
-    play or delete (`R.del`, which asks first), and "Add an audio file"
+    (`lhcVoiceLines._recSlot`): a badge, a play mark, "Playback" and the
+    line's count of takes (`.vl-rec-list`, the count teal once it has one;
+    a phone's score drops the word, `.vl-rec-lbl`), then the microphone. The
+    badge opens `lhcVoiceRec.openList`, ONE line's takes, newest first, each
+    to play or delete (`R.del`, which asks first) with a timeline under it
+    (`.vl-pop-range`, as long as the take): it follows the take playing
+    (`au.ontimeupdate` -> `_tickList`, which leaves alone a range being
+    dragged, `R._seeking`), dragged it moves the take playing, and let go on
+    another take it plays that one from there (`R.play(root, id, path,
+    from)`); `_paintSeek` fills it and writes the time. And "Add an audio file"
     (`R.pickFile`) -- so the import button and the inline take chips are
     hidden there. Other views that draw the slot keep their chips and never
     show the badge. The list lives on `<body>` at z-index 2400, over the
