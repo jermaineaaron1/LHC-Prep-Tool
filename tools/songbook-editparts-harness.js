@@ -110,6 +110,7 @@ const WANTED = [
   [/^  function _sbmEdClose\(/, '_sbmEdClose'],
   [/^  function _sbmEdKey\(/, '_sbmEdKey'],
   [/^  function sbmEdToText\(/, 'sbmEdToText'],
+  [/^  function _sbVoiceWrite\(/, '_sbVoiceWrite'],
   [/^  function sbmEdSave\(/, 'sbmEdSave']
 ];
 

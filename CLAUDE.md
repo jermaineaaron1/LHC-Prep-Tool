@@ -215,6 +215,18 @@ than a bash heredoc, which quietly eats a level of backslashes.
      a medley's under a `_Medley_` line, with a gap after it -- the
      Songbook's link, a blank line, then the "Song Playlist (YouTube)"
      (gotcha 57); one song is under Share.
+     The reading view's modes are Choir (the score alone), Lyrics (the words
+     without chords), Chords + Lyrics (`'both'`: the words with chords, no
+     score -- it once had the score under them) and 2 Col. Choir is offered
+     for EVERY song: one with no parts yet shows its words with every line
+     sung by All (`lhcVoiceLines.fromLyrics`), and Set up choir parts
+     (`sbmChoirStart`) writes that as its arrangement through the parts
+     editor's own save (`_sbVoiceWrite`) and shows it in Choir; Edit there is
+     Edit Parts. The printed pages keep their own Choir / Lyrics / Both
+     (`_sbChoirViewToggleHtml`), where Both is both sets of pages.
+     A take's delete asks in the app's own look (`window.lhcAskDelete`,
+     z-index 10060: the take, its part, time and length, Keep it or a red
+     Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
      with a notice saying where else it is sung, **Copy arrangement** (from
      the other copy, or from an earlier service) and **Own drawings**
