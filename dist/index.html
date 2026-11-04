@@ -52990,6 +52990,129 @@ var WO = (function() {
     openMedleyEditor(song.id);
   }
 
+  // ---- a few lines transposed on their own ----
+  //
+  // A song that goes up a tone for its last verse: the musician selects
+  // those lines in the words, and a bar at the bottom moves their chords a
+  // semitone at a time, leaving every other line where it was. It is the
+  // copy's own words that change -- the chords of those lines written a
+  // semitone higher or lower -- so the whole song's key still moves it all
+  // together on top, and every view, print and device shows the same. The
+  // lines chosen stay tinted while the bar is open, since a phone's
+  // selection does not outlive the redraw; Undo puts them back as they were
+  // when the bar first moved them. A card that is not one block per line of
+  // the words (words reworked as formatted text) is refused, not guessed at.
+  var _sbmXp = null;          // { sid, a, b, net, before }
+  var _sbmXpPressAt = 0;
+  function _sbmXpBlocks(ly) {
+    return Array.prototype.filter.call(ly.children, function(el) { return !el.classList.contains('sbm-inst'); });
+  }
+  // The words the card is drawn from, a line at a time and in the song's own
+  // key: its formatted words when it has them (what the card shows), else its
+  // words -- one block per line, the same blocks the card has. null when a
+  // block is not one line, rather than guessed at.
+  function _sbmXpSource(song, ly) {
+    var box = document.createElement('div');
+    box.innerHTML = song.richLyrics ? _sbStripTrailingEmptyHtml(song.richLyrics)
+                                    : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+    for (var n = box.firstChild; n; n = n.nextSibling) { if (n.nodeType === 3 && n.nodeValue.trim()) return null; }
+    var els = Array.prototype.slice.call(box.children);
+    if (els.length !== _sbmXpBlocks(ly).length) return null;
+    var lines = [];
+    for (var i = 0; i < els.length; i++) {
+      var t = els[i].textContent;
+      if (/\n/.test(t) || (els[i].querySelector('br') && t.trim())) return null;
+      lines.push(t);
+    }
+    return lines;
+  }
+  // Which of the card's lines a selection takes in: a line only touched at
+  // its edge is not in it, or a drag to the end of a line took the next.
+  function _sbmXpRangeOf(rg, blocks) {
+    var a = -1, b = -1;
+    blocks.forEach(function(el, i) {
+      var er = document.createRange(); er.selectNodeContents(el);
+      if (rg.compareBoundaryPoints(Range.END_TO_START, er) < 0 && rg.compareBoundaryPoints(Range.START_TO_END, er) > 0) { if (a < 0) a = i; b = i; }
+    });
+    return a < 0 ? null : { a: a, b: b };
+  }
+  function _sbmXpOnSel() {
+    var ly = document.getElementById('sbmLyrics');
+    var sel = window.getSelection ? window.getSelection() : null;
+    // A tap on the bar's own buttons may take the selection away: the bar stays.
+    if (!ly || !sel || sel.isCollapsed || !sel.rangeCount || _sbmDraw || ly.classList.contains('sbm-lyrics--nochords')) return;
+    var rg = sel.getRangeAt(0);
+    if (!ly.contains(rg.commonAncestorContainer)) return;
+    var blocks = _sbmXpBlocks(ly), r = _sbmXpRangeOf(rg, blocks);
+    if (!r) return;
+    var chords = blocks.slice(r.a, r.b + 1).some(function(el) { return el.classList.contains('wo-lyrics-chord-line'); });
+    if (!chords) return;
+    var song = _sbmSong(); if (!song) return;
+    if (!_sbmXp || _sbmXp.sid !== song.id || _sbmXp.a !== r.a || _sbmXp.b !== r.b) _sbmXp = { sid: song.id, a: r.a, b: r.b, net: 0, before: null };
+    _sbmXpPaint();
+  }
+  function _sbmXpHook() {
+    if (_sbmXpHook.done) return;
+    _sbmXpHook.done = true;
+    document.addEventListener('selectionchange', function() { if (_sbmBookOpen()) _sbmXpOnSel(); });
+  }
+  // The bar, and the lines it moves tinted. Redrawn after every render.
+  function _sbmXpPaint() {
+    var ly = document.getElementById('sbmLyrics'), song = _sbmSong(), X = _sbmXp;
+    document.querySelectorAll('#sbmRoot .sbm-xp-on').forEach(function(el) { el.classList.remove('sbm-xp-on'); });
+    var bar = document.getElementById('sbmXpSel');
+    if (!X || !ly || !song || song.id !== X.sid || ly.classList.contains('sbm-lyrics--nochords') || !_sbmBookOpen()) {
+      _sbmXp = (X && song && song.id === X.sid && ly) ? X : null;
+      if (bar) bar.remove();
+      return;
+    }
+    _sbmXpBlocks(ly).slice(X.a, X.b + 1).forEach(function(el) { el.classList.add('sbm-xp-on'); });
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sbmXpSel'; bar.className = 'sbm sbm-xpsel'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Transpose the chosen lines');
+      // Pressing the bar keeps the selection where it was.
+      ['pointerdown', 'mousedown'].forEach(function(t) { bar.addEventListener(t, function(e) { _sbmXpPressAt = Date.now(); e.preventDefault(); }); });
+      document.body.appendChild(bar);
+    }
+    var n = X.net, lines = X.b - X.a + 1;
+    bar.innerHTML = '<span class="sbm-xpsel__t"><i class="fa-solid fa-arrows-up-down" aria-hidden="true"></i>' +
+        (n ? 'These lines ' + (n > 0 ? '+' : '\u2212') + Math.abs(n) : 'Transpose ' + lines + ' line' + (lines === 1 ? '' : 's') + ' only') + '</span>' +
+      '<button type="button" onclick="WO.sbmXpSel(-1)" aria-label="Down a semitone" title="Down a semitone">\u266d</button>' +
+      '<button type="button" onclick="WO.sbmXpSel(1)" aria-label="Up a semitone" title="Up a semitone">\u266f</button>' +
+      (n ? '<button type="button" class="sbm-xpsel__undo" onclick="WO.sbmXpSelUndo()">Undo</button>' : '') +
+      '<button type="button" class="sbm-xpsel__done" onclick="WO.sbmXpSelClose()" aria-label="Done" title="Done"><i class="fa-solid fa-check" aria-hidden="true"></i></button>';
+  }
+  function sbmXpSel(delta) {
+    var X = _sbmXp, song = _sbmSong(), ly = document.getElementById('sbmLyrics');
+    if (!X || !song || song.id !== X.sid || !ly) return;
+    if (!_sbEditMayWrite(song)) return;
+    var lines = _sbmXpSource(song, ly);
+    if (!lines) { showToast('These words were reworked as formatted text, so their lines cannot be told apart here. Use Edit to move their chords.', 'info', { duration: 6000 }); return; }
+    if (X.before == null) X.before = lines.join('\n');
+    X.net += delta;
+    _sbSetCopyWords(song, _sbmXpShift(lines, X.a, X.b, delta).join('\n'));
+  }
+  // The chord lines from a to b moved by delta semitones, their columns
+  // kept, and every other line as it was (pure).
+  function _sbmXpShift(lines, a, b, delta) {
+    return lines.map(function(l, i) {
+      return (i >= a && i <= b && isChordLineGlobal(l, lines[i + 1])) ? _transposeChordRowKeepingColumns(l, delta) : l;
+    });
+  }
+  function sbmXpSelUndo() {
+    var X = _sbmXp, song = _sbmSong();
+    if (!X || !song || song.id !== X.sid || X.before == null) return;
+    if (!_sbEditMayWrite(song)) return;
+    var before = X.before;
+    X.before = null; X.net = 0;
+    _sbSetCopyWords(song, before);
+  }
+  function sbmXpSelClose() {
+    _sbmXp = null;
+    try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (e) {}
+    _sbmXpPaint();
+  }
+
   // ---- a song sung more than once ----
   // A song the service sings in two sections is two copies (_woSongCopy).
   // The copies of this one's song elsewhere in the service, as sung.
@@ -54026,7 +54149,8 @@ var WO = (function() {
         '<div class="sbm-seg sbm-seg--xp">' +
           '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(-1)" aria-label="Transpose down a semitone">\u266d</button>' +
           '<button class="sbm-seg__btn' + (steps === 0 ? ' is-on' : '') + '" onclick="WO.sbmTranspose(0)">' + (steps === 0 ? 'Original' : (steps > 0 ? '+' : '') + steps) + '</button>' +
-          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone">\u266f</button></div></div>' +
+          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone">\u266f</button></div>' +
+        (view !== 'lyrics' && view !== 'choir' ? '<div class="sbm-xp-hint"><i class="fa-solid fa-i-cursor" aria-hidden="true"></i>Select some lines in the song to move only those</div>' : '') + '</div>' +
       '<div class="sbm-sep"><div class="sbm-label"><i class="fa-solid fa-file-lines"></i>View mode</div>' +
         '<div class="sbm-seg sbm-seg--teal sbm-seg--view">' +
           // Choir for every song: one with no parts yet is shown its words,
@@ -54151,6 +54275,8 @@ var WO = (function() {
     _sbmFollowAfter();
     _sbmLiveStart();
     _sbmMarkEditTile();
+    _sbmXpHook();
+    _sbmXpPaint();
     _sbmPhoneFollowSoon();
     if (_sbmMarksOk === null && !_sbmMarksProbe) _sbmMarksSupport().then(function(ok) { if (ok && _sbmActive()) _sbmRender(); });
     // Versions, once the database has them: the tile appears, and the name
@@ -65275,6 +65401,14 @@ var WO = (function() {
     if (!song) { _sbEditingSid = null; return; }
     if (!_sbEditMayWrite(song)) return false;
     _sbEditingSid = null;
+    _sbSetCopyWords(song, lyrics);
+    showToast('Saved the words of \u201c' + (song.title || 'the song') + '\u201d', 'success');
+    return true;
+  }
+  // This copy's words replaced and saved: the editor's Save, and a few lines
+  // transposed on their own.
+  function _sbSetCopyWords(song, lyrics) {
+    var sid = song.id;
     song.lyrics = lyrics;
     song.richLyrics = formatLyricsWithHighlights(lyrics);
     song.customLyrics = lyrics;
@@ -65297,8 +65431,6 @@ var WO = (function() {
     autoSaveOrder();
     _sbmLiveSend();
     renderSongbookLive();
-    showToast('Saved the words of \u201c' + (song.title || 'the song') + '\u201d', 'success');
-    return true;
   }
   // The editor closed, saved or not: the song is let go.
   function sbLyricsEditorClosed() {
@@ -90502,7 +90634,7 @@ var WO = (function() {
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdsMore: mdsMore, mdsFind: mdsFind, mdsUse: mdsUse, mdsKeys: mdsKeys, mdsDelete: mdsDelete, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
-    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
+    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmXpSel: sbmXpSel, sbmXpSelUndo: sbmXpSelUndo, sbmXpSelClose: sbmXpSelClose, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
     sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
@@ -109797,6 +109929,23 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
 }
 .sbm-tile--gold { color: #8a6510; background: var(--sbm-gold-soft); border-color: transparent; }
+/* A few lines transposed on their own: the bar, and the lines it moves. */
+.sbm-xpsel {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2300;
+  display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px); padding: 6px 6px 6px 14px; border-radius: 999px;
+  background: var(--sbm-navy); color: #fff; box-shadow: 0 10px 30px rgba(2, 8, 23, 0.35); font: 600 13px/1 var(--sbm-font-ui);
+  -webkit-user-select: none; user-select: none;
+}
+.sbm-xpsel__t { display: inline-flex; align-items: center; gap: 8px; margin-right: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sbm-xpsel button {
+  flex: 0 0 auto; min-width: 42px; height: 42px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.1); color: #fff; font: 700 18px/1 var(--sbm-font-ui); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sbm-xpsel .sbm-xpsel__undo { font-size: 13px; }
+.sbm-xpsel .sbm-xpsel__done { background: var(--sbm-teal); border-color: transparent; font-size: 15px; }
+#sbmRoot .sbm-xp-on { background: rgba(14, 159, 110, 0.13); box-shadow: -6px 0 0 rgba(14, 159, 110, 0.13), 6px 0 0 rgba(14, 159, 110, 0.13); }
+.sbm-xp-hint { margin-top: 6px; color: var(--sbm-text-2); font: 500 11.5px/1.35 var(--sbm-font-ui); }
+.sbm-xp-hint i { margin-right: 6px; opacity: 0.7; }
 /* A song with no choir parts, in Choir: what they would be, and the way to set them up. */
 .sbm-choir-start {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 4px 0 14px; padding: 12px 14px;
