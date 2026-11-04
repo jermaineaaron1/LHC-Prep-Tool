@@ -951,9 +951,9 @@ the anon key -- verify as `postgres`, not as the app.
     publication to set up, like the songbook's `sb-<orderId>` channel):
     a device that writes a mark, a take or the lines sends `changed`, and
     every 30s while shown -- and the moment the tab is shown again -- each
-    device compares a fingerprint (count + newest of `song_marks`,
-    `song_recordings`, `song_voice_lines`; a hash of the songs' rows and
-    of the songbook row) with the one it last drew. Marks and takes are
+    device compares a fingerprint (count + newest of `song_marks` and
+    `song_recordings`; hashes of what a READER SEES of the choir lines, the
+    songs and the book -- gotcha 58) with the one it last drew. Marks and takes are
     reloaded quietly in place; lines, words, settings and the book raise
     the pulsing banner, whose Refresh refetches the songs' rows and lines
     and opens the book again. A device's OWN write (`_sbmLiveOwnAt`) is
@@ -1560,6 +1560,47 @@ the anon key -- verify as `postgres`, not as the app.
     `window.lhcYouTubeQueue` -> `youtube.com/watch_videos?video_ids=...`,
     which keeps going in a car where a browser tab will not), and opens
     that queue (`plOpenYouTube`).
+
+58. **A songbook edited from several devices: what changed, who may edit,
+    and what gets saved.** The banner's fingerprint hashes CONTENT, never
+    rows as stored (`_sbmLiveBookOf`, `_sbmLiveSongsOf`, `_sbmLiveLinesOf`,
+    pure): the book's song order and each item's words (`customLyrics`, the
+    text of `richLyrics` through `_sbmLiveText`), key and version; the songs'
+    title, key, words and `voice_layout`; the choir lines' song, place, part,
+    section and words. It once hashed the book's whole `items` (each device's
+    page breaks, margins, fonts and slides), the songs' `last_edited` and
+    `display_style`, and the newest line's `updated_at`, so a save that
+    changed no word -- or a word typed and taken out again -- raised the
+    banner, and Refresh showed nothing new. A change also has to last
+    (`L.pendingAt`, about eight seconds) before the banner shows.
+    **Save Lyrics** in the Lyrics & Chords editor is the song form's
+    (`saveLyricsEditor`); the Songbook borrows the editor in mode `'__sb__'`
+    (`sbOpenLyricsEditor`), and until 2026-11-04 nothing handed the words
+    back -- the July commit that said it patched the save never did -- so it
+    saved nothing, ever. Now that mode goes to `WO.sbSaveLyricsFromModal`:
+    the copy's `customLyrics` and `richLyrics`, the transposition baseline,
+    `sbAutoSave` AND `autoSaveOrder` (a standalone book reads its words from
+    the full save), `_sbmLiveSend`, a redraw. **One editor at a time**:
+    the Lyrics & Chords editor, the choir parts editor and the Overview each
+    save a song whole, so each holds `sbedit:<library song id>` on the book's
+    lock channel (`edTryClaim`: broadcast locks with an 8s TTL)
+    from open to close (`_sbEditClaim` / `_sbEditRelease`; the Overview on top
+    of the parts editor shares its hold, and a failed read lets it go). A
+    claim carries when it began (`since`), and two at once go to the EARLIER,
+    a tie to the client ids -- it used to be the ids alone. Whoever is
+    refused is told who has the song (the device's drawer name, `_sbmMe`),
+    the Edit tile shows a lock (`_sbmMarkEditTile`, from `_edApplyLockUI` and
+    each render), and a save from a device that lost the song is refused
+    with its editor left open (`_sbEditMayWrite`). The phone's old inline
+    parts editor on the printed page takes no hold. **The chord fit**
+    (`_sbmFitChordPairsIn`, gotcha 38) measures a pair's words at full size
+    from their font on a canvas (`_sbmTextPx`), never the line as laid out:
+    that width moved with the factor being decided, an iPhone rounds it
+    differently at each size, and the line flipped between two sizes every
+    24ms -- shaking. It moves a line only by 0.01 or more, at most three times
+    in two seconds, and `#sbmRoot` turns off iOS text autosizing
+    (`-webkit-text-size-adjust: 100%`). `tools/songbook-live-edit-harness.js`
+    checks all four.
 
 ## Quick Commands for Claude Code
 

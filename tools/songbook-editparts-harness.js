@@ -137,6 +137,9 @@ try {
     '_sbVoiceLines', 'songOrderSections', '_sbmCloseSheet', '_sbmPaint',
     src +
     '\nfunction _sbmEdPaint() { _sbmPaint.n++; }' +
+    // The one-editor-at-a-time hold is the lock channel's business, not
+    // this editor's: here nobody else ever has the song.
+    '\nfunction _sbEditMayWrite() { return true; }\nfunction _sbEditRelease() {}' +
     '\nreturn {' +
     '  get ed() { return _sbmEd; }, set ed(v) { _sbmEd = v; },' +
     '  fromRows: _sbmEdFromRows, toText: _sbmEdToText, find: _sbmEdFind, nextName: _sbmEdNextName,' +
