@@ -11,6 +11,8 @@
 //   - Deleting a take asked with the browser's own confirm box, which says
 //     the site's address and nothing about the take. It asks in the app's
 //     own look now, naming the take.
+//   - A musician could only move the whole song's key. Lines selected in
+//     the words can now be moved on their own -- a verse that goes up a tone.
 //
 // USAGE
 //   node tools/songbook-choir-view-harness.js                 # ../Index.html
@@ -90,6 +92,52 @@ check('...from the take\'s own menu, a line\'s list of takes and the recordings 
   !has(/if \(!confirm\('Delete "' \+ _sbmTakeTitle/) && !has(/if \(!confirm\('Delete this recording\?'\)\) return;/));
 check('...and a line\'s list of takes stays open behind it, leaving Escape to it',
   has(/if \(e\.target\.closest && e\.target\.closest\('#lhcAsk'\)\) return;/) && has(/if \(document\.getElementById\('lhcAsk'\)\) return;/));
+
+console.log('\nA few lines transposed on their own');
+function extractFn(header) {
+  const startIdx = lines.findIndex(l => l.indexOf(header) !== -1);
+  if (startIdx < 0) return null;
+  let depth = 0, started = false;
+  const out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i].replace(/\r$/, ''));
+    for (const ch of lines[i]) { if (ch === '{') { depth++; started = true; } else if (ch === '}') depth--; }
+    if (started && depth === 0) return out.join('\n');
+  }
+  return null;
+}
+const shiftSrc = extractFn('function _sbmXpShift(');
+check('the lines are moved by a function of their own', !!shiftSrc);
+if (shiftSrc) {
+  // Stand-ins: a chord line is one with only chord names on it; moving one
+  // moves each name up the scale.
+  const SC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const X = new Function('SC', 'function isChordLineGlobal(l) { return /[A-G]/.test(l) && /^[\\sA-G#m7|]+$/.test(l); }\n' +
+    'function _transposeChordRowKeepingColumns(l, d) { return l.replace(/[A-G]#?/g, function(n) { return SC[(SC.indexOf(n) + d + 120) % 12]; }); }\n' +
+    shiftSrc + '\nreturn _sbmXpShift;')(SC);
+  const song = ['[Verse 1]', 'C     F     C', 'It came upon a midnight clear', '', '[Verse 2]', 'C     G     C', 'Still through the cloven skies', 'F  G'];
+  const out = X(song, 4, 7, 2);
+  check('the chord lines chosen move, and only they',
+    out[5] === 'D     A     D' && out[7] === 'G  A' && out[1] === 'C     F     C', JSON.stringify(out));
+  check('...their words, the section names and the empty lines stay as they are',
+    out[2] === song[2] && out[6] === song[6] && out[0] === song[0] && out[4] === song[4] && out[3] === '');
+  check('...and back down again is where they were', JSON.stringify(X(out, 4, 7, -2)) === JSON.stringify(song));
+}
+check('a selection in the song\'s words offers the bar, for the lines it takes in (not one it only touches)',
+  has(/document\.addEventListener\('selectionchange', function\(\) \{ if \(_sbmBookOpen\(\)\) _sbmXpOnSel\(\); \}\);/) &&
+  has(/rg\.compareBoundaryPoints\(Range\.END_TO_START, er\) < 0 && rg\.compareBoundaryPoints\(Range\.START_TO_END, er\) > 0/) &&
+  has(/onclick="WO\.sbmXpSel\(-1\)"/) && has(/onclick="WO\.sbmXpSel\(1\)"/) && has(/onclick="WO\.sbmXpSelUndo\(\)"/) && has(/onclick="WO\.sbmXpSelClose\(\)"/));
+check('...which reads the words the card is drawn from, one block a line, and refuses rather than guess',
+  has(/box\.innerHTML = song\.richLyrics \? _sbStripTrailingEmptyHtml\(song\.richLyrics\)/) &&
+  has(/if \(els\.length !== _sbmXpBlocks\(ly\)\.length\) return null;/) &&
+  has(/if \(!lines\) \{ showToast\('These words were reworked as formatted text/));
+check('...saves them as the copy\'s words, as the Lyrics editor does, unless somebody else is editing the song',
+  has(/if \(!_sbEditMayWrite\(song\)\) return;\r?\n\s*var lines = _sbmXpSource\(song, ly\);/) &&
+  has(/_sbSetCopyWords\(song, _sbmXpShift\(lines, X\.a, X\.b, delta\)\.join\('\\n'\)\);/) &&
+  has(/function _sbSetCopyWords\(song, lyrics\) \{/));
+check('...keeps the lines it moves tinted, and Undo puts them back as they first were',
+  has(/forEach\(function\(el\) \{ el\.classList\.add\('sbm-xp-on'\); \}\);/) && has(/var before = X\.before;\r?\n\s*X\.before = null; X\.net = 0;\r?\n\s*_sbSetCopyWords\(song, before\);/));
+check('...and the key control says it can be done', has(/Select some lines in the song to move only those/));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {

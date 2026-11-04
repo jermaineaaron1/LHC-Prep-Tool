@@ -224,6 +224,17 @@ than a bash heredoc, which quietly eats a level of backslashes.
      editor's own save (`_sbVoiceWrite`) and shows it in Choir; Edit there is
      Edit Parts. The printed pages keep their own Choir / Lyrics / Both
      (`_sbChoirViewToggleHtml`), where Both is both sets of pages.
+     **A few lines transposed on their own** (a last verse up a tone): select
+     them in the words, and a bar at the bottom (`#sbmXpSel`) moves their
+     chords a semitone a press (`sbmXpSel`), with Undo and Done; the lines
+     stay tinted (`.sbm-xp-on`), since a phone's selection does not outlive the
+     redraw. It is the COPY's words that change (`_sbmXpShift` on the chord
+     lines, saved through `_sbSetCopyWords`, the Lyrics editor's own save), so
+     the whole-song key still moves everything on top, and print, other devices
+     and the Lyrics editor all see it. The lines are read from what the card
+     is drawn from -- its `richLyrics` when it has them, else its words --
+     one block per line (`_sbmXpSource`); a card that is not refuses rather
+     than guesses. Lyrics card only: the choir score's chords are the song's.
      A take's delete asks in the app's own look (`window.lhcAskDelete`,
      z-index 10060: the take, its part, time and length, Keep it or a red
      Delete take), never the browser's `confirm()`.
