@@ -365,15 +365,15 @@ const CASES = [
                    "if (txt.indexOf('.vl-') > -1) { out.push(txt); }")],
   // A moment whose words are not in the song has nowhere to put a chord.
   ['voice-lines-harness.js', 'an unmatched moment invites a chord it cannot take',
-    s => s.replace('out.push(V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit, o));',
-                   'out.push(V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit, o));')],
+    s => s.replace('chordRow = V._chordRow(hit, over, !!o.chordEdit && !!hit, !!o.chordEdit, o);',
+                   'chordRow = V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit, o);')],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',
                    'var br = /^\\[([^\\]]+)\\]\\s*/.exec(rest);')],
   ['voice-lines-harness.js', 'a part named in one section is drawn over the whole song',
-    s => s.replace("(lanesBySection[g.section || ''] || []).forEach(function(p) {",
-                   'V.lanes(lines).forEach(function(p) {')],
+    s => s.replace("var laneList = lanesBySection[g.section || ''] || [];",
+                   'var laneList = V.lanes(lines);')],
   ['voice-lines-harness.js', 'a named part is read as lyrics instead',
     s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);', 'var br = null;')],
 

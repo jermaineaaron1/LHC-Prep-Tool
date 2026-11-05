@@ -200,7 +200,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      there or from the song's History in the song library -- and Share ›
      This song, a link that opens the book at that song (gotcha 46).
      Drawings are each drawer's own until shared; Layers says whose you see
-     (gotcha 50). Every line of the choir score records on its own: at its
+     (gotcha 50). The choir score reads like a chord sheet: the words and
+     the chords over them as Chords + Lyrics sets them, no rules between
+     moments, a part's label only where that part takes over (gotcha 59).
+     Every line of it with words records on its own: at its
      end a takes badge and a microphone, the badge listing that line's takes
      to play or delete, with an audio file to add (gotcha 52). Between the
      sections run the band's moments -- an Intro, the way into each section,
@@ -1404,7 +1407,9 @@ the anon key -- verify as `postgres`, not as the app.
     row back before they report it. Until the migration is run the menu
     says so and nothing is saved.
 
-52. **A line's takes are a badge and a list, on every line.** In the
+52. **A line's takes are a badge and a list, on every line with words.**
+    A line with none -- left empty, or a dash (`lhcVoiceLines._hasWords`) --
+    has no badge and no microphone, like a rest. In the
     reading view each line of the choir score ends in two boxes
     (`lhcVoiceLines._recSlot`): a badge, a play mark, "Playback" and the
     line's count of takes (`.vl-rec-list`, the count teal once it has one;
@@ -1630,6 +1635,32 @@ the anon key -- verify as `postgres`, not as the app.
     in two seconds, and `#sbmRoot` turns off iOS text autosizing
     (`-webkit-text-size-adjust: 100%`). `tools/songbook-live-edit-harness.js`
     checks all four.
+
+59. **Choir is drawn as a chord sheet, by the reading view's styles over
+    the same markup.** `lhcVoiceLines.html` still draws systems and lanes;
+    what changed in it is small and applies to every view that draws the
+    score. A line whose part is the part of the line before it, in the same
+    section and with no whole-choir rest between, carries `vl-ln--same`
+    (put AFTER the family class: `vl-ln vl-ln--women` is matched as it
+    stands); a moment's chord row is placed straight before its LEAD line
+    (`leadLine`), not at the top of the moment -- over the men's words when
+    the women rest above them -- and opens the moment only when no lane is
+    the lead (everybody holding). Everything else is CSS under
+    `#sbmRoot .sbm-score .vl-score`, so the printed pages, the song
+    library's Choir parts tab and the editors' previews keep their look: no
+    rule, brace or band; Chords + Lyrics' size (18px x the lyric scale),
+    weight and chord colour (`#04756f`); an empty chord row has no height
+    and its "+ chords" hint hangs in the air above the line. A desk keeps
+    label | words | recorder, the repeated label `visibility: hidden` in its
+    column (shown faintly under the mouse, for the double-click that
+    changes a part); a phone floats the label in at the start of its line,
+    drops a repeated one (`display: none`) so the words use the full width,
+    and puts the recorder at the top right (absolute) with a float in the
+    words making room on their first line only. A part filter can leave a
+    label showing that the line above already said -- never one missing,
+    since a part's lines are all shown or all hidden. `_sbmEvenRows` skips a
+    label with no height, or every unlabelled line voted to stack.
+    `tools/choir-chord-sheet-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
