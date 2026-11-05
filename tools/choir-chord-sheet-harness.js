@@ -130,7 +130,25 @@ check('the reading view joins them with a bar on a soft panel, keeping the bar\'
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-sys-lines::before \{ content: ""; position: absolute;/));
 check('...and says what the bar means above the score, when the song has one',
   has(/function _sbmTogetherKey\(score\) \{\r?\n\s*if \(!score \|\| score\.indexOf\('vl-sys--together'\) < 0\) return '';/) &&
-  has(/On the purple bar: sung at the same time/) && has(/_sbmTogetherKey\(score\) \+\r?\n\s*'<div class="sbm-score sb-song-page--choir" id="sbChoirPage-'/));
+  has(/Sing together: the parts on a purple bar sing at the same time/) && has(/_sbmTogetherKey\(score\) \+\r?\n\s*'<div class="sbm-score sb-song-page--choir" id="sbChoirPage-'/));
+check('...and each such moment carries a "Sing together" badge on its top edge, with room kept for it',
+  has(/\.vl-sys--together > \.vl-sys-lines::after \{\r?\n\s*content: "Sing together"; position: absolute; top: -8px;/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together \{ margin-top: 16px; \}/));
+// Edit Parts says the same, on the box, while it is being typed.
+const edSrc = (() => { const m = SRC.match(/  function _sbmEdTogether\(m\) \{[^]*?\n  \}/); return m ? m[0] : ''; })();
+if (edSrc) {
+  const edTogether = new Function('window', '_sbmEdPartKey', edSrc + '\nreturn _sbmEdTogether;')({ lhcVoiceLines: V }, p => String(p || '').toLowerCase());
+  const box = lines => ({ lines: lines.map(([part, text]) => ({ part, text })) });
+  check('Edit Parts marks a box whose parts both have words as singing together',
+    edTogether(box([['women', 'child a child'], ['men', 'A child a child']])) === true &&
+    edTogether(box([['women', 'Do you see'], ['men', '']])) === false && edTogether(box([['both', 'Said the night wind']])) === false);
+} else check('Edit Parts marks a box whose parts both have words as singing together', false);
+check('...and marks it again as words are typed, without redrawing the editor',
+  has(/f\.line\.text = value; _sbmEdTouch\(\); _sbmEdPreviewSoon\(\); _sbmEdTogetherMark\(f\.m\);/) &&
+  has(/'<div class="sbm-ed__moment' \+ \(_sbmEdTogether\(m\) \? ' is-together' : ''\) \+ '" data-moment="'/));
+check('...and every box but an all-sing one shows its way to add a part singing with it',
+  has(/\? '' : ' sbm-ed__here'\) \+ '" onclick="WO\.sbmEdAddPart\(/) && has(/<span>Part singing with this<\/span>/) &&
+  has(/#sbmEdit:not\(\.is-reorder\) \.sbm-ed__mbtns > :not\(\.sbm-ed__here\) \{ display: none; \}/));
 
 console.log('\nThe reading view draws it as a chord sheet');
 check('no rule under a moment, no brace beside it, no band behind a part',
