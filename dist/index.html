@@ -7334,6 +7334,9 @@
                   <button class="lcd-song-order-btn" onclick="WO.openSongbook()" title="Open the Songbook: every song's key, words, chords and links">
                     <i class="fa-solid fa-book-open"></i> Songbook
                   </button>
+                  <button class="lcd-fullscreen-btn" id="lcdLayoutModeBtn" onclick="WO.lcdLayoutMenu(this)" title="What this console does when the window is resized">
+                    <i class="fa-solid fa-table-columns"></i> <span id="lcdLayoutModeLabel">Fixed layout</span>
+                  </button>
                   <button class="lcd-fullscreen-btn" id="lcdWorkspaceFsBtn" onclick="WO.lcdToggleWorkspaceFullscreen()" title="Show the whole projection workspace on one screen (Esc to exit)">
                     <i class="fa-solid fa-expand" id="lcdWorkspaceFsIcon"></i> <span id="lcdWorkspaceFsLabel">Full Screen</span>
                   </button>
@@ -7355,6 +7358,77 @@
 
                 <!-- Preview + Program outputs, side by side -->
                 <div class="lcd-outputs-row">
+                  <!-- Program / Live comes FIRST in the source, not just in the
+                       CSS: this is the panel the operator works from, so it is also
+                       the first thing a keyboard or a screen reader reaches. The
+                       Slide Editor follows it as the secondary column. Nothing in
+                       collectOrderItems() reads this row -- the order content all
+                       lives in #woWorshipOrder -- so the two can be reordered. -->
+                  <div class="lcd-output-box lcd-program-box">
+                    <!-- Workspace-level controls: preview zoom, order-level
+                         undo/redo and the projection actions. Slide-level
+                         controls (align / Barrier / Text / BG) live in the Slide
+                         Editor's own toolbar. Moved here from the full-width
+                         strip above both columns so the editor gets that height;
+                         ids and handlers are unchanged. -->
+                    <div class="wo-preview-actions lcd-controls-row">
+                      <div class="wo-preview-zoom-group" title="Zoom projection preview">
+                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                        <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
+                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                      </div>
+                      <button class="wo-bg-btn" id="lcdProjVerBtn" onclick="WO.lcdProjectionMenu(this)" title="Which songbook projection the song slides follow"><i class="fa-solid fa-bookmark"></i> <span id="lcdProjVerLabel">Songbook</span></button>
+                      <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+                      <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+                      <div class="lcd-controls-spacer"></div>
+                      <!-- Previous / next used to be duplicated here. They live
+                           under the projection now, where the operator is looking. -->
+                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                      </button>
+                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
+                    </div>
+                    <!-- Phones hide the Slide Editor panel entirely, so this is
+                         the editing entry point there: tap a schedule row, then
+                         edit the whole section in the All Slides modal. Hidden
+                         at every width where the editor panel exists. -->
+                    <button class="lcd-mobile-allslides-btn" onclick="WO.lcdOpenSectionAllSlides()" title="Open the selected section's slides as editable text blocks">
+                      <i class="fa-solid fa-align-left"></i> All Slides &mdash; Edit Content
+                    </button>
+                    <!-- Every state shown here is read from the real projection
+                         window (see _lcdUpdateProjectorStatus): ON AIR means
+                         `projectionWindow` is open, BLANKED means the operator
+                         blanked it, OFFLINE means there is nothing to project to.
+                         AUTO LIVE is a statement of the app's actual behaviour --
+                         selecting a slide sends it immediately -- not a toggle.
+                         Deliberately absent: OBS and YouTube. Neither integration
+                         exists anywhere in this repo, so there is no state to
+                         report and a chip would be decoration pretending to be
+                         status. -->
+                    <div class="lcd-output-label lcd-program-label">
+                      <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span>
+                      Program / Live
+                      <span class="lcd-onair" id="lcdOnAirPill">OFFLINE</span>
+                      <span class="lcd-autolive" title="Selecting a slide sends it to the projector immediately">AUTO LIVE</span>
+                    </div>
+                    <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
+                      <div class="wo-preview-bg" id="lcdProgramBg"></div>
+                      <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
+                      <div class="wo-preview-placeholder">Not projecting</div>
+                    </div>
+                    <!-- Previous / next reuse navigateSlideGlobal(), the same
+                         function the arrow keys and the presentation filmstrip
+                         call. Add slide calls addSlideToGroup() with the selected
+                         slide's own group -- the identical call the rail's
+                         "+ Add Slide" button makes, not a second insertion path. -->
+                    <div class="lcd-slide-nav">
+                      <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+                      <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
+                      <button class="lcd-slide-nav-btn wide" onclick="WO.lcdAddSlideAfterCurrent()" title="Add a slide to this song or liturgy item"><i class="fa-solid fa-plus"></i> Add Slide</button>
+                    </div>
+                    <div class="lcd-program-status" id="lcdProjectorStatus"><i class="fa-solid fa-display"></i> <span id="lcdProjectorStatusText">No projector window</span></div>
+                  </div>
                   <div class="lcd-panel lcd-lyrics-panel">
                     <div class="lcd-panel-header">
                       <i class="fa-solid fa-pen-to-square"></i> Slide Editor
@@ -7365,7 +7439,7 @@
                            this panel below rather than duplicated, so every
                            routine that already writes to it keeps working. -->
                       <div class="lcd-seg" role="group" aria-label="Slide Editor mode">
-                        <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdSetEditorMode('edit')" aria-pressed="true" title="Edit this slide's text"><i class="fa-solid fa-pen"></i> Edit</button>
+                        <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdUnlockEditor()" aria-pressed="true" title="Open this slide's text for editing"><i class="fa-solid fa-pen"></i> Edit</button>
                         <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project"><i class="fa-solid fa-eye"></i> Preview</button>
                       </div>
                       <div class="lcd-lyrics-actions">
@@ -7428,7 +7502,16 @@
                            background so it reads like the projected slide. -->
                       <div class="lcd-editor-canvas" id="lcdEditorCanvas">
                         <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
-                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                        <!-- contenteditable starts FALSE. The pad used to be live the moment a
+                             slide was selected, so a stray click during a service typed
+                             into the words on the screen. It opens on a deliberate
+                             act now -- see _lcdApplyEditorLock(). -->
+                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                        <!-- Shown only while the pad is shut. Deliberately not
+                             clickable: a click is what must NOT open the editor. It
+                             names all three ways in, and pointer-events:none lets a
+                             click through to the text underneath. -->
+                        <div class="lcd-editor-lockhint" id="lcdEditorLockHint" aria-hidden="true"><i class="fa-solid fa-lock"></i> Double-click this slide in the list, or the projection &mdash; or press <b>Edit</b></div>
                       </div>
                       <!-- Preview surface. #woPreviewScreen and #woPreviewBg were
                            moved here from the lower row, where their container was
@@ -7444,73 +7527,8 @@
                           <div class="wo-preview-placeholder">Click any content box to see preview</div>
                         </div>
                       </div>
-                      <!-- Previous / next reuse navigateSlideGlobal(), the same
-                           function the arrow keys and the presentation filmstrip
-                           call. Add slide calls addSlideToGroup() with the selected
-                           slide's own group -- the identical call the rail's
-                           "+ Add Slide" button makes, not a second insertion path. -->
-                      <div class="lcd-slide-nav">
-                        <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
-                        <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
-                        <button class="lcd-slide-nav-btn wide" onclick="WO.lcdAddSlideAfterCurrent()" title="Add a slide to this song or liturgy item"><i class="fa-solid fa-plus"></i> Add Slide</button>
-                      </div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
-                  </div>
-                  <div class="lcd-output-box lcd-program-box">
-                    <!-- Workspace-level controls: preview zoom, order-level
-                         undo/redo and the projection actions. Slide-level
-                         controls (align / Barrier / Text / BG) live in the Slide
-                         Editor's own toolbar. Moved here from the full-width
-                         strip above both columns so the editor gets that height;
-                         ids and handlers are unchanged. -->
-                    <div class="wo-preview-actions lcd-controls-row">
-                      <div class="wo-preview-zoom-group" title="Zoom projection preview">
-                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                        <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
-                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                      </div>
-                      <button class="wo-bg-btn" id="lcdProjVerBtn" onclick="WO.lcdProjectionMenu(this)" title="Which songbook projection the song slides follow"><i class="fa-solid fa-bookmark"></i> <span id="lcdProjVerLabel">Songbook</span></button>
-                      <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
-                      <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
-                      <div class="lcd-controls-spacer"></div>
-                      <button class="wo-bg-btn lcd-hist-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
-                      <button class="wo-bg-btn lcd-hist-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
-                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                      </button>
-                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
-                    </div>
-                    <!-- Phones hide the Slide Editor panel entirely, so this is
-                         the editing entry point there: tap a schedule row, then
-                         edit the whole section in the All Slides modal. Hidden
-                         at every width where the editor panel exists. -->
-                    <button class="lcd-mobile-allslides-btn" onclick="WO.lcdOpenSectionAllSlides()" title="Open the selected section's slides as editable text blocks">
-                      <i class="fa-solid fa-align-left"></i> All Slides &mdash; Edit Content
-                    </button>
-                    <!-- Every state shown here is read from the real projection
-                         window (see _lcdUpdateProjectorStatus): ON AIR means
-                         `projectionWindow` is open, BLANKED means the operator
-                         blanked it, OFFLINE means there is nothing to project to.
-                         AUTO LIVE is a statement of the app's actual behaviour --
-                         selecting a slide sends it immediately -- not a toggle.
-                         Deliberately absent: OBS and YouTube. Neither integration
-                         exists anywhere in this repo, so there is no state to
-                         report and a chip would be decoration pretending to be
-                         status. -->
-                    <div class="lcd-output-label lcd-program-label">
-                      <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span>
-                      Program / Live
-                      <span class="lcd-onair" id="lcdOnAirPill">OFFLINE</span>
-                      <span class="lcd-autolive" title="Selecting a slide sends it to the projector immediately">AUTO LIVE</span>
-                    </div>
-                    <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
-                      <div class="wo-preview-bg" id="lcdProgramBg"></div>
-                      <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
-                      <div class="wo-preview-placeholder">Not projecting</div>
-                    </div>
-                    <div class="lcd-program-status" id="lcdProjectorStatus"><i class="fa-solid fa-display"></i> <span id="lcdProjectorStatusText">No projector window</span></div>
                   </div>
                 </div>
 
@@ -37462,6 +37480,13 @@ var WO = (function() {
     // The Program panel's ON AIR state is only sampled while it is on screen.
     _lcdStartStatusPolling(!!on);
     _lcdSyncMobileButtonRow();
+    // Opening the console is not a request to edit. Every entry starts with
+    // the pad shut, whatever the last session left it on.
+    if (on) { _lcdBindEditorOpeners(); lcdLockEditor(); }
+    // Must follow the lcd-console-open toggle above -- _lcdApplyLayoutMode
+    // reads it -- and must run on the way OUT too, or the workspace keeps a
+    // zoom that belongs to a console nobody is looking at.
+    _lcdApplyLayoutMode();
   }
 
   // ── Blank and Project move up beside the caption on a phone ─────────────
@@ -37660,6 +37685,141 @@ var WO = (function() {
     window.addEventListener('resize', _serviceLayoutResizeHandler);
   }
 
+  // ---- Fixed layout: the console does not rearrange itself -------------
+  //
+  // The report from the team was that the console keeps changing shape as the
+  // window is resized, which it does: there are breakpoints at 1800, 1440,
+  // 1280 and 1120, and crossing one moves columns, docks the Song Library to
+  // a tab, or abandons the grid for a stacked phone layout. Mid-service that
+  // reads as the screen rearranging itself.
+  //
+  // Fixed mode (the default) pins one layout -- see FIXED LAYOUT MODE at the
+  // end of THE COLUMN BLOCK -- and handles a window too narrow for it by
+  // drawing the whole console smaller instead of reshaping it.
+  //
+  // CSS `zoom`, not `transform: scale()`, and the difference matters here.
+  // A transform leaves the element's LAYOUT box at full size, so the page
+  // would reserve the unscaled height and the console would float in a hole;
+  // it also makes the element a containing block for `position: fixed`
+  // descendants (CLAUDE.md gotcha 27 -- the same trap the songbook's control
+  // bar fell into). `zoom` scales the layout box itself, so heights come out
+  // right and fixed positioning is untouched. The popup menus in this console
+  // are appended to document.body and placed from getBoundingClientRect(),
+  // which reports post-zoom viewport coordinates, so they land correctly
+  // either way.
+  var LCD_LAYOUT_KEY = 'lhc_lcd_layout_mode';
+  // The width the console is LAID OUT at whenever it has to be scaled: one
+  // constant, so the layout below the threshold is identical at every window
+  // size rather than merely similar. Measured, not chosen: 1003px is what
+  // the workspace gets on the operator's own 1158px desk, and ~1000px is
+  // also what it gets at the console's documented 1120px floor.
+  //
+  // A first cut derived this per resize -- design viewport minus whatever the
+  // app chrome happened to cost -- and that fed its own output back in: the
+  // measured "available" width is the grid's min-content once the console
+  // overflows, so each pass measured the shape the previous pass had made.
+  // Across 1060/980/880 it settled on three different layouts (950, 814,
+  // 812px), which is the shape-shifting this feature exists to stop.
+  var LCD_DESIGN_W = 1000;
+  // Past this the console is too small to operate and a scrollbar is the more
+  // honest answer than an unreadable one.
+  var LCD_MIN_ZOOM = 0.55;
+  // ...and below THIS, Fixed mode stands down altogether and the app's phone
+  // layout takes over, as it does today. A three-column console shrunk to
+  // half size on a phone is not "the same view, smaller", it is unusable, and
+  // the request this feature answers was about resizing a desktop window.
+  // It also keeps this feature out of a fight it cannot win: the phone
+  // stylesheet turns the projection panel into a fixed full-screen overlay
+  // with !important throughout.
+  var LCD_FIXED_MIN_VW = 760;
+  var _lcdFixedZoom = 1;
+
+  function _lcdLayoutMode() {
+    try { return localStorage.getItem(LCD_LAYOUT_KEY) === 'adaptive' ? 'adaptive' : 'fixed'; }
+    catch (e) { return 'fixed'; }
+  }
+
+  function _lcdApplyLayoutMode() {
+    var on = document.body.classList.contains('lcd-console-open');
+    document.body.classList.toggle('lcd-fixed-layout',
+      on && _lcdLayoutMode() === 'fixed' && window.innerWidth >= LCD_FIXED_MIN_VW);
+    var lbl = document.getElementById('lcdLayoutModeLabel');
+    if (lbl) lbl.textContent = _lcdLayoutMode() === 'fixed' ? 'Fixed layout' : 'Adaptive layout';
+    _lcdApplyFixedScale();
+  }
+
+  function _lcdApplyFixedScale() {
+    var mc = document.querySelector('.wo-main-content');
+    if (!mc) { _lcdFixedZoom = 1; return; }
+    function clear() {
+      if (mc.style.zoom || mc.style.width) { mc.style.zoom = ''; mc.style.width = ''; }
+      _lcdFixedZoom = 1;
+    }
+    if (!document.body.classList.contains('lcd-fixed-layout')
+        || mc.classList.contains('wo-song-order')) { clear(); return; }
+    // Measure the HOST, never the console itself. The console's own width is
+    // what this function writes, and once it is wider than the space it has,
+    // measuring it back gives the grid's min-content rather than the room
+    // available -- so the sum would be reading its own previous answer.
+    // The host is a plain block: its width is the room there is, and neither
+    // the width nor the zoom set below can move it.
+    var host = mc.parentElement;
+    if (!host) { clear(); return; }
+    var hs = getComputedStyle(host);
+    var avail = host.clientWidth
+      - (parseFloat(hs.paddingLeft) || 0)
+      - (parseFloat(hs.paddingRight) || 0);
+    if (!avail || avail >= LCD_DESIGN_W) { clear(); return; }
+    var z = Math.max(LCD_MIN_ZOOM, avail / LCD_DESIGN_W);
+    mc.style.width = LCD_DESIGN_W + 'px';
+    mc.style.zoom = String(z);
+    _lcdFixedZoom = z;
+  }
+
+  function lcdSetLayoutMode(mode) {
+    var fixed = (mode !== 'adaptive');
+    try { localStorage.setItem(LCD_LAYOUT_KEY, fixed ? 'fixed' : 'adaptive'); } catch (e) {}
+    var m = document.getElementById('lcdLayoutMenu');
+    if (m) m.style.display = 'none';
+    _lcdApplyLayoutMode();
+    _lcdSizeWorkspaceColumns();
+    showToast(fixed
+      ? 'The console keeps this layout at any window size'
+      : 'The console will rearrange itself to fit the window', 'success');
+  }
+
+  function lcdLayoutMenu(btn) {
+    var m = document.getElementById('lcdLayoutMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'lcdLayoutMenu';
+      m.className = 'sb-projsrc-menu';
+      document.body.appendChild(m);
+      document.addEventListener('click', function(e) {
+        var open = document.getElementById('lcdLayoutMenu');
+        if (!open || open.style.display !== 'block') return;
+        if (open.contains(e.target) || (btn && btn.contains(e.target))) return;
+        open.style.display = 'none';
+      }, true);
+    }
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+    var fixed = _lcdLayoutMode() === 'fixed';
+    function row(mode, icon, title, sub, on) {
+      return '<button class="sb-projsrc-row' + (on ? ' on' : '') + '" onclick="WO.lcdSetLayoutMode(' +
+             "'" + mode + "'" + ')"><i class="fa-solid ' + icon + '"></i>' +
+             '<span><b>' + escapeHtml(title) + '</b><small>' + escapeHtml(sub) + '</small></span></button>';
+    }
+    m.innerHTML = '<div class="sb-projsrc-head">When the window is resized</div>' +
+      row('fixed', 'fa-lock', 'Keep this layout',
+          'Nothing moves. It just gets smaller.', fixed) +
+      row('adaptive', 'fa-arrows-left-right-to-line', 'Let it rearrange',
+          'Columns fold and stack to fit, as they used to.', !fixed);
+    m.style.display = 'block';
+    var r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+  }
+
   // Windowed LCD Projection: cap the Song Library and Service Schedule columns
   // to the same visible band the workspace column already gets from the sticky
   // sizing above, so all three scroll independently. Without this the schedule
@@ -37671,13 +37831,28 @@ var WO = (function() {
   function _lcdSizeWorkspaceColumns() {
     var mc = document.querySelector('.wo-main-content');
     if (!mc) return;
+    // Set the mode and the scale first: everything measured below is
+    // measured through them. The MODE and not just the scale, because
+    // whether Fixed mode applies at all depends on the window width
+    // (LCD_FIXED_MIN_VW), and a resize is exactly when that can change.
+    _lcdApplyLayoutMode();
+    // Heights written INTO the workspace are in its own (pre-zoom) pixels,
+    // while getBoundingClientRect() reports viewport pixels, which are
+    // post-zoom. Divide once, here, rather than remembering to at each site.
+    // At zoom 1 -- every window 1120px or wider, which is every real desk --
+    // this is an exact no-op and the arithmetic is unchanged.
+    var _z = _lcdFixedZoom || 1;
+    function _own(visualPx) { return visualPx / _z; }
     var cols = [document.getElementById('lcdLibraryPanel'), document.getElementById('woWorshipOrder')];
     var windowed = !mc.classList.contains('wo-song-order')
       && !document.body.classList.contains('lcd-workspace-fullscreen')
-      && window.matchMedia('(min-width: 1120px)').matches;
+      && (window.matchMedia('(min-width: 1120px)').matches
+          // Fixed mode keeps the windowed console below 1120 too -- it is
+          // scaled, not stacked -- so it still needs these caps.
+          || document.body.classList.contains('lcd-fixed-layout'));
     var h = '';
     if (windowed) {
-      h = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10)) + 'px';
+      h = Math.max(420, Math.round(_own(window.innerHeight - mc.getBoundingClientRect().top - 10))) + 'px';
     }
     // Only the two long lists are capped. They are lists -- scrolling inside
     // them is the point.
@@ -37722,11 +37897,11 @@ var WO = (function() {
     var lower = pp && pp.querySelector('.lcd-lower-row');
     if (outputs) {
       if (windowed) {
-        var band = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10));
+        var band = Math.max(420, Math.round(_own(window.innerHeight - mc.getBoundingClientRect().top - 10)));
         var chrome = 0;
         Array.prototype.slice.call(pp.children).forEach(function(c) {
           if (c === outputs || c === lower) return;
-          chrome += c.getBoundingClientRect().height;
+          chrome += _own(c.getBoundingClientRect().height);
         });
         var avail = band - chrome - 24;
         // The editor and output never drop below this, so a big media library
@@ -37758,9 +37933,9 @@ var WO = (function() {
         var progBox = outputs.querySelector('.lcd-program-box');
         if (progBox && progBox.lastElementChild) {
           var pcs = getComputedStyle(progBox);
-          var natural = Math.round(
+          var natural = Math.round(_own(
             progBox.lastElementChild.getBoundingClientRect().bottom
-            - progBox.getBoundingClientRect().top
+            - progBox.getBoundingClientRect().top)
             + (parseFloat(pcs.paddingBottom) || 0));
           // +10 beyond the output's natural depth: the extra lands in the
           // Slide Editor's scrollable body (the 16:9 screen keeps its
@@ -83634,6 +83809,82 @@ var WO = (function() {
   // destroyed and no state moves: Edit is the existing contenteditable canvas,
   // Preview is #woPreviewScreen, which already receives every preview the app
   // renders -- it was simply living in a container the CSS hid.
+  // ---- The editor pad opens on a deliberate act, not on selection ------
+  //
+  // Selecting a slide is something the operator does dozens of times in a
+  // service -- it is how the next verse reaches the screen. The pad used to
+  // become live on every one of those, so the console spent the whole service
+  // one stray keystroke away from rewriting the words the congregation was
+  // reading. It is shut by default now and opens three ways, all of them
+  // deliberate: double-click the slide in the rail, double-click the
+  // projection, or press Edit.
+  //
+  // Note for a future round: all three are mouse gestures, and two of them are
+  // double-clicks, which a touch screen does not have (CLAUDE.md gotcha 28).
+  // That is sound HERE and only here -- the Slide Editor panel does not exist
+  // below 1120px, where phones and tablets get the All Slides modal instead --
+  // but Edit is a plain single-press button and must stay one, because it is
+  // the only path that would survive this panel ever reaching a touch screen.
+  var _lcdEditorUnlocked = false;
+
+  function _lcdApplyEditorLock() {
+    var panel = document.querySelector('.lcd-lyrics-panel');
+    var ed = _lcdEditorEl();
+    var locked = !_lcdEditorUnlocked;
+    if (panel) panel.classList.toggle('lcd-editor-locked', locked);
+    if (ed) {
+      ed.setAttribute('contenteditable', locked ? 'false' : 'true');
+      if (locked && document.activeElement === ed) ed.blur();
+    }
+  }
+
+  function lcdUnlockEditor() {
+    // Nothing loaded means nothing to type into, and an empty live pad that
+    // silently belongs to no slide is worse than a refusal.
+    var box = document.querySelector('#woWorshipOrder .wo-slide-box.selected');
+    if (!box) { showToast('Select a slide first', 'warning'); return; }
+    // Preview is a read-only render; Edit is where the pad lives.
+    lcdSetEditorMode('edit');
+    _lcdEditorUnlocked = true;
+    _lcdApplyEditorLock();
+    var ed = _lcdEditorEl();
+    if (!ed) return;
+    ed.focus();
+    try {
+      var r = document.createRange();
+      r.selectNodeContents(ed);
+      r.collapse(false);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch (e) {}
+  }
+
+  function lcdLockEditor() {
+    // Shutting the pad must not drop what was typed into it: the pad applies
+    // on blur, and being shut is not a blur.
+    if (_lcdEditorUnlocked) _lcdFlushAutoApply();
+    _lcdEditorUnlocked = false;
+    _lcdApplyEditorLock();
+  }
+
+  // One delegated listener for both double-click routes. Delegated because the
+  // rail is rebuilt by innerHTML on every render, so a listener bound to a row
+  // dies with that row.
+  var _lcdDblBound = false;
+  function _lcdBindEditorOpeners() {
+    if (_lcdDblBound) return;
+    _lcdDblBound = true;
+    document.addEventListener('dblclick', function(e) {
+      if (!document.body.classList.contains('lcd-console-open')) return;
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('#lcdCompactRail .lcd-rail-slide-row') || t.closest('#lcdProgramOutput')) {
+        lcdUnlockEditor();
+      }
+    });
+  }
+
   function lcdSetEditorMode(mode) {
     var preview = (mode === 'preview');
     var panel = document.querySelector('.lcd-lyrics-panel');
@@ -83645,6 +83896,10 @@ var WO = (function() {
     // Leaving Edit with unsaved keystrokes would silently drop them: the pad
     // auto-applies on blur, and switching panes is not a blur.
     if (preview && typeof lcdFlushAutoApply === 'function') lcdFlushAutoApply();
+    // Preview has no pad, so leaving Edit shuts it. Coming back to Edit does
+    // NOT reopen it -- only lcdUnlockEditor() does, which is what the Edit
+    // button calls.
+    if (preview) { _lcdEditorUnlocked = false; _lcdApplyEditorLock(); }
   }
 
   // ---- Add a slide from the editor -----------------------------------
@@ -90278,6 +90533,10 @@ var WO = (function() {
     lcdToggleLibrary: lcdToggleLibrary,
     woToggleOverflow: woToggleOverflow,
     lcdSetEditorMode: lcdSetEditorMode,
+    lcdLayoutMenu: lcdLayoutMenu,
+    lcdSetLayoutMode: lcdSetLayoutMode,
+    lcdUnlockEditor: lcdUnlockEditor,
+    lcdLockEditor: lcdLockEditor,
     lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
     getOrderType: getOrderType,
     lcdRemoveScriptureSlot: lcdRemoveScriptureSlot,
@@ -100557,6 +100816,83 @@ function filterLiturgyItems() {
     }
   }
 
+  /* ----------------------------------------------------------------------
+     FIXED LAYOUT MODE -- still THE COLUMN BLOCK, and the last word in it.
+
+     Everything above this point is the console reshaping itself as the window
+     changes: tracks swap at 1800, 1440 and 1280, the Song Library turns into
+     a 44px tab at 1280, and below 1120 the whole grid is abandoned for a
+     stacked phone layout. That is six different consoles depending on how
+     wide the window happens to be, and the team's report was simply that the
+     screen keeps rearranging itself under them mid-service.
+
+     In Fixed mode -- the DEFAULT -- none of those fire. The console is laid
+     out once, here, and a narrower window gets the same console drawn
+     smaller (_lcdApplyFixedScale puts a CSS zoom on the workspace). Nothing
+     moves; it only gets smaller. Adaptive mode is the old behaviour, opt-in
+     from the Layout button in the top bar.
+
+     These win over every band above because a media query adds no
+     specificity: `body.lcd-fixed-layout ...` carries one more class than any
+     of them, so source order and viewport width stop mattering. The library
+     rules carry an id to beat the id-carrying overlay rule at 1120-1279.
+     ---------------------------------------------------------------------- */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) {
+    display: grid;
+    grid-template-columns: minmax(180px, 11fr) minmax(300px, 29fr) minmax(470px, 60fr);
+  }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-library-hidden {
+    grid-template-columns: 44px minmax(300px, 30fr) minmax(470px, 70fr);
+  }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
+    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+  }
+  /* Whether the Song Library is open is the OPERATOR'S decision (the tab, and
+     lcdToggleLibrary's stored flag) -- never the window's. That is the single
+     most visible thing the old breakpoints did: drag the window past 1280 and
+     the library vanished on its own. */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) #lcdLibReopen { display: flex; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order):not(.lcd-library-hidden) #lcdLibraryPanel {
+    display: flex;
+    position: static; left: auto; top: auto; z-index: auto;
+    width: auto; height: auto; box-shadow: none;
+  }
+  /* Nor does an expanded schedule take the library away from them. */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-schedule-expanded:not(.lcd-library-hidden) #lcdLibraryPanel { display: flex; }
+  /* The narrow-width escapes, held off.
+     !important here is not laziness: the tablet-landscape block (769-1024px,
+     up in the app's own responsive sheet) sets `.wo-preview-panel {width:
+     300px !important}` and `.wo-worship-order {max-width: calc(100% - 300px)
+     !important}`, and nothing without !important can beat that. Measured
+     before this line existed: at a 980px window the Service Schedule came out
+     33px wide and the projection 0px, inside grid tracks that correctly read
+     300px and 630px. The tracks were right and the children were being
+     squeezed out of them. */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .wo-worship-order {
+    max-width: none !important; width: auto !important;
+  }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .wo-preview-panel {
+    width: auto !important; min-width: 0 !important;
+  }
+  /* Program / Live and the Slide Editor stay side by side, in the shares the
+     split rule sets further down (58:42 to the projection). Restated because
+     that rule is behind `min-width: 1120px`, which a scaled-down window is
+     by definition not. */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: row; min-height: 200px; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box { flex: 1 1 58%; min-width: 0; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel { flex: 1 1 42%; min-width: 260px; }
+  /* Same reason: the columns' scroll containment is a min-width: 1120px rule,
+     and without it a long order stretches the page instead of scrolling
+     inside its own column. _lcdSizeWorkspaceColumns writes the real cap
+     inline; this is the fallback for the moment before it runs. */
+  body.lcd-fixed-layout:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .wo-worship-order,
+  body.lcd-fixed-layout:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .lcd-library-panel {
+    max-height: calc(100vh - 260px); overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* And the banner keeps the folded labels it has at the design width. */
+  body.lcd-fixed-layout #worshipOrderView.lcd-mode .wo-btn-lbl-secondary { display: none; }
+
   /* The 3-column workspace is desktop-only. Below 1201px the app's existing
      phone/tablet layouts take over (stacked column, slide-in preview panel),
      and those are written as flex -- `flex-direction: column !important` is
@@ -101663,7 +101999,8 @@ function filterLiturgyItems() {
   .lcd-lyrics-panel.lcd-mode-preview .lcd-preview-surface {
     display: flex; align-items: center; justify-content: center;
   }
-  /* A true 16:9 render, capped so it never pushes the nav row out of the panel. */
+  /* A true 16:9 render, capped so it stays inside the panel. (The nav row it
+     used to be capped against now lives under Program / Live.) */
   .lcd-preview-surface #woPreviewScreen {
     display: flex; width: 100%; max-width: 100%;
     aspect-ratio: 16 / 9; height: auto; min-height: 0; max-height: 100%;
@@ -101672,23 +102009,73 @@ function filterLiturgyItems() {
     box-shadow: var(--lcd-shadow-md);
   }
 
-  /* ---- Slide nav under the canvas ---------------------------------------- */
+  /* ---- The editor pad is shut until it is asked for ----------------------- */
+  /* The canvas still SHOWS the slide while shut -- an operator reading along
+     needs the words -- it just cannot be typed into. Everything that acts on
+     text stands down with it: a formatting button with no caret to act on is
+     a button that does nothing when pressed. */
+  .lcd-editor-canvas { position: relative; }
+  .lcd-editor-locked .lcd-lyrics-editor { cursor: default; }
+  /* The formatting ribbon GOES, rather than being dimmed. Dimmed, it was
+     four rows of unusable controls sitting on top of the words -- measured at
+     the operator's 1158px desk, where the secondary editor column is 260px
+     wide and the ribbon wraps to four rows. Hidden, the shut editor is just
+     the slide, legibly, and the canvas gets that height back. It returns the
+     moment the pad opens, which is the only time it can do anything. */
+  .lcd-editor-locked .lcd-fmt-toolbar { display: none; }
+  /* Apply alone. Delete, All Slides and Open in Songbook act on the SLIDE,
+     not on typed text, so they work with the pad shut -- and a dimmed Delete
+     was unreadable against the ivory header besides. */
+  .lcd-editor-locked .lcd-lyrics-actions .lcd-mini-btn.primary { opacity: 0.45; pointer-events: none; }
+  /* Edit is the way in, so while the pad is shut it is the thing to press:
+     gold like every other primary action in this console. */
+  .lcd-editor-locked #lcdSegEditBtn {
+    background: var(--lcd-gold-500, #c1993f); color: #1a1a1a;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+  }
+  .lcd-editor-lockhint {
+    display: none;
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 7px 12px; pointer-events: none;
+    background: rgba(17,26,46,0.92);
+    border-top: 1px solid var(--lcd-navy-line, #17341f);
+    border-radius: 0 0 var(--lcd-radius-md, 10px) var(--lcd-radius-md, 10px);
+    color: var(--lcd-ivory-100, #f8f4ea);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 500;
+    text-align: center; letter-spacing: 0.01em;
+  }
+  .lcd-editor-lockhint i { color: var(--lcd-gold-400, #d9b46a); margin-right: 5px; }
+  .lcd-editor-lockhint b { font-weight: 700; color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-editor-locked .lcd-editor-lockhint { display: block; }
+  /* Preview has no pad at all, so the hint would be describing nothing. */
+  .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-lockhint { display: none; }
+
+  /* ---- Slide nav, under the projection it drives ------------------------- */
+  /* These are transport controls. They used to sit under the editor canvas,
+     which put the thing that changes the slide on the opposite side of the
+     screen from the slide: the operator watched the projection and reached
+     away from it. They now sit directly beneath Program / Live.
+     The white-on-ivory treatment went with the old home -- the editor body
+     is ivory, this column is the navy shell -- so they take the same
+     navy-700 set every other control in the column uses, and a size that
+     suits a control used mid-service. */
   .lcd-slide-nav {
-    display: flex; align-items: center; gap: 6px;
-    margin-top: 8px; flex: 0 0 auto; flex-wrap: wrap;
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 10px; flex: 0 0 auto; flex-wrap: wrap;
   }
   .lcd-slide-nav-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    min-width: 36px; min-height: 36px; padding: 0 10px;
-    border-radius: 8px; cursor: pointer;
-    background: #ffffff; color: #374151;
-    border: 1px solid #d8d2c4;
-    font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
+    min-width: 48px; min-height: 40px; padding: 0 14px;
+    border-radius: var(--lcd-radius-md, 10px); cursor: pointer;
+    background: var(--lcd-navy-700, #1e2c4a); color: var(--lcd-ivory-100, #f8f4ea);
+    border: 1px solid var(--lcd-navy-line, #17341f);
+    font-family: 'Poppins', sans-serif; font-size: 0.78rem; font-weight: 600;
     transition: background 0.15s, border-color 0.15s;
   }
+  .lcd-slide-nav-btn i { font-size: 0.85rem; }
   .lcd-slide-nav-btn.wide { margin-left: auto; }
-  .lcd-slide-nav-btn:hover { background: #f3f4f6; border-color: #b9b1a0; }
-  .lcd-slide-nav-btn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
+  .lcd-slide-nav-btn:hover { background: var(--lcd-navy-800, #16213b); border-color: var(--lcd-gold-500, #c1993f); }
+  .lcd-slide-nav-btn:focus-visible { outline: 2px solid var(--lcd-gold-400, #d9b46a); outline-offset: 2px; }
 
   /* ---- Program / Live header and status ---------------------------------- */
   .lcd-program-label { flex-wrap: wrap; gap: 7px; }
@@ -102698,22 +103085,33 @@ function filterLiturgyItems() {
   /* Equal working columns. Several earlier rules give these two different
      shares (60/40, 55/45, auto); this is the one that decides, and it is
      scoped to the side-by-side layout so the stacked phone/tablet views keep
-     their own sizing. */
-  /* CONSOLE REDESIGN, chunk 2: 58:42, not the even halves this carried before.
-     Against the usable width that puts Preview/Edit at ~34% and Program/Live
-     at ~25% -- the proportions of the approved console mockup. The even split
-     was a deliberate choice under the previous design (2026-08-15 handoff
-     entry) and is superseded here, not overlooked.
+     their own sizing.
+
+     STAGE REDESIGN: 58:42 to PROGRAM / LIVE. Every round before this one
+     gave the Slide Editor the larger share (50/50, then 58/42 its way), on
+     the reasoning that the editor has a toolbar and a header to fit and the
+     output is only a picture. That reasoning had the console backwards: what
+     the operator watches all service is the picture, and the editor is
+     opened a few times an hour. The projection is the main view now and the
+     editor is secondary beside it, so the shares swap rather than change.
+     The editor keeps a floor of its own, but a LOW one: 260px, not the 300
+     that a first cut used. At the operator's 1158px desk the workspace column
+     is about 659px, so 42% of it is 263px -- a 300px floor is above the
+     share, takes the difference straight back off the projection, and the
+     split comes out 51:49 instead of 58:42. Measured, not reasoned.
+     260px does wrap the formatting ribbon onto a third row. That is accepted
+     here where it was not before: the ribbon only matters while the pad is
+     open, and the pad is shut unless the operator asked for it.
      THIS is the rule that decides the split: it is both later and more
      specific than the .lcd-outputs-row pair in section L above. */
   @media (min-width: 1120px) {
-    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box {
       flex: 1 1 58%;
       min-width: 0;
     }
-    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel {
       flex: 1 1 42%;
-      min-width: 0;
+      min-width: 260px;
     }
   }
 

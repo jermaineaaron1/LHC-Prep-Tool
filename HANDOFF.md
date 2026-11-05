@@ -1,6 +1,171 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-10-08 by Claude Code_
+_Last updated: 2026-11-05 by Claude Code_
+
+---
+
+## 2026-11-05 — LCD Projection: the console stops rearranging itself, and the projection becomes the main view (branch `feature/lcd-projection-stage`)
+
+Three changes the operator asked for, in one branch. All verified in a real
+1158px viewport against production DATA with every write refused — see
+"How this was verified" below, which is the reusable part.
+
+### 1. The projection is the middle, main panel; the editor is secondary
+
+`.lcd-outputs-row`'s two children are physically reordered in the markup
+(not `order:` in CSS) so Program / Live comes first for the keyboard and a
+screen reader too. The split flips with them: **58:42 to the projection**,
+where every round before this gave the larger share to the Slide Editor.
+
+The slide navigation (`.lcd-slide-nav`: prev, next, Add Slide) moved out of
+the editor and **under the projection it drives**, and the duplicate pair of
+chevrons that sat in the controls row was removed — the same two buttons
+twice, 20px apart, once they were both in the same column.
+
+Two things were measured rather than assumed, and both changed the answer:
+
+- **The editor's `min-width` had to come DOWN to 260px.** At 300px the floor
+  was above the editor's 42% share at the operator's own 1158px desk, so it
+  took the difference straight back off the projection and the split came out
+  51:49. At 260 it is a true 58:42 from 1158px up.
+- **At 260px the formatting ribbon wraps to four rows**, which is the failure
+  the old 60/40 split was written to avoid. That is accepted now because the
+  ribbon is **hidden while the pad is shut** (below), so the cramped case only
+  exists while somebody is actually typing. Worth knowing if the editor is
+  ever made primary again.
+
+### 2. The editor pad opens on a deliberate act, never on selection
+
+`contenteditable` starts **false**. Three ways in, all deliberate:
+double-click a slide in the rail, double-click the projection, or press
+**Edit**. Selecting a slide with a single click still loads it and sends it to
+the screen — it just does not arm the text box. Preview shuts it again, and
+so does every entry into the console.
+
+Why: selecting a slide is something the operator does dozens of times in a
+service, and the pad used to go live on every one of them. The console spent
+the whole service one stray keystroke away from rewriting the words the
+congregation was reading.
+
+While shut, the panel still SHOWS the slide — an operator reading along
+needs the words. What stands down with the pad is only what acts on text:
+the formatting ribbon (hidden outright, not dimmed) and **Apply**. Delete,
+All Slides and Open in Songbook stay live, because they act on the slide and
+not on typed text; dimming Delete also made it unreadable against the ivory
+header.
+
+**All three openers are mouse gestures and two are double-clicks, which a
+touch screen does not have** (CLAUDE.md gotcha 28). That is sound HERE and
+only here: the Slide Editor panel does not exist below 1120px, where phones
+get the All Slides modal instead. **Edit is the only opener that would
+survive this panel ever reaching a touch screen, so it must stay a plain
+single-press button.**
+
+### 3. Fixed layout (the DEFAULT) vs Adaptive
+
+The team's report was that the console keeps rearranging itself when the
+window is resized. It does: breakpoints at 1800, 1440, 1280 and 1120 move
+columns, dock the Song Library to a 44px tab on their own, and below 1120
+abandon the grid for a stacked phone layout. Six consoles depending on the
+window.
+
+**Fixed** pins one layout and handles a window too narrow for it by drawing
+the whole console **smaller** rather than reshaping it. **Adaptive** is the
+old behaviour, opt-in from the new `Layout` button in the LCD top bar.
+Stored per browser under `lhc_lcd_layout_mode`; absent means fixed.
+
+Measured across 1500 / 1300 / 1158 / 1060 / 980 / 880 / 800:
+
+| | fixed mode | adaptive mode |
+|---|---|---|
+| 1500 / 1300 / 1158 | 58:42, no scaling, columns stretch | same |
+| 1060 and below | **logical width pinned at 1000px**, identical columns, only the zoom changes | drops to flex, outputs row stacks |
+| below 760 | stands down to the phone layout | phone layout |
+
+Four things worth keeping:
+
+- **CSS `zoom`, not `transform: scale()`.** A transform leaves the layout box
+  at full size (the console would float in a hole of reserved height) and
+  makes the element a containing block for `position: fixed` descendants —
+  gotcha 27, the trap the songbook control bar fell into. `zoom` scales the
+  layout box. Checked first that nothing inside `.wo-main-content` is
+  `position: fixed`, and that the console's popup menus are appended to
+  `document.body` and placed from `getBoundingClientRect()`, which reports
+  post-zoom viewport coordinates either way. The layout menu was clicked
+  through at a scaled width to confirm it lands.
+- **`getBoundingClientRect()` is post-zoom, `offsetWidth`/`clientWidth` are
+  pre-zoom.** Verified directly (630px vs 539px on the same element). This is
+  load-bearing: `_lcdSizeWorkspaceColumns()` reads rects and writes inline px
+  INTO the zoomed subtree, so every rect it reads now goes through one
+  `_own()` helper. At zoom 1 — every window 1120px or wider, i.e. every real
+  desk — that is an exact no-op and the arithmetic is unchanged.
+- **Never measure the thing you are about to size.** The first cut derived the
+  target width per resize as "design viewport minus whatever the chrome
+  costs", measuring `.wo-main-content` itself. Once the console is wider than
+  its room, that measurement returns the grid's MIN-CONTENT, so each pass read
+  the shape the previous pass had made: 1060/980/880 settled on three
+  different layouts (950, 814, 812px) — the exact shape-shifting the feature
+  exists to stop. It now measures the HOST (a plain block whose width nothing
+  here can move) against one constant, `LCD_DESIGN_W = 1000`.
+- **The narrow-width escapes carry `!important`.** `@media (769-1024px) and
+  (orientation: landscape)` sets `.wo-preview-panel {width: 300px !important}`
+  and `.wo-worship-order {max-width: calc(100% - 300px) !important}`. Before
+  that was overridden, a 980px window gave a 33px Service Schedule and a 0px
+  projection inside grid tracks that correctly read 300px and 630px — the
+  tracks were right and the children were being squeezed out of them.
+
+All of the fixed-mode CSS lives at the END of **THE COLUMN BLOCK**, which is
+where this file says column decisions live. It beats every band above it by
+carrying one more class (`body.lcd-fixed-layout ...`); a media query adds no
+specificity, so source order and viewport width stop mattering.
+
+### Known limits, stated rather than discovered later
+
+- **Below about 1000px the app's OWN sidebar opens to a 250px drawer** and
+  takes the width with it, so the console is scaled harder there and the
+  editor column can clip. That is the app shell, not the console, and it is
+  outside what this branch touched — but it is a layout change on resize, so
+  it is the next thing the operator will report if they drag that far.
+- **`LCD_MIN_ZOOM = 0.55`** is a floor, not a fit. Past it the console
+  overflows and scrolls, deliberately: smaller than that is unreadable.
+- **Cross-reload persistence of the layout choice was NOT verified.** The
+  read-only verification server neutralises storage, so only the in-session
+  round trip was proved (write "adaptive", read it back, mode applies) plus
+  the no-value default. The key is `lhc_lcd_layout_mode`.
+
+### How this was verified — reusable, and it is the useful part
+
+`Index.html` is served by a tiny read-only Node server
+(`roserver.js`, kept in the session scratchpad) that rewrites the page on the
+way out, per the recipe in this file and in memory:
+
+1. force the app's own phone-view write guard on, but **WITHOUT setting
+   `window.__SBM_PREVIEW`** — that flag also diverts boot into the songbook
+   preview path. A `window.__LHC_FORCE_READONLY` flag injected before the
+   guard runs is enough; the rest of the guard block never reads `pv`.
+2. strip the SECOND supabase-js tag, or it hands back an unwrapped
+   `createClient`.
+3. proxy `/api/*` GETs upstream, refuse everything else at the server.
+
+Proved by inspection, never by calling a write: `createClient` reads
+`_lhcReadOnlyClient`, `from('songs').insert` reads `_lhcDenied`, one
+supabase-js tag, `__SBM_PREVIEW` null.
+
+**The 1158px viewport came from an iframe**, not from resizing the window:
+`resize_window` is a no-op on a maximised Chrome window, and an iframe gets a
+real viewport with real media queries and can be re-sized from JS between
+measurements. That is what made a seven-width sweep cheap.
+
+**The save pipeline was proved intact by measurement**, which is the check
+this console's markup always needs: `SBQ.saveOrder` was stubbed, `saveImmediately()`
+called, and the captured payload counted — **116 slides in the DOM, 116
+slides in 20 saved items.** The only diff lines touching `collectOrderItems`'
+selectors are one comment and one READ (`#woWorshipOrder .wo-slide-box.selected`,
+the selector the rest of the console already uses). No order markup was
+renamed or restructured.
+
+Also green: `python tools/check-inline-scripts.py --check Index.html` (14
+blocks) and `npm run check` (346 caught, 0 missed, 0 stale), before and after.
 
 ---
 
