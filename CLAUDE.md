@@ -191,7 +191,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      is showing and closes back to it. It also has the order's **inbox**
      (links and files shared to the service from a phone's share sheet, the
      share picker, or pasted -- put each on a song), **Add a song** (into a
-     section), each song's links hidden for this service or removed,
+     section), **Move to section** (More: `sbmMoveToSectionPick`, the
+     Builder's own move through `_woSongsChange`; a medley moves as one; a
+     section that already sings the song, or an open LCD schedule, refuses), each song's links hidden for this service or removed,
      **medleys** (gotchas 42-44; a standalone songbook has them too), and
      **versions** of a song -- a key, words and drawings a later service can
      sing it with, listed as "Saved versions", and "Make this the song's main

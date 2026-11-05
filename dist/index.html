@@ -52805,6 +52805,7 @@ var WO = (function() {
       var waiting = _sbmInboxWaiting();
       rows.push(['fa-inbox', 'Inbox — links shared to this service' + (waiting ? ' (' + waiting + ' waiting)' : ''), 'WO.sbmInbox()']);
       rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()']);
+      if (song) rows.push(['fa-right-left', 'Move to section\u2026 (Song of Preparation, Dismissal\u2026)', 'WO.sbmMoveToSection()']);
     }
     if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
     if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()']);
@@ -53183,6 +53184,80 @@ var WO = (function() {
   }
 
   // ---- adding a song to the service, from the book ----
+  // ---- Move a song to another part of the service -------------------
+  //
+  // The Songbook moved a song only within its own section; another section
+  // meant a trip to the Liturgy Builder. This is the Builder's "Move to
+  // section" (lbdMoveSongToSection): out of the section it was in, into the
+  // one chosen at its end, the list re-sorted in service order -- through
+  // _woSongsChange, so it saves and has the Builder's undo. A song in a
+  // medley takes its medley with it: the book reads a medley as one, and a
+  // member left behind would drop out of it (gotcha 42). A section that
+  // already sings the song is refused -- a song sung twice is two copies,
+  // one per section (gotcha 55) -- and so is a move while LCD Projection's
+  // schedule is on the page: it is drawn from where the songs are, and
+  // redrawing it would blank the projector (gotcha 44).
+  function sbmMoveToSection() {
+    var song = _sbmSong(); if (!song || !_sbmOrderBook()) return;
+    var list = _woSectionList();
+    if (!list.length) { showToast('This order has no sections yet. Add them in the Liturgy Builder first.', 'info'); return; }
+    var cur = _woSongFirstSec(song, list), md = _woMedleyOf(song.id);
+    var rows = list.map(function(sec, i) {
+      var here = sec.id === cur;
+      return '<button class="sbm-btn' + (here ? ' is-on' : '') + '"' + (here ? ' disabled' : '') +
+        ' onclick="WO.sbmMoveToSectionPick(\'' + escapeJsArg(sec.id) + '\')">' +
+        '<i class="fa-' + (here ? 'solid fa-check' : 'regular fa-square') + '"></i>' + (i + 1) + '. ' + escapeHtml(sec.title) +
+        (here ? '<small>sung here now</small>' : '') + '</button>';
+    }).join('');
+    _sbmSheet('Move to section',
+      (md ? '<p class="sbm-move-note"><i class="fa-solid fa-layer-group"></i>In a medley of ' + md.n + ' songs: the whole medley moves together.</p>' : '') +
+      '<div class="sbm-menu sbm-move-sec">' + rows + '</div>');
+  }
+  function sbmMoveToSectionPick(toSec) {
+    var song = _sbmSong(); if (!song || !toSec) return;
+    if (_woLcdInPage()) { showToast('Close LCD Projection first: it shows the songs where they are now.', 'info'); return; }
+    var list = _woSectionList();
+    var md = _woMedleyOf(song.id);
+    var members = (md ? md.medley.songs : [song.id]).map(function(id) {
+      return songOrderSections.filter(function(s) { return s && s.id === id; })[0];
+    }).filter(Boolean);
+    if (!members.length) return;
+    if (members.every(function(m) { return _woSongSectionIds(m, list).join() === toSec; })) { _sbmCloseSheet(); return; }
+    var title = _lbdSecTitle(toSec);
+    var clash = members.filter(function(m) { var c = _woSongCopyIn(m.songId, toSec, list); return c && c !== m; })[0];
+    if (clash) { showToast('“' + (clash.title || 'That song') + '” is already sung in ' + title + '.', 'info'); return; }
+    var before = {
+      order: songOrderSections.slice(),
+      at: members.map(function(m) { return { m: m, ss: (m.serviceSections || []).slice(), sid: m.sectionId }; })
+    };
+    var ok = _woSongsChange(function() {
+      members.forEach(function(m) {
+        _woSongSectionIds(m, list).forEach(function(id) { _lbdUnplaceSong(m, id, list); });
+        songOrderSections.splice(songOrderSections.indexOf(m), 1);
+        songOrderSections.push(m);
+        _lbdPlaceSong(m, toSec, list);
+      });
+      _lbdSortSongsByService();
+    });
+    if (ok === false) return;
+    _sbmCloseSheet();
+    renderSongbookLive();
+    showToast((md ? 'The medley moved' : '“' + (song.title || 'The song') + '” moved') + ' to ' + title, 'success', {
+      action: 'Undo', onAction: function() {
+        if (_woLcdInPage()) { showToast('Close LCD Projection first: it shows the songs where they are now.', 'info'); return; }
+        _woSongsChange(function() {
+          before.at.forEach(function(x) { x.m.serviceSections = x.ss; x.m.sectionId = x.sid; delete _woSongsTakenOutOfSections[x.m.id]; });
+          // the old order back, unless songs came or went since
+          var same = before.order.length === songOrderSections.length &&
+            before.order.every(function(s) { return songOrderSections.indexOf(s) !== -1; });
+          if (same) { songOrderSections.length = 0; Array.prototype.push.apply(songOrderSections, before.order); }
+          else _lbdSortSongsByService();
+        });
+        renderSongbookLive();
+      }
+    });
+  }
+
   function sbmAddSong() {
     if (!_sbmOrderBook()) { showToast('Add songs to a standalone songbook from Song Finder, with the bookmark button.', 'info'); return; }
     var list = _woSectionList();
@@ -91110,7 +91185,7 @@ var WO = (function() {
     // Step 2: the inbox, adding a song, medleys
     openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
     sbmInboxAttachTo: sbmInboxAttachTo, sbmInboxRemove: sbmInboxRemove, sbmInboxPaste: sbmInboxPaste,
-    sbmInboxOpen: sbmInboxOpen, sbmAddSong: sbmAddSong, sbmAddSongFilter: sbmAddSongFilter,
+    sbmInboxOpen: sbmInboxOpen, sbmAddSong: sbmAddSong, sbmAddSongFilter: sbmAddSongFilter, sbmMoveToSection: sbmMoveToSection, sbmMoveToSectionPick: sbmMoveToSectionPick,
     sbmAddSongPick: sbmAddSongPick, sbmResRemove: sbmResRemove, sbmResRestore: sbmResRestore,
     sbmMedley: sbmMedley, openMedleyEditor: openMedleyEditor, woMedleyLeave: woMedleyLeave,
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
@@ -109637,6 +109712,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-contents small { display: block; font: 400 12px/1.2 var(--sbm-font-body); color: var(--sbm-muted); }
 .sbm-menu { display: flex; flex-direction: column; gap: 6px; }
 .sbm-menu .sbm-btn { justify-content: flex-start; }
+/* Move to section: the section it is in now is ticked and cannot be chosen */
+.sbm-move-sec .sbm-btn small { margin-left: auto; font: 600 11px/1 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-move-sec .sbm-btn.is-on { background: #e8f5ee; border-color: #9fd3b4; color: #14532d; opacity: 1; }
+.sbm-move-note { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: 500 13px/1.4 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); }
 .sbm-embed { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: var(--sbm-radius-md); overflow: hidden; background: #000; }
 .sbm-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
