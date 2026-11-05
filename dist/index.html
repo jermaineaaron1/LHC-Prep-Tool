@@ -7506,7 +7506,7 @@
                              slide was selected, so a stray click during a service typed
                              into the words on the screen. It opens on a deliberate
                              act now -- see _lcdApplyEditorLock(). -->
-                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
                         <!-- Shown only while the pad is shut. Deliberately not
                              clickable: a click is what must NOT open the editor. It
                              names all three ways in, and pointer-events:none lets a
@@ -34038,6 +34038,12 @@ var WO = (function() {
   var _loadingOrder = false;
 
   function loadOrder(idxOrId) {
+    // Words held in the Slide Editor are asked about before the order is
+    // reloaded or replaced: the schedule they belong to is about to go.
+    if (!_lcdDraftGuard(function() { loadOrder(idxOrId); })) return;
+    // An undo step is a snapshot of THIS schedule; restored into another
+    // order -- or into this one reloaded -- it would put back the wrong slides.
+    _lcdUndoStack = []; _lcdRedoStack = [];
     var order;
     var idx;
     if (typeof idxOrId === 'number') {
@@ -35057,6 +35063,9 @@ var WO = (function() {
   }
 
   function _orderSyncReload() {
+    // The banner floats, so pressing it is not a click away: ask here, and
+    // leave the banner up if the answer is Keep editing.
+    if (!_lcdDraftGuard(_orderSyncReload)) return;
     var oid = currentOrderData && currentOrderData.id;
     if (!oid) return;
     // Land back in the half of the order they were working in.
@@ -37570,6 +37579,7 @@ var WO = (function() {
   }
 
   function selectOrder(orderType) {
+    if (!_lcdDraftGuard(function() { selectOrder(orderType); })) return;
     // Step 2 is the Songbook. It opens over whichever step is showing rather
     // than replacing it, and closes back to it.
     if (orderType === 'songbook') { openSongbook(); return; }
@@ -52825,6 +52835,7 @@ var WO = (function() {
       var waiting = _sbmInboxWaiting();
       rows.push(['fa-inbox', 'Inbox — links shared to this service' + (waiting ? ' (' + waiting + ' waiting)' : ''), 'WO.sbmInbox()']);
       rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()']);
+      if (song) rows.push(['fa-right-left', 'Move to section\u2026 (Song of Preparation, Dismissal\u2026)', 'WO.sbmMoveToSection()']);
     }
     if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
     if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()']);
@@ -53203,6 +53214,80 @@ var WO = (function() {
   }
 
   // ---- adding a song to the service, from the book ----
+  // ---- Move a song to another part of the service -------------------
+  //
+  // The Songbook moved a song only within its own section; another section
+  // meant a trip to the Liturgy Builder. This is the Builder's "Move to
+  // section" (lbdMoveSongToSection): out of the section it was in, into the
+  // one chosen at its end, the list re-sorted in service order -- through
+  // _woSongsChange, so it saves and has the Builder's undo. A song in a
+  // medley takes its medley with it: the book reads a medley as one, and a
+  // member left behind would drop out of it (gotcha 42). A section that
+  // already sings the song is refused -- a song sung twice is two copies,
+  // one per section (gotcha 55) -- and so is a move while LCD Projection's
+  // schedule is on the page: it is drawn from where the songs are, and
+  // redrawing it would blank the projector (gotcha 44).
+  function sbmMoveToSection() {
+    var song = _sbmSong(); if (!song || !_sbmOrderBook()) return;
+    var list = _woSectionList();
+    if (!list.length) { showToast('This order has no sections yet. Add them in the Liturgy Builder first.', 'info'); return; }
+    var cur = _woSongFirstSec(song, list), md = _woMedleyOf(song.id);
+    var rows = list.map(function(sec, i) {
+      var here = sec.id === cur;
+      return '<button class="sbm-btn' + (here ? ' is-on' : '') + '"' + (here ? ' disabled' : '') +
+        ' onclick="WO.sbmMoveToSectionPick(\'' + escapeJsArg(sec.id) + '\')">' +
+        '<i class="fa-' + (here ? 'solid fa-check' : 'regular fa-square') + '"></i>' + (i + 1) + '. ' + escapeHtml(sec.title) +
+        (here ? '<small>sung here now</small>' : '') + '</button>';
+    }).join('');
+    _sbmSheet('Move to section',
+      (md ? '<p class="sbm-move-note"><i class="fa-solid fa-layer-group"></i>In a medley of ' + md.n + ' songs: the whole medley moves together.</p>' : '') +
+      '<div class="sbm-menu sbm-move-sec">' + rows + '</div>');
+  }
+  function sbmMoveToSectionPick(toSec) {
+    var song = _sbmSong(); if (!song || !toSec) return;
+    if (_woLcdInPage()) { showToast('Close LCD Projection first: it shows the songs where they are now.', 'info'); return; }
+    var list = _woSectionList();
+    var md = _woMedleyOf(song.id);
+    var members = (md ? md.medley.songs : [song.id]).map(function(id) {
+      return songOrderSections.filter(function(s) { return s && s.id === id; })[0];
+    }).filter(Boolean);
+    if (!members.length) return;
+    if (members.every(function(m) { return _woSongSectionIds(m, list).join() === toSec; })) { _sbmCloseSheet(); return; }
+    var title = _lbdSecTitle(toSec);
+    var clash = members.filter(function(m) { var c = _woSongCopyIn(m.songId, toSec, list); return c && c !== m; })[0];
+    if (clash) { showToast('“' + (clash.title || 'That song') + '” is already sung in ' + title + '.', 'info'); return; }
+    var before = {
+      order: songOrderSections.slice(),
+      at: members.map(function(m) { return { m: m, ss: (m.serviceSections || []).slice(), sid: m.sectionId }; })
+    };
+    var ok = _woSongsChange(function() {
+      members.forEach(function(m) {
+        _woSongSectionIds(m, list).forEach(function(id) { _lbdUnplaceSong(m, id, list); });
+        songOrderSections.splice(songOrderSections.indexOf(m), 1);
+        songOrderSections.push(m);
+        _lbdPlaceSong(m, toSec, list);
+      });
+      _lbdSortSongsByService();
+    });
+    if (ok === false) return;
+    _sbmCloseSheet();
+    renderSongbookLive();
+    showToast((md ? 'The medley moved' : '“' + (song.title || 'The song') + '” moved') + ' to ' + title, 'success', {
+      action: 'Undo', onAction: function() {
+        if (_woLcdInPage()) { showToast('Close LCD Projection first: it shows the songs where they are now.', 'info'); return; }
+        _woSongsChange(function() {
+          before.at.forEach(function(x) { x.m.serviceSections = x.ss; x.m.sectionId = x.sid; delete _woSongsTakenOutOfSections[x.m.id]; });
+          // the old order back, unless songs came or went since
+          var same = before.order.length === songOrderSections.length &&
+            before.order.every(function(s) { return songOrderSections.indexOf(s) !== -1; });
+          if (same) { songOrderSections.length = 0; Array.prototype.push.apply(songOrderSections, before.order); }
+          else _lbdSortSongsByService();
+        });
+        renderSongbookLive();
+      }
+    });
+  }
+
   function sbmAddSong() {
     if (!_sbmOrderBook()) { showToast('Add songs to a standalone songbook from Song Finder, with the bookmark button.', 'info'); return; }
     var list = _woSectionList();
@@ -80211,6 +80296,7 @@ var WO = (function() {
     // A song's slides were rebuilt elsewhere; if we're currently showing
     // one of its slides (and the user isn't typing), reload that slide.
     if (!_lcdActiveSlide || _lcdActiveSlide.songId !== songId) return;
+    if (_lcdEditDirty) return;   // the pad holds words not yet saved: they stay
     var ta = document.getElementById('lcdLyricsEditorTextarea');
     if (!ta || document.activeElement === ta) return;
     var box = _lcdRelocateActiveSlideBox();
@@ -80230,10 +80316,10 @@ var WO = (function() {
   var _lcdAutoApplyTimer = null;   // debounced auto-apply of editor edits
   var _lcdEditDirty = false;       // an edit burst is in progress (undo pushed once)
   function lcdOnLyricsTextareaInput() {
-    // Auto-apply: no "Apply Changes" click needed. Snapshot undo once at the
-    // start of an edit burst, then commit ~0.5s after typing stops. The live
-    // projection updates on that same pause (not per keystroke), so a slide
-    // that is on-screen never flickers mid-word.
+    // Held, not applied: typing changes the pad alone. The slide, the
+    // projector and the order move on Apply, or on Save when a click away
+    // from the editor asks (_lcdAskDraft). It used to commit itself ~0.5s
+    // after typing stopped, which put half-typed lines on the screen.
     if (_lcdActiveSlide) {
       // Claimed on the first keystroke rather than on selection: the rail
       // loads a slide every time the operator presses next, and locking a
@@ -80246,22 +80332,26 @@ var WO = (function() {
         _edApplyLockUI();
         return;
       }
-      if (!_lcdEditDirty) { _lcdPushUndo(); _lcdEditDirty = true; }
-      clearTimeout(_lcdAutoApplyTimer);
-      _lcdAutoApplyTimer = setTimeout(function() {
-        _lcdAutoApplyTimer = null;
-        _lcdEditDirty = false;
-        _lcdCommitEditorToSlide();
-      }, 500);
+      _lcdEditDirty = true;
+      _lcdDraftPaint();
     }
     clearTimeout(_lcdSplitDebounce);
     _lcdSplitDebounce = setTimeout(_lcdUpdateSlideSummary, 400);
   }
 
-  // Commit any pending edit immediately (slide switch / editor blur).
+  // Save what the pad holds now, on a path that does not ask: a slide
+  // loaded by a redraw, the console reopening. A click away asks first.
   function _lcdFlushAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
-    if (_lcdEditDirty) { _lcdEditDirty = false; _lcdCommitEditorToSlide(); }
+    if (_lcdEditDirty) {
+      _lcdEditDirty = false;
+      var _k0 = _edLcdKeyFromActive(_lcdActiveSlide);
+      if (_k0 && edIsLockedByOther(_k0)) showToast('Someone else was editing that slide, so your change to it was not saved.', 'warning');
+      // The undo step only when there is a slide to save into: pushed over a
+      // schedule being torn down, it was a snapshot of nothing.
+      else if (_lcdRelocateActiveSlideBox()) { _lcdPushUndo(); _lcdCommitEditorToSlide(); }
+    }
+    _lcdDraftPaint();
     // Committed or nothing to commit: either way this slide is finished with.
     var _edKey = _edLcdKeyFromActive(_lcdActiveSlide);
     if (_edKey) edRelease(_edKey);
@@ -80272,6 +80362,7 @@ var WO = (function() {
   function _lcdCancelAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
     _lcdEditDirty = false;
+    _lcdDraftPaint();
   }
 
   // Preview how the current textarea content will split into slides -
@@ -80358,7 +80449,8 @@ var WO = (function() {
       songId: songId,
       liturgyId: box.getAttribute('data-liturgy-id') || '',
       source: box.getAttribute('data-source') || '',
-      slideIdx: box.getAttribute('data-slide-idx') || '0'
+      slideIdx: box.getAttribute('data-slide-idx') || '0',
+      box: box
     };
     _lcdEditingSongId = songId || null;
     _lcdSavedRange = null;
@@ -80522,6 +80614,10 @@ var WO = (function() {
   function _lcdRelocateActiveSlideBox() {
     if (!_lcdActiveSlide) return null;
     var a = _lcdActiveSlide;
+    // The box itself while it is still on the page. Reading (scripture)
+    // slides carry no data-slide-idx, so the lookup below never found one
+    // and an edit to a reading could not be saved at all.
+    if (a.box && a.box.isConnected) return a.box;
     var container = a.sectionId ? document.getElementById(a.sectionId + '-boxes') : null;
     if (!container) container = document;
     var sel = '.wo-slide-box[data-slide-idx="' + a.slideIdx + '"]';
@@ -80570,13 +80666,26 @@ var WO = (function() {
     return true;
   }
 
+  // Saves what the pad holds. False when it could not: no slide, the slide
+  // gone, or another device editing it now -- the words stay held, unsaved.
   function _lcdApplySlideEdit() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return false; }
+    var k = _edLcdKeyFromActive(_lcdActiveSlide);
+    if (k && edIsLockedByOther(k)) {
+      showToast('Someone else is editing this slide now, so this was not saved. Your words are still in the editor.', 'warning');
+      return false;
+    }
+    if (!_lcdRelocateActiveSlideBox()) {
+      showToast('That slide is no longer available.', 'warning');
+      return false;
+    }
     _lcdEditDirty = false;
-    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
     _lcdPushUndo();
-    if (_lcdCommitEditorToSlide()) showToast('Slide updated', 'success');
-    else showToast('That slide is no longer available.', 'warning');
+    _lcdCommitEditorToSlide();
+    showToast('Slide updated', 'success');
+    _lcdDraftPaint();
+    return true;
   }
 
   function _lcdUpdateSlideSummary() {
@@ -80897,8 +81006,6 @@ var WO = (function() {
   // previous slide of the same group, caret at the join. Returns true if
   // a merge happened (so the caller can preventDefault).
   function _lcdMergeSlideUp() {
-    _lcdCancelAutoApply();
-    _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed || !_lcdActiveSlide) return false;
     var box = _lcdRelocateActiveSlideBox();
@@ -80910,6 +81017,10 @@ var WO = (function() {
     var allSlides = Array.from(container.querySelectorAll('.wo-slide-box'));
     var myIdx = allSlides.indexOf(box);
     if (myIdx <= 0) return false; // first slide in the section - let default backspace run
+    // Only now that it will merge: a Backspace at a section's first slide
+    // used to clear the held words' unsaved mark and push an empty step.
+    _lcdCancelAutoApply();
+    _lcdPushUndo();
     var prev = allSlides[myIdx - 1];
     var curText = ed.innerText || '';
     var prevText = _lcdReadSlidePlain(prev);
@@ -81976,6 +82087,7 @@ var WO = (function() {
   // music team keeps its key, words and links. It opened Song Order until
   // that was retired; the name stays so the button's wiring does.
   function lcdOpenInSongOrder() {
+    if (!_lcdDraftGuard(lcdOpenInSongOrder)) return;
     if (!_lcdEditingSongId) { showToast('Select a slide first.', 'warning'); return; }
     soOpenInSongbook(_lcdEditingSongId);
   }
@@ -82227,7 +82339,9 @@ var WO = (function() {
       // Reload the editor only if it is showing this slide and the operator
       // is not typing in it.
       var _ed = _lcdEditorEl();
-      if (box.classList.contains('selected') && document.activeElement !== _ed) {
+      // Not over held words either: reloading would first save them over
+      // the library's change it just wrote.
+      if (box.classList.contains('selected') && document.activeElement !== _ed && !_lcdEditDirty) {
         _lcdLoadSlideIntoEditor(box);
       }
     }
@@ -84211,6 +84325,7 @@ var WO = (function() {
       ed.setAttribute('contenteditable', locked ? 'false' : 'true');
       if (locked && document.activeElement === ed) ed.blur();
     }
+    _lcdDraftPaint();
   }
 
   function lcdUnlockEditor() {
@@ -84236,8 +84351,8 @@ var WO = (function() {
   }
 
   function lcdLockEditor() {
-    // Shutting the pad must not drop what was typed into it: the pad applies
-    // on blur, and being shut is not a blur.
+    // Shut by a path that does not ask (the console reopening), the pad
+    // saves what it holds rather than drop it. A click away asks first.
     if (_lcdEditorUnlocked) _lcdFlushAutoApply();
     _lcdEditorUnlocked = false;
     _lcdApplyEditorLock();
@@ -84258,9 +84373,137 @@ var WO = (function() {
         lcdUnlockEditor();
       }
     });
+    // ...and one pair for the way out: a click away from the editor.
+    document.addEventListener('mousedown', _lcdOnAwayMouseDown, true);
+    document.addEventListener('click', _lcdOnAwayClick, true);
+    // Closing or reloading the tab with words held asks the browser's own
+    // question; nothing else can stop a page going.
+    window.addEventListener('beforeunload', function(e) {
+      if (!_lcdDraftHeld()) return;
+      e.preventDefault(); e.returnValue = '';
+    });
+  }
+
+  // ---- An open pad holds its words until they are saved --------------
+  //
+  // Typing changes the pad and nothing else. The slide, the projector and
+  // the saved order move when the operator saves: Apply, or Save in the
+  // question below. (Until 2026-11-05 the pad applied itself half a second
+  // after typing stopped, so a half-typed line could reach the screen in the
+  // middle of a service.) A click anywhere away from the Slide Editor shuts
+  // the pad -- at once when nothing was changed, and with "Save your changes
+  // to this slide?" (Save / Discard / Keep editing) when something was; the
+  // click that asked is swallowed, so a slide clicked in the rail is not
+  // also sent to the screen behind the question. A click inside anything
+  // that floats over the page -- the Text, Background and Barrier dialogs,
+  // a menu, a toast, this question -- belongs to whatever opened it and is
+  // not "away", and neither is a scrollbar. A slide loaded by any other path
+  // (a redraw, the console reopening) still takes the draft with it, saved,
+  // rather than drop what was typed.
+  var _lcdSwallowUntil = 0;
+  function _lcdDraftHeld() { return !!(_lcdEditorUnlocked && _lcdEditDirty); }
+  // Before anything that redraws, reloads or replaces the slide being
+  // edited. True: go on now. False: the question is up, and `then` runs
+  // after Save or Discard (not after Keep editing).
+  function _lcdDraftGuard(then) {
+    if (!_lcdDraftHeld()) return true;
+    _lcdAskDraft(then);
+    return false;
+  }
+  function _lcdDraftPaint() {
+    var panel = document.querySelector('.lcd-lyrics-panel');
+    if (panel) panel.classList.toggle('lcd-draft-dirty', !!(_lcdEditorUnlocked && _lcdEditDirty));
+  }
+  function _lcdClickIsAway(e) {
+    var t = e && e.target;
+    if (!t || !t.closest || t === document.documentElement || t === document.body) return false;
+    if (t.closest('.lcd-lyrics-panel, #lcdDraftAsk')) return false;
+    if (t.clientWidth && e.offsetX > t.clientWidth) return false;     // its own scrollbar
+    if (t.clientHeight && e.offsetY > t.clientHeight) return false;
+    // Up to the console, not past it: in Full Screen the console itself is
+    // position: fixed, and every click in it read as floating.
+    for (var el = t; el && el !== document.body && el.id !== 'worshipOrderView'; el = el.parentElement) {
+      if (getComputedStyle(el).position === 'fixed') return false;
+    }
+    return true;
+  }
+  function _lcdOnAwayMouseDown(e) {
+    if (!_lcdEditorUnlocked || e.button !== 0) return;
+    if (!document.body.classList.contains('lcd-console-open')) return;
+    if (document.getElementById('lcdDraftAsk') || !_lcdClickIsAway(e)) return;
+    if (_lcdEditDirty) {
+      e.preventDefault(); e.stopPropagation();
+      _lcdSwallowUntil = Date.now() + 1000;
+      _lcdAskDraft(null);
+      return;
+    }
+    lcdLockEditor();
+  }
+  function _lcdOnAwayClick(e) {
+    if (!_lcdSwallowUntil) return;
+    // The click to swallow is the one the asking press would have made, on
+    // whatever it was pressed on. A click IN the question is an answer: if
+    // that press made no click of its own, the flag must not eat Save.
+    if (e.target && e.target.closest && e.target.closest('#lcdDraftAsk')) { _lcdSwallowUntil = 0; return; }
+    var swallow = Date.now() < _lcdSwallowUntil;
+    _lcdSwallowUntil = 0;
+    if (swallow) { e.preventDefault(); e.stopPropagation(); }
+  }
+  // Put the slide's own words back in the pad and shut it.
+  function _lcdDiscardDraft() {
+    _lcdCancelAutoApply();
+    var box = _lcdRelocateActiveSlideBox();
+    if (box) _lcdLoadSlideIntoEditor(box);
+    var k = _edLcdKeyFromActive(_lcdActiveSlide);
+    if (k) edRelease(k);
+    _lcdEditorUnlocked = false;
+    _lcdApplyEditorLock();
+    _lcdDraftPaint();
+  }
+  function _lcdAskDraft(after) {
+    if (document.getElementById('lcdDraftAsk')) return;
+    var box = _lcdRelocateActiveSlideBox();
+    var title = box ? _lcdSlideItemTitle(box) : 'this slide';
+    var bd = document.createElement('div');
+    bd.id = 'lcdDraftAsk';
+    bd.className = 'lcd-ask-backdrop';
+    bd.innerHTML = '<div class="lcd-ask" role="alertdialog" aria-modal="true" aria-labelledby="lcdDraftAskT" aria-describedby="lcdDraftAskM">' +
+      '<div class="lcd-ask__t" id="lcdDraftAskT">Save your changes to this slide?</div>' +
+      '<div class="lcd-ask__m" id="lcdDraftAskM"><b>' + escapeHtml(title) + '</b>: what you typed is not on the screen or in the order until it is saved.</div>' +
+      '<div class="lcd-ask__btns">' +
+        '<button type="button" class="lcd-ask__keep">Keep editing</button>' +
+        '<button type="button" class="lcd-ask__discard">Discard</button>' +
+        '<button type="button" class="lcd-ask__save"><i class="fa-solid fa-check"></i> Save</button></div></div>';
+    document.body.appendChild(bd);
+    var key = function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done('keep'); }
+      else if (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('.lcd-ask__keep, .lcd-ask__discard'))) { e.preventDefault(); e.stopPropagation(); done('save'); }
+      // a clicker's next/previous waits for the answer
+      else if (/^(Arrow\w+|PageUp|PageDown|Home|End)$/.test(e.key)) { e.preventDefault(); e.stopPropagation(); }
+    };
+    var done = function(choice) {
+      document.removeEventListener('keydown', key, true);
+      if (bd.parentNode) bd.parentNode.removeChild(bd);
+      // Not saved (another device has the slide): the words stay, unsaved.
+      if (choice === 'save') { if (_lcdApplySlideEdit() === false) { var e0 = _lcdEditorEl(); if (e0) e0.focus(); return; } lcdLockEditor(); }
+      else if (choice === 'discard') { _lcdDiscardDraft(); showToast('Changes discarded', 'info'); }
+      else { var ed = _lcdEditorEl(); if (ed) ed.focus(); return; }
+      if (typeof after === 'function') after();
+    };
+    bd.querySelector('.lcd-ask__save').onclick = function() { done('save'); };
+    bd.querySelector('.lcd-ask__discard').onclick = function() { done('discard'); };
+    bd.querySelector('.lcd-ask__keep').onclick = function() { done('keep'); };
+    // A tap outside is Keep editing -- but not the second press of the
+    // double-click that asked, which lands on the backdrop a moment later.
+    var openedAt = Date.now();
+    bd.addEventListener('mousedown', function(e) { if (e.target === bd) bd.__downOnBd = true; });
+    bd.addEventListener('click', function(e) { if (e.target === bd && bd.__downOnBd && Date.now() - openedAt > 600) done('keep'); bd.__downOnBd = false; });
+    document.addEventListener('keydown', key, true);
+    var sb = bd.querySelector('.lcd-ask__save'); if (sb) sb.focus();
   }
 
   function lcdSetEditorMode(mode) {
+    if (mode === 'preview' && _lcdEditorUnlocked && _lcdEditDirty) { _lcdAskDraft(function() { lcdSetEditorMode('preview'); }); return; }
     var preview = (mode === 'preview');
     var panel = document.querySelector('.lcd-lyrics-panel');
     if (panel) panel.classList.toggle('lcd-mode-preview', preview);
@@ -84268,9 +84511,10 @@ var WO = (function() {
     var pb = document.getElementById('lcdSegPreviewBtn');
     if (eb) { eb.classList.toggle('active', !preview); eb.setAttribute('aria-pressed', preview ? 'false' : 'true'); }
     if (pb) { pb.classList.toggle('active', preview); pb.setAttribute('aria-pressed', preview ? 'true' : 'false'); }
-    // Leaving Edit with unsaved keystrokes would silently drop them: the pad
-    // auto-applies on blur, and switching panes is not a blur.
-    if (preview && typeof lcdFlushAutoApply === 'function') lcdFlushAutoApply();
+    // Unsaved words were asked about above, so all that is left here is to
+    // let go of the slide's edit claim. (This called lcdFlushAutoApply, a
+    // name this scope never had, so it never ran.)
+    if (preview) _lcdFlushAutoApply();
     // Preview has no pad, so leaving Edit shuts it. Coming back to Edit does
     // NOT reopen it -- only lcdUnlockEditor() does, which is what the Edit
     // button calls.
@@ -84638,6 +84882,9 @@ var WO = (function() {
   }
 
   function selectSlideBox(box) {
+    // Not while "Save your changes?" is waiting: a clicker, the keyboard or
+    // the projection window would otherwise save the words under it.
+    if (document.getElementById('lcdDraftAsk')) return;
     // Some callers hand over a wrapper rather than a slide. The scripture
     // banner passes this.nextElementSibling, which is the
     // .wo-scripture-slides-group -- the group, not the first slide in it. The
@@ -85920,6 +86167,9 @@ var WO = (function() {
   }
 
   function lcdOpenSectionAllSlides() {
+    // All Slides shows and saves the slides as they are; held words would
+    // then be saved over whatever slide took their place.
+    if (!_lcdDraftGuard(lcdOpenSectionAllSlides)) return;
     var secId = currentSectionId
       || (selectedSlideBox && selectedSlideBox.getAttribute('data-section'))
       || (_lcdActiveSlide && _lcdActiveSlide.getAttribute && _lcdActiveSlide.getAttribute('data-section'))
@@ -91333,7 +91583,7 @@ var WO = (function() {
     // Step 2: the inbox, adding a song, medleys
     openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
     sbmInboxAttachTo: sbmInboxAttachTo, sbmInboxRemove: sbmInboxRemove, sbmInboxPaste: sbmInboxPaste,
-    sbmInboxOpen: sbmInboxOpen, sbmAddSong: sbmAddSong, sbmAddSongFilter: sbmAddSongFilter,
+    sbmInboxOpen: sbmInboxOpen, sbmAddSong: sbmAddSong, sbmAddSongFilter: sbmAddSongFilter, sbmMoveToSection: sbmMoveToSection, sbmMoveToSectionPick: sbmMoveToSectionPick,
     sbmAddSongPick: sbmAddSongPick, sbmResRemove: sbmResRemove, sbmResRestore: sbmResRestore,
     sbmMedley: sbmMedley, openMedleyEditor: openMedleyEditor, woMedleyLeave: woMedleyLeave,
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
@@ -102425,6 +102675,28 @@ function filterLiturgyItems() {
   /* Preview has no pad at all, so the hint would be describing nothing. */
   .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-lockhint { display: none; }
 
+  /* ---- Words typed but not yet saved ------------------------------------- */
+  /* The pad holds them until Apply (or Save in the question a click away
+     asks), so the panel says so: "Unsaved" by the slide's name, and Apply
+     ringed as the thing that would save them. */
+  .lcd-lyrics-panel.lcd-draft-dirty #lcdLyricsEditorTitle::after {
+    content: "Unsaved"; margin-left: 8px; padding: 2px 8px; border-radius: 999px; vertical-align: middle;
+    background: #fef3c7; color: #92400e; font: 700 0.62rem/1.3 'Poppins', sans-serif; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .lcd-lyrics-panel.lcd-draft-dirty .lcd-lyrics-actions .lcd-mini-btn.primary { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.55); }
+  /* Save your changes to this slide? */
+  .lcd-ask-backdrop { position: fixed; inset: 0; z-index: 10060; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 12, 28, 0.55); }
+  .lcd-ask { width: min(440px, 100%); background: #fff; color: #0b1930; border-radius: 16px; padding: 20px 20px 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); font-family: 'Poppins', sans-serif; }
+  .lcd-ask__t { font-weight: 700; font-size: 17px; line-height: 1.3; }
+  .lcd-ask__m { margin-top: 6px; font-size: 13.5px; line-height: 1.45; color: #475569; }
+  .lcd-ask__m b { color: #0b1930; }
+  .lcd-ask__btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .lcd-ask__btns button { min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #d5dde8; background: #fff; color: #0b1930; font: 600 14px/1 'Poppins', sans-serif; cursor: pointer; }
+  .lcd-ask__btns .lcd-ask__keep { margin-right: auto; }
+  .lcd-ask__btns .lcd-ask__discard { color: #b91c1c; border-color: rgba(220, 38, 38, 0.35); }
+  .lcd-ask__btns .lcd-ask__save { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .lcd-ask__btns button:focus-visible { outline: 2px solid #c1993f; outline-offset: 2px; }
+
   /* ---- Slide nav, under the projection it drives ------------------------- */
   /* These are transport controls. They used to sit under the editor canvas,
      which put the thing that changes the slide on the opposite side of the
@@ -109860,6 +110132,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-contents small { display: block; font: 400 12px/1.2 var(--sbm-font-body); color: var(--sbm-muted); }
 .sbm-menu { display: flex; flex-direction: column; gap: 6px; }
 .sbm-menu .sbm-btn { justify-content: flex-start; }
+/* Move to section: the section it is in now is ticked and cannot be chosen */
+.sbm-move-sec .sbm-btn small { margin-left: auto; font: 600 11px/1 var(--sbm-font-ui); color: var(--sbm-muted); }
+.sbm-move-sec .sbm-btn.is-on { background: #e8f5ee; border-color: #9fd3b4; color: #14532d; opacity: 1; }
+.sbm-move-note { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: 500 13px/1.4 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); }
 .sbm-embed { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: var(--sbm-radius-md); overflow: hidden; background: #000; }
 .sbm-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 

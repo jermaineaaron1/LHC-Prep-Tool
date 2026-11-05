@@ -191,7 +191,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      is showing and closes back to it. It also has the order's **inbox**
      (links and files shared to the service from a phone's share sheet, the
      share picker, or pasted -- put each on a song), **Add a song** (into a
-     section), each song's links hidden for this service or removed,
+     section), **Move to section** (More: `sbmMoveToSectionPick`, the
+     Builder's own move through `_woSongsChange`; a medley moves as one; a
+     section that already sings the song, or an open LCD schedule, refuses), each song's links hidden for this service or removed,
      **medleys** (gotchas 42-44; a standalone songbook has them too), and
      **versions** of a song -- a key, words and drawings a later service can
      sing it with, listed as "Saved versions", and "Make this the song's main
@@ -1697,6 +1699,46 @@ the anon key -- verify as `postgres`, not as the app.
     Parts. The bar (`#sbmEdSel`) sits in the desk's footer and spans the
     phone's two-column sticky bar (`grid-column: 1 / -1`).
     `tools/choir-chord-sheet-harness.js` checks it.
+
+60. **The LCD Slide Editor's pad holds its words until they are saved.**
+    Typing changes the pad alone (`_lcdEditDirty`); the slide, the
+    projector and the order move on Apply (`_lcdApplySlideEdit`) or on Save
+    in the question a click away asks. It used to commit itself 0.5s after
+    typing stopped and again on blur, so a half-typed line reached the
+    screen mid-service -- and a toolbar press is a blur, so nothing can be
+    saved on blur. A click away (`_lcdOnAwayMouseDown`, a capture listener
+    bound with the double-click openers) shuts the pad when nothing changed
+    and lets the click carry on; with words held it asks "Save your changes
+    to this slide?" (`_lcdAskDraft`: Save / Discard / Keep editing; Esc
+    keeps, Enter saves) and swallows the click that asked
+    (`_lcdOnAwayClick`, one click within a second) -- never a click in the
+    question, or the press that made no click of its own would eat Save.
+    "Away" (`_lcdClickIsAway`) is anything outside `.lcd-lyrics-panel`
+    except a scrollbar and anything under a `position: fixed` ancestor:
+    the Text, Background and Barrier dialogs, menus and toasts float, and
+    belong to what opened them. Preview asks the same question. Paths that
+    do not ask -- a redraw loading a slide, the console reopening -- still
+    save what was held, with its Undo step (`_lcdFlushAutoApply`), rather
+    than drop it. The panel shows "Unsaved" while words are held
+    (`lcd-draft-dirty`). Anything that would redraw, reload or replace the
+    slide asks first through `_lcdDraftGuard(then)` -- All Slides, Open in
+    Songbook, the "changed on another device" reload (`_orderSyncReload`,
+    whose banner floats and so is never "away"), `loadOrder`, `selectOrder`
+    -- and `then` runs after Save or Discard, never after Keep editing.
+    While the question is up `selectSlideBox` does nothing and a clicker's
+    keys are swallowed, or the words would be saved under it. A save is
+    refused while another device holds the slide's edit claim, and the
+    words stay held. The slide is held by reference (`_lcdActiveSlide.box`):
+    a reading's slides carry no `data-slide-idx`, so the lookup by index
+    never found one and edits to readings were never saved -- before the
+    pad held its words this failed silently. A slide rebuilt elsewhere
+    (`_lcdSyncEditorIfShowing`, `_lcdWriteLibTextToSlide`) leaves held words
+    in the pad alone. `loadOrder` empties the LCD undo stacks: a snapshot of
+    one schedule restored into another (or into the same one reloaded) put
+    back the wrong slides. "Away" walks ancestors only up to
+    `#worshipOrderView`, which is itself `position: fixed` in Full Screen.
+    Closing the tab with words held raises the browser's own question.
+    `tools/lcd-edit-away-harness.js` checks it.
 
 61. **Songbook saves check what is stored before they write over it.**
     From a review of #375-#385 (2026-11-05), each a way data was lost:
