@@ -49089,6 +49089,26 @@ var WO = (function() {
         if (orderMeta.template && Array.isArray(orderMeta.template.sectionLayout) && orderMeta.template.sectionLayout.length) {
           currentOrderData.sectionLayout = orderMeta.template.sectionLayout;
         }
+        // A full save writes back the inbox, the sections liturgy was taken
+        // out of and the slide backgrounds -- from currentOrderData. Built
+        // without them, any save from this link (Save Lyrics, a few lines
+        // transposed, Copy arrangement, the app going to the background)
+        // emptied the inbox for good, brought removed liturgy back and dropped
+        // the backgrounds (review, 2026-11-05). Loaded as openOrderInEditor
+        // loads them.
+        currentOrderData.mediaLinks = Array.isArray(orderMeta.mediaLinks) ? orderMeta.mediaLinks.slice() : [];
+        currentOrderData._inboxPresent = !!orderMeta._inboxPresent;
+        currentOrderData.clearedSections = (orderMeta.template && Array.isArray(orderMeta.template.clearedSections))
+          ? orderMeta.template.clearedSections : [];
+        if (typeof loadSlideBackgrounds === 'function') loadSlideBackgrounds();
+        if (!currentOrderData._inboxPresent && SBQ.mediaLinks && SBQ.mediaLinks.load) {
+          (function(oid) {
+            SBQ.mediaLinks.load(oid).then(function(rows) {
+              if (!currentOrderData || currentOrderData.id !== oid || !Array.isArray(rows)) return;
+              if (rows.length > currentOrderData.mediaLinks.length) currentOrderData.mediaLinks = rows;
+            }).catch(function() {});
+          })(orderMeta.id);
+        }
         songOrderSections = songs;
         _woSplitSharedSongs(songOrderSections, _woSectionList());
         openSongbook();
@@ -53467,6 +53487,7 @@ var WO = (function() {
     if (X.before == null) X.before = lines.join('\n');
     X.net += delta;
     _sbSetCopyWords(song, _sbmXpShift(lines, X.a, X.b, delta).join('\n'));
+    X.after = song.customLyrics;   // what its Undo may undo
   }
   // The chord lines from a to b moved by delta semitones, their columns
   // kept, and every other line as it was (pure).
@@ -53479,8 +53500,15 @@ var WO = (function() {
     var X = _sbmXp, song = _sbmSong();
     if (!X || !song || song.id !== X.sid || X.before == null) return;
     if (!_sbEditMayWrite(song)) return;
+    // The words changed since the bar's last move (the lyrics editor,
+    // another device): undoing would undo that too. Say so, undo nothing.
+    if (X.after != null && String(song.customLyrics || '') !== String(X.after)) {
+      X.before = null; X.net = 0; X.after = null;
+      showToast('The words were changed since, so this was not undone. Use the lyrics editor to put a line back.', 'info', { duration: 6000 });
+      return;
+    }
     var before = X.before;
-    X.before = null; X.net = 0;
+    X.before = null; X.net = 0; X.after = null;
     _sbSetCopyWords(song, before);
   }
   function sbmXpSelClose() {
@@ -54785,6 +54813,9 @@ var WO = (function() {
   }
   function _sbPartColoursSave(base, colours) {
     if (!colours) return Promise.resolve();
+    return _sbDsFresh(base).then(function() { return _sbPartColoursSaveNow(base, colours); });
+  }
+  function _sbPartColoursSaveNow(base, colours) {
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     if (!lib) return Promise.resolve();
     if (JSON.stringify(_sbPartColours(base)) === JSON.stringify(colours)) return Promise.resolve();
@@ -54969,20 +55000,13 @@ var WO = (function() {
     // open order repaints with it.
     return SBQ_SONGS.updateLyrics(base, lyrics).then(function() { lib.lyrics = lyrics; return { written: true, orphans: orphans }; });
   }
-  function _sbmPadSaveSong(base, sid, fullText, colours) {
+  function _sbmPadSaveSong(base, sid, fullText, colours, openSig) {
     var V = window.lhcVoiceLines;
     var split = _sbmPadSplit(fullText, _sbmIsChord());
     var parsed = V.parseVoiceText(split.text);
     if (!parsed.length) { showToast('Nothing to save \u2014 the pad has no words', 'error'); return Promise.reject(new Error('empty')); }
     if (typeof showLoader === 'function') showLoader(true);
-    return window.SBQ_VOICE_LINES.replaceAll(base, parsed).then(function() {
-      return window.SBQ_VOICE_LINES.forSong(base);
-    }).then(function(fresh) {
-      _sbVoiceLines[base] = fresh || [];
-      var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
-      if (lib) lib.voiceLayout = 'two-part';
-      var item = (songOrderSections || []).find(function(x) { return x && x.id === sid; });
-      if (item) item.voiceLayout = 'two-part';
+    return _sbVoiceWrite(base, sid, parsed, { openSig: openSig }).then(function() {
       return _sbmPadSaveChords(base, _sbVoiceLines[base], split.chords);
     }).then(function(r) {
       return _sbPartColoursSave(base, colours).then(function() { return r; });
@@ -55183,6 +55207,7 @@ var WO = (function() {
   function _sbOverviewOpenNow(base, sid, title, sectionName, run) {
     var V = window.lhcVoiceLines;
     var rows = _sbVoiceLines[base] || [];
+    var openSig = _sbLinesSig(rows);   // what is stored as it opens, before any seed
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     var lyrics = (lib && lib.lyrics) || '';
     if (!rows.length) {
@@ -55200,7 +55225,7 @@ var WO = (function() {
     _sbmPadOpen({ base: base, title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
       onSave: function(t, colours) {
         var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t, run) : t;
-        return _sbmPadSaveSong(base, sid, whole, colours);
+        return _sbmPadSaveSong(base, sid, whole, colours, openSig);
       } });
   }
   function sbmOverview(sectionName, run) {
@@ -55825,6 +55850,8 @@ var WO = (function() {
       if (!built.sections.length) built.sections.push({ id: _sbmEdId(), name: 'Verse 1', open: true, moments: [] });
     }
     _sbmEd = { base: o.base, sid: o.sid || null, title: o.title || '', artist: o.artist || '',
+               // what is stored as it opens: the save is refused if that changes
+               openSig: _sbLinesSig(Array.isArray(o.openRows) ? o.openRows : rows),
                sections: built.sections, parts: built.parts, reorder: false, dirty: false,
                desktop: !!o.desktop, previewOpts: o.previewOpts || null,
                onSave: (typeof o.onSave === 'function') ? o.onSave : null,
@@ -56299,8 +56326,40 @@ var WO = (function() {
   // A song's arrangement written whole and read back, and the song marked as
   // one with parts -- the library's copy and the book's -- or the next
   // render would not look for them. Resolves the rows as stored.
-  function _sbVoiceWrite(base, sid, rows) {
-    return window.SBQ_VOICE_LINES.replaceAll(base, rows).then(function() {
+  // The choir parts as stored, reduced to what they say: who, what, where,
+  // in what order. Two reads of the same arrangement give the same string.
+  function _sbLinesSig(rows) {
+    return JSON.stringify((rows || []).slice().sort(function(a, b) {
+      return (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
+    }).map(function(r) {
+      return [Number(r.sortOrder) || 0, String(r.part || '').trim().toLowerCase(), String(r.text || ''), String(r.section || ''), r.sustained ? 1 : 0];
+    }));
+  }
+  // The one way an arrangement is written, and it reads what is stored first
+  // (review, 2026-11-05):
+  //   opts.openSig     refuse if the parts are no longer what the editor
+  //                    opened on -- another device saved in between, or the
+  //                    editor opened on a copy that had not loaded. A
+  //                    phone that slept with an editor open would otherwise
+  //                    put back what it opened on, over the newer save.
+  //   opts.onlyIfEmpty refuse if the song has parts at all: Set up choir
+  //                    parts decides "none" on this device's copy.
+  // A refusal is an Error with code 'changed' or 'has-parts' and the stored
+  // rows on it. After the write the drawn remarks follow their lines to
+  // their new moments (_sbmRekeyMarks).
+  function _sbVoiceWrite(base, sid, rows, opts) {
+    var o = opts || {}, before = [];
+    return window.SBQ_VOICE_LINES.forSong(base).then(function(stored) {
+      before = stored || [];
+      if (o.onlyIfEmpty && before.length) {
+        var e1 = new Error('this song already has choir parts'); e1.code = 'has-parts'; e1.rows = before; throw e1;
+      }
+      if (o.openSig != null && _sbLinesSig(before) !== o.openSig) {
+        var e2 = new Error('the choir parts were changed somewhere else since this editor opened, so nothing was saved. Close it and open it again to see them');
+        e2.code = 'changed'; e2.rows = before; throw e2;
+      }
+      return window.SBQ_VOICE_LINES.replaceAll(base, rows);
+    }).then(function() {
       return window.SBQ_VOICE_LINES.forSong(base);
     }).then(function(fresh) {
       _sbVoiceLines[base] = fresh || [];
@@ -56308,7 +56367,62 @@ var WO = (function() {
       if (lib) lib.voiceLayout = 'two-part';
       var item = songOrderSections.find(function(x) { return x && x.id === sid; });
       if (item) item.voiceLayout = 'two-part';
-      return _sbVoiceLines[base];
+      return _sbmRekeyMarks(base, before, _sbVoiceLines[base]).catch(function(e) {
+        console.warn('[marks] could not move the drawings with their lines', e);
+      }).then(function() { return _sbVoiceLines[base]; });
+    });
+  }
+  // Drawn remarks on the score are anchored to a MOMENT by its number in its
+  // section (s:<section>|<n>, gotcha 31), and a save that regroups the lines
+  // -- Sing together, Take turns, a moment added, moved or taken out --
+  // renumbers every moment after it, so the remarks sat on the wrong words or
+  // on none. Each line is followed to its new self by its words, as the takes
+  // are (rematch), and each remark goes with the line it names: a word or row
+  // of a part with that part's line, a chord or the moment itself with the
+  // moment's first line. A remark whose line is gone keeps its key.
+  function _sbmRekeyMarks(base, oldRows, newRows) {
+    var V = window.lhcVoiceLines, sup = window._supabase;
+    if (!V || !sup || !(oldRows && oldRows.length) || !(newRows && newRows.length)) return Promise.resolve(0);
+    var oldAt = V.lineNumbers(oldRows).byId, newAt = V.lineNumbers(newRows).byId, map = V.rematch(oldRows, newRows);
+    var moments = {};
+    oldRows.forEach(function(r) {
+      var at = oldAt[String(r.id)]; if (!at) return;
+      var mk = 's:' + at.sectionKey + '|' + at.n;
+      var m = moments[mk] || (moments[mk] = { parts: {}, first: r });
+      m.parts[V.partKey(r.part)] = r;
+    });
+    var newKey = function(row) {
+      var nid = row ? map[row.id] : null, at = (nid != null) ? newAt[String(nid)] : null;
+      return at ? 's:' + at.sectionKey + '|' + at.n : null;
+    };
+    var moveEnd = function(end) {
+      var m = moments[end.base]; if (!m) return end.key;
+      var part = null, sm = /^(w|r|t):([\s\S]*)$/.exec(end.sub || '');
+      if (sm) {
+        if (sm[1] === 'r') part = sm[2];
+        else { var wm = /^([\s\S]*):\d+$/.exec(sm[2]); if (wm) part = wm[1]; }
+      }
+      var row = (part != null && m.parts[V.partKey(part)]) || m.first;
+      var nk = newKey(row);
+      return nk ? nk + (end.sub ? '/' + end.sub : '') : end.key;
+    };
+    return sup.from('song_marks').select('id, anchor').eq('song_id', base).then(function(r) {
+      if (!r || r.error) return 0;
+      var moves = [];
+      (r.data || []).forEach(function(mk) {
+        if (!mk.anchor || String(mk.anchor).indexOf('s:') === -1) return;
+        var kp = _sbmKeyParts(mk.anchor);
+        var nk = kp.ends.map(moveEnd).join('>') + (kp.tag ? '@' + kp.tag : '');
+        if (nk !== mk.anchor) moves.push({ id: mk.id, anchor: nk });
+      });
+      if (!moves.length) return 0;
+      return Promise.all(moves.map(function(mv) {
+        return sup.from('song_marks').update({ anchor: mv.anchor }).eq('id', mv.id).then(function(u) { if (u && u.error) throw u.error; });
+      })).then(function() {
+        (_sbmMarks[base] || []).forEach(function(x) { moves.forEach(function(mv) { if (x.id === mv.id) x.anchor = mv.anchor; }); });
+        if (typeof _sbmMarksPaintAll === 'function') _sbmMarksPaintAll();
+        return moves.length;
+      });
     });
   }
   // A song with no choir parts given them: its words, every line sung by
@@ -56322,12 +56436,22 @@ var WO = (function() {
     if (!_sbEditClaim(song)) return;
     var base = _sbBaseSongId(song);
     if (typeof showLoader === 'function') showLoader(true);
-    _sbVoiceWrite(base, song.id, rows).then(function() {
+    _sbVoiceWrite(base, song.id, rows, { onlyIfEmpty: true }).then(function() {
       song.sbmLyricsMode = '';
       sbSetChoirView(song.id, 'choir');   // shown in Choir, for everyone with the book
       _sbmLiveSend();
       showToast('Choir parts set up: every line is All. Edit Parts, or a line\u2019s part chip, to say who sings what.', 'success', { duration: 7000 });
     }).catch(function(err) {
+      if (err && err.code === 'has-parts') {
+        // Set up somewhere else meanwhile: show those, write nothing.
+        _sbVoiceLines[base] = err.rows || [];
+        var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+        if (lib) lib.voiceLayout = 'two-part';
+        song.voiceLayout = 'two-part';
+        renderSongbookLive();
+        showToast('This song already has choir parts (set up on another device), so nothing was changed. Showing them now.', 'info', { duration: 7000 });
+        return;
+      }
       console.error(err);
       showToast('Could not set up the choir parts' + (err && err.message ? ': ' + err.message : ''), 'error');
     }).finally(function() {
@@ -56357,7 +56481,7 @@ var WO = (function() {
     }
     if (typeof showLoader === 'function') showLoader(true);
     ed.saving = true;
-    _sbVoiceWrite(ed.base, ed.sid, parsed).then(function() {
+    _sbVoiceWrite(ed.base, ed.sid, parsed, { openSig: ed.openSig }).then(function() {
       // Chords typed on the pad go into the song's lyrics now that the
       // rows they sit over are saved; colours go onto the song.
       var after = [];
@@ -56370,7 +56494,11 @@ var WO = (function() {
       });
     }).catch(function(err) {
       console.error(err);
-      showToast('Could not save the choir parts', 'error');
+      // Changed on another device since it opened: the editor stays open
+      // with this device's version in it, unsaved.
+      showToast(err && err.code === 'changed'
+        ? 'These choir parts were changed on another device since you opened them, so yours were not saved. Your version is still in the editor: note what you need, then Cancel and reopen to see theirs.'
+        : 'Could not save the choir parts', err && err.code === 'changed' ? 'warning' : 'error', err && err.code === 'changed' ? { duration: 9000 } : undefined);
     }).finally(function() {
       ed.saving = false;
       if (typeof showLoader === 'function') showLoader(false);
@@ -60184,7 +60312,29 @@ var WO = (function() {
     }
     return used;
   }
+  // A song's display_style is written WHOLE (instrument names and count,
+  // part colours, layout), so it is read fresh first. From this device's
+  // cache, a write put back whatever another device had changed since -- the
+  // change banner does not watch display_style (gotcha 58), so nothing told
+  // this device (review, 2026-11-05). Resolves with the library song, its
+  // display_style the stored one; on a failed read, the cache as it was.
+  function _sbDsFresh(base) {
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    var sup = window._supabase;
+    if (!lib || !sup || !base) return Promise.resolve(lib);
+    return sup.from('songs').select('display_style').eq('id', base).maybeSingle().then(function(r) {
+      if (r && !r.error && r.data) {
+        var ds = r.data.display_style;
+        if (typeof ds === 'string') { try { ds = JSON.parse(ds); } catch (e) { ds = null; } }
+        lib.display_style = (ds && typeof ds === 'object') ? ds : {};
+      }
+      return lib;
+    }, function() { return lib; });
+  }
   function _sbRecDsWrite(base, change) {
+    return _sbDsFresh(base).then(function() { return _sbRecDsWriteNow(base, change); });
+  }
+  function _sbRecDsWriteNow(base, change) {
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     if (!lib) return Promise.reject(new Error('the song is not loaded'));
     // The whole JSON goes back, so it is the song's own with its keys changed.
@@ -60198,7 +60348,11 @@ var WO = (function() {
   // A new instrument, by name. The same name twice is the same instrument;
   // otherwise it takes the first slot nobody has named or recorded on, and
   // past those, one more -- up to thirty.
+  // Which slot is free is decided on the stored names, not this device's.
   function _sbRecInstrumentAdd(base, name) {
+    return _sbDsFresh(base).then(function() { return _sbRecInstrumentAddNow(base, name); });
+  }
+  function _sbRecInstrumentAddNow(base, name) {
     name = _sbRecCleanName(name);
     if (!name) return Promise.reject(new Error('it needs a name'));
     var count = _sbRecInstruments(base), names = _sbRecInstrumentNames(base);
@@ -60226,6 +60380,9 @@ var WO = (function() {
     return _sbRecDsWrite(base, function(ds) { ds.recInstrumentNames[slot] = name; });
   }
   function _sbRecInstrumentsSave(base, n) {
+    return _sbDsFresh(base).then(function() { return _sbRecInstrumentsSaveNow(base, n); });
+  }
+  function _sbRecInstrumentsSaveNow(base, n) {
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     if (!lib) return Promise.reject(new Error('the song is not loaded'));
     // The whole JSON goes back, so it is the song's own with one key changed.
@@ -61740,7 +61897,7 @@ var WO = (function() {
     var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; }) || {};
     var rows = (text != null) ? V.parseVoiceText(text) : (_sbVoiceLines[baseSongId] || []);
     _sbmEdOpen({ base: baseSongId, sid: item.id || null, title: item.title || '', artist: item.artist || '',
-                 rows: rows, lyrics: item.customLyrics || item.lyrics || '',
+                 rows: rows, openRows: _sbVoiceLines[baseSongId] || [], lyrics: item.customLyrics || item.lyrics || '',
                  desktop: !_sbFoldPhone(), previewOpts: { compact: true },
                  onText: function(t) { _sbChoirTextEditor(baseSongId, t); } });
   }
@@ -61749,6 +61906,7 @@ var WO = (function() {
     if (!page || !window.lhcVoiceLines) return;
     if (page.querySelector('.sb-choir-editor')) return;   // already open
     var rows = _sbVoiceLines[baseSongId] || [];
+    var openSig = _sbLinesSig(rows);   // the save is refused if what is stored is not this
     var box = page.querySelector('.sb-choir');
     if (!box) return;
     var src = window.lhcVoiceLines.toVoiceText(rows);
@@ -61779,18 +61937,14 @@ var WO = (function() {
       var parsed = window.lhcVoiceLines.parseVoiceText(ta.value);
       if (!parsed.length) { showToast('Nothing to save \u2014 the editor is empty', 'error'); return; }
       if (typeof showLoader === 'function') showLoader(true);
-      window.SBQ_VOICE_LINES.replaceAll(baseSongId, parsed).then(function() {
-        // Re-read, so the rows carry the ids a recording attaches to rather
-        // than the ones the parse invented.
-        return window.SBQ_VOICE_LINES.forSong(baseSongId);
-      }).then(function(fresh) {
-        _sbVoiceLines[baseSongId] = fresh || [];
+      var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; });
+      _sbVoiceWrite(baseSongId, item ? item.id : null, parsed, { openSig: openSig }).then(function() {
         ed.remove();
         renderSongbookLive();
         showToast('Choir parts saved', 'success');
       }).catch(function(err) {
         console.error(err);
-        showToast('Could not save the choir parts', 'error');
+        showToast(err && err.code === 'changed' ? 'Not saved: ' + err.message + '.' : 'Could not save the choir parts', err && err.code === 'changed' ? 'warning' : 'error');
       }).finally(function() {
         if (typeof showLoader === 'function') showLoader(false);
       });
@@ -62869,6 +63023,7 @@ var WO = (function() {
   var _edLocks       = {};   // key -> { owner, label, at }  -- held by OTHERS
   var _edMyLocks     = {};   // key -> { at, label, autoMs } -- held by us
   var _edTimers      = null;
+  var _edLastTick    = 0;      // when the lock timer last ran; a long gap is a sleep
   var _edMarkedEls   = [];   // the elements currently wearing a lock mark
 
   // A held lock is refreshed every 2.5s and considered dead after 8s. That gap
@@ -62878,18 +63033,53 @@ var WO = (function() {
   var ED_LOCK_TTL  = 8000;
   var ED_LOCK_PING = 2500;
 
+  // Two channels. A slide's or item's key belongs to its order and goes on
+  // the order's channel -- the same section ids recur in every order. A
+  // song's key (sbedit:<library id>) belongs to the SONG, which every book
+  // that sings it edits, so it goes on one channel for the whole app:
+  // on the order's, two services' songbooks never saw each other's lock and
+  // their saves overwrote each other (review, 2026-11-05).
+  var _edSongChannel = null, _edSongReady = false;
   function _edSend(event, payload) {
-    if (!_edLockChannel || !_edLockReady) return;
+    if (event === 'ed_query') {
+      _edSendOn(_edLockChannel, _edLockReady, event, payload);
+      _edSendOn(_edSongChannel, _edSongReady, event, payload);
+      return;
+    }
+    var song = !!(payload && typeof payload.key === 'string' && payload.key.indexOf('sbedit:') === 0);
+    if (song) _edSendOn(_edSongChannel, _edSongReady, event, payload);
+    else _edSendOn(_edLockChannel, _edLockReady, event, payload);
+  }
+  function _edSendOn(ch, ready, event, payload) {
+    if (!ch || !ready) return;
     try {
-      _edLockChannel.send({ type: 'broadcast', event: event, payload: payload })
+      ch.send({ type: 'broadcast', event: event, payload: payload })
         .catch(function() {});
     } catch (e) {}
+  }
+  function _edEnsureSongChannel(sb) {
+    if (_edSongChannel || !sb) return;
+    _edSongChannel = sb
+      .channel('ed-lock-songs', { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'ed_lock' },   function(m) { _edOnLock(m.payload); })
+      .on('broadcast', { event: 'ed_unlock' }, function(m) { _edOnUnlock(m.payload); })
+      .on('broadcast', { event: 'ed_query' },  function()  { _edAnnounceMine(); })
+      .subscribe(function(status) {
+        if (status === 'SUBSCRIBED') {
+          _edSongReady = true;
+          _edSendOn(_edSongChannel, true, 'ed_query', { from: _edClientId });
+          _edAnnounceMine();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          _edSongReady = false;
+        }
+      });
   }
 
   function _edEnsureChannel() {
     var sb = SBQ._sb();
     var oid = currentOrderData && currentOrderData.id;
     if (!sb || !oid) return;
+    _edEnsureSongChannel(sb);
     if (_edLockChannel && _edLockOrderId === oid) return;
     _edTeardownLocks();
     _edLockOrderId = oid;
@@ -62915,6 +63105,14 @@ var WO = (function() {
       _edTimers = setInterval(function() {
         var now = Date.now();
         var changed = false;
+        // A tick that came later than a lock lives means this device slept:
+        // to everyone else its locks lapsed, and someone may have taken the
+        // song and saved. Its claims lose their head start, and a song held
+        // through it is marked lapsed, so its save checks what is stored.
+        if (_edLastTick && now - _edLastTick > ED_LOCK_TTL) {
+          Object.keys(_edMyLocks).forEach(function(k) { _edMyLocks[k].since = now; _edMyLocks[k].lapsed = true; });
+        }
+        _edLastTick = now;
         // Drop other people's locks we have stopped hearing about.
         Object.keys(_edLocks).forEach(function(k) {
           if (now - _edLocks[k].at > ED_LOCK_TTL) { delete _edLocks[k]; changed = true; }
@@ -62998,7 +63196,7 @@ var WO = (function() {
     _edEnsureChannel();
     if (edIsLockedByOther(key)) return false;
     var mine = _edMyLocks[key];
-    _edMyLocks[key] = { at: Date.now(), since: (mine && mine.since) || Date.now(), label: label || '', autoMs: autoMs || 0 };
+    _edMyLocks[key] = { at: Date.now(), since: (mine && mine.since) || Date.now(), label: label || '', autoMs: autoMs || 0, lapsed: !!(mine && mine.lapsed) };
     // Draw our own frame straight away: nothing arrives over the channel to
     // tell us about a lock we just took ourselves.
     setTimeout(_edApplyLockUI, 0);
@@ -65847,6 +66045,9 @@ var WO = (function() {
     if (!_sbEditClaim(s)) return;
     _sbEditingSid = sid;
     _sbLyricsEditBase = _sbBaseSongId(s);
+    // What the copy's words were as the editor opened, for the save to
+    // compare with (sbSaveLyricsFromModal).
+    _sbLyrOpened = { sid: sid, words: _sbNormWords(s.customLyrics || '') };
     var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');
 
     // Borrow the existing lyrics editor modal
@@ -65877,16 +66078,38 @@ var WO = (function() {
   }
 
   // Called by saveLyricsEditor() when in SB mode - saves lyrics back to songbook
+  // The editor saves only over the words it opened on. Changed here since
+  // (another device's save, synced) it is refused at once; and when this
+  // device slept with the editor open -- its lock lapsed, so someone else may
+  // have saved without this device hearing -- the stored words are read
+  // first, and the editor closes once they check out (review, 2026-11-05).
+  var _sbLyrOpened = null;
+  function _sbNormWords(t) { return String(t == null ? '' : t).replace(/\r\n?/g, '\n').replace(/\s+$/, ''); }
   function sbSaveLyricsFromModal(lyrics) {
     if (!_sbEditingSid) return;
     var sid = _sbEditingSid;
     var song = (songOrderSections || []).find(function(x) { return x.id === sid; });
     if (!song) { _sbEditingSid = null; return; }
     if (!_sbEditMayWrite(song)) return false;
-    _sbEditingSid = null;
-    _sbSetCopyWords(song, lyrics);
-    showToast('Saved the words of \u201c' + (song.title || 'the song') + '\u201d', 'success');
-    return true;
+    var opened = (_sbLyrOpened && _sbLyrOpened.sid === sid) ? _sbLyrOpened.words : null;
+    var changedMsg = 'These words were changed on another device since you opened them, so yours were not saved. Your text is still in the editor: copy what you need, then close and reopen to see theirs.';
+    if (opened != null && _sbNormWords(song.customLyrics || '') !== opened) {
+      showToast(changedMsg, 'warning', { duration: 9000 }); return false;
+    }
+    var commit = function() {
+      _sbEditingSid = null; _sbLyrOpened = null;
+      _sbSetCopyWords(song, lyrics);
+      showToast('Saved the words of \u201c' + (song.title || 'the song') + '\u201d', 'success');
+    };
+    var mine = _edMyLocks[_sbEditKey(_sbBaseSongId(song))], sup = window._supabase;
+    if (opened == null || !mine || !mine.lapsed || !sup) { commit(); return true; }
+    sup.from('order_items').select('customizations').eq('id', sid).maybeSingle().then(function(r) {
+      var c = (r && !r.error && r.data) ? (r.data.customizations || {}) : null;
+      if (c && _sbNormWords(c.customLyrics || '') !== opened) { showToast(changedMsg, 'warning', { duration: 9000 }); return; }
+      commit();
+      if (typeof closeLyricsEditor === 'function') closeLyricsEditor();
+    }, function() { commit(); if (typeof closeLyricsEditor === 'function') closeLyricsEditor(); });
+    return false;   // the editor closes when the check is done
   }
   // This copy's words replaced and saved: the editor's Save, and a few lines
   // transposed on their own.

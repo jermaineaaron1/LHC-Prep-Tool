@@ -1627,8 +1627,11 @@ the anon key -- verify as `postgres`, not as the app.
     `sbAutoSave` AND `autoSaveOrder` (a standalone book reads its words from
     the full save), `_sbmLiveSend`, a redraw. **One editor at a time**:
     the Lyrics & Chords editor, the choir parts editor and the Overview each
-    save a song whole, so each holds `sbedit:<library song id>` on the book's
-    lock channel (`edTryClaim`: broadcast locks with an 8s TTL)
+    save a song whole, so each holds `sbedit:<library song id>` on the
+    app-wide song lock channel, `ed-lock-songs` (a song is edited from every
+    book that sings it; slide and item keys stay on the order's channel,
+    whose section ids recur in every order -- `_edSend` routes by key)
+    (`edTryClaim`: broadcast locks with an 8s TTL)
     from open to close (`_sbEditClaim` / `_sbEditRelease`; the Overview on top
     of the parts editor shares its hold, and a failed read lets it go). A
     claim carries when it began (`since`), and two at once go to the EARLIER,
@@ -1736,6 +1739,40 @@ the anon key -- verify as `postgres`, not as the app.
     `#worshipOrderView`, which is itself `position: fixed` in Full Screen.
     Closing the tab with words held raises the browser's own question.
     `tools/lcd-edit-away-harness.js` checks it.
+
+61. **Songbook saves check what is stored before they write over it.**
+    From a review of #375-#385 (2026-11-05), each a way data was lost:
+    - The shared Songbook link (`openSongbookByOrderId`, also what
+      `sbmLiveRefresh` reopens) builds `currentOrderData` itself, and a full
+      save writes back `mediaLinks`, `clearedSections` and the slide
+      backgrounds from it. It now loads them as `openOrderInEditor` does;
+      before, any save from the link emptied the inbox for good
+      (`_inbox: []` with `_inboxPresent`), brought removed liturgy back and
+      dropped the backgrounds. Anything new that builds `currentOrderData`
+      must load every key `saveCurrentOrder` writes.
+    - Every write of an arrangement goes through `_sbVoiceWrite`, which
+      reads the stored lines first: `onlyIfEmpty` (Set up choir parts,
+      decided on this device's copy) refuses when the song has parts;
+      `openSig` (`_sbLinesSig` of what the editor opened on -- Edit Parts,
+      Overview, the page view's text editor) refuses when they changed
+      since. A refusal is an Error with `code` 'has-parts' / 'changed'; the
+      editor stays open with its version in it.
+    - After the write, `_sbmRekeyMarks` moves the drawn remarks with their
+      lines: a regrouping renumbers the moments, and `s:<section>|<n>` keys
+      (gotcha 31) pointed at the wrong ones. Lines are followed by their
+      words (`rematch`); a part's word or row goes with that part's line, a
+      chord or the moment with its first line; lyrics `l:` keys untouched.
+    - `display_style` is written whole, so `_sbDsFresh` re-reads it first
+      (instrument add, rename and count, part colours): the change banner
+      does not watch it, and a stale cache put back what another device had
+      named or coloured.
+    - A device whose lock timer skipped past the TTL slept: its claims lose
+      their head start and are marked `lapsed`. Save Lyrics refuses when the
+      copy's words changed in memory since it opened (`_sbLyrOpened`), and
+      after a sleep reads `order_items.customizations.customLyrics` first.
+    - The transpose bar's Undo undoes only its own change: words changed
+      since its last move (`X.after`) are left alone, with a message.
+    `tools/songbook-review-harness.js` checks them.
 
 ## Quick Commands for Claude Code
 

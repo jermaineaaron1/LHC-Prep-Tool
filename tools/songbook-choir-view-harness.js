@@ -64,8 +64,8 @@ if (vStart >= 0 && vEnd > vStart) {
     seed[0].text === 'Joy to the world', JSON.stringify(seed));
 } else check('...the choir parts module is there to seed from', false);
 check('Set up writes that arrangement the way the parts editor saves one, and shows it in Choir',
-  has(/function sbmChoirStart\(\) \{[^]*?if \(!_sbEditClaim\(song\)\) return;[^]*?_sbVoiceWrite\(base, song\.id, rows\)\.then\(function\(\) \{[^]*?sbSetChoirView\(song\.id, 'choir'\);[^]*?_sbEditRelease\(base\);/) &&
-  has(/_sbVoiceWrite\(ed\.base, ed\.sid, parsed\)\.then\(function\(\) \{/));
+  has(/function sbmChoirStart\(\) \{[^]*?if \(!_sbEditClaim\(song\)\) return;[^]*?_sbVoiceWrite\(base, song\.id, rows, \{ onlyIfEmpty: true \}\)\.then\(function\(\) \{[^]*?sbSetChoirView\(song\.id, 'choir'\);[^]*?_sbEditRelease\(base\);/) &&
+  has(/_sbVoiceWrite\(ed\.base, ed\.sid, parsed, \{ openSig: ed\.openSig \}\)\.then\(function\(\) \{/));
 check('...and in Choir, Edit edits the parts of any song',
   has(/if \(_sbSongHasChoir\(song\) \? _sbChoirView\(song\) === 'choir' : song\.sbmLyricsMode === 'choir'\) \{ sbmEditParts\(\); return; \}/) &&
   has(/\+ \(view === 'choir' \? 'Edit Parts' : 'Edit'\) \+/));
@@ -136,7 +136,7 @@ check('...saves them as the copy\'s words, as the Lyrics editor does, unless som
   has(/_sbSetCopyWords\(song, _sbmXpShift\(lines, X\.a, X\.b, delta\)\.join\('\\n'\)\);/) &&
   has(/function _sbSetCopyWords\(song, lyrics\) \{/));
 check('...keeps the lines it moves tinted, and Undo puts them back as they first were',
-  has(/forEach\(function\(el\) \{ el\.classList\.add\('sbm-xp-on'\); \}\);/) && has(/var before = X\.before;\r?\n\s*X\.before = null; X\.net = 0;\r?\n\s*_sbSetCopyWords\(song, before\);/));
+  has(/forEach\(function\(el\) \{ el\.classList\.add\('sbm-xp-on'\); \}\);/) && has(/var before = X\.before;\r?\n\s*X\.before = null; X\.net = 0; X\.after = null;\r?\n\s*_sbSetCopyWords\(song, before\);/));
 check('...and the key control says it can be done', has(/Select some lines in the song to move only those/));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

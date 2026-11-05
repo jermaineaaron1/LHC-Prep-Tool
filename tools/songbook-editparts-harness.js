@@ -110,6 +110,7 @@ const WANTED = [
   [/^  function _sbmEdClose\(/, '_sbmEdClose'],
   [/^  function _sbmEdKey\(/, '_sbmEdKey'],
   [/^  function sbmEdToText\(/, 'sbmEdToText'],
+  [/^  function _sbLinesSig\(/, '_sbLinesSig'],
   [/^  function _sbVoiceWrite\(/, '_sbVoiceWrite'],
   [/^  function sbmEdSave\(/, 'sbmEdSave']
 ];
@@ -141,6 +142,9 @@ try {
     // The one-editor-at-a-time hold is the lock channel's business, not
     // this editor's: here nobody else ever has the song.
     '\nfunction _sbEditMayWrite() { return true; }\nfunction _sbEditRelease() {}' +
+    // Moving the drawn remarks with their lines is the marks' business,
+    // checked in songbook-review-harness.js.
+    '\nfunction _sbmRekeyMarks() { return Promise.resolve(0); }' +
     '\nreturn {' +
     '  get ed() { return _sbmEd; }, set ed(v) { _sbmEd = v; },' +
     '  fromRows: _sbmEdFromRows, toText: _sbmEdToText, find: _sbmEdFind, nextName: _sbmEdNextName,' +
@@ -372,8 +376,10 @@ console.log('\nsaving');
     for (let i = 0; i < 8; i++) await tick();
     check('the rows go to replaceAll for the base song', calls.replaceAll.map(c => c[0]), ['song_a']);
     check('and they are the parsed arrangement', shape(calls.replaceAll[0][1]), shape(ROWS));
+    // Read twice: before, to see the parts are still what the editor opened
+    // on (review, 2026-11-05), and after, for the database's ids.
     check('then the song is re-read, so the cache carries the database\'s ids',
-      [calls.forSong, cache.song_a.map(r => r.text)], [['song_a'], ['fresh from the database']]);
+      [calls.forSong, cache.song_a.map(r => r.text)], [['song_a', 'song_a'], ['fresh from the database']]);
     check('the library copy now knows it is a song with parts', windowStub.STATE.songs[0].voiceLayout, 'two-part');
     check('the book is redrawn once and the editor is closed', [calls.render, api.ed], [1, null]);
     check('and it says so', calls.toasts.map(t => t[1]), ['success']);

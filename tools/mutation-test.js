@@ -1325,10 +1325,10 @@ const CASES = [
     s => s.replace("if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); return; }",
                    "if (!parsed.length) { showToast('Nothing to save \\u2014 there are no lines', 'error'); }")],
   ['songbook-editparts-harness.js', 'the rows are not re-read after the write, so the cache keeps invented ids',
-    s => s.replace(/(function _sbVoiceWrite\(base, sid, rows\) \{\r?\n\s*return window\.SBQ_VOICE_LINES\.replaceAll\(base, rows\)\.then\(function\(\) \{\r?\n\s*)return window\.SBQ_VOICE_LINES\.forSong\(base\);/, '$1return rows;')],
+    s => s.replace(/(return window\.SBQ_VOICE_LINES\.replaceAll\(base, rows\);\r?\n\s*\}\)\.then\(function\(\) \{\r?\n\s*)return window\.SBQ_VOICE_LINES\.forSong\(base\);/, '$1return rows;')],
   ['songbook-editparts-harness.js', 'a failed write closes the editor and loses the edits',
-    s => s.replace(/(_sbVoiceWrite\(ed\.base, ed\.sid, parsed\)[\s\S]*?)showToast\('Could not save the choir parts', 'error'\);/,
-                   "$1_sbmEdClose(); showToast('Could not save the choir parts', 'error');")],
+    s => s.replace(/(_sbVoiceWrite\(ed\.base, ed\.sid, parsed, \{ openSig: ed\.openSig \}\)[\s\S]*?\}\)\.catch\(function\(err\) \{\r?\n\s*)console\.error\(err\);/,
+                   '$1_sbmEdClose(); console.error(err);')],
   // The library's Choir parts tab hands the dialog its rows and takes the
   // text back; the dialog must write nothing of its own in that case.
   ['songbook-editparts-harness.js', "another screen's save is written from here anyway",
