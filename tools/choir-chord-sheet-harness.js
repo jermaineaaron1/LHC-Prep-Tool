@@ -145,10 +145,42 @@ if (edSrc) {
 } else check('Edit Parts marks a box whose parts both have words as singing together', false);
 check('...and marks it again as words are typed, without redrawing the editor',
   has(/f\.line\.text = value; _sbmEdTouch\(\); _sbmEdPreviewSoon\(\); _sbmEdTogetherMark\(f\.m\);/) &&
-  has(/'<div class="sbm-ed__moment' \+ \(_sbmEdTogether\(m\) \? ' is-together' : ''\) \+ '" data-moment="'/));
+  has(/'<div class="sbm-ed__moment' \+ \(_sbmEdTogether\(m\) \? ' is-together' : ''\) \+ [^\n]*?'" data-moment="'/));
 check('...and every box but an all-sing one shows its way to add a part singing with it',
   has(/\? '' : ' sbm-ed__here'\) \+ '" onclick="WO\.sbmEdAddPart\(/) && has(/<span>Part singing with this<\/span>/) &&
-  has(/#sbmEdit:not\(\.is-reorder\) \.sbm-ed__mbtns > :not\(\.sbm-ed__here\) \{ display: none; \}/));
+  has(/#sbmEdit:not\(\.is-reorder\) \.sbm-ed__mbtns > :not\(\.sbm-ed__here\):not\(\.sbm-ed__tick\) \{ display: none; \}/));
+
+console.log('\nEdit Parts: tick boxes, then Sing together or Take turns');
+const fnSrc = name => { const m = SRC.match(new RegExp('  function ' + name + '\\(m(?:oments)?\\) \\{[^]*?\\n  \\}')); return m ? m[0] : ''; };
+const joinSrc = fnSrc('_sbmEdJoin'), splitSrc = fnSrc('_sbmEdSplit');
+if (joinSrc && splitSrc) {
+  let n = 0;
+  const T = new Function('_sbmEdPartKey', '_sbmEdId', joinSrc + '\n' + splitSrc + '\nreturn { join: _sbmEdJoin, split: _sbmEdSplit };')(p => String(p || '').toLowerCase(), () => 'new' + (++n));
+  const box = (id, ...ps) => ({ id, lines: ps.map(p => ({ part: p, text: p + ' words' })) });
+  const shape = list => list.map(m => m.id + ':' + m.lines.map(l => l.part).join('+')).join(' | ');
+  check('ticked turns join two by two: men with women, women with men',
+    shape(T.join([box('a', 'men'), box('b', 'women'), box('c', 'men'), box('d', 'women')])) === 'a:men+women | c:men+women',
+    shape(T.join([box('a', 'men'), box('b', 'women'), box('c', 'men'), box('d', 'women')])));
+  check('...a line everyone sings stays on its own, and the run carries on after it',
+    shape(T.join([box('a', 'men'), box('b', 'women'), box('c', 'both'), box('d', 'men'), box('e', 'women')])) === 'a:men+women | c:both | d:men+women');
+  check('...a part is never asked to sing twice at once',
+    shape(T.join([box('a', 'women'), box('b', 'women')])) === 'a:women | b:women');
+  check('...and a box already sung together is never pulled apart to make another pair',
+    shape(T.join([box('a', 'women'), box('b', 'men', 'women')])) === 'a:women | b:men+women');
+  check('Take turns gives each part a box of its own, the first keeping the box',
+    shape(T.split(box('a', 'women', 'men'))) === 'a:women | new1:men' && shape(T.split(box('z', 'men'))) === 'z:men');
+} else check('the join and split are functions of their own', false);
+check('every box has its tick, outside Reorder too, and the bar shows once one is ticked',
+  has(/'<label class="sbm-ed__tick"><input type="checkbox"' \+ \(ed\.sel && ed\.sel\[m\.id\] \? ' checked' : ''\) \+ ' onchange="WO\.sbmEdTick\(/) &&
+  has(/#sbmEdit:not\(\.is-reorder\) \.sbm-ed__mbtns > :not\(\.sbm-ed__here\):not\(\.sbm-ed__tick\) \{ display: none; \}/) &&
+  (SRC.match(/'<div class="sbm-ed__selbar" id="sbmEdSel"><\/div>' \+/g) || []).length === 2 &&
+  has(/onclick="WO\.sbmEdSingTogether\(\)"' \+ \(n < 2 \? ' disabled/));
+check('...joining asks for boxes next to each other in one section, says why it cannot, and can be undone',
+  has(/if \(picked\.some\(function\(p, i\) \{ return p\.sec !== sec \|\| p\.mi !== at \+ i; \}\)\) \{/) &&
+  has(/These cannot sing at the same time: a part sings once in a moment, and All sings on its own/) &&
+  (SRC.match(/\{ action: 'Undo', onAction: _sbmEdUndoTo\(ed, snap\) \}/g) || []).length === 2 &&
+  has(/sbmEdTick: sbmEdTick, sbmEdTickClear: sbmEdTickClear, sbmEdSingTogether: sbmEdSingTogether, sbmEdTakeTurns: sbmEdTakeTurns,/));
+check('...the phone\'s bar spans the row above Cancel and Save', has(/\.sbm-ed__sticky \.sbm-ed__selbar\.is-on \{ grid-column: 1 \/ -1; \}/));
 
 console.log('\nThe reading view draws it as a chord sheet');
 check('no rule under a moment, no brace beside it, no band behind a part',

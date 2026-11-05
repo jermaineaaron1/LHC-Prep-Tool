@@ -1683,7 +1683,16 @@ the anon key -- verify as `postgres`, not as the app.
     shows outside Reorder too, except on a box everyone sings; in Overview
     edit, lines that touch are one moment and a blank line starts the next.
     "Add Part to <section>" joins the section's LAST box unless that part
-    is already in it.
+    is already in it. A run is joined with the boxes' ticks (`ed.sel`, kept
+    across repaints): **Sing together** (`sbmEdSingTogether`, two or more
+    boxes next to each other in one section) joins them through
+    `_sbmEdJoin` -- a box joins the one before it unless a part would sing
+    twice at once or either is All, and a box is never split to make
+    another pair -- and **Take turns** (`sbmEdTakeTurns`, `_sbmEdSplit`)
+    gives each part of a ticked box a box of its own. Each is one Undo on
+    its toast (a snapshot of `ed.sections`); nothing is kept until Save
+    Parts. The bar (`#sbmEdSel`) sits in the desk's footer and spans the
+    phone's two-column sticky bar (`grid-column: 1 / -1`).
     `tools/choir-chord-sheet-harness.js` checks it.
 
 ## Quick Commands for Claude Code

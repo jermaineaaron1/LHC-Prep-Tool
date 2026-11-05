@@ -55817,6 +55817,7 @@ var WO = (function() {
           '<div class="sbm-ed__pv"><div class="sbm-label"><i class="fa-solid fa-eye"></i>As it will print</div>' +
             '<div class="sb-choir sbm-ed__pvscore" id="sbmEdPreview" data-choir-song="' + escapeHtml(ed.base) + '"></div></div></div>' +
         '<div class="sbm-ed__foot"><span class="sbm-ed__hint">Esc cancels \u00b7 Ctrl+Enter saves</span>' +
+          '<div class="sbm-ed__selbar" id="sbmEdSel"></div>' +
           '<button class="sbm-btn" onclick="WO.sbmEdCancel()">Cancel</button>' +
           '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div></div>';
       _sbmEdDrawPreview();
@@ -55827,11 +55828,13 @@ var WO = (function() {
         '<button class="sbm-hero__close" onclick="WO.sbmEdCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
         '<div class="sbm-ed__body">' + body + '</div>' +
         '<div class="sbm-sticky sbm-ed__sticky">' +
+          '<div class="sbm-ed__selbar" id="sbmEdSel"></div>' +
           '<button class="sbm-btn" style="min-height:var(--sbm-primary);" onclick="WO.sbmEdCancel()">Cancel</button>' +
           '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmEdSave()"><i class="fa-solid fa-floppy-disk"></i>Save Parts</button></div>';
     }
     var nb = host.querySelector('.sbm-ed__body'); if (nb && keep) nb.scrollTop = keep;
     var np = host.querySelector('.sbm-ed__pv'); if (np && keepPv) np.scrollTop = keepPv;
+    _sbmEdSelPaint();
   }
 
   // The parts themselves -- the actions, which parts the song uses, the
@@ -55876,7 +55879,7 @@ var WO = (function() {
       if (sec.open) {
         html += '<div class="sbm-ed__secbody">';
         sec.moments.forEach(function(m, mi) {
-          html += '<div class="sbm-ed__moment' + (_sbmEdTogether(m) ? ' is-together' : '') + '" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)"><span class="sbm-ed__together" aria-hidden="true">Sing together</span>';
+          html += '<div class="sbm-ed__moment' + (_sbmEdTogether(m) ? ' is-together' : '') + (ed.sel && ed.sel[m.id] ? ' is-ticked' : '') + '" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)"><span class="sbm-ed__together" aria-hidden="true">Sing together</span>';
           m.lines.forEach(function(l) {
             var ph = (_sbmEdPartKey(l.part) === 'both') ? 'Words everyone sings' : 'Add lyrics for ' + _sbmEdPartLabel(l.part) + ' (optional)';
             html += '<div class="sbm-ed__row" data-line="' + l.id + '">' +
@@ -55889,6 +55892,7 @@ var WO = (function() {
               '</div>';
           });
           html += '<div class="sbm-ed__mbtns">' +
+            '<label class="sbm-ed__tick"><input type="checkbox"' + (ed.sel && ed.sel[m.id] ? ' checked' : '') + ' onchange="WO.sbmEdTick(\'' + m.id + '\', this.checked)"><span>Select</span></label>' +
             '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',-1)" ' + (mi === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
             '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',1)" ' + (mi === sec.moments.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
             '<button class="sbm-ed__ib sbm-ed__ib--teal' + (m.lines.some(function(l) { return _sbmEdPartKey(l.part) === 'both'; }) ? '' : ' sbm-ed__here') + '" onclick="WO.sbmEdAddPart(\'' + sec.id + '\',\'' + m.id + '\')" aria-label="Add a part to this moment" title="Add a part that sings at the same time as this one"><i class="fa-solid fa-plus"></i><span>Part singing with this</span></button></div>';
@@ -55941,6 +55945,96 @@ var WO = (function() {
   function _sbmEdTogetherMark(m) {
     var el = m && document.querySelector('#sbmEdit [data-moment="' + m.id + '"]');
     if (el) el.classList.toggle('is-together', _sbmEdTogether(m));
+  }
+  // ---- tick boxes: Sing together and Take turns on the boxes ticked ----
+  //
+  // Ticked boxes next to each other in one section are joined into as few
+  // moments as can sing at once. A box joins the one before it unless a
+  // part would then sing twice at the same time, or either box is
+  // everyone's (All sings on its own) -- the rule the text pad's blank lines
+  // follow. A box is never split by joining: its parts already sing
+  // together. Take turns is the way back: each ticked box becomes one box
+  // per part, in the order they are written. Both are one Undo, and like
+  // every edit here nothing is kept until Save Parts.
+  function _sbmEdJoin(moments) {
+    var out = [], cur = null;
+    (moments || []).forEach(function(m) {
+      var keys = m.lines.map(function(l) { return _sbmEdPartKey(l.part); });
+      var all = keys.indexOf('both') > -1;
+      var clash = !cur || all || cur.all || keys.some(function(k) { return cur.keys[k]; });
+      if (clash) { cur = { m: Object.assign({}, m, { lines: m.lines.slice() }), keys: {}, all: all }; out.push(cur); }
+      else cur.m.lines = cur.m.lines.concat(m.lines);
+      keys.forEach(function(k) { cur.keys[k] = true; });
+    });
+    return out.map(function(c) { return c.m; });
+  }
+  function _sbmEdSplit(m) {
+    if (!m || m.lines.length < 2) return [m];
+    return m.lines.map(function(l, i) { return i === 0 ? Object.assign({}, m, { lines: [l] }) : { id: _sbmEdId(), lines: [l] }; });
+  }
+  function _sbmEdTicked() {
+    var ed = _sbmEd, out = [];
+    if (!ed || !ed.sel) return out;
+    ed.sections.forEach(function(sec, si) {
+      sec.moments.forEach(function(m, mi) { if (ed.sel[m.id]) out.push({ sec: sec, si: si, m: m, mi: mi }); });
+    });
+    return out;
+  }
+  function _sbmEdSelPaint() {
+    var ed = _sbmEd; if (!ed) return;
+    var n = _sbmEdTicked().length;
+    Array.prototype.forEach.call(document.querySelectorAll('#sbmEdit .sbm-ed__moment'), function(el) {
+      el.classList.toggle('is-ticked', !!(ed.sel && ed.sel[el.getAttribute('data-moment')]));
+    });
+    var bar = document.getElementById('sbmEdSel'); if (!bar) return;
+    bar.classList.toggle('is-on', n > 0);
+    bar.innerHTML = !n ? '' : '<span class="sbm-ed__selcount">' + n + ' ticked</span>' +
+      '<button class="sbm-btn sbm-ed__selgo" onclick="WO.sbmEdSingTogether()"' + (n < 2 ? ' disabled title="Tick two boxes or more"' : '') + '><i class="fa-solid fa-people-group"></i>Sing together</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmEdTakeTurns()" title="Each part in a box of its own, one after another"><i class="fa-solid fa-arrows-left-right"></i>Take turns</button>' +
+      '<button class="sbm-btn" onclick="WO.sbmEdTickClear()" title="Untick all"><i class="fa-solid fa-xmark"></i>Clear</button>';
+  }
+  function sbmEdTick(id, on) {
+    var ed = _sbmEd; if (!ed) return;
+    ed.sel = ed.sel || {};
+    if (on) ed.sel[id] = true; else delete ed.sel[id];
+    _sbmEdSelPaint();
+  }
+  function sbmEdTickClear() {
+    if (_sbmEd) _sbmEd.sel = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#sbmEdit .sbm-ed__tick input'), function(i) { i.checked = false; });
+    _sbmEdSelPaint();
+  }
+  function _sbmEdUndoTo(ed, snap) {
+    return function() { if (_sbmEd !== ed) return; ed.sections = JSON.parse(snap); ed.sel = {}; _sbmEdTouch(); _sbmEdPaint(); };
+  }
+  function sbmEdSingTogether() {
+    var ed = _sbmEd; if (!ed) return;
+    var picked = _sbmEdTicked();
+    if (picked.length < 2) { showToast('Tick two boxes or more to sing them together', 'info'); return; }
+    var sec = picked[0].sec, at = picked[0].mi;
+    if (picked.some(function(p, i) { return p.sec !== sec || p.mi !== at + i; })) {
+      showToast('Tick boxes that are next to each other, in one section', 'info'); return;
+    }
+    var joined = _sbmEdJoin(picked.map(function(p) { return p.m; }));
+    if (joined.length === picked.length) {
+      showToast('These cannot sing at the same time: a part sings once in a moment, and All sings on its own', 'info'); return;
+    }
+    var snap = JSON.stringify(ed.sections);
+    sec.moments.splice.apply(sec.moments, [at, picked.length].concat(joined));
+    ed.sel = {}; _sbmEdTouch(); _sbmEdPaint();
+    showToast(picked.length + ' boxes now sing together as ' + joined.length + (joined.length === 1 ? ' moment' : ' moments') + '. Save Parts to keep it.', 'success',
+      { action: 'Undo', onAction: _sbmEdUndoTo(ed, snap) });
+  }
+  function sbmEdTakeTurns() {
+    var ed = _sbmEd; if (!ed) return;
+    var picked = _sbmEdTicked().filter(function(p) { return p.m.lines.length > 1; });
+    if (!picked.length) { showToast('Each ticked box has one part, so they already take turns', 'info'); return; }
+    var snap = JSON.stringify(ed.sections);
+    // from the last, so the places of the ones before it still hold
+    picked.slice().reverse().forEach(function(p) { p.sec.moments.splice.apply(p.sec.moments, [p.mi, 1].concat(_sbmEdSplit(p.m))); });
+    ed.sel = {}; _sbmEdTouch(); _sbmEdPaint();
+    showToast('Split into turns, one part after another. Save Parts to keep it.', 'success',
+      { action: 'Undo', onAction: _sbmEdUndoTo(ed, snap) });
   }
   function sbmEdHold(id) { var f = _sbmEdFind(id); if (f && f.line) { f.line.sustained = !f.line.sustained; _sbmEdTouch(); _sbmEdPaint(); } }
   function sbmEdToggleSec(id) { var f = _sbmEdFind(id); if (f && f.sec) { f.sec.open = !f.sec.open; _sbmEdPaint(); } }
@@ -91041,7 +91135,7 @@ var WO = (function() {
     sbmOpenPdf: sbmOpenPdf, sbmPdfClose: sbmPdfClose, sbmPdfZoom: sbmPdfZoom, sbmPdfGo: sbmPdfGo, sbmPdfOpenLast: sbmPdfOpenLast,
     sbmEditParts: sbmEditParts, sbmEdInput: sbmEdInput, sbmEdHold: sbmEdHold, sbmEdToggleSec: sbmEdToggleSec,
     sbmEdRenameSec: sbmEdRenameSec, sbmEdMoveSec: sbmEdMoveSec, sbmEdDupSec: sbmEdDupSec, sbmEdDelSec: sbmEdDelSec,
-    sbmEdAddSection: sbmEdAddSection, sbmEdAddSectionNamed: sbmEdAddSectionNamed, sbmEdAddPart: sbmEdAddPart,
+    sbmEdAddSection: sbmEdAddSection, sbmEdAddSectionNamed: sbmEdAddSectionNamed, sbmEdAddPart: sbmEdAddPart, sbmEdTick: sbmEdTick, sbmEdTickClear: sbmEdTickClear, sbmEdSingTogether: sbmEdSingTogether, sbmEdTakeTurns: sbmEdTakeTurns,
     sbmEdAddPartNamed: sbmEdAddPartNamed, sbmEdTogglePart: sbmEdTogglePart, sbmEdAddHarmony: sbmEdAddHarmony,
     sbmEdCyclePart: sbmEdCyclePart, sbmEdDupLine: sbmEdDupLine, sbmEdDelLine: sbmEdDelLine, sbmEdMoveMoment: sbmEdMoveMoment,
     sbmEdReorder: sbmEdReorder, sbmEdDragStart: sbmEdDragStart, sbmEdDragOver: sbmEdDragOver, sbmEdDrop: sbmEdDrop,
@@ -110434,9 +110528,22 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-ed__moment.is-together > .sbm-ed__together { display: inline-block; }
 /* each box keeps its way to add a part singing with it outside Reorder too */
 .sbm-ed__mbtns { display: flex; }
-#sbmEdit:not(.is-reorder) .sbm-ed__mbtns > :not(.sbm-ed__here) { display: none; }
-#sbmEdit:not(.is-reorder) .sbm-ed__mbtns:not(:has(.sbm-ed__here)) { display: none; }
+#sbmEdit:not(.is-reorder) .sbm-ed__mbtns > :not(.sbm-ed__here):not(.sbm-ed__tick) { display: none; }
 .sbm-ed__ib.sbm-ed__here { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 600 12px/1 var(--sbm-font-ui); }
+/* Edit Parts: tick boxes to join into moments sung together, or to split
+   back into turns -- the bar for it shows once something is ticked */
+.sbm-ed__tick { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; padding: 0 6px; min-height: 30px; font: 600 12px/1 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); cursor: pointer; user-select: none; }
+.sbm-ed__tick input { width: 18px; height: 18px; margin: 0; accent-color: #7c3aed; cursor: pointer; }
+.sbm-ed__moment.is-ticked { background: rgba(124, 58, 237, 0.07); border-radius: 0 10px 10px 0; }
+.sbm-ed__selbar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sbm-ed__selbar.is-on { display: flex; }
+.sbm-ed__selcount { font: 700 13px/1 var(--sbm-font-ui); color: #6d28d9; margin-right: 2px; }
+.sbm-ed__selbar .sbm-btn { min-height: 36px; }
+.sbm-ed__selbar .sbm-ed__selgo { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+.sbm-ed__selbar .sbm-ed__selgo:disabled { opacity: 0.45; cursor: default; }
+.sbm-ed__foot:has(.sbm-ed__selbar.is-on) .sbm-ed__hint { display: none; }
+.sbm-ed__foot .sbm-ed__selbar.is-on { margin-right: auto; }
+.sbm-ed__sticky .sbm-ed__selbar.is-on { grid-column: 1 / -1; }   /* the phone's bar is a grid: Cancel | Save */
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
