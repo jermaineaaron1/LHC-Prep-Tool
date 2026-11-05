@@ -14,6 +14,9 @@
 //     against (the lead line), not over a part resting above them;
 //   - a line with no words -- like a rest -- has no Playback and no
 //     microphone;
+//   - parts singing at once (two lanes or more with words) are marked and
+//     drawn on a purple bar; parts taking turns stay plain (added the same
+//     day: in a chord sheet the labels alone read the same either way);
 //   - no rules or bands between moments, the words and chords in Chords +
 //     Lyrics' face, weight and size; a phone runs the label in at the start
 //     of its line so a unison verse uses the full width.
@@ -110,6 +113,24 @@ check('...the women singing, the chords over the women\'s', JSON.stringify(order
 check('...a unison line\'s over it, as before', JSON.stringify(order(sys[0])) === JSON.stringify(['vl-chords', 'both']), JSON.stringify(order(sys[0])));
 const held = V.html([row('women', 'oh', 0, 'Verse 1', { sustained: true }), row('men', 'ah', 0, 'Verse 1', { sustained: true })], opts);
 check('...a moment of held notes, with no lead line, opens with its chords', /^<div class="vl-score"><div class="vl-section">Verse 1<\/div><div class="vl-sys[^>]*><span class="vl-no"[^]*?<\/span><\/span><div class="vl-sys-lines"><div class="vl-chords/.test(held), held.slice(0, 300));
+
+console.log('\nParts singing at once, against parts taking turns');
+const sysOf = list => (V.html(list, {}).match(/<div class="vl-sys(?: [^"]*)?"/g) || []).map(t => / vl-sys--together/.test(t));
+check('both parts with words in one moment: marked as sung at once',
+  JSON.stringify(sysOf([row('women', 'child a child', 0, 'A'), row('men', 'A child a child', 0, 'A')])) === '[true]');
+check('...a part holding a note while the other sings counts too',
+  JSON.stringify(sysOf([row('women', 'oh......', 0, 'A', { sustained: true }), row('men', 'A star a star', 0, 'A')])) === '[true]');
+check('...one part singing while the other rests is a turn, and is not',
+  JSON.stringify(sysOf([row('men', 'Do you know what I know', 0, 'A'), row('women', 'Do you know what I know?', 1, 'A')])) === '[false,false]');
+check('...nor is a line everybody sings', JSON.stringify(sysOf([row('both', 'Said the shepherd boy', 0, 'A')])) === '[false]');
+check('...nor a part whose line has no words', JSON.stringify(sysOf([row('women', '-', 0, 'A'), row('men', 'A star a star', 0, 'A')])) === '[false]');
+check('the reading view joins them with a bar on a soft panel, keeping the bar\'s room on every moment',
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys-lines \{ position: relative; padding-left: 12px; \}/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-sys-lines \{ background: rgba\(124, 58, 237, 0\.06\);/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-sys-lines::before \{ content: ""; position: absolute;/));
+check('...and says what the bar means above the score, when the song has one',
+  has(/function _sbmTogetherKey\(score\) \{\r?\n\s*if \(!score \|\| score\.indexOf\('vl-sys--together'\) < 0\) return '';/) &&
+  has(/On the purple bar: sung at the same time/) && has(/_sbmTogetherKey\(score\) \+\r?\n\s*'<div class="sbm-score sb-song-page--choir" id="sbChoirPage-'/));
 
 console.log('\nThe reading view draws it as a chord sheet');
 check('no rule under a moment, no brace beside it, no band behind a part',

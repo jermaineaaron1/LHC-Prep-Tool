@@ -202,7 +202,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Drawings are each drawer's own until shared; Layers says whose you see
      (gotcha 50). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
-     moments, a part's label only where that part takes over (gotcha 59).
+     moments, a part's label only where that part takes over, and a purple
+     bar joining the parts that sing at the same time (gotcha 59).
      Every line of it with words records on its own: at its
      end a takes badge and a microphone, the badge listing that line's takes
      to play or delete, with an audio file to add (gotcha 52). Between the
@@ -712,6 +713,12 @@ the anon key -- verify as `postgres`, not as the app.
     sings, and the banner said it twice. A silent part shows `(—)`
     rather than a rest mark, because most of them are echoes and a singer
     wants to see at a glance that the moment is not theirs.
+    The chip says WHO, not WHEN: once the score became a chord sheet
+    (gotcha 59), two parts taking turns and two parts singing at once read
+    the same. So a moment where two parts or more have words is marked
+    `vl-sys--together` and the reading view draws it as a bar on a soft
+    panel, with a key above the score (`_sbmTogetherKey`) -- a mark, not
+    the banner, which stays gone (`voice-lines-harness.js` checks both).
 
 12. **The parts are STACKED, not side by side.** Women above men, with time
     running left to right across both -- the arrangement a score uses.
@@ -1660,6 +1667,12 @@ the anon key -- verify as `postgres`, not as the app.
     label showing that the line above already said -- never one missing,
     since a part's lines are all shown or all hidden. `_sbmEvenRows` skips a
     label with no height, or every unlabelled line voted to stack.
+    Parts singing AT ONCE -- two lanes or more with words in one moment, a
+    held note counting -- are marked `vl-sys--together` and drawn on a
+    purple bar and a soft panel; parts taking turns (one sings, the rest
+    `(—)`) stay plain. Every moment keeps the bar's 12px, so the labels stay
+    in one column; the key above the score explains the bar only when the
+    song has such a moment.
     `tools/choir-chord-sheet-harness.js` checks it.
 
 ## Quick Commands for Claude Code
