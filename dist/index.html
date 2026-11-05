@@ -7506,7 +7506,7 @@
                              slide was selected, so a stray click during a service typed
                              into the words on the screen. It opens on a deliberate
                              act now -- see _lcdApplyEditorLock(). -->
-                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
                         <!-- Shown only while the pad is shut. Deliberately not
                              clickable: a click is what must NOT open the editor. It
                              names all three ways in, and pointer-events:none lets a
@@ -80007,10 +80007,10 @@ var WO = (function() {
   var _lcdAutoApplyTimer = null;   // debounced auto-apply of editor edits
   var _lcdEditDirty = false;       // an edit burst is in progress (undo pushed once)
   function lcdOnLyricsTextareaInput() {
-    // Auto-apply: no "Apply Changes" click needed. Snapshot undo once at the
-    // start of an edit burst, then commit ~0.5s after typing stops. The live
-    // projection updates on that same pause (not per keystroke), so a slide
-    // that is on-screen never flickers mid-word.
+    // Held, not applied: typing changes the pad alone. The slide, the
+    // projector and the order move on Apply, or on Save when a click away
+    // from the editor asks (_lcdAskDraft). It used to commit itself ~0.5s
+    // after typing stopped, which put half-typed lines on the screen.
     if (_lcdActiveSlide) {
       // Claimed on the first keystroke rather than on selection: the rail
       // loads a slide every time the operator presses next, and locking a
@@ -80023,22 +80023,19 @@ var WO = (function() {
         _edApplyLockUI();
         return;
       }
-      if (!_lcdEditDirty) { _lcdPushUndo(); _lcdEditDirty = true; }
-      clearTimeout(_lcdAutoApplyTimer);
-      _lcdAutoApplyTimer = setTimeout(function() {
-        _lcdAutoApplyTimer = null;
-        _lcdEditDirty = false;
-        _lcdCommitEditorToSlide();
-      }, 500);
+      _lcdEditDirty = true;
+      _lcdDraftPaint();
     }
     clearTimeout(_lcdSplitDebounce);
     _lcdSplitDebounce = setTimeout(_lcdUpdateSlideSummary, 400);
   }
 
-  // Commit any pending edit immediately (slide switch / editor blur).
+  // Save what the pad holds now, on a path that does not ask: a slide
+  // loaded by a redraw, the console reopening. A click away asks first.
   function _lcdFlushAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
-    if (_lcdEditDirty) { _lcdEditDirty = false; _lcdCommitEditorToSlide(); }
+    if (_lcdEditDirty) { _lcdEditDirty = false; _lcdPushUndo(); _lcdCommitEditorToSlide(); }
+    _lcdDraftPaint();
     // Committed or nothing to commit: either way this slide is finished with.
     var _edKey = _edLcdKeyFromActive(_lcdActiveSlide);
     if (_edKey) edRelease(_edKey);
@@ -80049,6 +80046,7 @@ var WO = (function() {
   function _lcdCancelAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
     _lcdEditDirty = false;
+    _lcdDraftPaint();
   }
 
   // Preview how the current textarea content will split into slides -
@@ -80354,6 +80352,7 @@ var WO = (function() {
     _lcdPushUndo();
     if (_lcdCommitEditorToSlide()) showToast('Slide updated', 'success');
     else showToast('That slide is no longer available.', 'warning');
+    _lcdDraftPaint();
   }
 
   function _lcdUpdateSlideSummary() {
@@ -83988,6 +83987,7 @@ var WO = (function() {
       ed.setAttribute('contenteditable', locked ? 'false' : 'true');
       if (locked && document.activeElement === ed) ed.blur();
     }
+    _lcdDraftPaint();
   }
 
   function lcdUnlockEditor() {
@@ -84013,8 +84013,8 @@ var WO = (function() {
   }
 
   function lcdLockEditor() {
-    // Shutting the pad must not drop what was typed into it: the pad applies
-    // on blur, and being shut is not a blur.
+    // Shut by a path that does not ask (the console reopening), the pad
+    // saves what it holds rather than drop it. A click away asks first.
     if (_lcdEditorUnlocked) _lcdFlushAutoApply();
     _lcdEditorUnlocked = false;
     _lcdApplyEditorLock();
@@ -84035,9 +84035,114 @@ var WO = (function() {
         lcdUnlockEditor();
       }
     });
+    // ...and one pair for the way out: a click away from the editor.
+    document.addEventListener('mousedown', _lcdOnAwayMouseDown, true);
+    document.addEventListener('click', _lcdOnAwayClick, true);
+  }
+
+  // ---- An open pad holds its words until they are saved --------------
+  //
+  // Typing changes the pad and nothing else. The slide, the projector and
+  // the saved order move when the operator saves: Apply, or Save in the
+  // question below. (Until 2026-11-05 the pad applied itself half a second
+  // after typing stopped, so a half-typed line could reach the screen in the
+  // middle of a service.) A click anywhere away from the Slide Editor shuts
+  // the pad -- at once when nothing was changed, and with "Save your changes
+  // to this slide?" (Save / Discard / Keep editing) when something was; the
+  // click that asked is swallowed, so a slide clicked in the rail is not
+  // also sent to the screen behind the question. A click inside anything
+  // that floats over the page -- the Text, Background and Barrier dialogs,
+  // a menu, a toast, this question -- belongs to whatever opened it and is
+  // not "away", and neither is a scrollbar. A slide loaded by any other path
+  // (a redraw, the console reopening) still takes the draft with it, saved,
+  // rather than drop what was typed.
+  var _lcdSwallowUntil = 0;
+  function _lcdDraftPaint() {
+    var panel = document.querySelector('.lcd-lyrics-panel');
+    if (panel) panel.classList.toggle('lcd-draft-dirty', !!(_lcdEditorUnlocked && _lcdEditDirty));
+  }
+  function _lcdClickIsAway(e) {
+    var t = e && e.target;
+    if (!t || !t.closest || t === document.documentElement || t === document.body) return false;
+    if (t.closest('.lcd-lyrics-panel, #lcdDraftAsk')) return false;
+    if (t.clientWidth && e.offsetX > t.clientWidth) return false;     // its own scrollbar
+    if (t.clientHeight && e.offsetY > t.clientHeight) return false;
+    for (var el = t; el && el !== document.body; el = el.parentElement) {
+      if (getComputedStyle(el).position === 'fixed') return false;
+    }
+    return true;
+  }
+  function _lcdOnAwayMouseDown(e) {
+    if (!_lcdEditorUnlocked || e.button !== 0) return;
+    if (!document.body.classList.contains('lcd-console-open')) return;
+    if (document.getElementById('lcdDraftAsk') || !_lcdClickIsAway(e)) return;
+    if (_lcdEditDirty) {
+      e.preventDefault(); e.stopPropagation();
+      _lcdSwallowUntil = Date.now() + 1000;
+      _lcdAskDraft(null);
+      return;
+    }
+    lcdLockEditor();
+  }
+  function _lcdOnAwayClick(e) {
+    if (!_lcdSwallowUntil) return;
+    // The click to swallow is the one the asking press would have made, on
+    // whatever it was pressed on. A click IN the question is an answer: if
+    // that press made no click of its own, the flag must not eat Save.
+    if (e.target && e.target.closest && e.target.closest('#lcdDraftAsk')) { _lcdSwallowUntil = 0; return; }
+    var swallow = Date.now() < _lcdSwallowUntil;
+    _lcdSwallowUntil = 0;
+    if (swallow) { e.preventDefault(); e.stopPropagation(); }
+  }
+  // Put the slide's own words back in the pad and shut it.
+  function _lcdDiscardDraft() {
+    _lcdCancelAutoApply();
+    var box = _lcdRelocateActiveSlideBox();
+    if (box) _lcdLoadSlideIntoEditor(box);
+    var k = _edLcdKeyFromActive(_lcdActiveSlide);
+    if (k) edRelease(k);
+    _lcdEditorUnlocked = false;
+    _lcdApplyEditorLock();
+    _lcdDraftPaint();
+  }
+  function _lcdAskDraft(after) {
+    if (document.getElementById('lcdDraftAsk')) return;
+    var box = _lcdRelocateActiveSlideBox();
+    var title = box ? _lcdSlideItemTitle(box) : 'this slide';
+    var bd = document.createElement('div');
+    bd.id = 'lcdDraftAsk';
+    bd.className = 'lcd-ask-backdrop';
+    bd.innerHTML = '<div class="lcd-ask" role="alertdialog" aria-modal="true" aria-labelledby="lcdDraftAskT" aria-describedby="lcdDraftAskM">' +
+      '<div class="lcd-ask__t" id="lcdDraftAskT">Save your changes to this slide?</div>' +
+      '<div class="lcd-ask__m" id="lcdDraftAskM"><b>' + escapeHtml(title) + '</b>: what you typed is not on the screen or in the order until it is saved.</div>' +
+      '<div class="lcd-ask__btns">' +
+        '<button type="button" class="lcd-ask__keep">Keep editing</button>' +
+        '<button type="button" class="lcd-ask__discard">Discard</button>' +
+        '<button type="button" class="lcd-ask__save"><i class="fa-solid fa-check"></i> Save</button></div></div>';
+    document.body.appendChild(bd);
+    var key = function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done('keep'); }
+      else if (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('.lcd-ask__keep, .lcd-ask__discard'))) { e.preventDefault(); e.stopPropagation(); done('save'); }
+    };
+    var done = function(choice) {
+      document.removeEventListener('keydown', key, true);
+      if (bd.parentNode) bd.parentNode.removeChild(bd);
+      if (choice === 'save') { _lcdApplySlideEdit(); lcdLockEditor(); }
+      else if (choice === 'discard') { _lcdDiscardDraft(); showToast('Changes discarded', 'info'); }
+      else { var ed = _lcdEditorEl(); if (ed) ed.focus(); return; }
+      if (typeof after === 'function') after();
+    };
+    bd.querySelector('.lcd-ask__save').onclick = function() { done('save'); };
+    bd.querySelector('.lcd-ask__discard').onclick = function() { done('discard'); };
+    bd.querySelector('.lcd-ask__keep').onclick = function() { done('keep'); };
+    bd.addEventListener('mousedown', function(e) { if (e.target === bd) bd.__downOnBd = true; });
+    bd.addEventListener('click', function(e) { if (e.target === bd && bd.__downOnBd) done('keep'); bd.__downOnBd = false; });
+    document.addEventListener('keydown', key, true);
+    var sb = bd.querySelector('.lcd-ask__save'); if (sb) sb.focus();
   }
 
   function lcdSetEditorMode(mode) {
+    if (mode === 'preview' && _lcdEditorUnlocked && _lcdEditDirty) { _lcdAskDraft(function() { lcdSetEditorMode('preview'); }); return; }
     var preview = (mode === 'preview');
     var panel = document.querySelector('.lcd-lyrics-panel');
     if (panel) panel.classList.toggle('lcd-mode-preview', preview);
@@ -84045,9 +84150,10 @@ var WO = (function() {
     var pb = document.getElementById('lcdSegPreviewBtn');
     if (eb) { eb.classList.toggle('active', !preview); eb.setAttribute('aria-pressed', preview ? 'false' : 'true'); }
     if (pb) { pb.classList.toggle('active', preview); pb.setAttribute('aria-pressed', preview ? 'true' : 'false'); }
-    // Leaving Edit with unsaved keystrokes would silently drop them: the pad
-    // auto-applies on blur, and switching panes is not a blur.
-    if (preview && typeof lcdFlushAutoApply === 'function') lcdFlushAutoApply();
+    // Unsaved words were asked about above, so all that is left here is to
+    // let go of the slide's edit claim. (This called lcdFlushAutoApply, a
+    // name this scope never had, so it never ran.)
+    if (preview) _lcdFlushAutoApply();
     // Preview has no pad, so leaving Edit shuts it. Coming back to Edit does
     // NOT reopen it -- only lcdUnlockEditor() does, which is what the Edit
     // button calls.
@@ -102201,6 +102307,28 @@ function filterLiturgyItems() {
   .lcd-editor-locked .lcd-editor-lockhint { display: block; }
   /* Preview has no pad at all, so the hint would be describing nothing. */
   .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-lockhint { display: none; }
+
+  /* ---- Words typed but not yet saved ------------------------------------- */
+  /* The pad holds them until Apply (or Save in the question a click away
+     asks), so the panel says so: "Unsaved" by the slide's name, and Apply
+     ringed as the thing that would save them. */
+  .lcd-lyrics-panel.lcd-draft-dirty #lcdLyricsEditorTitle::after {
+    content: "Unsaved"; margin-left: 8px; padding: 2px 8px; border-radius: 999px; vertical-align: middle;
+    background: #fef3c7; color: #92400e; font: 700 0.62rem/1.3 'Poppins', sans-serif; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .lcd-lyrics-panel.lcd-draft-dirty .lcd-lyrics-actions .lcd-mini-btn.primary { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.55); }
+  /* Save your changes to this slide? */
+  .lcd-ask-backdrop { position: fixed; inset: 0; z-index: 10060; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 12, 28, 0.55); }
+  .lcd-ask { width: min(440px, 100%); background: #fff; color: #0b1930; border-radius: 16px; padding: 20px 20px 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); font-family: 'Poppins', sans-serif; }
+  .lcd-ask__t { font-weight: 700; font-size: 17px; line-height: 1.3; }
+  .lcd-ask__m { margin-top: 6px; font-size: 13.5px; line-height: 1.45; color: #475569; }
+  .lcd-ask__m b { color: #0b1930; }
+  .lcd-ask__btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .lcd-ask__btns button { min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #d5dde8; background: #fff; color: #0b1930; font: 600 14px/1 'Poppins', sans-serif; cursor: pointer; }
+  .lcd-ask__btns .lcd-ask__keep { margin-right: auto; }
+  .lcd-ask__btns .lcd-ask__discard { color: #b91c1c; border-color: rgba(220, 38, 38, 0.35); }
+  .lcd-ask__btns .lcd-ask__save { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .lcd-ask__btns button:focus-visible { outline: 2px solid #c1993f; outline-offset: 2px; }
 
   /* ---- Slide nav, under the projection it drives ------------------------- */
   /* These are transport controls. They used to sit under the editor canvas,

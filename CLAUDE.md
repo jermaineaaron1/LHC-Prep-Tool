@@ -1695,6 +1695,28 @@ the anon key -- verify as `postgres`, not as the app.
     phone's two-column sticky bar (`grid-column: 1 / -1`).
     `tools/choir-chord-sheet-harness.js` checks it.
 
+60. **The LCD Slide Editor's pad holds its words until they are saved.**
+    Typing changes the pad alone (`_lcdEditDirty`); the slide, the
+    projector and the order move on Apply (`_lcdApplySlideEdit`) or on Save
+    in the question a click away asks. It used to commit itself 0.5s after
+    typing stopped and again on blur, so a half-typed line reached the
+    screen mid-service -- and a toolbar press is a blur, so nothing can be
+    saved on blur. A click away (`_lcdOnAwayMouseDown`, a capture listener
+    bound with the double-click openers) shuts the pad when nothing changed
+    and lets the click carry on; with words held it asks "Save your changes
+    to this slide?" (`_lcdAskDraft`: Save / Discard / Keep editing; Esc
+    keeps, Enter saves) and swallows the click that asked
+    (`_lcdOnAwayClick`, one click within a second) -- never a click in the
+    question, or the press that made no click of its own would eat Save.
+    "Away" (`_lcdClickIsAway`) is anything outside `.lcd-lyrics-panel`
+    except a scrollbar and anything under a `position: fixed` ancestor:
+    the Text, Background and Barrier dialogs, menus and toasts float, and
+    belong to what opened them. Preview asks the same question. Paths that
+    do not ask -- a redraw loading a slide, the console reopening -- still
+    save what was held, with its Undo step (`_lcdFlushAutoApply`), rather
+    than drop it. The panel shows "Unsaved" while words are held
+    (`lcd-draft-dirty`). `tools/lcd-edit-away-harness.js` checks it.
+
 ## Quick Commands for Claude Code
 
 ```bash
