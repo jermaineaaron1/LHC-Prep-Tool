@@ -1715,7 +1715,25 @@ the anon key -- verify as `postgres`, not as the app.
     do not ask -- a redraw loading a slide, the console reopening -- still
     save what was held, with its Undo step (`_lcdFlushAutoApply`), rather
     than drop it. The panel shows "Unsaved" while words are held
-    (`lcd-draft-dirty`). `tools/lcd-edit-away-harness.js` checks it.
+    (`lcd-draft-dirty`). Anything that would redraw, reload or replace the
+    slide asks first through `_lcdDraftGuard(then)` -- All Slides, Open in
+    Songbook, the "changed on another device" reload (`_orderSyncReload`,
+    whose banner floats and so is never "away"), `loadOrder`, `selectOrder`
+    -- and `then` runs after Save or Discard, never after Keep editing.
+    While the question is up `selectSlideBox` does nothing and a clicker's
+    keys are swallowed, or the words would be saved under it. A save is
+    refused while another device holds the slide's edit claim, and the
+    words stay held. The slide is held by reference (`_lcdActiveSlide.box`):
+    a reading's slides carry no `data-slide-idx`, so the lookup by index
+    never found one and edits to readings were never saved -- before the
+    pad held its words this failed silently. A slide rebuilt elsewhere
+    (`_lcdSyncEditorIfShowing`, `_lcdWriteLibTextToSlide`) leaves held words
+    in the pad alone. `loadOrder` empties the LCD undo stacks: a snapshot of
+    one schedule restored into another (or into the same one reloaded) put
+    back the wrong slides. "Away" walks ancestors only up to
+    `#worshipOrderView`, which is itself `position: fixed` in Full Screen.
+    Closing the tab with words held raises the browser's own question.
+    `tools/lcd-edit-away-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

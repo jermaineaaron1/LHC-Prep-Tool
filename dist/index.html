@@ -34038,6 +34038,12 @@ var WO = (function() {
   var _loadingOrder = false;
 
   function loadOrder(idxOrId) {
+    // Words held in the Slide Editor are asked about before the order is
+    // reloaded or replaced: the schedule they belong to is about to go.
+    if (!_lcdDraftGuard(function() { loadOrder(idxOrId); })) return;
+    // An undo step is a snapshot of THIS schedule; restored into another
+    // order -- or into this one reloaded -- it would put back the wrong slides.
+    _lcdUndoStack = []; _lcdRedoStack = [];
     var order;
     var idx;
     if (typeof idxOrId === 'number') {
@@ -35057,6 +35063,9 @@ var WO = (function() {
   }
 
   function _orderSyncReload() {
+    // The banner floats, so pressing it is not a click away: ask here, and
+    // leave the banner up if the answer is Keep editing.
+    if (!_lcdDraftGuard(_orderSyncReload)) return;
     var oid = currentOrderData && currentOrderData.id;
     if (!oid) return;
     // Land back in the half of the order they were working in.
@@ -37570,6 +37579,7 @@ var WO = (function() {
   }
 
   function selectOrder(orderType) {
+    if (!_lcdDraftGuard(function() { selectOrder(orderType); })) return;
     // Step 2 is the Songbook. It opens over whichever step is showing rather
     // than replacing it, and closes back to it.
     if (orderType === 'songbook') { openSongbook(); return; }
@@ -79988,6 +79998,7 @@ var WO = (function() {
     // A song's slides were rebuilt elsewhere; if we're currently showing
     // one of its slides (and the user isn't typing), reload that slide.
     if (!_lcdActiveSlide || _lcdActiveSlide.songId !== songId) return;
+    if (_lcdEditDirty) return;   // the pad holds words not yet saved: they stay
     var ta = document.getElementById('lcdLyricsEditorTextarea');
     if (!ta || document.activeElement === ta) return;
     var box = _lcdRelocateActiveSlideBox();
@@ -80034,7 +80045,14 @@ var WO = (function() {
   // loaded by a redraw, the console reopening. A click away asks first.
   function _lcdFlushAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
-    if (_lcdEditDirty) { _lcdEditDirty = false; _lcdPushUndo(); _lcdCommitEditorToSlide(); }
+    if (_lcdEditDirty) {
+      _lcdEditDirty = false;
+      var _k0 = _edLcdKeyFromActive(_lcdActiveSlide);
+      if (_k0 && edIsLockedByOther(_k0)) showToast('Someone else was editing that slide, so your change to it was not saved.', 'warning');
+      // The undo step only when there is a slide to save into: pushed over a
+      // schedule being torn down, it was a snapshot of nothing.
+      else if (_lcdRelocateActiveSlideBox()) { _lcdPushUndo(); _lcdCommitEditorToSlide(); }
+    }
     _lcdDraftPaint();
     // Committed or nothing to commit: either way this slide is finished with.
     var _edKey = _edLcdKeyFromActive(_lcdActiveSlide);
@@ -80133,7 +80151,8 @@ var WO = (function() {
       songId: songId,
       liturgyId: box.getAttribute('data-liturgy-id') || '',
       source: box.getAttribute('data-source') || '',
-      slideIdx: box.getAttribute('data-slide-idx') || '0'
+      slideIdx: box.getAttribute('data-slide-idx') || '0',
+      box: box
     };
     _lcdEditingSongId = songId || null;
     _lcdSavedRange = null;
@@ -80297,6 +80316,10 @@ var WO = (function() {
   function _lcdRelocateActiveSlideBox() {
     if (!_lcdActiveSlide) return null;
     var a = _lcdActiveSlide;
+    // The box itself while it is still on the page. Reading (scripture)
+    // slides carry no data-slide-idx, so the lookup below never found one
+    // and an edit to a reading could not be saved at all.
+    if (a.box && a.box.isConnected) return a.box;
     var container = a.sectionId ? document.getElementById(a.sectionId + '-boxes') : null;
     if (!container) container = document;
     var sel = '.wo-slide-box[data-slide-idx="' + a.slideIdx + '"]';
@@ -80345,14 +80368,26 @@ var WO = (function() {
     return true;
   }
 
+  // Saves what the pad holds. False when it could not: no slide, the slide
+  // gone, or another device editing it now -- the words stay held, unsaved.
   function _lcdApplySlideEdit() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return false; }
+    var k = _edLcdKeyFromActive(_lcdActiveSlide);
+    if (k && edIsLockedByOther(k)) {
+      showToast('Someone else is editing this slide now, so this was not saved. Your words are still in the editor.', 'warning');
+      return false;
+    }
+    if (!_lcdRelocateActiveSlideBox()) {
+      showToast('That slide is no longer available.', 'warning');
+      return false;
+    }
     _lcdEditDirty = false;
-    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
     _lcdPushUndo();
-    if (_lcdCommitEditorToSlide()) showToast('Slide updated', 'success');
-    else showToast('That slide is no longer available.', 'warning');
+    _lcdCommitEditorToSlide();
+    showToast('Slide updated', 'success');
     _lcdDraftPaint();
+    return true;
   }
 
   function _lcdUpdateSlideSummary() {
@@ -80673,8 +80708,6 @@ var WO = (function() {
   // previous slide of the same group, caret at the join. Returns true if
   // a merge happened (so the caller can preventDefault).
   function _lcdMergeSlideUp() {
-    _lcdCancelAutoApply();
-    _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed || !_lcdActiveSlide) return false;
     var box = _lcdRelocateActiveSlideBox();
@@ -80686,6 +80719,10 @@ var WO = (function() {
     var allSlides = Array.from(container.querySelectorAll('.wo-slide-box'));
     var myIdx = allSlides.indexOf(box);
     if (myIdx <= 0) return false; // first slide in the section - let default backspace run
+    // Only now that it will merge: a Backspace at a section's first slide
+    // used to clear the held words' unsaved mark and push an empty step.
+    _lcdCancelAutoApply();
+    _lcdPushUndo();
     var prev = allSlides[myIdx - 1];
     var curText = ed.innerText || '';
     var prevText = _lcdReadSlidePlain(prev);
@@ -81752,6 +81789,7 @@ var WO = (function() {
   // music team keeps its key, words and links. It opened Song Order until
   // that was retired; the name stays so the button's wiring does.
   function lcdOpenInSongOrder() {
+    if (!_lcdDraftGuard(lcdOpenInSongOrder)) return;
     if (!_lcdEditingSongId) { showToast('Select a slide first.', 'warning'); return; }
     soOpenInSongbook(_lcdEditingSongId);
   }
@@ -82003,7 +82041,9 @@ var WO = (function() {
       // Reload the editor only if it is showing this slide and the operator
       // is not typing in it.
       var _ed = _lcdEditorEl();
-      if (box.classList.contains('selected') && document.activeElement !== _ed) {
+      // Not over held words either: reloading would first save them over
+      // the library's change it just wrote.
+      if (box.classList.contains('selected') && document.activeElement !== _ed && !_lcdEditDirty) {
         _lcdLoadSlideIntoEditor(box);
       }
     }
@@ -84038,6 +84078,12 @@ var WO = (function() {
     // ...and one pair for the way out: a click away from the editor.
     document.addEventListener('mousedown', _lcdOnAwayMouseDown, true);
     document.addEventListener('click', _lcdOnAwayClick, true);
+    // Closing or reloading the tab with words held asks the browser's own
+    // question; nothing else can stop a page going.
+    window.addEventListener('beforeunload', function(e) {
+      if (!_lcdDraftHeld()) return;
+      e.preventDefault(); e.returnValue = '';
+    });
   }
 
   // ---- An open pad holds its words until they are saved --------------
@@ -84057,6 +84103,15 @@ var WO = (function() {
   // (a redraw, the console reopening) still takes the draft with it, saved,
   // rather than drop what was typed.
   var _lcdSwallowUntil = 0;
+  function _lcdDraftHeld() { return !!(_lcdEditorUnlocked && _lcdEditDirty); }
+  // Before anything that redraws, reloads or replaces the slide being
+  // edited. True: go on now. False: the question is up, and `then` runs
+  // after Save or Discard (not after Keep editing).
+  function _lcdDraftGuard(then) {
+    if (!_lcdDraftHeld()) return true;
+    _lcdAskDraft(then);
+    return false;
+  }
   function _lcdDraftPaint() {
     var panel = document.querySelector('.lcd-lyrics-panel');
     if (panel) panel.classList.toggle('lcd-draft-dirty', !!(_lcdEditorUnlocked && _lcdEditDirty));
@@ -84067,7 +84122,9 @@ var WO = (function() {
     if (t.closest('.lcd-lyrics-panel, #lcdDraftAsk')) return false;
     if (t.clientWidth && e.offsetX > t.clientWidth) return false;     // its own scrollbar
     if (t.clientHeight && e.offsetY > t.clientHeight) return false;
-    for (var el = t; el && el !== document.body; el = el.parentElement) {
+    // Up to the console, not past it: in Full Screen the console itself is
+    // position: fixed, and every click in it read as floating.
+    for (var el = t; el && el !== document.body && el.id !== 'worshipOrderView'; el = el.parentElement) {
       if (getComputedStyle(el).position === 'fixed') return false;
     }
     return true;
@@ -84123,11 +84180,14 @@ var WO = (function() {
     var key = function(e) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done('keep'); }
       else if (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('.lcd-ask__keep, .lcd-ask__discard'))) { e.preventDefault(); e.stopPropagation(); done('save'); }
+      // a clicker's next/previous waits for the answer
+      else if (/^(Arrow\w+|PageUp|PageDown|Home|End)$/.test(e.key)) { e.preventDefault(); e.stopPropagation(); }
     };
     var done = function(choice) {
       document.removeEventListener('keydown', key, true);
       if (bd.parentNode) bd.parentNode.removeChild(bd);
-      if (choice === 'save') { _lcdApplySlideEdit(); lcdLockEditor(); }
+      // Not saved (another device has the slide): the words stay, unsaved.
+      if (choice === 'save') { if (_lcdApplySlideEdit() === false) { var e0 = _lcdEditorEl(); if (e0) e0.focus(); return; } lcdLockEditor(); }
       else if (choice === 'discard') { _lcdDiscardDraft(); showToast('Changes discarded', 'info'); }
       else { var ed = _lcdEditorEl(); if (ed) ed.focus(); return; }
       if (typeof after === 'function') after();
@@ -84135,8 +84195,11 @@ var WO = (function() {
     bd.querySelector('.lcd-ask__save').onclick = function() { done('save'); };
     bd.querySelector('.lcd-ask__discard').onclick = function() { done('discard'); };
     bd.querySelector('.lcd-ask__keep').onclick = function() { done('keep'); };
+    // A tap outside is Keep editing -- but not the second press of the
+    // double-click that asked, which lands on the backdrop a moment later.
+    var openedAt = Date.now();
     bd.addEventListener('mousedown', function(e) { if (e.target === bd) bd.__downOnBd = true; });
-    bd.addEventListener('click', function(e) { if (e.target === bd && bd.__downOnBd) done('keep'); bd.__downOnBd = false; });
+    bd.addEventListener('click', function(e) { if (e.target === bd && bd.__downOnBd && Date.now() - openedAt > 600) done('keep'); bd.__downOnBd = false; });
     document.addEventListener('keydown', key, true);
     var sb = bd.querySelector('.lcd-ask__save'); if (sb) sb.focus();
   }
@@ -84521,6 +84584,9 @@ var WO = (function() {
   }
 
   function selectSlideBox(box) {
+    // Not while "Save your changes?" is waiting: a clicker, the keyboard or
+    // the projection window would otherwise save the words under it.
+    if (document.getElementById('lcdDraftAsk')) return;
     // Some callers hand over a wrapper rather than a slide. The scripture
     // banner passes this.nextElementSibling, which is the
     // .wo-scripture-slides-group -- the group, not the first slide in it. The
@@ -85803,6 +85869,9 @@ var WO = (function() {
   }
 
   function lcdOpenSectionAllSlides() {
+    // All Slides shows and saves the slides as they are; held words would
+    // then be saved over whatever slide took their place.
+    if (!_lcdDraftGuard(lcdOpenSectionAllSlides)) return;
     var secId = currentSectionId
       || (selectedSlideBox && selectedSlideBox.getAttribute('data-section'))
       || (_lcdActiveSlide && _lcdActiveSlide.getAttribute && _lcdActiveSlide.getAttribute('data-section'))

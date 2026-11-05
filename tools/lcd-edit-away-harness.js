@@ -57,7 +57,7 @@ check('a keystroke marks the pad changed, and commits nothing',
 check('...and leaving the pad (a toolbar press is a blur) does not save it either',
   !has(/onblur="WO\.lcdFlushAutoApply\(\)"/) && has(/ onkeydown="WO\.lcdEditorKeydown\(event\)"><\/div>/));
 check('a path that does not ask still saves what was typed, as one Undo step',
-  /if \(_lcdEditDirty\) \{ _lcdEditDirty = false; _lcdPushUndo\(\); _lcdCommitEditorToSlide\(\); \}/.test(fn('_lcdFlushAutoApply')));
+  /else if \(_lcdRelocateActiveSlideBox\(\)\) \{ _lcdPushUndo\(\); _lcdCommitEditorToSlide\(\); \}/.test(fn('_lcdFlushAutoApply')));
 check('the panel says "Unsaved" while it holds words, and rings Apply',
   has(/\.lcd-lyrics-panel\.lcd-draft-dirty #lcdLyricsEditorTitle::after \{\r?\n\s*content: "Unsaved";/) &&
   /panel\.classList\.toggle\('lcd-draft-dirty', !!\(_lcdEditorUnlocked && _lcdEditDirty\)\)/.test(fn('_lcdDraftPaint')));
@@ -97,11 +97,47 @@ const ask = fn('_lcdAskDraft');
 check('Save your changes to this slide? -- Save, Discard, Keep editing',
   /Save your changes to this slide\?/.test(ask) && /lcd-ask__save/.test(ask) && /lcd-ask__discard/.test(ask) && /lcd-ask__keep/.test(ask));
 check('...Save applies and shuts the pad; Discard puts the slide\'s own words back; Esc keeps editing',
-  /if \(choice === 'save'\) \{ _lcdApplySlideEdit\(\); lcdLockEditor\(\); \}/.test(ask) &&
+  /if \(choice === 'save'\) \{ if \(_lcdApplySlideEdit\(\) === false\) \{[^}]*return; \} lcdLockEditor\(\); \}/.test(ask) &&
   /else if \(choice === 'discard'\) \{ _lcdDiscardDraft\(\);/.test(ask) && /if \(e\.key === 'Escape'\) \{[^}]*done\('keep'\);/.test(ask) &&
   /_lcdCancelAutoApply\(\);\r?\n\s*var box = _lcdRelocateActiveSlideBox\(\);\r?\n\s*if \(box\) _lcdLoadSlideIntoEditor\(box\);/.test(fn('_lcdDiscardDraft')));
 check('Preview shuts the pad too, so it asks the same question',
   /if \(mode === 'preview' && _lcdEditorUnlocked && _lcdEditDirty\) \{ _lcdAskDraft\(function\(\) \{ lcdSetEditorMode\('preview'\); \}\); return; \}/.test(fn('lcdSetEditorMode')));
+
+console.log('\nWhat the review of the first round found (2026-11-05)');
+if (awaySrc) {
+  const doc = { documentElement: {}, body: {} };
+  const away = new Function('document', 'getComputedStyle', awaySrc + '\nreturn _lcdClickIsAway;')(doc, el => ({ position: el.pos || 'static' }));
+  const consoleRoot = { id: 'worshipOrderView', pos: 'fixed', closest: () => null, parentElement: doc.body };
+  const inConsole = { closest: () => null, clientWidth: 200, clientHeight: 100, parentElement: consoleRoot };
+  check('in Full Screen, where the console itself is fixed, a click in it is still away', away({ target: inConsole, offsetX: 20, offsetY: 10 }) === true);
+}
+const guardSrc = fn('_lcdDraftGuard'), heldSrc = fn('_lcdDraftHeld');
+if (guardSrc && heldSrc) {
+  const G = new Function('S', 'var _lcdEditorUnlocked = false, _lcdEditDirty = false;\nfunction _lcdAskDraft(t) { S.asked = t; }\n' + heldSrc + '\n' + guardSrc + '\nreturn { set: function(u, d) { _lcdEditorUnlocked = u; _lcdEditDirty = d; }, guard: _lcdDraftGuard };');
+  const S = {}; const g = G(S); const then = () => {};
+  g.set(true, false); const clean = g.guard(then);
+  g.set(true, true); const held = g.guard(then);
+  check('anything that would redraw the slide goes on at once with nothing held, and asks first with words held', clean === true && held === false && S.asked === then);
+} else check('the guard before a redraw is a function of its own', false);
+check('...All Slides, Open in Songbook, the reload banner, opening an order and changing step all ask first',
+  /if \(!_lcdDraftGuard\(lcdOpenSectionAllSlides\)\) return;/.test(fn('lcdOpenSectionAllSlides')) &&
+  /if \(!_lcdDraftGuard\(lcdOpenInSongOrder\)\) return;/.test(fn('lcdOpenInSongOrder')) &&
+  /if \(!_lcdDraftGuard\(_orderSyncReload\)\) return;/.test(fn('_orderSyncReload')) &&
+  /if \(!_lcdDraftGuard\(function\(\) \{ loadOrder\(idxOrId\); \}\)\) return;/.test(fn('loadOrder')) &&
+  /if \(!_lcdDraftGuard\(function\(\) \{ selectOrder\(orderType\); \}\)\) return;/.test(fn('selectOrder')));
+check('...and opening or reloading an order starts its undo afresh', /_lcdUndoStack = \[\]; _lcdRedoStack = \[\];/.test(fn('loadOrder')));
+check('no slide changes while the question waits: not by a click, a clicker or the projection window',
+  /if \(document\.getElementById\('lcdDraftAsk'\)\) return;/.test(fn('selectSlideBox')) && /PageUp\|PageDown\|Home\|End/.test(ask));
+check('a reading\'s slide is found again by the slide itself, so its edits save',
+  /if \(a\.box && a\.box\.isConnected\) return a\.box;/.test(fn('_lcdRelocateActiveSlideBox')) && has(/slideIdx: box\.getAttribute\('data-slide-idx'\) \|\| '0',\r?\n\s*box: box/));
+check('a save is refused while another device edits the slide, and the words stay held',
+  /if \(k && edIsLockedByOther\(k\)\) \{[^]*?return false;/.test(fn('_lcdApplySlideEdit')) && /_lcdEditDirty = false;\r?\n\s*_lcdPushUndo\(\);/.test(fn('_lcdApplySlideEdit')));
+check('a slide rebuilt elsewhere, or a library change, never overwrites held words in the pad',
+  /if \(_lcdEditDirty\) return;/.test(fn('_lcdSyncEditorIfShowing')) && /!_lcdEditDirty\) \{\r?\n\s*_lcdLoadSlideIntoEditor\(box\);/.test(fn('_lcdWriteLibTextToSlide')));
+check('Backspace at a section\'s first slide leaves the held words marked unsaved',
+  /if \(myIdx <= 0\) return false;[^\n]*\r?\n(\s*\/\/[^\n]*\r?\n)*\s*_lcdCancelAutoApply\(\);/.test(fn('_lcdMergeSlideUp')) && !/function _lcdMergeSlideUp\(\) \{\r?\n\s*_lcdCancelAutoApply/.test(SRC));
+check('closing the tab with words held asks first', has(/window\.addEventListener\('beforeunload', function\(e\) \{\r?\n\s*if \(!_lcdDraftHeld\(\)\) return;/));
+check('the second press of the double-click that asked does not answer it', /Date\.now\(\) - openedAt > 600\) done\('keep'\);/.test(ask));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {
