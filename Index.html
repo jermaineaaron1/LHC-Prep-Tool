@@ -16404,7 +16404,16 @@ window.lhcVoiceLines = {
       // one line however many parts sing it (see lineNumbers). The same
       // place names the moment as an anchor for remarks drawn on it.
       var at = numbered[gi] || { n: gi + 1, overall: gi + 1, sectionKey: section || '' };
-      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + '" data-anchor="' + V._esc('s:' + (at.sectionKey != null ? at.sectionKey : (section || '')) + '|' + at.n) + '">');
+      // Two parts or more with words in one moment sing them AT ONCE; one
+      // part with words and the rest silent take their turn. In a chord
+      // sheet the labels read the same either way, so the moment says which
+      // (vl-sys--together) and the reading view draws a bar joining them.
+      // Not the old banner (gotcha 11): nothing is written on the page.
+      var together = !g.both && (lanesBySection[g.section || ''] || []).filter(function(p) {
+        var tl = g.byPart[V.partKey(p)];
+        return tl && V._hasWords(tl.text);
+      }).length > 1;
+      out.push('<div class="vl-sys' + (g.both ? ' vl-sys--unison' : '') + (together ? ' vl-sys--together' : '') + '" data-anchor="' + V._esc('s:' + (at.sectionKey != null ? at.sectionKey : (section || '')) + '|' + at.n) + '">');
       out.push('<span class="vl-no" title="' + V._esc((section ? section + ', ' : '') + 'line ' + at.n + ' (line ' + at.overall + ' of the song)') + '"><span class="vl-no__n">' + at.n + '</span><span class="vl-no__all">' + at.overall + '</span></span>');
       out.push('<div class="vl-sys-lines">');
 
@@ -50902,6 +50911,15 @@ var WO = (function() {
     for (var i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
     g.stroke(); g.globalAlpha = 1;
   }
+  // What the score's one mark means: the bar joins parts singing at once,
+  // and (-) is a part waiting while another sings. Shown only when the song
+  // has a moment of the first kind.
+  function _sbmTogetherKey(score) {
+    if (!score || score.indexOf('vl-sys--together') < 0) return '';
+    return '<div class="sbm-together-key">' +
+      '<span class="sbm-together-key__i"><span class="sbm-together-key__bar" aria-hidden="true"></span>Sing together: the parts on a purple bar sing at the same time</span>' +
+      '<span class="sbm-together-key__i"><span class="sbm-together-key__rest" aria-hidden="true">(&mdash;)</span>Waiting while another part sings</span></div>';
+  }
   function _sbmDrawChip() {
     if (_sbmMarksOk !== true) return '';
     return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. ' +
@@ -54501,6 +54519,7 @@ var WO = (function() {
       var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
+        _sbmTogetherKey(score) +
         '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
@@ -55857,7 +55876,7 @@ var WO = (function() {
       if (sec.open) {
         html += '<div class="sbm-ed__secbody">';
         sec.moments.forEach(function(m, mi) {
-          html += '<div class="sbm-ed__moment" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)">';
+          html += '<div class="sbm-ed__moment' + (_sbmEdTogether(m) ? ' is-together' : '') + '" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)"><span class="sbm-ed__together" aria-hidden="true">Sing together</span>';
           m.lines.forEach(function(l) {
             var ph = (_sbmEdPartKey(l.part) === 'both') ? 'Words everyone sings' : 'Add lyrics for ' + _sbmEdPartLabel(l.part) + ' (optional)';
             html += '<div class="sbm-ed__row" data-line="' + l.id + '">' +
@@ -55872,7 +55891,7 @@ var WO = (function() {
           html += '<div class="sbm-ed__mbtns">' +
             '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',-1)" ' + (mi === 0 ? 'disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
             '<button class="sbm-ed__ib" onclick="WO.sbmEdMoveMoment(\'' + m.id + '\',1)" ' + (mi === sec.moments.length - 1 ? 'disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
-            '<button class="sbm-ed__ib sbm-ed__ib--teal" onclick="WO.sbmEdAddPart(\'' + sec.id + '\',\'' + m.id + '\')" aria-label="Add a part to this moment"><i class="fa-solid fa-plus"></i></button></div>';
+            '<button class="sbm-ed__ib sbm-ed__ib--teal' + (m.lines.some(function(l) { return _sbmEdPartKey(l.part) === 'both'; }) ? '' : ' sbm-ed__here') + '" onclick="WO.sbmEdAddPart(\'' + sec.id + '\',\'' + m.id + '\')" aria-label="Add a part to this moment" title="Add a part that sings at the same time as this one"><i class="fa-solid fa-plus"></i><span>Part singing with this</span></button></div>';
           html += '</div>';
         });
         html += '<button class="sbm-ed__add" onclick="WO.sbmEdAddPart(\'' + sec.id + '\')"><i class="fa-solid fa-circle-plus"></i>Add Part to ' + escapeHtml(sec.name || 'this section') + '</button>';
@@ -55910,7 +55929,19 @@ var WO = (function() {
 
   // ---- edits ----
   function _sbmEdTouch() { if (_sbmEd) _sbmEd.dirty = true; }
-  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); _sbmEdPreviewSoon(); } }
+  function sbmEdInput(id, value) { var f = _sbmEdFind(id); if (f && f.line) { f.line.text = value; _sbmEdTouch(); _sbmEdPreviewSoon(); _sbmEdTogetherMark(f.m); } }
+  // Two parts or more with words in one box sing at the same time -- what
+  // the score's purple bar and "Sing together" badge will show. Typing does
+  // not redraw the editor, so the box's mark is set in place.
+  function _sbmEdTogether(m) {
+    var V = window.lhcVoiceLines;
+    if (!m || !m.lines || !V || !V._hasWords) return false;
+    return m.lines.filter(function(l) { return _sbmEdPartKey(l.part) !== 'both' && V._hasWords(l.text); }).length > 1;
+  }
+  function _sbmEdTogetherMark(m) {
+    var el = m && document.querySelector('#sbmEdit [data-moment="' + m.id + '"]');
+    if (el) el.classList.toggle('is-together', _sbmEdTogether(m));
+  }
   function sbmEdHold(id) { var f = _sbmEdFind(id); if (f && f.line) { f.line.sustained = !f.line.sustained; _sbmEdTouch(); _sbmEdPaint(); } }
   function sbmEdToggleSec(id) { var f = _sbmEdFind(id); if (f && f.sec) { f.sec.open = !f.sec.open; _sbmEdPaint(); } }
   function sbmEdRenameSec(id) {
@@ -110372,6 +110403,40 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl { --vl-lh: 1.95; padding-top: calc(1px + var(--vl-text) * 0.6); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl > .vl-rec { top: calc(1px + var(--vl-text) * 0.6 + (var(--vl-text) * 1.95 - 30px) / 2); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-w__c { color: #04756f; font-weight: 700; }
+/* Parts singing AT ONCE against parts TAKING TURNS. A moment where two parts
+   or more have words (vl-sys--together) is joined by a purple bar on a soft
+   panel, the way a score braces the staves that sound together; a moment
+   where one part sings and the rest are silent stays plain, its (-) saying
+   who waits. Every moment keeps the bar's room, so the labels stay in one
+   column. The key above the score says what the bar means. */
+#sbmRoot .sbm-score .vl-score .vl-sys-lines { position: relative; padding-left: 12px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines { background: rgba(124, 58, 237, 0.06); border-radius: 8px; padding-top: 3px; padding-bottom: 3px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; background: #7c3aed; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-sys-lines { padding-left: 11px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-sys--together > .vl-sys-lines::before { left: 2px; width: 3px; }
+.sbm-together-key { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 600 12px/1.35 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); }
+.sbm-together-key__i { display: inline-flex; align-items: center; gap: 7px; }
+.sbm-together-key__bar { flex: 0 0 auto; width: 4px; height: 18px; border-radius: 4px; background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.10); }
+.sbm-together-key__rest { flex: 0 0 auto; color: #94a3b8; font-weight: 400; letter-spacing: 0.1em; }
+/* ...and the panel says it in words, on a badge over its top edge */
+#sbmRoot .sbm-score .vl-score .vl-sys--together { margin-top: 16px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines { padding-top: 10px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines::after {
+  content: "Sing together"; position: absolute; top: -8px; left: 12px; padding: 3px 8px; border-radius: 999px;
+  background: #7c3aed; color: #fff; font: 800 9.5px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase;
+  box-shadow: 0 1px 3px rgba(76, 29, 149, 0.3); pointer-events: none; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-no { top: 12px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together:has(> .vl-sys-lines > .vl-chords:not(.vl-chords--empty):first-child) > .vl-no { top: calc(var(--vl-text) * 1.3 + 12px); }
+/* Edit Parts: a box is one moment, and two parts or more with words in it
+   sing at the same time -- the box says so, as the score will */
+.sbm-ed__together { display: none; align-self: flex-start; padding: 3px 8px; border-radius: 999px; background: #7c3aed; color: #fff; font: 800 9.5px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; }
+.sbm-ed__moment.is-together { border-left-color: #7c3aed; }
+.sbm-ed__moment.is-together > .sbm-ed__together { display: inline-block; }
+/* each box keeps its way to add a part singing with it outside Reorder too */
+.sbm-ed__mbtns { display: flex; }
+#sbmEdit:not(.is-reorder) .sbm-ed__mbtns > :not(.sbm-ed__here) { display: none; }
+#sbmEdit:not(.is-reorder) .sbm-ed__mbtns:not(:has(.sbm-ed__here)) { display: none; }
+.sbm-ed__ib.sbm-ed__here { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 600 12px/1 var(--sbm-font-ui); }
 .sbm-sec-take--more { background: #fff; color: var(--sbm-muted); border-color: var(--sbm-line); }
 .vl-draft-sec { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #6d28d9; margin-right: 4px; }
 .sb-rec-item-sec { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #c4b5fd; margin-left: 6px; }
