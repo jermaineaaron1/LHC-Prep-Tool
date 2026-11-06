@@ -12172,6 +12172,48 @@ I once was lost but now am found"
 
 <!-- JavaScript for modal features -->
 <script>
+// ---- Where an editor's cursor starts: on its first character -------------
+// (2026-11-06) A box filled from script keeps its cursor at the END of what it
+// was given, and focusing it scrolls to that end: the Songbook's Overview
+// Edit opened on a song's last line. Every editor that opens on words already
+// written calls this once it is focused, and the cursor goes before the first
+// character with the box scrolled to its top. One-line fields (a name, a
+// search, one choir line) keep the cursor at the end, as any field does.
+// CLAUDE.md gotcha 63.
+window.lhcCaretToStart = function(el) {
+  if (!el) return;
+  try {
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      el.setSelectionRange(0, 0);
+      el.scrollTop = 0;
+      el.scrollLeft = 0;
+      return;
+    }
+    // A contenteditable: before the first thing it shows -- text with
+    // something in it, or a line break -- and not before the formatting
+    // whitespace that sits between its blocks.
+    var walk = document.createTreeWalker(el, 5 /* SHOW_ELEMENT | SHOW_TEXT */, null);
+    var n, at = null;
+    while ((n = walk.nextNode())) {
+      if (n.nodeType === 1) { if (n.tagName === 'BR') { at = n; break; } continue; }
+      if (n.data && !/^\s*\n\s*$/.test(n.data)) { at = n; break; }
+    }
+    var r = document.createRange();
+    if (!at) r.setStart(el, 0);
+    else if (at.nodeType === 3) r.setStart(at, 0);
+    else r.setStartBefore(at);
+    r.collapse(true);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+    // focus() may have scrolled a box around the editor to its far end.
+    var line = at ? (at.nodeType === 3 ? at.parentNode : at) : null;
+    if (line && line !== el && line.scrollIntoView) line.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  } catch (e) {}
+};
+
 // Data storage for song modals - make globally accessible
 window.songData = {
   new: { youtube: [], attachments: [], lyrics: '' },
@@ -20075,6 +20117,7 @@ function openLyricsEditor(mode) {
   if (richEditor) {
     renderRichEditor(lyrics);
     richEditor.focus();
+    lhcCaretToStart(richEditor);
   }
 
   // Initialize live preview
@@ -46484,8 +46527,7 @@ var WO = (function() {
 
     var textarea = box.querySelector('.wo-content-textarea');
     textarea.focus();
-    // Place cursor at end of existing text
-    textarea.setSelectionRange(existingText.length, existingText.length);
+    lhcCaretToStart(textarea);
     updatePreview(existingText);
 
     textarea.oninput = function(e) { updatePreview(e.target.value); };
@@ -47431,6 +47473,7 @@ var WO = (function() {
     if (editor) {
       setTimeout(function() {
         editor.focus();
+        lhcCaretToStart(editor);
       }, 100);
 
       editor.onkeydown = function(e) {
@@ -55074,7 +55117,7 @@ var WO = (function() {
     ta.value = o.text || '';
     _sbmPadPaint();
     document.addEventListener('keydown', _sbmPadKey, true);
-    setTimeout(function() { ta.focus(); }, 30);
+    setTimeout(function() { ta.focus(); lhcCaretToStart(ta); sbmPadScroll(); }, 30);
   }
   function _sbmPadTa() { return _sbmPad ? _sbmPad.host.querySelector('.sbm-pad__ta') : null; }
   function _sbmPadPaint() {
@@ -61930,6 +61973,7 @@ var WO = (function() {
     var ta = ed.querySelector('.sb-choir-ta');
     ta.value = (initialText != null) ? initialText : src;
     ta.focus();
+    lhcCaretToStart(ta);
 
     ed.querySelector('.sb-choir-cancel').onclick = function() { ed.remove(); };
     ed.querySelector('.sb-choir-structured').onclick = function() { var t = ta.value; ed.remove(); _sbOpenPartsDialogFor(baseSongId, t); };
@@ -66071,6 +66115,7 @@ var WO = (function() {
     if (richEditor && typeof renderRichEditor === 'function') {
       renderRichEditor(lyrics);
       richEditor.focus();
+      lhcCaretToStart(richEditor);
     }
     if (typeof updateLyricsLivePreview === 'function') updateLyricsLivePreview();
     if (typeof renderLyricsEditorDocs === 'function') renderLyricsEditorDocs('__sb__');
@@ -77578,7 +77623,7 @@ var WO = (function() {
         '<button type="button" class="lbd-icon" data-sact="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
       '<div class="lbd-sheet-body">' + bodyHtml + '</div></div>';
     el.classList.add('show');
-    setTimeout(function() { var f = el.querySelector('[data-autofocus]'); if (f) f.focus(); }, 40);
+    setTimeout(function() { var f = el.querySelector('[data-autofocus]'); if (f) { f.focus(); if (f.tagName === 'TEXTAREA') lhcCaretToStart(f); } }, 40);
   }
 
   function _lbdCloseSheet() {
@@ -84006,7 +84051,7 @@ var WO = (function() {
     var ta = document.getElementById('lcdSongPrevEdit');
     if (ta) ta.value = _lcdLyricsForOrder(song);
     _lcdPrevSetEditing(true);
-    if (ta) ta.focus();
+    if (ta) { ta.focus(); lhcCaretToStart(ta); }
   }
 
   function lcdSongPreviewCancelEdit() {
@@ -84340,14 +84385,7 @@ var WO = (function() {
     var ed = _lcdEditorEl();
     if (!ed) return;
     ed.focus();
-    try {
-      var r = document.createRange();
-      r.selectNodeContents(ed);
-      r.collapse(false);
-      var sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(r);
-    } catch (e) {}
+    lhcCaretToStart(ed);
   }
 
   function lcdLockEditor() {
@@ -85213,6 +85251,7 @@ var WO = (function() {
     contentEl.parentNode.insertBefore(textarea, contentEl.nextSibling);
     contentEl.parentNode.insertBefore(btnRow, textarea.nextSibling);
     textarea.focus();
+    lhcCaretToStart(textarea);
   }
 
   function saveLiturgyEdit(box) {
@@ -85580,15 +85619,7 @@ var WO = (function() {
     content.appendChild(hintBar);
 
     editor.focus();
-    if (editorHtml) {
-      try {
-        var r = document.createRange();
-        r.selectNodeContents(editor);
-        var s = window.getSelection();
-        s.removeAllRanges();
-        s.addRange(r);
-      } catch(e2) {}
-    }
+    if (editorHtml) lhcCaretToStart(editor);
 
     _updateProjectionFromEditor(editorHtml || '');
   }
@@ -86405,7 +86436,7 @@ var WO = (function() {
       mobEl.style.maxHeight = (window.innerHeight - 12) + 'px';
       modal.style.left = '6px';
       modal.style.top = '6px';
-      setTimeout(function() { $('woAllSlidesEditor').focus(); }, 80);
+      setTimeout(function() { var e = $('woAllSlidesEditor'); if (e) { e.focus(); lhcCaretToStart(e); } }, 80);
       return;
     }
     modal.querySelector('.wo-all-slides-modal').style.height = '';
@@ -86432,7 +86463,7 @@ var WO = (function() {
       modal.style.top = Math.max(10, (window.innerHeight - popupH) / 2) + 'px';
     }
 
-    setTimeout(function() { $('woAllSlidesEditor').focus(); }, 80);
+    setTimeout(function() { var e = $('woAllSlidesEditor'); if (e) { e.focus(); lhcCaretToStart(e); } }, 80);
   }
 
   function closeAllSlidesModal() {
@@ -89071,7 +89102,7 @@ var WO = (function() {
       if (editBtn) { editBtn.style.background = '#f0faf3'; editBtn.style.color = '#15803d'; editBtn.style.borderColor = '#86dfa6'; }
       if (editLbl) editLbl.textContent = 'Editing';
       if (saveBtn) saveBtn.style.display = '';
-      setTimeout(function() { var t = document.getElementById('sbLitLogTextarea'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 60);
+      setTimeout(function() { var t = document.getElementById('sbLitLogTextarea'); if (t) { t.focus(); lhcCaretToStart(t); } }, 60);
     }
   }
 
@@ -94028,17 +94059,9 @@ var LiturgyModule = (function() {
       // Otherwise let browser insert a new paragraph normally
     });
 
-    // Focus at end
     setTimeout(function() {
       editor.focus();
-      try {
-        var s = window.getSelection();
-        var r = document.createRange();
-        r.selectNodeContents(editor);
-        r.collapse(false);
-        s.removeAllRanges();
-        s.addRange(r);
-      } catch(e) {}
+      lhcCaretToStart(editor);
     }, 80);
   }
 
@@ -98051,14 +98074,7 @@ var LiturgyModule = (function() {
 
     setTimeout(function() {
       editor.focus();
-      try {
-        var s = window.getSelection();
-        var r = document.createRange();
-        r.selectNodeContents(editor);
-        r.collapse(false);
-        s.removeAllRanges();
-        s.addRange(r);
-      } catch(e) {}
+      lhcCaretToStart(editor);
     }, 80);
   }
 
@@ -98440,7 +98456,7 @@ var LiturgyModule = (function() {
         '<button type="button" class="modal-btn modal-btn-primary" onclick="LiturgyModule.saveGuideSection(\'' + sectionId + '\')">Save</button>' +
       '</div>';
     var ta = document.getElementById('litGuideEditor');
-    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    if (ta) { ta.focus(); lhcCaretToStart(ta); }
   }
 
   function saveGuideSection(sectionId) {
@@ -99650,7 +99666,7 @@ var LiturgyModule = (function() {
         '</div>' +
       '</div>');
     var ta = document.getElementById('memEditorText');
-    if (ta) ta.focus();
+    if (ta) { ta.focus(); lhcCaretToStart(ta); }
   }
 
   function closeMemoryEditor() {
