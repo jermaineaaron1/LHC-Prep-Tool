@@ -11961,7 +11961,7 @@ I once was lost but now am found"
       <button class="sbfs-btn" onclick="WO.sbFsZoomIn()" title="Zoom in (+)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
       <button class="sbfs-btn sbfs-fit-btn" onclick="WO.sbFsFit()" title="Fit to screen">Fit</button>
       <button class="sbfs-btn sbfs-bookmode-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Show two pages side by side"><i class="fa-solid fa-book-open" style="font-size:0.85em;"></i><span class="sbfs-bookmode-label"> 2 Pages</span></button>
-      <button class="sbfs-btn sbfs-close-btn" onclick="WO.sbFsClose()" title="Close (Esc / double-click)"><i class="fa-solid fa-times"></i></button>
+      <button class="sbfs-btn sbfs-close-btn" onclick="WO.sbFsClose()" title="Close (Esc)"><i class="fa-solid fa-times"></i></button>
     </div>
   </div>
 
@@ -50364,7 +50364,18 @@ var WO = (function() {
 
   // ---- the cards and their canvases ----
   function _sbmMarkCards() {
-    return Array.prototype.slice.call(document.querySelectorAll('#sbmRoot .sbm-card')).filter(function(c) { return c.querySelector('.sbm-lyrics, .sbm-score'); });
+    // A Book Mode page is a card too, while the book is open (gotcha 64).
+    var sel = '#sbmRoot .sbm-card' + (_sbBkOpen() ? ', #sbFsPage .sbm-bk-card' : '');
+    return Array.prototype.slice.call(document.querySelectorAll(sel)).filter(function(c) { return c.classList.contains('sbm-bk-card') || c.querySelector('.sbm-lyrics, .sbm-score'); });
+  }
+  // How much larger or smaller a card is drawn than its own layout: 1 in the
+  // song view; the zoom on a Book Mode page, which a transform scales. Boxes
+  // are measured on the screen, so an em read from the stylesheet is scaled
+  // by it too, or a stroke kept in ems lands at the wrong size.
+  function _sbmCardScale(card) {
+    var w = card ? card.offsetWidth : 0; if (!w) return 1;
+    var sc = card.getBoundingClientRect().width / w;
+    return (sc > 0 && Math.abs(sc - 1) > 0.01) ? sc : 1;
   }
   // Lyric lines are the block children of #sbmLyrics; each gets its index
   // as its anchor. The score's moments carry theirs from html().
@@ -50447,14 +50458,14 @@ var WO = (function() {
     return { ends: ends, tag: tag };
   }
   function _sbmMarkBox(card, key) {
-    var cr = card.getBoundingClientRect();
+    var cr = card.getBoundingClientRect(), sc = _sbmCardScale(card);
     // kind 'token' is a chord or a word -- its origin is its centre; kind
     // 'box' is a row, a block or a moment -- its origin is its top left.
     // em is the element's font size: the unit a stroke is kept in.
     var rel = function(r, el, kind) {
       if (!r || !(r.height > 0)) return null;
-      var em = el ? parseFloat(getComputedStyle(el).fontSize) : 0;
-      return { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height, em: em > 0 ? em : 16, kind: kind };
+      var em = el ? parseFloat(getComputedStyle(el).fontSize) * sc : 0;
+      return { key: key, x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height, em: em > 0 ? em : 16 * sc, kind: kind };
     };
     var kp = _sbmKeyParts(key).ends[0], base = _sbmMarkBaseEl(card, kp.base), sub = kp.sub;
     if (!base) return null;
@@ -50571,7 +50582,7 @@ var WO = (function() {
     } else {
       _sbmTokenRects(base, null).forEach(function(t, k) { tokens.push({ key: near.key + '/w:' + k, rect: t.rect, row: base, kind: 'w', base: near.key }); });
     }
-    return { key: near.key, base: base, tokens: tokens, rowHit: rowHit, X: X, Y: Y, em: parseFloat(getComputedStyle(base).fontSize) || 16 };
+    return { key: near.key, base: base, tokens: tokens, rowHit: rowHit, X: X, Y: Y, em: (parseFloat(getComputedStyle(base).fontSize) || 16) * _sbmCardScale(card) };
   }
   function _sbmMarkGap(r, X, Y) { var dx = Math.max(r.left - X, 0, X - r.right), dy = Math.max(r.top - Y, 0, Y - r.bottom); return Math.hypot(dx, dy); }
   // The token nearest the point, by the gap to its edge: one of the row's
@@ -50686,6 +50697,16 @@ var WO = (function() {
     var key = _sbmMarkChoose(card, cx, cy);
     return key ? fresh(key + gid) : null;
   }
+  // The canvas a card's strokes are painted on, and drawn on.
+  function _sbmMarkCanvas(card) {
+    var cv = card.querySelector('canvas.sbm-marks');
+    if (cv) return cv;
+    cv = document.createElement('canvas'); cv.className = 'sbm-marks'; cv.setAttribute('aria-hidden', 'true');
+    cv.addEventListener('pointerdown', _sbmDrawDown); cv.addEventListener('pointermove', _sbmDrawMove);
+    cv.addEventListener('pointerup', _sbmDrawUp); cv.addEventListener('pointercancel', _sbmDrawUp);
+    card.appendChild(cv);
+    return cv;
+  }
   function _sbmMarksMount() {
     var song = _sbmSong(); if (!song) return;
     if (!_sbmMarksRO && window.ResizeObserver) _sbmMarksRO = new ResizeObserver(function() { _sbmEvenRows(); _sbmMarksPaintAll(); });
@@ -50696,12 +50717,7 @@ var WO = (function() {
     _sbmMarkCards().forEach(function(card) {
       card.classList.add('sbm-card--marks');
       if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
-      if (!card.querySelector('canvas.sbm-marks')) {
-        var cv = document.createElement('canvas'); cv.className = 'sbm-marks'; cv.setAttribute('aria-hidden', 'true');
-        cv.addEventListener('pointerdown', _sbmDrawDown); cv.addEventListener('pointermove', _sbmDrawMove);
-        cv.addEventListener('pointerup', _sbmDrawUp); cv.addEventListener('pointercancel', _sbmDrawUp);
-        card.appendChild(cv);
-      }
+      _sbmMarkCanvas(card);
       _sbmStampAnchors(card);
       if (_sbmMarksRO) _sbmMarksRO.observe(card);
       // The card keeps changing after it is drawn -- the recording chips
@@ -50839,10 +50855,15 @@ var WO = (function() {
     var cv = card.querySelector('canvas.sbm-marks'); if (!cv) return;
     var song = _sbmCardSong(card), base = song ? _sbBaseSongId(song) : '';
     cv.__base = base;
-    var W = card.clientWidth, H = card.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
-    if (!W || !H) return;
+    // Drawn in screen pixels (a Book Mode page is scaled), laid out in the
+    // card's own, and never past what a phone's canvas will hold: a whole
+    // song at a book's zoom is a very tall canvas.
+    var sc = _sbmCardScale(card), Wl = card.clientWidth, Hl = card.clientHeight, W = Wl * sc, H = Hl * sc, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!Wl || !Hl) return;
+    if (W * H * dpr * dpr > 16e6) dpr = Math.max(0.5, Math.sqrt(16e6 / (W * H)));
+    cv.__dpr = dpr;
     if (cv.width !== Math.floor(W * dpr) || cv.height !== Math.floor(H * dpr)) { cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr); }
-    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    cv.style.width = Wl + 'px'; cv.style.height = Hl + 'px';
     var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
     _sbmGlowDraw(g, card, W);
     var marks = _sbmMarksOf(base, song && song.versionId), memo = {}, laid = [], byAnchor = {};
@@ -51436,7 +51457,7 @@ var WO = (function() {
     var q = _sbmDrawPos(ev, cv);
     if (D.tool === 'eraser') { D.live = { erase: true, cv: cv, card: card, pointerId: ev.pointerId }; _sbmDrawErase(cv, q); return; }
     _sbmGlowStop();   // the last stroke's glow gives way to the next stroke
-    var g = cv.getContext('2d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var g = cv.getContext('2d'), dpr = cv.__dpr || Math.min(window.devicePixelRatio || 1, 2);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     D.live = { cv: cv, card: card, pts: [q], g: g, pointerId: ev.pointerId };
     _sbmMarkStroke(g, [q], D.colour, D.width);
@@ -53459,19 +53480,34 @@ var WO = (function() {
   // key: its formatted words when it has them (what the card shows), else its
   // words -- one block per line, the same blocks the card has. null when a
   // block is not one line, rather than guessed at.
-  function _sbmXpSource(song, ly) {
+  // A song's words as the song view draws them: its formatted words, or its
+  // words formatted, one block a line. Book Mode's pages are drawn from the
+  // same (_sbBkLyricsHtml), so their lines are the song view's lines.
+  function _sbmLyricsSource(song) {
+    return song.richLyrics ? _sbStripTrailingEmptyHtml(song.richLyrics)
+                           : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+  }
+  // The key it is shown in, in semitones from the copy's words.
+  function _sbmStepsOf(song) {
+    return (typeof sbTransposeSteps !== 'undefined' && sbTransposeSteps[song.id] != null) ? sbTransposeSteps[song.id] : (parseInt(song.transposeSteps, 10) || 0);
+  }
+  // Its lines as text, one a block; null when the blocks are not lines
+  // (words reworked as formatted text).
+  function _sbmLinesOf(song) {
     var box = document.createElement('div');
-    box.innerHTML = song.richLyrics ? _sbStripTrailingEmptyHtml(song.richLyrics)
-                                    : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+    box.innerHTML = _sbmLyricsSource(song);
     for (var n = box.firstChild; n; n = n.nextSibling) { if (n.nodeType === 3 && n.nodeValue.trim()) return null; }
-    var els = Array.prototype.slice.call(box.children);
-    if (els.length !== _sbmXpBlocks(ly).length) return null;
-    var lines = [];
+    var els = Array.prototype.slice.call(box.children), lines = [];
     for (var i = 0; i < els.length; i++) {
       var t = els[i].textContent;
       if (/\n/.test(t) || (els[i].querySelector('br') && t.trim())) return null;
       lines.push(t);
     }
+    return lines;
+  }
+  function _sbmXpSource(song, ly) {
+    var lines = _sbmLinesOf(song);
+    if (!lines || lines.length !== _sbmXpBlocks(ly).length) return null;
     return lines;
   }
   // Which of the card's lines a selection takes in: a line only touched at
@@ -54637,6 +54673,9 @@ var WO = (function() {
       (nVid ? '<button class="sbm-tile sbm-tile--yt" onclick="WO.sbmVideos()" title="Play this song\'s video' + (nVid === 1 ? '' : 's') + '"><i class="fa-brands fa-youtube"></i>YouTube' +
                 (nVid > 1 ? '<span class="sbm-tile__count">' + nVid + '</span>' : '') + '</button>'
             : '<button class="sbm-tile sbm-tile--yt-none" onclick="WO.sbAddSongLink(\'' + escapeJsArg(song.id) + '\')" title="Add a YouTube video to this song"><i class="fa-brands fa-youtube"></i>YouTube</button>') +
+      // The songbook full screen, at this song: drawn on with a double-click,
+      // a line typed over by holding it (gotcha 64).
+      '<button class="sbm-tile" onclick="WO.sbmBookMode()" title="Read the songbook full screen at this song. Double-click to draw; hold a line to type over it."><i class="fa-solid fa-book-open"></i>Book Mode</button>' +
       '</div></div>';
 
     // -- choir parts --
@@ -54662,9 +54701,7 @@ var WO = (function() {
     var showLyrics = view !== 'choir';
     var showScore = hasChoir && view === 'choir';
     if (showLyrics) {
-      var lyricsHtml = song.richLyrics
-        ? _sbStripTrailingEmptyHtml(song.richLyrics)
-        : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+      var lyricsHtml = _sbmLyricsSource(song);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
       html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
@@ -57960,9 +57997,7 @@ var WO = (function() {
       // pad the A4 page with a large dead gap after the song's last line (the
       // "extra spacing lines at the end" a user sees). Stripping at render also
       // means the next save writes the cleaned-up lyrics back.
-      var lyricsHtml = song.richLyrics
-        ? _sbStripTrailingEmptyHtml(song.richLyrics)
-        : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
+      var lyricsHtml = _sbmLyricsSource(song);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
@@ -70636,15 +70671,24 @@ var WO = (function() {
   // ============================================================
   // Songbook Fullscreen Viewer
   // ============================================================
-  function sbOpenFullscreen() {
+  function sbOpenFullscreen(startSongId) {
     _sbFsPages = _sbFsBuildPages();
     if (!_sbFsPages.length) { showToast('No pages to show', 'warning'); return; }
     _sbFsIdx = 0;
+    // Opened from a song's tile: at that song's first page.
+    if (typeof startSongId === 'string' && startSongId) {
+      Object.keys(_sbFsSongPageMap).map(Number).sort(function(a, b) { return a - b; }).some(function(pi) {
+        if (_sbFsSongPageMap[pi] !== startSongId) return false;
+        _sbFsIdx = pi; return true;
+      });
+    }
     _sbFsTwoCol = false; // reset to single-page on open
     var twoColBtn = document.getElementById('sbFsTwoColBtn');
     if (twoColBtn) twoColBtn.classList.remove('active');
     var overlay = document.getElementById('sbFsOverlay');
     overlay.style.display = 'flex';
+    _sbBkInit();
+    _sbBkAdoptOn();
     // Request true browser fullscreen
     var req = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.mozRequestFullScreen;
     if (req) {
@@ -70660,7 +70704,7 @@ var WO = (function() {
         var _stored = JSON.parse(localStorage.getItem('lhc_sb_fs_page_zooms_' + _oid) || 'null');
         if (_stored && typeof _stored === 'object') _sbFsPageZooms = _stored;
       } catch(e) { _sbFsPageZooms = {}; }
-      _sbFsZoom = (_sbFsPageZooms[0] !== undefined) ? _sbFsPageZooms[0] : _sbFsFitZoom;
+      _sbFsZoom = (_sbFsPageZooms[_sbFsIdx] !== undefined) ? _sbFsPageZooms[_sbFsIdx] : _sbFsFitZoom;
       _sbFsRenderPage();
       _sbFsInitPinch();
       _sbFsInitAutoHide();
@@ -70697,6 +70741,269 @@ var WO = (function() {
     // Handle OS-level fullscreen exit (e.g. user presses Esc via browser chrome)
     document.addEventListener('fullscreenchange', _sbFsOnFullscreenChange);
     document.addEventListener('webkitfullscreenchange', _sbFsOnFullscreenChange);
+  }
+
+  // ==================== BOOK MODE: DRAW AND TYPE ON THE PAGE ====================
+  //
+  // From the operator (2026-11-06): Book Mode -- the songbook full screen, a
+  // page at a time -- has a tile of its own on each song, opens at that
+  // song, and takes a pen and a keyboard: a double-click (a double tap on a
+  // phone) on a song's words starts drawing; holding a line types over it.
+  //
+  // A song's pages are drawn from the song view's own words (_sbBkLyricsHtml):
+  // the copy's words in the key sung, one block a source line, each stamped
+  // with the anchor drawn remarks are kept against (l:<i>). So a page shows
+  // the drawings the song view shows and takes new ones through the same
+  // code: its content is a card (.sbm-bk-card, among _sbmMarkCards()), and
+  // the pen, the glow, the rubber, Undo, layers and versions are as they are.
+  // The page is scaled by a transform, so boxes are measured on the screen
+  // and ems scaled to match (_sbmCardScale).
+  //
+  // The book asks for the browser's real full screen, in which nothing
+  // outside the overlay is drawn: what the songbook puts on <body> while it
+  // is open -- the drawing bar, "Who's drawing?", "Who should see your
+  // drawing?", a toast -- is taken into the overlay, and given back when it
+  // closes (_sbBkAdoptOn / _sbBkAdoptOff). CLAUDE.md gotcha 64.
+  var _sbBk = { edit: null, hold: null, tap: null, down: null, leaving: false, penHere: false };
+  var _sbBkAdoptMO = null, _sbBkAdopted = [];
+
+  function _sbBkOpen() {
+    var ov = document.getElementById('sbFsOverlay');
+    return !!ov && ov.style.display !== 'none' && ov.style.display !== '';
+  }
+  // The words a book page is drawn from, each line given its anchor.
+  function _sbBkLyricsHtml(song) {
+    var html = _sbmLyricsSource(song), steps = _sbmStepsOf(song);
+    if (steps) html = _sbTransposeHtml(html, steps);
+    var box = document.createElement('div');
+    box.innerHTML = html;
+    Array.prototype.forEach.call(box.children, function(el, i) { el.setAttribute('data-anchor', 'l:' + i); });
+    return box.innerHTML;
+  }
+  // From the song's tile: the book at this song.
+  function sbmBookMode() {
+    var song = _sbmSong();
+    sbOpenFullscreen(song ? song.id : '');
+    if (!_sbBkOpen()) return;
+    var seen = false;
+    try { seen = localStorage.getItem('lhc_sb_book_hint') === '1'; localStorage.setItem('lhc_sb_book_hint', '1'); } catch (e) {}
+    if (!seen) showToast('Double-click (or double-tap) the words to draw on them. Hold a line to type over it.', 'info', { duration: 7000 });
+  }
+  // After every page drawn: its drawings, and the pen if it is out.
+  function _sbBkMount() {
+    var page = document.getElementById('sbFsPage');
+    if (!page || !_sbBkOpen()) return;
+    var cards = Array.prototype.slice.call(page.querySelectorAll('.sbm-bk-card'));
+    if (!cards.length) return;
+    _sbmMarksSupport().then(function(ok) {
+      if (!ok) return;
+      cards.forEach(function(card) {
+        if (!card.isConnected) return;
+        _sbmMarkCanvas(card);
+        if (_sbmDraw) { card.classList.add('is-drawing'); card.classList.toggle('is-scrolling', !!_sbmDraw.scroll); }
+        _sbmMarksPaint(card);
+        var song = _sbmCardSong(card);
+        if (song) _sbmLoadMarks(song);   // paints every card again when they arrive
+      });
+    });
+  }
+  // The book again, at the same page and place: after a line is saved.
+  function _sbBkRebuild() {
+    if (!_sbBkOpen() || _sbBk.leaving) return;
+    var vp = document.getElementById('sbFsViewport'), st = vp ? vp.scrollTop : 0;
+    _sbFsPages = _sbFsBuildPages();
+    _sbFsIdx = Math.max(0, Math.min(_sbFsIdx, _sbFsPages.length - 1));
+    _sbFsRenderPage();
+    if (vp) vp.scrollTop = st;
+  }
+
+  // ---- what the songbook puts on <body>, inside the full screen ----
+  function _sbBkTake(el) {
+    var ov = document.getElementById('sbFsOverlay');
+    if (!ov || !el || el.nodeType !== 1 || el === ov || el.parentNode !== document.body) return;
+    if (/^(SCRIPT|STYLE|LINK|META|IFRAME|TEMPLATE|AUDIO|VIDEO)$/.test(el.tagName)) return;
+    _sbBkAdopted.push(el);
+    ov.appendChild(el);
+  }
+  function _sbBkAdoptOn() {
+    if (_sbBkAdoptMO) return;
+    ['toastNotification', 'sbmDrawBar', 'sbmSheet'].forEach(function(id) { _sbBkTake(document.getElementById(id)); });
+    if (!window.MutationObserver) return;
+    // Measuring divs come and go within one task, so by the time this runs
+    // they are no longer on <body> and are left alone.
+    _sbBkAdoptMO = new MutationObserver(function(muts) {
+      muts.forEach(function(m) { Array.prototype.forEach.call(m.addedNodes, _sbBkTake); });
+    });
+    _sbBkAdoptMO.observe(document.body, { childList: true });
+  }
+  function _sbBkAdoptOff() {
+    if (_sbBkAdoptMO) { _sbBkAdoptMO.disconnect(); _sbBkAdoptMO = null; }
+    var ov = document.getElementById('sbFsOverlay');
+    _sbBkAdopted.forEach(function(el) { if (el.isConnected && ov && ov.contains(el)) document.body.appendChild(el); });
+    _sbBkAdopted = [];
+  }
+  // Closing: a line being typed is kept, the pen taken out here put away
+  // (who sees what was drawn is asked on the page under the book).
+  function _sbBkLeave() {
+    _sbBkCancelHold();
+    _sbBk.leaving = true;
+    try { if (_sbBk.edit) _sbBkEditEnd(true); } finally { _sbBk.leaving = false; }
+    _sbBkAdoptOff();
+    if (_sbmDraw && _sbBk.penHere) sbmDraw(false);
+    _sbBk.penHere = false; _sbBk.tap = null; _sbBk.down = null;
+  }
+
+  // ---- the gestures: hold a line, double-tap the words ----
+  function _sbBkInit() {
+    var page = document.getElementById('sbFsPage');
+    if (!page || page.__sbBk) return;
+    page.__sbBk = true;
+    page.addEventListener('pointerdown', _sbBkDown);
+    page.addEventListener('pointermove', _sbBkMove);
+    page.addEventListener('pointerup', _sbBkUp);
+    page.addEventListener('pointercancel', function() { _sbBkCancelHold(); _sbBk.down = null; });
+    // Holding is how a line is typed over, so a phone's own long press (a
+    // word selected, the copy menu) stands down on the words -- not in the
+    // line being typed in.
+    page.addEventListener('contextmenu', function(e) {
+      if (_sbBk.edit && _sbBk.edit.line.contains(e.target)) return;
+      if (e.target && e.target.closest && e.target.closest('.sbm-bk-card')) e.preventDefault();
+    });
+    var vp = document.getElementById('sbFsViewport');
+    if (vp) vp.addEventListener('scroll', _sbBkCancelHold, { passive: true });
+  }
+  function _sbBkCancelHold() { if (_sbBk.hold) { clearTimeout(_sbBk.hold.t); _sbBk.hold = null; } }
+  function _sbBkDown(e) {
+    _sbBkCancelHold();
+    if (e.isPrimary === false) { if (_sbBk.down) _sbBk.down.moved = true; return; }   // a second finger: a pinch
+    _sbBk.down = { x: e.clientX, y: e.clientY, moved: false, held: false };
+    if (_sbmDraw || _sbBk.edit || (e.button != null && e.button > 0)) return;
+    var line = e.target && e.target.closest ? e.target.closest('.sbm-bk-card [data-anchor^="l:"]') : null;
+    if (!line) return;
+    var x = e.clientX, y = e.clientY;
+    _sbBk.hold = { t: setTimeout(function() {
+      _sbBk.hold = null;
+      if (_sbBk.down) _sbBk.down.held = true;
+      _sbBkEditStart(line, x, y);
+    }, 550) };
+  }
+  function _sbBkMove(e) {
+    var d = _sbBk.down; if (!d || e.isPrimary === false) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { d.moved = true; _sbBkCancelHold(); }
+  }
+  function _sbBkUp(e) {
+    _sbBkCancelHold();
+    var d = _sbBk.down; _sbBk.down = null;
+    // A phone has no double-click (gotcha 28): two taps, close in time and place.
+    if (e.pointerType !== 'touch' || !d || d.moved || d.held || _sbmDraw || _sbBk.edit) { _sbBk.tap = null; return; }
+    var now = Date.now(), T = _sbBk.tap;
+    if (T && now - T.at < 350 && Math.hypot(e.clientX - T.x, e.clientY - T.y) < 32) { _sbBk.tap = null; _sbBkDouble(e); }
+    else _sbBk.tap = { at: now, x: e.clientX, y: e.clientY };
+  }
+  // A double-click or a double tap: the pen comes out.
+  function _sbBkDouble(e) {
+    if (_sbmDraw || _sbBk.edit) return;
+    var t = e && e.target;
+    if (t && t.closest && t.closest('#sbFsBar, .sbm-drawbar, .sbm-sheet-backdrop, #toastNotification')) return;
+    try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
+    var card = t && t.closest ? t.closest('.sbm-bk-card') : null;
+    if (!card) { showToast('Double-click a song\'s words to draw on them', 'info'); return; }
+    _sbmMarksSupport().then(function(ok) {
+      if (!ok) { showToast('Drawing is not set up on this database yet', 'error'); return; }
+      if (_sbmDraw) return;
+      _sbBk.penHere = true;
+      sbmDraw(true);
+    });
+  }
+
+  // ---- typing over a line ----
+  // The line held becomes editable where it is, the cursor where it was
+  // held. Enter (or a tap elsewhere) keeps it, Esc puts it back. It is saved
+  // as the line-transpose bar saves (_sbSetCopyWords: the copy's words, both
+  // saves, the live nudge), holding the song as every editor does
+  // (_sbEditClaim, gotcha 58); a chord line typed in the key it is shown in
+  // is kept in the copy's own key.
+  function _sbBkEditStart(line, x, y) {
+    if (_sbBk.edit || _sbmDraw || !line || !line.isConnected) return;
+    var card = line.closest('.sbm-bk-card'), song = card ? _sbmCardSong(card) : null;
+    if (!song) return;
+    var lines = _sbmLinesOf(song), idx = parseInt(String(line.getAttribute('data-anchor') || '').slice(2), 10);
+    if (!lines) { showToast('These words were reworked as formatted text, so their lines cannot be told apart here. Use Edit on the song to change them.', 'info', { duration: 6000 }); return; }
+    if (!(idx >= 0 && idx < lines.length)) return;
+    if (!_sbEditClaim(song)) return;
+    _sbBk.edit = { line: line, song: song, base: _sbBaseSongId(song), idx: idx, before: lines.join('\n'), text: line.textContent,
+                   chord: line.classList.contains('wo-lyrics-chord-line'), steps: _sbmStepsOf(song) };
+    line.classList.add('sbm-bk-editing');
+    try { line.contentEditable = 'plaintext-only'; } catch (er) {}
+    if (line.contentEditable !== 'plaintext-only') line.contentEditable = 'true';
+    line.addEventListener('keydown', _sbBkEditKey);
+    line.addEventListener('beforeinput', _sbBkEditBeforeInput);
+    line.addEventListener('paste', _sbBkEditPaste);
+    line.addEventListener('blur', _sbBkEditBlur);
+    line.focus();
+    _sbBkCaretAt(line, x, y);
+    showToast('Type over the line. Enter keeps it; Esc puts it back.', 'info', { duration: 4000 });
+  }
+  function _sbBkCaretAt(el, x, y) {
+    var r = null;
+    try {
+      if (document.caretRangeFromPoint) r = document.caretRangeFromPoint(x, y);
+      else if (document.caretPositionFromPoint) { var p = document.caretPositionFromPoint(x, y); if (p) { r = document.createRange(); r.setStart(p.offsetNode, p.offset); } }
+    } catch (e) { r = null; }
+    if (!r || !el.contains(r.startContainer)) { lhcCaretToStart(el); return; }
+    r.collapse(true);
+    var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  function _sbBkEditKey(e) {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); _sbBkEditEnd(true); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _sbBkEditEnd(false); return; }
+    e.stopPropagation();   // the book's arrows and + / - are for reading, not typing
+  }
+  // A phone's Return can arrive as key 229 and is only seen here.
+  function _sbBkEditBeforeInput(e) {
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); _sbBkEditEnd(true); }
+  }
+  function _sbBkEditPaste(e) {
+    var t = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    e.preventDefault();
+    try { document.execCommand('insertText', false, t.replace(/\r?\n+/g, ' ')); } catch (x) {}
+  }
+  function _sbBkEditBlur() {
+    setTimeout(function() { if (_sbBk.edit && document.activeElement !== _sbBk.edit.line) _sbBkEditEnd(true); }, 0);
+  }
+  function _sbBkEditEnd(save) {
+    var E = _sbBk.edit; if (!E) return;
+    _sbBk.edit = null;
+    var ln = E.line;
+    ln.removeEventListener('keydown', _sbBkEditKey);
+    ln.removeEventListener('beforeinput', _sbBkEditBeforeInput);
+    ln.removeEventListener('paste', _sbBkEditPaste);
+    ln.removeEventListener('blur', _sbBkEditBlur);
+    ln.removeAttribute('contenteditable');
+    ln.classList.remove('sbm-bk-editing');
+    var text = String(ln.textContent || '').replace(/\r?\n/g, ' ');
+    if (!save || text === E.text) { ln.textContent = E.text; _sbEditRelease(E.base); return; }
+    // Changed underneath (another device, the song view): not written over.
+    var now = _sbmLinesOf(E.song);
+    if (!now || now.join('\n') !== E.before) {
+      ln.textContent = E.text;
+      _sbEditRelease(E.base);
+      showToast('These words were changed while you were typing, so the line was not saved.', 'warning', { duration: 6000 });
+      _sbBkRebuild();
+      return;
+    }
+    if (!_sbEditMayWrite(E.song)) return;
+    now[E.idx] = (E.chord && E.steps) ? sbTransposeChordLine(text, -E.steps) : text;
+    var after = now.join('\n'), song = E.song, before = E.before;
+    _sbSetCopyWords(song, after);
+    _sbEditRelease(E.base);
+    showToast('Line saved', 'success', { action: 'Undo', duration: 6000, onAction: function() {
+      if (String(song.customLyrics || '') !== after) { showToast('The words were changed since, so this was not undone.', 'info'); return; }
+      if (!_sbEditMayWrite(song)) return;
+      _sbSetCopyWords(song, before);
+      _sbBkRebuild();
+    } });
+    _sbBkRebuild();
   }
 
   // ---- Choir parts as their own songbook pages ---------------------------
@@ -71289,17 +71596,11 @@ var WO = (function() {
         }
       }
 
-      var lyricsEl   = document.getElementById('sbLyrics-' + song.id);
-      // Strip page-break marker elements before book mode / print rendering —
-      // markers are only for the live scroll view. Clone so the live DOM stays intact.
-      var lyricsHtml;
-      if (lyricsEl) {
-        var _lyrClone = lyricsEl.cloneNode(true);
-        _lyrClone.querySelectorAll('.sb-a4-marker').forEach(function(m) { m.remove(); });
-        lyricsHtml = _lyrClone.innerHTML;
-      } else {
-        lyricsHtml = song.richLyrics || (typeof formatLyricsWithHighlights === 'function' ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || ''));
-      }
+      // The song view's words, in the key sung, each line carrying the anchor
+      // its drawings are kept against -- so the page shows them and takes new
+      // ones (gotcha 64). It was the printed page's DOM, or, when that had not
+      // been drawn, the words in the song's own key.
+      var lyricsHtml = _sbBkLyricsHtml(song);
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
 
       // Annotations
@@ -71343,7 +71644,7 @@ var WO = (function() {
         _fsWrapStyle = ' style="font-size:' + _fsFontPx + 'px"';
         _fsOvrBlock  = '<style>.sp-lyrics-wrap .wo-lyrics-chord-line{font-size:' + _fsChordPx + 'px!important;}</style>';
       }
-      var songBodyHtml    = _fsOvrBlock + '<div class="sp-lyrics-wrap' + (song.sbLyricsColumns === 2 ? ' sp-lyrics-wrap--two-col' : '') + '"' + _fsWrapStyle + '>' + lyricsHtml + annotSvg + '</div>';
+      var songBodyHtml    = _fsOvrBlock + '<div class="sp-lyrics-wrap sbm-bk-lyrics' + (song.sbLyricsColumns === 2 ? ' sp-lyrics-wrap--two-col' : '') + '"' + _fsWrapStyle + '>' + lyricsHtml + annotSvg + '</div>';
       var fullContentHtml = songHeaderHtml + songBodyHtml;
 
       // ── Hidden measurement div ──────────────────────────────────────────
@@ -71447,7 +71748,7 @@ var WO = (function() {
               '</div>' +
             '</div>';
           pages.push(extraStyle +
-            '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;background:white;">' +
+            '<div class="sbm-bk-card" data-sbm-song="' + escapeHtml(song.id) + '" style="height:' + A4H + 'px;overflow:hidden;position:relative;background:white;">' +
               (isFstPg ? songHeaderHtml : '') + tcBody +
             '</div>');
         }
@@ -71494,7 +71795,7 @@ var WO = (function() {
 
           pages.push(extraStyle +
             '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
-              '<div style="position:absolute;top:' + (-breakY) + 'px;left:0;width:794px;">' +
+              '<div class="sbm-bk-card" data-sbm-song="' + escapeHtml(song.id) + '" style="position:absolute;top:' + (-breakY) + 'px;left:0;width:794px;">' +
                 fullContentHtml +
               '</div>' +
               taHtml +
@@ -71715,6 +72016,7 @@ var WO = (function() {
         vp.scrollLeft = 0;
       }
     }
+    _sbBkMount();
   }
 
   function sbFsToggleTwoCol() {
@@ -71732,6 +72034,7 @@ var WO = (function() {
   }
 
   function sbFsClose() {
+    _sbBkLeave();
     if (_sbFsResizeHandler) { window.removeEventListener('resize', _sbFsResizeHandler); _sbFsResizeHandler = null; }
     var overlay = document.getElementById('sbFsOverlay');
     if (overlay) overlay.style.display = 'none';
@@ -71832,13 +72135,19 @@ var WO = (function() {
       }
     });
     overlay.addEventListener('click', function() { _sbFsShowBar(); });
-    overlay.addEventListener('dblclick', function() { sbFsClose(); });
+    // A double-click starts drawing (gotcha 64); it used to close the book,
+    // which the X and Esc still do.
+    overlay.addEventListener('dblclick', function(e) { _sbBkDouble(e); });
     overlay.addEventListener('touchstart', function() { _sbFsShowBar(); }, { passive: true });
   }
 
   function _sbFsKeyHandler(e) {
     var tag = (e.target || {}).tagName || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    // A line being typed over keeps its arrows, its + and its Esc.
+    if (e.target && e.target.isContentEditable) return;
+    if (e.key === 'Escape' && document.getElementById('sbmSheet')) { _sbmCloseSheet(); return; }
+    if (e.key === 'Escape' && _sbmDraw && _sbBk.penHere) { _sbBk.penHere = false; sbmDraw(false); return; }
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); sbFsNext(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); sbFsPrev(); }
     else if (e.key === 'Escape') sbFsClose();
@@ -71871,6 +72180,7 @@ var WO = (function() {
     }
 
     vp.addEventListener('touchstart', function(e) {
+      if (_sbmDraw || _sbBk.edit) { t1active = false; t1Dir = null; return; }
       var w = _wrap();
       if (e.touches.length === 1) {
         t1x = e.touches[0].clientX;
@@ -71892,6 +72202,7 @@ var WO = (function() {
     }, { passive: true });
 
     vp.addEventListener('touchmove', function(e) {
+      if (_sbmDraw || _sbBk.edit) return;
       // ── 2-finger: pinch-zoom or native scroll ───────────────────────
       if (e.touches.length === 2) {
         var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
@@ -71928,6 +72239,7 @@ var WO = (function() {
 
     vp.addEventListener('touchend', function(e) {
       _sbFsPinching = false; p2isPinch = false;
+      if (_sbmDraw || _sbBk.edit) { t1active = false; t1Dir = null; return; }
 
       if (t1active && t1Dir === true && e.changedTouches.length > 0) {
         var dx = e.changedTouches[0].clientX - t1x;
@@ -91818,6 +92130,7 @@ var WO = (function() {
     sbTaBoxPointerDown: sbTaBoxPointerDown,
     sbSaveOrder: sbSaveOrder,
     sbOpenFullscreen: sbOpenFullscreen,
+    sbmBookMode: sbmBookMode,
     sbFsClose: sbFsClose,
     sbFsNext: sbFsNext,
     sbFsPrev: sbFsPrev,
@@ -110766,6 +111079,14 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-card.is-drawing .sbm-marks { pointer-events: auto; touch-action: none; cursor: crosshair; }
 .sbm-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
 .sbm-card.is-drawing { outline: 2px dashed rgba(37,99,235,0.5); outline-offset: 3px; }
+/* Book Mode's pages take the pen and the keyboard (gotcha 64). */
+.sbm-bk-card.is-drawing .sbm-marks { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.sbm-bk-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
+#sbFsViewport { touch-action: manipulation; }
+#sbFsPage .sbm-bk-card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#sbFsPage .sbm-bk-card .sbm-bk-editing { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; cursor: text; outline: 2px solid #0ea5e9; outline-offset: 3px; border-radius: 4px; background: #f0f9ff; caret-color: #0369a1; }
+#sbFsOverlay .sbm-drawbar { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+#sbFsOverlay .sbm-drawbar__phone { display: none; }
 .sbm-chip--draw.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
 .lay-how { margin: 10px 0 4px; padding: 10px 12px; border-radius: var(--sbm-radius-md); background: var(--sbm-surface, #f1f5f9); font: 500 12.5px/1.5 var(--sbm-font-ui); color: var(--sbm-text-2); }
 .lay-how summary { cursor: pointer; font-weight: 700; color: var(--sbm-text); list-style: none; display: flex; align-items: center; gap: 8px; }

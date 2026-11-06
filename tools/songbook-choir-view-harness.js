@@ -128,8 +128,9 @@ check('a selection in the song\'s words offers the bar, for the lines it takes i
   has(/rg\.compareBoundaryPoints\(Range\.END_TO_START, er\) < 0 && rg\.compareBoundaryPoints\(Range\.START_TO_END, er\) > 0/) &&
   has(/onclick="WO\.sbmXpSel\(-1\)"/) && has(/onclick="WO\.sbmXpSel\(1\)"/) && has(/onclick="WO\.sbmXpSelUndo\(\)"/) && has(/onclick="WO\.sbmXpSelClose\(\)"/));
 check('...which reads the words the card is drawn from, one block a line, and refuses rather than guess',
-  has(/box\.innerHTML = song\.richLyrics \? _sbStripTrailingEmptyHtml\(song\.richLyrics\)/) &&
-  has(/if \(els\.length !== _sbmXpBlocks\(ly\)\.length\) return null;/) &&
+  // The card's own source, shared with Book Mode since gotcha 64 (_sbmLyricsSource / _sbmLinesOf).
+  has(/return song\.richLyrics \? _sbStripTrailingEmptyHtml\(song\.richLyrics\)/) && has(/box\.innerHTML = _sbmLyricsSource\(song\);/) &&
+  has(/if \(!lines \|\| lines\.length !== _sbmXpBlocks\(ly\)\.length\) return null;/) &&
   has(/if \(!lines\) \{ showToast\('These words were reworked as formatted text/));
 check('...saves them as the copy\'s words, as the Lyrics editor does, unless somebody else is editing the song',
   has(/if \(!_sbEditMayWrite\(song\)\) return;\r?\n\s*var lines = _sbmXpSource\(song, ly\);/) &&
