@@ -7440,7 +7440,7 @@
                            routine that already writes to it keeps working. -->
                       <div class="lcd-seg" role="group" aria-label="Slide Editor mode">
                         <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdUnlockEditor()" aria-pressed="true" title="Open this slide's text for editing"><i class="fa-solid fa-pen"></i> Edit</button>
-                        <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project"><i class="fa-solid fa-eye"></i> Preview</button>
+                        <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project (press again to roll the editor up)"><i class="fa-solid fa-eye"></i> Preview</button>
                       </div>
                       <div class="lcd-lyrics-actions">
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
@@ -38042,7 +38042,16 @@ var WO = (function() {
         // and schedule() already runs applyLayout twice per invocation.
         var _lyrBody = outputs.querySelector('.lcd-lyrics-body');
         if (_lyrBody) {
+          // Measured OPEN even while the editor is rolled up to its title
+          // bar (_lcdApplyEditorRoll): a rolled body has no overflow to read,
+          // so the row came out short and opening the editor pushed the Media
+          // Tray down. Unrolled for the reading and rolled again before any
+          // paint, the row is the same height either way and nothing moves.
+          var _lyrPanel = _lyrBody.closest('.lcd-lyrics-panel');
+          var _rolled = !!(_lyrPanel && _lyrPanel.classList.contains('lcd-editor-rolled'));
+          if (_rolled) _lyrPanel.classList.remove('lcd-editor-rolled');
           var _clip = _lyrBody.scrollHeight - _lyrBody.clientHeight;
+          if (_rolled) _lyrPanel.classList.add('lcd-editor-rolled');
           if (_clip > 0) rowH = Math.min(rowH + _clip + 2, Math.max(rowH, avail - 60));
         }
 
@@ -84370,7 +84379,29 @@ var WO = (function() {
       ed.setAttribute('contenteditable', locked ? 'false' : 'true');
       if (locked && document.activeElement === ed) ed.blur();
     }
+    _lcdApplyEditorRoll();
     _lcdDraftPaint();
+  }
+
+  // ---- Rolled up unless it is being used ---------------------------------
+  // Shut and not previewing, the Slide Editor is its title bar alone: the
+  // words are on the projection beside it, and the panel's body was a second
+  // copy of them taking half the row. Opening the pad (Edit, or a
+  // double-click on the slide or the projection) rolls it down; shutting it
+  // (a click away, Save, Discard) rolls it back up. Preview, chosen on
+  // purpose, shows its surface, and a second press on it rolls it up again.
+  // The row keeps its height -- _lcdSizeWorkspaceColumns sizes it from the
+  // projection -- so nothing else on the console moves as it rolls.
+  function _lcdApplyEditorRoll() {
+    var panel = document.querySelector('.lcd-lyrics-panel');
+    if (!panel) return;
+    var rolled = !_lcdEditorUnlocked && !panel.classList.contains('lcd-mode-preview');
+    panel.classList.toggle('lcd-editor-rolled', rolled);
+    var hd = panel.querySelector('.lcd-panel-header');
+    if (hd) {
+      if (rolled) hd.title = 'Press Edit, or double-click a slide in the list or the projection, to open the Slide Editor';
+      else hd.removeAttribute('title');
+    }
   }
 
   function lcdUnlockEditor() {
@@ -84541,6 +84572,10 @@ var WO = (function() {
   }
 
   function lcdSetEditorMode(mode) {
+    // Preview pressed while it is showing rolls the editor back up: the pad
+    // is already shut in Preview, so this is the way out of it.
+    var _pnl = document.querySelector('.lcd-lyrics-panel');
+    if (mode === 'preview' && _pnl && _pnl.classList.contains('lcd-mode-preview')) mode = 'edit';
     if (mode === 'preview' && _lcdEditorUnlocked && _lcdEditDirty) { _lcdAskDraft(function() { lcdSetEditorMode('preview'); }); return; }
     var preview = (mode === 'preview');
     var panel = document.querySelector('.lcd-lyrics-panel');
@@ -84557,6 +84592,7 @@ var WO = (function() {
     // NOT reopen it -- only lcdUnlockEditor() does, which is what the Edit
     // button calls.
     if (preview) { _lcdEditorUnlocked = false; _lcdApplyEditorLock(); }
+    _lcdApplyEditorRoll();
   }
 
   // ---- Add a slide from the editor -----------------------------------
@@ -101492,7 +101528,13 @@ function filterLiturgyItems() {
      lcdToggleLibrary's stored flag) -- never the window's. That is the single
      most visible thing the old breakpoints did: drag the window past 1280 and
      the library vanished on its own. */
-  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) #lcdLibReopen { display: flex; }
+  /* The tab shows only while the library is shut. Shown beside an open
+     library it was a fourth grid item in three tracks: it took the Service
+     Schedule's track, and the workspace wrapped into a second row 180px wide,
+     with Program / Live squeezed to nothing. The :not() rule beats the
+     1120-1279 band's id rule, which shows the tab at any state. */
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibReopen { display: flex; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order):not(.lcd-library-hidden) #lcdLibReopen { display: none; }
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order):not(.lcd-library-hidden) #lcdLibraryPanel {
     display: flex;
@@ -102690,6 +102732,26 @@ function filterLiturgyItems() {
   .lcd-editor-locked .lcd-editor-lockhint { display: block; }
   /* Preview has no pad at all, so the hint would be describing nothing. */
   .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-lockhint { display: none; }
+
+  /* ---- Rolled up: the title bar alone until the editor is used ----------- */
+  /* _lcdApplyEditorRoll() sets .lcd-editor-rolled while the pad is shut and
+     Preview is not showing. The panel stops stretching to the row (which
+     keeps its height, so the projection and the Media Tray stay put), its
+     body goes, and Apply -- which has nothing to apply while shut -- goes
+     with it. All Slides and Delete act on the slide and stay. */
+  .lcd-outputs-row .lcd-lyrics-panel.lcd-editor-rolled { align-self: flex-start; min-height: 0; }
+  .lcd-lyrics-panel.lcd-editor-rolled .lcd-lyrics-body { display: none; }
+  .lcd-lyrics-panel.lcd-editor-rolled .lcd-panel-header { border-bottom: 0; }
+  .lcd-lyrics-panel.lcd-editor-rolled .lcd-lyrics-actions .lcd-mini-btn.primary { display: none; }
+  /* Rolling down, the body unrolls from the title bar. */
+  .lcd-lyrics-panel:not(.lcd-editor-rolled) .lcd-lyrics-body { animation: lcdEditorUnroll 0.2s ease-out; }
+  @keyframes lcdEditorUnroll {
+    from { clip-path: inset(0 0 100% 0); opacity: 0.35; }
+    to { clip-path: inset(0 0 0 0); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lcd-lyrics-panel .lcd-lyrics-body { animation: none; }
+  }
 
   /* ---- Words typed but not yet saved ------------------------------------- */
   /* The pad holds them until Apply (or Save in the question a click away

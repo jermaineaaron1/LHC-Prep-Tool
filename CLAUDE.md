@@ -1774,6 +1774,23 @@ the anon key -- verify as `postgres`, not as the app.
       since its last move (`X.after`) are left alone, with a message.
     `tools/songbook-review-harness.js` checks them.
 
+62. **The Slide Editor is rolled up to its title bar unless it is in use.**
+    `_lcdApplyEditorRoll` puts `.lcd-editor-rolled` on `.lcd-lyrics-panel`
+    while the pad is shut (`_lcdEditorUnlocked` false) and Preview is not
+    showing; `_lcdApplyEditorLock` and `lcdSetEditorMode` both call it, so
+    any new path that opens or shuts the pad gets the roll by going through
+    them. Rolled, the panel is its header alone (Apply hidden; All Slides
+    and Delete stay, they act on the slide), `align-self: flex-start`
+    instead of stretching to the row. A second press on Preview rolls it
+    back up. The row keeps its height: `_lcdSizeWorkspaceColumns` adds the
+    pad's overflow to it, and a rolled body has none, so it takes the class
+    off for that one reading and puts it back before any paint -- without
+    that, the first open pushed the Media Tray down. In the same change: in
+    Fixed layout the Song Library's reopen tab (`#lcdLibReopen`) shows only
+    with `.lcd-library-hidden`; beside an open library it was a fourth grid
+    item in three tracks and squeezed Program / Live to a 180px strip.
+    `tools/lcd-editor-rollup-harness.js` checks it.
+
 63. **An editor opens with its cursor on the FIRST character.** A textarea
     filled from script keeps its cursor at the end of what it was given, and
     `focus()` scrolls to it: Overview Edit opened on a song's last line.
