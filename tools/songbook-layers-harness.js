@@ -174,7 +174,8 @@ console.log('\nThe wiring');
     has(/_sbmBookDrawers\(\)\.then\(function\(rows\) \{ drawers = _sbmDrawerNames\(rows\); fill\(\); \}\);/));
   check('a name that has drawn before is welcomed back with its count',
     has(/var mine = rows\.filter\(function\(m\) \{ return m\.owner === _sbmMeKey\(name\); \}\), had = mine\.length;/) && has(/var as = \(mine\[0\] && mine\[0\]\.owner_name\) \|\| name;/));
-  check('the Layers chip is drawn beside both Draw chips', (SRC.match(/\+ _sbmDrawChip\(\) \+ _sbmLayersChip\(\)/g) || []).length === 2);
+  // (On the lyrics card the Type chip sits between them since gotcha 65.)
+  check('the Layers chip is drawn beside both Draw chips', (SRC.match(/\+ _sbmDrawChip\(\) \+ (_sbmTypeChip\(noChords\) \+ )?_sbmLayersChip\(\)/g) || []).length === 2);
   const sql = fs.existsSync(MIGRATION) ? fs.readFileSync(MIGRATION, 'utf8') : '';
   check('the migration adds whose and shared, with the earlier rows shared',
     /add column if not exists owner\s+text/.test(sql) && /add column if not exists owner_name text/.test(sql) &&

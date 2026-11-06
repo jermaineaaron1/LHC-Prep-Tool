@@ -51039,6 +51039,7 @@ var WO = (function() {
       return;
     }
     if (_sbmMarksOk !== true) { showToast('Drawing is not set up on this database yet', 'error'); return; }
+    if (_sbNp) _sbNpEnd(true);   // what was being typed is kept first
     if (_sbmLayersOk === true && !_sbmMe()) { sbmWho(true); return; }
     var saved = {}; try { saved = JSON.parse(localStorage.getItem('lhc_sb_pen') || '{}') || {}; } catch (e) {}
     _sbmDraw = {
@@ -53524,7 +53525,7 @@ var WO = (function() {
     var ly = document.getElementById('sbmLyrics');
     var sel = window.getSelection ? window.getSelection() : null;
     // A tap on the bar's own buttons may take the selection away: the bar stays.
-    if (!ly || !sel || sel.isCollapsed || !sel.rangeCount || _sbmDraw || ly.classList.contains('sbm-lyrics--nochords')) return;
+    if (!ly || !sel || sel.isCollapsed || !sel.rangeCount || _sbmDraw || _sbNp || ly.classList.contains('sbm-lyrics--nochords')) return;
     var rg = sel.getRangeAt(0);
     if (!ly.contains(rg.commonAncestorContainer)) return;
     var blocks = _sbmXpBlocks(ly), r = _sbmXpRangeOf(rg, blocks);
@@ -54535,6 +54536,9 @@ var WO = (function() {
   }
 
   function _sbmRender() {
+    // The sheet is being typed on (sbmType): a redraw would wipe what was
+    // typed, so it waits for Enter, Esc or a tap elsewhere (gotcha 65).
+    if (_sbNp && _sbNp.where === 'view' && _sbNp.el && _sbNp.el.isConnected) { _sbNp.renderAfter = true; return; }
     _sbmInit();
     var modal = document.getElementById('songbookLiveModal');
     var root = document.getElementById('sbmRoot');
@@ -54704,7 +54708,7 @@ var WO = (function() {
       var lyricsHtml = _sbmLyricsSource(song);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
+      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmTypeChip(noChords) + _sbmLayersChip() + '</div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     // A song with no choir parts, in Choir: its words as they would stand,
@@ -70814,7 +70818,8 @@ var WO = (function() {
   // From the operator (2026-11-06): Book Mode -- the songbook full screen, a
   // page at a time -- has a tile of its own on each song, opens at that
   // song, and takes a pen and a keyboard: a double-click (a double tap on a
-  // phone) on a song's words starts drawing; holding a line types over it.
+  // phone) on a song's words starts drawing; holding the words makes the
+  // whole song a notepad to type on (_sbBkHold, gotcha 65).
   //
   // A song's pages are drawn from the song view's own words (_sbBkLyricsHtml):
   // the copy's words in the key sung, one block a source line, each stamped
@@ -70830,7 +70835,7 @@ var WO = (function() {
   // is open -- the drawing bar, "Who's drawing?", "Who should see your
   // drawing?", a toast -- is taken into the overlay, and given back when it
   // closes (_sbBkAdoptOn / _sbBkAdoptOff). CLAUDE.md gotcha 64.
-  var _sbBk = { edit: null, hold: null, tap: null, down: null, leaving: false, penHere: false };
+  var _sbBk = { hold: null, tap: null, down: null, leaving: false, penHere: false };
   var _sbBkAdoptMO = null, _sbBkAdopted = [];
 
   function _sbBkOpen() {
@@ -70913,7 +70918,7 @@ var WO = (function() {
   function _sbBkLeave() {
     _sbBkCancelHold();
     _sbBk.leaving = true;
-    try { if (_sbBk.edit) _sbBkEditEnd(true); } finally { _sbBk.leaving = false; }
+    try { if (_sbNp && _sbNp.where === 'book') _sbNpEnd(true); } finally { _sbBk.leaving = false; }
     _sbBkAdoptOff();
     if (_sbmDraw && _sbBk.penHere) sbmDraw(false);
     _sbBk.penHere = false; _sbBk.tap = null; _sbBk.down = null;
@@ -70932,7 +70937,7 @@ var WO = (function() {
     // word selected, the copy menu) stands down on the words -- not in the
     // line being typed in.
     page.addEventListener('contextmenu', function(e) {
-      if (_sbBk.edit && _sbBk.edit.line.contains(e.target)) return;
+      if (_sbNp && _sbNp.el.contains(e.target)) return;
       if (e.target && e.target.closest && e.target.closest('.sbm-bk-card')) e.preventDefault();
     });
     var vp = document.getElementById('sbFsViewport');
@@ -70943,14 +70948,14 @@ var WO = (function() {
     _sbBkCancelHold();
     if (e.isPrimary === false) { if (_sbBk.down) _sbBk.down.moved = true; return; }   // a second finger: a pinch
     _sbBk.down = { x: e.clientX, y: e.clientY, moved: false, held: false };
-    if (_sbmDraw || _sbBk.edit || (e.button != null && e.button > 0)) return;
+    if (_sbmDraw || _sbNp || (e.button != null && e.button > 0)) return;
     var line = e.target && e.target.closest ? e.target.closest('.sbm-bk-card [data-anchor^="l:"]') : null;
     if (!line) return;
     var x = e.clientX, y = e.clientY;
     _sbBk.hold = { t: setTimeout(function() {
       _sbBk.hold = null;
       if (_sbBk.down) _sbBk.down.held = true;
-      _sbBkEditStart(line, x, y);
+      _sbBkHold(line, x, y);
     }, 550) };
   }
   function _sbBkMove(e) {
@@ -70961,14 +70966,14 @@ var WO = (function() {
     _sbBkCancelHold();
     var d = _sbBk.down; _sbBk.down = null;
     // A phone has no double-click (gotcha 28): two taps, close in time and place.
-    if (e.pointerType !== 'touch' || !d || d.moved || d.held || _sbmDraw || _sbBk.edit) { _sbBk.tap = null; return; }
+    if (e.pointerType !== 'touch' || !d || d.moved || d.held || _sbmDraw || _sbNp) { _sbBk.tap = null; return; }
     var now = Date.now(), T = _sbBk.tap;
     if (T && now - T.at < 350 && Math.hypot(e.clientX - T.x, e.clientY - T.y) < 32) { _sbBk.tap = null; _sbBkDouble(e); }
     else _sbBk.tap = { at: now, x: e.clientX, y: e.clientY };
   }
   // A double-click or a double tap: the pen comes out.
   function _sbBkDouble(e) {
-    if (_sbmDraw || _sbBk.edit) return;
+    if (_sbmDraw || _sbNp) return;
     var t = e && e.target;
     if (t && t.closest && t.closest('#sbFsBar, .sbm-drawbar, .sbm-sheet-backdrop, #toastNotification')) return;
     try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
@@ -70982,94 +70987,254 @@ var WO = (function() {
     });
   }
 
-  // ---- typing over a line ----
-  // The line held becomes editable where it is, the cursor where it was
-  // held. Enter (or a tap elsewhere) keeps it, Esc puts it back. It is saved
-  // as the line-transpose bar saves (_sbSetCopyWords: the copy's words, both
-  // saves, the live nudge), holding the song as every editor does
-  // (_sbEditClaim, gotcha 58); a chord line typed in the key it is shown in
-  // is kept in the copy's own key.
-  function _sbBkEditStart(line, x, y) {
-    if (_sbBk.edit || _sbmDraw || !line || !line.isConnected) return;
-    var card = line.closest('.sbm-bk-card'), song = card ? _sbmCardSong(card) : null;
-    if (!song) return;
-    var lines = _sbmLinesOf(song), idx = parseInt(String(line.getAttribute('data-anchor') || '').slice(2), 10);
-    if (!lines) { showToast('These words were reworked as formatted text, so their lines cannot be told apart here. Use Edit on the song to change them.', 'info', { duration: 6000 }); return; }
-    if (!(idx >= 0 && idx < lines.length)) return;
-    if (!_sbEditClaim(song)) return;
-    _sbBk.edit = { line: line, song: song, base: _sbBaseSongId(song), idx: idx, before: lines.join('\n'), text: line.textContent,
-                   chord: line.classList.contains('wo-lyrics-chord-line'), steps: _sbmStepsOf(song) };
-    line.classList.add('sbm-bk-editing');
-    try { line.contentEditable = 'plaintext-only'; } catch (er) {}
-    if (line.contentEditable !== 'plaintext-only') line.contentEditable = 'true';
-    line.addEventListener('keydown', _sbBkEditKey);
-    line.addEventListener('beforeinput', _sbBkEditBeforeInput);
-    line.addEventListener('paste', _sbBkEditPaste);
-    line.addEventListener('blur', _sbBkEditBlur);
-    line.focus();
-    _sbBkCaretAt(line, x, y);
-    showToast('Type over the line. Enter keeps it; Esc puts it back.', 'info', { duration: 4000 });
+  // ==================== THE SHEET AS A NOTEPAD ====================
+  //
+  // From the operator (2026-11-06): type straight onto a song's words and
+  // chords -- no Edit window -- and press Enter when done. In the song view
+  // the Type chip (sbmType) turns the lyrics card into a notepad; in Book
+  // Mode holding the words does (_sbBkHold). The whole song is typeable at
+  // once: Enter saves it all, Shift+Enter (or the bar's New line, for a
+  // phone) starts a new line, Esc puts everything back, a tap elsewhere
+  // keeps it. One engine for both (_sbNpStart / _sbNpEnd), holding the song
+  // as every editor does (_sbEditClaim, gotcha 58) and saving the copy's
+  // words through _sbSetCopyWords, with an Undo. The words are shown in the
+  // key sung, so a line left as it was is put back exactly as it was stored
+  // (_sbNpMap, by the lines the two have in common), and a chord line typed
+  // or changed is put back into the copy's own key. CLAUDE.md gotcha 65.
+  var _sbNp = null;
+
+  // The notepad's lines as typed: a block is a line (an empty one an empty
+  // line), a line break inside one starts the next -- but not the break a
+  // browser keeps in an empty block -- and the instrument strips, buttons and
+  // old page drawings are not words. Pure over the DOM, for the harness.
+  function _sbNpLines(el) {
+    var lines = [], cur = null, NBSP = String.fromCharCode(160);
+    function push() { lines.push(cur == null ? '' : cur); cur = null; }
+    function skip(c) {
+      if (/^(svg|canvas|button|style|script|input|textarea|select)$/i.test(c.tagName || '')) return true;
+      var cl = c.classList;
+      return !!(cl && (cl.contains('sbm-inst') || cl.contains('sb-annot-svg')));
+    }
+    function lastIn(c) {
+      for (var n = c.nextSibling; n; n = n.nextSibling) {
+        if (n.nodeType === 1 && !skip(n)) return false;
+        if (n.nodeType === 3 && n.data !== '') return false;
+      }
+      return true;
+    }
+    (function walk(n, top) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) {
+          if (top && !c.data.trim() && c.data.indexOf('\n') > -1) continue;   // the markup's own spacing
+          var parts = c.data.split('\n');
+          cur = (cur == null ? '' : cur) + parts[0];
+          for (var i = 1; i < parts.length; i++) { push(); cur = parts[i]; }
+        } else if (c.nodeType === 1 && !skip(c)) {
+          if (c.tagName === 'BR') {
+            if (!top && lastIn(c)) continue;   // a block's own trailing break
+            push(); cur = '';
+            continue;
+          }
+          if (/^(DIV|P|LI|PRE|BLOCKQUOTE|H[1-6])$/.test(c.tagName)) {
+            if (cur != null) push();
+            cur = '';
+            walk(c, false);
+            if (cur != null) push();
+          } else walk(c, false);   // inline: its words run on in the line
+        }
+      }
+    })(el, true);
+    if (cur != null) push();
+    return lines.map(function(l) { return l.split(NBSP).join(' ').replace(/\r/g, ''); });
   }
-  function _sbBkCaretAt(el, x, y) {
+  // What to store for what was typed. A line in both the sheet as shown and
+  // as typed (by their longest run in common) is the stored line it showed,
+  // exactly; a line typed or changed is kept as typed, a chord line put back
+  // into the copy's own key. Pure, for the harness.
+  function _sbNpMap(shown, stored, typed, steps) {
+    var n = shown.length, m = typed.length, L = [], i, j;
+    for (i = 0; i <= n; i++) { L[i] = []; for (j = 0; j <= m; j++) L[i][j] = 0; }
+    for (i = n - 1; i >= 0; i--) for (j = m - 1; j >= 0; j--) L[i][j] = shown[i] === typed[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    var out = [];
+    i = 0; j = 0;
+    while (j < m) {
+      if (i < n && shown[i] === typed[j]) { out.push(stored[i]); i++; j++; }
+      else if (i < n && L[i + 1][j] >= L[i][j + 1]) i++;
+      else { var t = typed[j]; out.push(steps && isChordLineGlobal(t, typed[j + 1]) ? sbTransposeChordLine(t, -steps) : t); j++; }
+    }
+    return out;
+  }
+  function _sbNpStart(el, song, where, x, y) {
+    if (_sbNp || !el || !song) return false;
+    if (_sbmDraw) { showToast('Finish drawing first (Done), then type', 'info'); return false; }
+    var stored = _sbmLinesOf(song), shown = _sbNpLines(el);
+    if (!stored || shown.length !== stored.length) {
+      showToast('These words were reworked as formatted text, so they cannot be typed over here. Use Edit to change them.', 'info', { duration: 6000 });
+      return false;
+    }
+    if (!_sbEditClaim(song)) return false;
+    _sbNp = { el: el, song: song, base: _sbBaseSongId(song), where: where, shown: shown, stored: stored,
+              before: stored.join('\n'), steps: _sbmStepsOf(song), shift: false, adding: false, renderAfter: false };
+    Array.prototype.forEach.call(el.querySelectorAll('.sbm-inst, .sb-annot-svg'), function(x) { x.setAttribute('contenteditable', 'false'); });
+    el.setAttribute('contenteditable', 'true');
+    el.setAttribute('spellcheck', 'false');
+    el.classList.add('sbm-np-on');
+    el.addEventListener('keydown', _sbNpKey);
+    el.addEventListener('beforeinput', _sbNpBeforeInput);
+    el.addEventListener('paste', _sbNpPaste);
+    el.addEventListener('blur', _sbNpBlur);
+    el.focus();
+    // Not in an instrument strip, which comes before the first line.
+    if (x != null) _sbNpCaretAt(el, x, y); else lhcCaretToStart(el.querySelector('[data-anchor^="l:"]') || el);
+    _sbNpBar();
+    return true;
+  }
+  // The cursor where the words were held; the first character otherwise
+  // (gotcha 63).
+  function _sbNpCaretAt(el, x, y) {
     var r = null;
     try {
       if (document.caretRangeFromPoint) r = document.caretRangeFromPoint(x, y);
       else if (document.caretPositionFromPoint) { var p = document.caretPositionFromPoint(x, y); if (p) { r = document.createRange(); r.setStart(p.offsetNode, p.offset); } }
     } catch (e) { r = null; }
-    if (!r || !el.contains(r.startContainer)) { lhcCaretToStart(el); return; }
+    if (!r || !el.contains(r.startContainer)) { lhcCaretToStart(el.querySelector('[data-anchor^="l:"]') || el); return; }
     r.collapse(true);
     var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   }
-  function _sbBkEditKey(e) {
-    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); _sbBkEditEnd(true); return; }
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _sbBkEditEnd(false); return; }
-    e.stopPropagation();   // the book's arrows and + / - are for reading, not typing
+  function _sbNpKey(e) {
+    var N = _sbNp; if (!N) return;
+    if (e.key === 'Enter' && !e.isComposing) {
+      if (e.shiftKey) { N.shift = true; e.stopPropagation(); return; }   // the browser's own new line
+      e.preventDefault(); e.stopPropagation(); _sbNpEnd(true); return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _sbNpEnd(false); return; }
+    e.stopPropagation();   // the songbook's and the book's keys are for reading, not typing
   }
   // A phone's Return can arrive as key 229 and is only seen here.
-  function _sbBkEditBeforeInput(e) {
-    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); _sbBkEditEnd(true); }
+  function _sbNpBeforeInput(e) {
+    var N = _sbNp; if (!N || N.adding) return;
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
+      if (N.shift) { N.shift = false; return; }
+      e.preventDefault(); _sbNpEnd(true);
+    }
   }
-  function _sbBkEditPaste(e) {
+  function _sbNpPaste(e) {
+    var N = _sbNp; if (!N) return;
     var t = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
     e.preventDefault();
-    try { document.execCommand('insertText', false, t.replace(/\r?\n+/g, ' ')); } catch (x) {}
+    N.adding = true;
+    try { document.execCommand('insertText', false, t.replace(/\r\n?/g, '\n')); } catch (x) {}
+    N.adding = false;
   }
-  function _sbBkEditBlur() {
-    setTimeout(function() { if (_sbBk.edit && document.activeElement !== _sbBk.edit.line) _sbBkEditEnd(true); }, 0);
+  // A tap elsewhere keeps what was typed; the bar's buttons keep the focus.
+  function _sbNpBlur() {
+    setTimeout(function() {
+      var N = _sbNp; if (!N) return;
+      var a = document.activeElement;
+      if (a && (a === N.el || N.el.contains(a))) return;
+      if (a && a.closest && a.closest('#sbNpBar')) return;
+      _sbNpEnd(true);
+    }, 0);
   }
-  function _sbBkEditEnd(save) {
-    var E = _sbBk.edit; if (!E) return;
-    _sbBk.edit = null;
-    var ln = E.line;
-    ln.removeEventListener('keydown', _sbBkEditKey);
-    ln.removeEventListener('beforeinput', _sbBkEditBeforeInput);
-    ln.removeEventListener('paste', _sbBkEditPaste);
-    ln.removeEventListener('blur', _sbBkEditBlur);
-    ln.removeAttribute('contenteditable');
-    ln.classList.remove('sbm-bk-editing');
-    var text = String(ln.textContent || '').replace(/\r?\n/g, ' ');
-    if (!save || text === E.text) { ln.textContent = E.text; _sbEditRelease(E.base); return; }
-    // Changed underneath (another device, the song view): not written over.
-    var now = _sbmLinesOf(E.song);
-    if (!now || now.join('\n') !== E.before) {
-      ln.textContent = E.text;
-      _sbEditRelease(E.base);
-      showToast('These words were changed while you were typing, so the line was not saved.', 'warning', { duration: 6000 });
-      _sbBkRebuild();
+  function _sbNpEnd(save) {
+    var N = _sbNp; if (!N) return;
+    _sbNp = null;
+    var el = N.el;
+    el.removeEventListener('keydown', _sbNpKey);
+    el.removeEventListener('beforeinput', _sbNpBeforeInput);
+    el.removeEventListener('paste', _sbNpPaste);
+    el.removeEventListener('blur', _sbNpBlur);
+    el.removeAttribute('contenteditable');
+    el.classList.remove('sbm-np-on');
+    _sbNpBarOff();
+    var typed = _sbNpLines(el), changed = typed.join('\n') !== N.shown.join('\n');
+    var redraw = function() { if (N.where === 'book') _sbBkRebuild(); else _sbmRender(); };
+    if (!save || !changed) { _sbEditRelease(N.base); if (changed || N.renderAfter) redraw(); return; }
+    // Changed underneath (another device, another editor): not written over.
+    var now = _sbmLinesOf(N.song);
+    if (!now || now.join('\n') !== N.before) {
+      _sbEditRelease(N.base);
+      showToast('These words were changed while you were typing, so they were not saved.', 'warning', { duration: 6000 });
+      redraw();
       return;
     }
-    if (!_sbEditMayWrite(E.song)) return;
-    now[E.idx] = (E.chord && E.steps) ? sbTransposeChordLine(text, -E.steps) : text;
-    var after = now.join('\n'), song = E.song, before = E.before;
+    if (!_sbEditMayWrite(N.song)) return;   // what was typed stays on the screen, to copy
+    var song = N.song, before = N.before, after = _sbNpMap(N.shown, N.stored, typed, N.steps).join('\n');
+    if (after === before) { _sbEditRelease(N.base); redraw(); return; }
     _sbSetCopyWords(song, after);
-    _sbEditRelease(E.base);
-    showToast('Line saved', 'success', { action: 'Undo', duration: 6000, onAction: function() {
+    _sbEditRelease(N.base);
+    if (N.where === 'view') _sbmRender();
+    showToast('Saved', 'success', { action: 'Undo', duration: 6000, onAction: function() {
       if (String(song.customLyrics || '') !== after) { showToast('The words were changed since, so this was not undone.', 'info'); return; }
       if (!_sbEditMayWrite(song)) return;
       _sbSetCopyWords(song, before);
+      _sbmRender();
       _sbBkRebuild();
     } });
-    _sbBkRebuild();
+    if (N.where === 'book') _sbBkRebuild();
+  }
+  // The bar: New line (a phone has no Shift+Enter), Cancel, Save. Kept just
+  // above a phone's keyboard, which a fixed bottom bar would sit behind.
+  function _sbNpBar() {
+    var bar = document.getElementById('sbNpBar');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'sbNpBar'; bar.className = 'sbm sbm-npbar';
+      bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Typing on the sheet');
+      document.body.appendChild(bar);
+    }
+    var keep = ' onpointerdown="event.preventDefault()" onmousedown="event.preventDefault()"';
+    bar.innerHTML = '<span class="sbm-npbar__t"><i class="fa-solid fa-keyboard"></i>Typing. Enter saves</span>' +
+      '<button type="button" class="sbm-npbar__btn"' + keep + ' onclick="WO.sbNpNewLine()" title="Start a new line (Shift+Enter)"><i class="fa-solid fa-turn-down"></i>New line</button>' +
+      '<button type="button" class="sbm-npbar__btn"' + keep + ' onclick="WO.sbNpCancel()" title="Put everything back (Esc)">Cancel</button>' +
+      '<button type="button" class="sbm-npbar__btn sbm-npbar__btn--save"' + keep + ' onclick="WO.sbNpSave()" title="Save (Enter)"><i class="fa-solid fa-check"></i>Save</button>';
+    var vv = window.visualViewport;
+    if (vv) { vv.addEventListener('resize', _sbNpPlace); vv.addEventListener('scroll', _sbNpPlace); }
+    _sbNpPlace();
+  }
+  function _sbNpBarOff() {
+    var bar = document.getElementById('sbNpBar'); if (bar) bar.remove();
+    var vv = window.visualViewport;
+    if (vv) { vv.removeEventListener('resize', _sbNpPlace); vv.removeEventListener('scroll', _sbNpPlace); }
+  }
+  function _sbNpPlace() {
+    var bar = document.getElementById('sbNpBar'), vv = window.visualViewport;
+    if (!bar || !vv) return;
+    var gap = (_sbNp && _sbNp.where === 'book') ? 66 : 12;
+    bar.style.bottom = 'auto';
+    bar.style.top = Math.max(8, Math.round(vv.offsetTop + vv.height - (bar.offsetHeight || 48) - gap)) + 'px';
+  }
+  function sbNpNewLine() {
+    var N = _sbNp; if (!N) return;
+    N.el.focus();
+    N.adding = true;
+    try { document.execCommand('insertParagraph'); } catch (e) {}
+    N.adding = false;
+  }
+  function sbNpSave() { _sbNpEnd(true); }
+  function sbNpCancel() { _sbNpEnd(false); }
+
+  // In the song view: the Type chip, beside Draw, on a card that shows chords.
+  function _sbmTypeChip(noChords) {
+    if (noChords) return '';
+    return '<button class="sbm-chip sbm-chip--type' + (_sbNp && _sbNp.where === 'view' ? ' is-on' : '') + '" onclick="WO.sbmType()" title="Type straight onto the words and chords. Enter saves, Shift+Enter starts a new line, Esc puts it back."><i class="fa-solid fa-keyboard"></i>Type</button>';
+  }
+  function sbmType() {
+    if (_sbNp) { _sbNpEnd(true); return; }   // pressed again: done
+    var song = _sbmSong(), ly = document.getElementById('sbmLyrics');
+    if (!song || !ly) return;
+    if (ly.classList.contains('sbm-lyrics--nochords')) { showToast('Switch to Chords + Lyrics to type over the words and chords', 'info'); return; }
+    if (_sbNpStart(ly, song, 'view', null, null)) {
+      var chip = document.querySelector('#sbmRoot .sbm-chip--type'); if (chip) chip.classList.add('is-on');
+    }
+  }
+  // In Book Mode: holding the words makes the whole song the notepad, the
+  // cursor where they were held.
+  function _sbBkHold(line, x, y) {
+    if (_sbNp || _sbmDraw || !line || !line.isConnected) return;
+    var card = line.closest('.sbm-bk-card'), song = card ? _sbmCardSong(card) : null, wrap = line.closest('.sbm-bk-lyrics');
+    if (!song) return;
+    if (!wrap) { showToast('This song is set in two columns here. Use Type in the song view to type over it.', 'info', { duration: 6000 }); return; }
+    _sbNpStart(wrap, song, 'book', x, y);
   }
 
   // ---- Choir parts as their own songbook pages ---------------------------
@@ -72010,6 +72175,10 @@ var WO = (function() {
   }
 
   function _sbFsRenderPage() {
+    // The page is being typed on (_sbBkHold): a redraw -- a resize, which a
+    // phone's keyboard opening is, a zoom, a page turned -- would wipe what
+    // was typed, so it waits until Enter, Esc or a tap elsewhere (gotcha 65).
+    if (_sbNp && _sbNp.where === 'book' && _sbNp.el && _sbNp.el.isConnected) { _sbNp.renderAfter = true; return; }
     var page = document.getElementById('sbFsPage');
     var wrap = document.getElementById('sbFsPageWrap');
     var numEl = document.getElementById('sbFsPageNum');
@@ -72233,7 +72402,7 @@ var WO = (function() {
     }
 
     vp.addEventListener('touchstart', function(e) {
-      if (_sbmDraw || _sbBk.edit) { t1active = false; t1Dir = null; return; }
+      if (_sbmDraw || _sbNp) { t1active = false; t1Dir = null; return; }
       var w = _wrap();
       if (e.touches.length === 1) {
         t1x = e.touches[0].clientX;
@@ -72255,7 +72424,7 @@ var WO = (function() {
     }, { passive: true });
 
     vp.addEventListener('touchmove', function(e) {
-      if (_sbmDraw || _sbBk.edit) return;
+      if (_sbmDraw || _sbNp) return;
       // ── 2-finger: pinch-zoom or native scroll ───────────────────────
       if (e.touches.length === 2) {
         var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
@@ -72292,7 +72461,7 @@ var WO = (function() {
 
     vp.addEventListener('touchend', function(e) {
       _sbFsPinching = false; p2isPinch = false;
-      if (_sbmDraw || _sbBk.edit) { t1active = false; t1Dir = null; return; }
+      if (_sbmDraw || _sbNp) { t1active = false; t1Dir = null; return; }
 
       if (t1active && t1Dir === true && e.changedTouches.length > 0) {
         var dx = e.changedTouches[0].clientX - t1x;
@@ -92184,6 +92353,7 @@ var WO = (function() {
     sbSaveOrder: sbSaveOrder,
     sbOpenFullscreen: sbOpenFullscreen,
     sbmBookMode: sbmBookMode,
+    sbmType: sbmType, sbNpNewLine: sbNpNewLine, sbNpSave: sbNpSave, sbNpCancel: sbNpCancel,
     sbFsClose: sbFsClose,
     sbFsNext: sbFsNext,
     sbFsPrev: sbFsPrev,
@@ -111137,7 +111307,16 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-bk-card.is-drawing.is-scrolling .sbm-marks { pointer-events: none; }
 #sbFsViewport { touch-action: manipulation; }
 #sbFsPage .sbm-bk-card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-#sbFsPage .sbm-bk-card .sbm-bk-editing { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; cursor: text; outline: 2px solid #0ea5e9; outline-offset: 3px; border-radius: 4px; background: #f0f9ff; caret-color: #0369a1; }
+/* The sheet as a notepad (gotcha 65). */
+.sbm-np-on { outline: 2px solid #0ea5e9; outline-offset: 6px; border-radius: 6px; caret-color: #0369a1; cursor: text; background: rgba(240, 249, 255, 0.55); }
+#sbFsPage .sbm-bk-card .sbm-np-on, #sbFsPage .sbm-bk-card .sbm-np-on * { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.sbm-np-on:focus { outline: 2px solid #0ea5e9; }
+.sbm-chip--type.is-on { background: #0369a1; border-color: #0369a1; color: #fff; }
+.sbm-npbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3720; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px; width: max-content; max-width: calc(100vw - 16px); padding: 8px 10px; border-radius: 22px; background: var(--sbm-navy, #0f1f3d); color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35); font: 600 13px/1.2 var(--sbm-font-ui, 'Poppins', sans-serif); }
+.sbm-npbar__t { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px; opacity: 0.9; }
+.sbm-npbar__btn { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #fff; font: inherit; cursor: pointer; }
+.sbm-npbar__btn--save { background: #16a34a; border-color: #16a34a; }
+#sbFsOverlay .sbm-npbar { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 #sbFsOverlay .sbm-drawbar { bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 #sbFsOverlay .sbm-drawbar__phone { display: none; }
 .sbm-chip--draw.is-on { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
