@@ -72054,8 +72054,12 @@ var WO = (function() {
         _cStarts.forEach(function(startIdx, pi) {
           var endIdx = (pi + 1 < _cStarts.length) ? _cStarts[pi + 1] : _cBlocks.length;
           var slice = _cBlocks.slice(startIdx, endIdx).map(function(el) { return el.outerHTML; }).join('');
+          // A choir page is a drawing card too (gotcha 64): its moments carry
+          // the same anchors as the song view's score (s:<section>|<n>, from
+          // lhcVoiceLines.html), so the score's drawings show here and new
+          // ones land on the same moment, chord or word there.
           pages.push(extraStyle + _sbChoirCss(typeof song !== 'undefined' ? song : null) +
-            '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
+            '<div class="sbm-bk-card sbm-bk-card--choir" data-sbm-song="' + escapeHtml(song.id) + '" style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
               '<div class="sb-choir">' + _sbChoirHeadHtml(song, pi > 0) +
                 '<div class="vl-score vl-score--compact">' + slice + '</div>' +
               '</div>' +

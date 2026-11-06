@@ -1825,8 +1825,11 @@ the anon key -- verify as `postgres`, not as the app.
     page's lines are the song view's lines, and the drawn remarks
     (gotcha 31) anchor the same on both. Each page's content is a
     `.sbm-bk-card` with `data-sbm-song` (the whole song shifted and clipped
-    on a one-column page; the page itself on a two-column one), included in
-    `_sbmMarkCards()` while the overlay is open -- so painting, the pen,
+    on a one-column page; the page itself on a two-column one; and each
+    CHOIR page, `.sbm-bk-card--choir`, whose moments carry the song view's
+    score anchors -- `s:<section>|<n>` from `lhcVoiceLines.html`, compact
+    or not -- so the score's drawings show there and land there), included
+    in `_sbmMarkCards()` while the overlay is open -- so painting, the pen,
     the glow, the rubber, Undo, layers and versions need nothing new.
     The page is scaled by a TRANSFORM, so a card is measured on the screen:
     `_sbmCardScale(card)` (rect width / offsetWidth, exactly 1 within 1%)

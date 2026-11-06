@@ -101,6 +101,9 @@ console.log('\nA book page is a drawing card');
 check('each page of a song carries the card, with its song (one column and two)',
   /'<div class="sbm-bk-card" data-sbm-song="' \+ escapeHtml\(song\.id\) \+ '" style="position:absolute;top:' \+ \(-breakY\) \+ 'px;left:0;width:794px;">'/.test(build) &&
   /'<div class="sbm-bk-card" data-sbm-song="' \+ escapeHtml\(song\.id\) \+ '" style="height:' \+ A4H \+ 'px;overflow:hidden;position:relative;background:white;">'/.test(build));
+check('...and each choir page, whose moments keep the song view\'s score anchors (s:<section>|<n>)',
+  /'<div class="sbm-bk-card sbm-bk-card--choir" data-sbm-song="' \+ escapeHtml\(song\.id\) \+ '" style="height:' \+ A4H \+ 'px;overflow:hidden;position:relative;">'/.test(build) &&
+  /data-anchor="' \+ V\._esc\('s:' \+/.test(SRC));
 const cardsSrc = fn('_sbmMarkCards');
 if (cardsSrc) {
   let asked = '';
