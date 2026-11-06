@@ -377,7 +377,8 @@ console.log('\nThe wiring');
     has(/_sbmMarkDelete\(l\.id, cv\.__base\);/) && has(/var shown = _sbmShownBases\(\), i;/) &&
     has(/if \(D\.group && D\.groupCard !== live\.card\) D\.group = null;/));
   check('a following song\'s words are set like the first\'s: every lyrics card, not only #sbmLyrics',
-    has(/return c\.querySelector\('\.sbm-lyrics, \.sbm-score'\); \}\);/) && has(/document\.querySelectorAll\('#sbmRoot \.sbm-lyrics'\)\.forEach\(_sbmFitChordPairsIn\);/) &&
+    // (Book Mode's pages are cards too since gotcha 64: `... || c.querySelector`.)
+    has(/(return|\|\|) c\.querySelector\('\.sbm-lyrics, \.sbm-score'\); \}\);/) && has(/document\.querySelectorAll\('#sbmRoot \.sbm-lyrics'\)\.forEach\(_sbmFitChordPairsIn\);/) &&
     (SRC.match(/#sbmRoot :is\(#sbmLyrics, \.sbm-card--follow > \.sbm-lyrics\)/g) || []).length >= 7 && !/#sbmRoot #sbmLyrics/.test(SRC));
   check('every saved medley is kept once per sequence of songs, and the editor shows the latest five, then the rest',
     has(/sup\.from\('saved_medleys'\)\.upsert\(row, \{ onConflict: 'song_key' \}\)/) && has(/var shown = _mdsAll \? _mdsRows : _mdsRows\.slice\(0, 5\);/) &&

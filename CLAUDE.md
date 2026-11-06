@@ -248,6 +248,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      with a notice saying where else it is sung, **Copy arrangement** (from
      the other copy, or from an earlier service) and **Own drawings**
      (gotcha 55).
+     **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
+     full screen at the song in front. A double-click -- a double tap on a
+     phone -- on a song's words starts drawing, the song view's own drawings
+     shown and drawn on; holding a line about half a second types over it
+     in place, Enter keeps it, Esc puts it back (gotcha 64).
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1807,6 +1812,51 @@ the anon key -- verify as `postgres`, not as the app.
     used to SELECT the whole slide, so one key replaced it; it starts at
     the top too. One-line fields -- a name, a search, one choir line or its
     chords -- keep the cursor at the end, as any field does.
+
+64. **Book Mode's pages are the song view's words, and drawing cards.**
+    `_sbFsBuildPages` draws each song's pages from `_sbBkLyricsHtml(song)`:
+    `_sbmLyricsSource` -- the one source the song view, the A4 page view and
+    the book now share -- in the key sung (`_sbmStepsOf`), every block
+    stamped `data-anchor="l:<i>"`. It used to take the A4 page view's DOM, or
+    the words in the song's OWN key when that page had not been drawn. So a
+    page's lines are the song view's lines, and the drawn remarks
+    (gotcha 31) anchor the same on both. Each page's content is a
+    `.sbm-bk-card` with `data-sbm-song` (the whole song shifted and clipped
+    on a one-column page; the page itself on a two-column one), included in
+    `_sbmMarkCards()` while the overlay is open -- so painting, the pen,
+    the glow, the rubber, Undo, layers and versions need nothing new.
+    The page is scaled by a TRANSFORM, so a card is measured on the screen:
+    `_sbmCardScale(card)` (rect width / offsetWidth, exactly 1 within 1%)
+    scales the ems in `_sbmMarkBox` and `_sbmMarkTokensAt`, and
+    `_sbmMarksPaint` lays its canvas out in the card's pixels and draws in
+    the screen's, capped at 16M backing pixels (a whole song at a book's
+    zoom; iOS refuses past 16.7M) -- `cv.__dpr` is what `_sbmDrawDown`
+    draws at. `_sbFsRenderPage` ends in `_sbBkMount` (canvas, pen state,
+    paint, `_sbmLoadMarks` per song).
+    Gestures (`_sbBkInit`, on `#sbFsPage`): a double-click (the overlay's
+    `dblclick`, which used to CLOSE the book; X and Esc still do) or two
+    touch taps within 350ms and 32px (`_sbBkUp`) call `_sbBkDouble`, which
+    takes the pen out (`sbmDraw(true)`, "Who's drawing?" first) and marks it
+    `_sbBk.penHere`, so closing the book or Esc puts away only a pen taken
+    out there. Holding a line 550ms without moving 10px (`_sbBkDown`)
+    starts `_sbBkEditStart`: `_sbEditClaim`, the block `plaintext-only`, the
+    cursor where it was held (`caretRangeFromPoint`). `_sbBkEditEnd` reads
+    the lines again (`_sbmLinesOf`) and refuses when they changed since,
+    puts a chord line back into the copy's key
+    (`sbTransposeChordLine(text, -steps)`, the display's own transpose),
+    saves through `_sbSetCopyWords` with an Undo toast, and rebuilds the
+    book at the same page (`_sbBkRebuild`). The book's swipe, pinch and
+    keys stand down while drawing or typing.
+    The book asks for real browser FULL SCREEN, in which only the overlay
+    is drawn: anything appended to `<body>` -- the draw bar, sheets, the
+    toast, a confirm -- would be invisible. While it is open a
+    MutationObserver moves new `<body>` children into the overlay
+    (`_sbBkAdoptOn` / `_sbBkTake`, not scripts, iframes or media, and not
+    what was removed in the same task), and closing gives them back
+    (`_sbBkAdoptOff`). The hidden browser pane never runs animation
+    frames, and `sbOpenFullscreen` draws its first page and binds its
+    gestures in one: replace `requestAnimationFrame` with a timer in the
+    test page. `tools/songbook-book-mode-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
