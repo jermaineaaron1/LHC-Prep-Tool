@@ -59618,16 +59618,82 @@ var WO = (function() {
     });
   }
 
+  // ---- where Book Mode's pages break (gotcha 66) ----
+  //
+  // A page ends where a stanza ends: the whole of the next stanza -- its
+  // [Verse] or [Chorus] label with it -- goes on to the next page when it
+  // does not fit, never a chord line left at the foot of a page with its
+  // words over the leaf. A stanza is a run of lines between blank lines.
+  // Only a stanza taller than a page is split, and then between one chord-
+  // and-words pair and the next; failing that, between any two lines.
+  // Pages used to be cut every 1,123px wherever that fell, through a pair
+  // or through a line.
+  // The blank lines and a label's own margin above a stanza are the foot of
+  // the page before it, so only the top of a carried-over page needs room.
+  var _SB_FS_PAD_TOP = 20, _SB_FS_PAD_BOT = 0;
+  // A measured song's lines, as boxes from the top of the song.
+  function _sbFsItemsOf(mDiv) {
+    var wrap = mDiv && mDiv.querySelector('.sp-lyrics-wrap');
+    if (!wrap) return [];
+    var top0 = mDiv.getBoundingClientRect().top, out = [];
+    Array.prototype.forEach.call(wrap.children, function(el) {
+      var cls = el.getAttribute('class') || '';
+      if (/^(svg|style|script)$/i.test(el.tagName) || cls.indexOf('sb-annot-svg') >= 0) return;
+      var r = el.getBoundingClientRect();
+      out.push({ top: r.top - top0, bottom: r.bottom - top0,
+                 type: cls.indexOf('section-header') >= 0 ? 'header' : cls.indexOf('chord') >= 0 ? 'chord' :
+                       cls.indexOf('lyric-line') >= 0 ? 'lyric' : cls.indexOf('empty') >= 0 ? 'empty' : 'other' });
+    });
+    return out;
+  }
+  // Where a page that starts at `from` and holds `cap` of the song ends: at
+  // the last stanza that starts within it; failing that, the last pair;
+  // failing that, the last line; failing that (one line taller than a page),
+  // where it runs out. Pure, for the harness.
+  function _sbFsStanzaBreakAt(items, from, cap, total) {
+    var ey = from + cap;
+    if (total <= ey) return total;
+    var best = [-1, -1, -1], prev = -1, blank = false;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.type === 'empty') { if (prev >= 0) blank = true; continue; }
+      if (it.top > ey) break;
+      if (prev >= 0 && it.top > from + 1) {
+        var p = items[prev];
+        if (p.type !== 'header') {
+          // a stanza starts: after a blank line, or at a label
+          if (blank || it.type === 'header') best[0] = it.top;
+          // between pairs: never between a chord line and the words under it
+          if (!(p.type === 'chord' && (it.type === 'lyric' || it.type === 'other'))) best[1] = it.top;
+        }
+        best[2] = it.top;
+      }
+      prev = i; blank = false;
+    }
+    for (var t = 0; t < 3; t++) if (best[t] > from + 1) return best[t];
+    return ey;
+  }
+  // Where each page of a song starts. The first page holds the song's title
+  // too; the pages after it keep a margin at the top, and every page one at
+  // the foot. A break the user dragged in the A4 page view is kept when it
+  // fits. Pure, for the harness.
+  function _sbFsPageStarts(items, total, pageH, manual, padTop, padBot) {
+    var starts = [0], y = 0, guard = 0;
+    var more = function(from) { return items.some(function(it) { return it.type !== 'empty' && it.bottom > from + 1; }); };
+    while (y < total - 2 && guard++ < 500) {
+      var cap = pageH - (starts.length > 1 ? (padTop || 0) : 0) - (padBot || 0);
+      var m = manual && manual[starts.length - 1];
+      var next = (typeof m === 'number' && m > y + 1 && m <= y + cap) ? m : _sbFsStanzaBreakAt(items, y, cap, total);
+      if (!(next > y + 1)) next = Math.min(total, y + cap);
+      if (next >= total - 2 || !more(next)) break;
+      starts.push(next);
+      y = next;
+    }
+    return starts;
+  }
   function _sbFsBreaksFromDiv(mDiv, manualBreaks) {
     var A4H = Math.round(297 * 96 / 25.4);
-    var totalH = mDiv.scrollHeight;
-    var breaks = [];
-    for (var n = 0; n * A4H < totalH; n++) {
-      var y = (n > 0 && manualBreaks && manualBreaks[n - 1] !== undefined)
-        ? manualBreaks[n - 1] : n * A4H;
-      breaks.push(y);
-    }
-    return breaks;
+    return _sbFsPageStarts(_sbFsItemsOf(mDiv), mDiv.scrollHeight, A4H, manualBreaks, _SB_FS_PAD_TOP, _SB_FS_PAD_BOT);
   }
 
   var _sbFitPasses = 0;
@@ -71692,29 +71758,9 @@ var WO = (function() {
         });
         document.body.removeChild(tcM);
 
+        // A column ends where a stanza ends, by the book's own rule (gotcha 66).
         function tcBreak(fy, ch) {
-          var ey = fy + ch;
-          if (ey >= tcTH) return tcTH;
-          var sy = -1;
-          for (var i = 0; i < tcIt.length; i++) {
-            if (tcIt[i].bottom <= fy) continue;
-            if (tcIt[i].bottom > ey) break;
-            if (tcIt[i].type === 'empty' || tcIt[i].type === 'lyric') {
-              var nx = tcIt[i + 1];
-              if (nx && (nx.type === 'header' || nx.type === 'chord')) {
-                var ge = -1;
-                for (var gi = i + 1; gi < tcIt.length && gi <= i + 4; gi++) {
-                  if (tcIt[gi].type === 'lyric') { ge = tcIt[gi].bottom; break; }
-                  if (tcIt[gi].type === 'empty') break;
-                }
-                if (ge > 0 && ge > ey) continue;
-                if (ge < 0 && nx.bottom > ey) continue;
-              }
-              sy = tcIt[i].bottom;
-            }
-          }
-          if (sy <= fy) sy = Math.min(ey, tcTH);
-          return Math.min(sy, tcTH);
+          return _sbFsStanzaBreakAt(tcIt, fy, ch, tcTH);
         }
 
         var tcSlots = [], tcY = 0;
@@ -71765,16 +71811,21 @@ var WO = (function() {
         // Content before breakY sits above the clip div (negative top → clipped).
         // Content after clipH sits below the clip div (overflow:hidden → clipped).
         var _taAnnots = sbTextAnnots[song.id] || [];
-        pageBreaks.forEach(function(breakY) {
-          // Clip div is exactly A4H tall — content before breakY sits at negative y (hidden),
-          // content from breakY fills from y=0 downward. Safe break guarantees no chord/lyric split.
+        pageBreaks.forEach(function(breakY, pi) {
+          // The page shows its own stanzas and no more: it is cut at the next
+          // page's first line (gotcha 66), so a stanza carried over is not
+          // half-shown at the foot of this one. Pages after the first keep a
+          // margin at the top.
+          var endY  = (pi + 1 < pageBreaks.length) ? pageBreaks[pi + 1] : totalH;
+          var padTop = pi > 0 ? _SB_FS_PAD_TOP : 0;
+          var clipH = Math.max(0, Math.min(Math.ceil(endY - breakY), A4H - padTop));
 
           // Build static text-annotation HTML for annotations that fall on this page.
           var taHtml = '';
           _taAnnots.forEach(function(a) {
             var annotY  = (a.yPct / 100) * totalH;
-            var visualY = annotY - breakY;
-            if (visualY < -40 || visualY > A4H + 40) return; // not visible on this page
+            var visualY = annotY - breakY + padTop;
+            if (visualY < -40 || visualY > A4H + 40 || annotY > endY + 40) return; // not on this page
             var bw = a.borderWidth || 0;
             var bc = a.borderColor || '#000000';
             var borderStyle = bw > 0 ? ('border:' + bw + 'px solid ' + bc + ';border-radius:3px;') : '';
@@ -71795,8 +71846,10 @@ var WO = (function() {
 
           pages.push(extraStyle +
             '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
+              '<div class="sbm-bk-clip" style="position:absolute;top:' + padTop + 'px;left:0;width:794px;height:' + clipH + 'px;overflow:hidden;">' +
               '<div class="sbm-bk-card" data-sbm-song="' + escapeHtml(song.id) + '" style="position:absolute;top:' + (-breakY) + 'px;left:0;width:794px;">' +
                 fullContentHtml +
+              '</div>' +
               '</div>' +
               taHtml +
             '</div>');

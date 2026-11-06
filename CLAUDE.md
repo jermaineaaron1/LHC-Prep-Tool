@@ -1858,6 +1858,27 @@ the anon key -- verify as `postgres`, not as the app.
     gestures in one: replace `requestAnimationFrame` with a timer in the
     test page. `tools/songbook-book-mode-harness.js` checks it.
 
+66. **Book Mode's pages break between stanzas, never inside one.** They were
+    cut every 1,123px wherever that fell, so a chord line sat at the foot of
+    a page with its words on the next, or a line was sliced in half.
+    `_sbFsBreaksFromDiv` (Book Mode's one-column pages, and the print
+    preview's page count) now measures the song's lines (`_sbFsItemsOf`:
+    header, chord, lyric, empty, from the classes -- `wo-lyrics-empty-line`
+    holds the word "lyric", so test `lyric-line`, never `lyric`) and asks
+    `_sbFsPageStarts`, which ends each page at the last STANZA that starts
+    on it (`_sbFsStanzaBreakAt`: a line after a blank line, or a label, and
+    never straight after a label); failing that, between chord-and-words
+    pairs; failing that, between lines. A break dragged in the A4 page view
+    is kept when it fits. Each one-column page is cut at the next page's
+    first line (`.sbm-bk-clip`, height = next start - this start), or the
+    stanza carried over would show half at the foot; the pages after the
+    first keep `_SB_FS_PAD_TOP` (20px) at the top -- the blank lines and a
+    label's own margin are already room at the foot, and a larger margin
+    tipped two 500px stanzas off one page and made the book a third longer.
+    A two-column song's columns use the same rule (`tcBreak`). Print and the
+    PDF already broke only between sections (`_sbComputePageStarts`).
+    `tools/book-stanza-pages-harness.js` checks it.
+
 ## Quick Commands for Claude Code
 
 ```bash
