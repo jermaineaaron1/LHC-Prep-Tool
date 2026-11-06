@@ -11,8 +11,8 @@
 //     against -- the drawings are the song view's, both ways;
 //   - a book page is a drawing card (.sbm-bk-card); it is scaled by a
 //     transform, so ems and the canvas are worked out in screen pixels;
-//   - a held line is typed over in place and saved as the copy's words, a
-//     chord line put back into the copy's own key;
+//   - holding the words makes the whole song a notepad (gotcha 65, checked
+//     by tools/songbook-notepad-harness.js);
 //   - in the browser's real full screen only the overlay is drawn, so what
 //     the songbook adds to <body> -- the drawing bar, its questions, toasts
 //     -- is taken into the overlay while it is open.
@@ -142,9 +142,9 @@ check('a double-click starts drawing, and no longer closes the book', /addEventL
 const up = fn('_sbBkUp');
 if (up) {
   let doubles = 0, now = 1000;
-  const U = new Function('_sbBk', '_sbBkCancelHold', '_sbBkDouble', 'Date', '_sbmDraw', up + '\nreturn _sbBkUp;');
-  const st = { tap: null, down: null, edit: null };
-  const tapUp = (kind, moved) => { st.down = { x: 50, y: 50, moved: !!moved, held: false }; U(st, () => {}, () => { doubles++; }, { now: () => now }, null)({ pointerType: kind, clientX: 50, clientY: 50 }); };
+  const U = new Function('_sbBk', '_sbBkCancelHold', '_sbBkDouble', 'Date', '_sbmDraw', '_sbNp', up + '\nreturn _sbBkUp;');
+  const st = { tap: null, down: null };
+  const tapUp = (kind, moved) => { st.down = { x: 50, y: 50, moved: !!moved, held: false }; U(st, () => {}, () => { doubles++; }, { now: () => now }, null, null)({ pointerType: kind, clientX: 50, clientY: 50 }); };
   tapUp('touch'); now += 200; tapUp('touch');
   check('two taps close together are a double tap: the pen comes out', doubles === 1);
   doubles = 0; now += 2000; tapUp('touch'); now += 600; tapUp('touch');
@@ -157,54 +157,18 @@ if (up) {
 const down = fn('_sbBkDown');
 if (down) {
   let delay = 0, started = null;
-  const st = { tap: null, down: null, edit: null, hold: null };
+  const st = { tap: null, down: null, hold: null };
   const line = { id: 'L' };
-  new Function('_sbBk', '_sbBkCancelHold', '_sbBkEditStart', 'setTimeout', '_sbmDraw', down + '\nreturn _sbBkDown;')(
-    st, () => {}, (l, x, y) => { started = [l, x, y]; }, (f, ms) => { delay = ms; f(); return 1; }, null)(
+  new Function('_sbBk', '_sbBkCancelHold', '_sbBkHold', 'setTimeout', '_sbmDraw', '_sbNp', down + '\nreturn _sbBkDown;')(
+    st, () => {}, (l, x, y) => { started = [l, x, y]; }, (f, ms) => { delay = ms; f(); return 1; }, null, null)(
     { isPrimary: true, button: 0, clientX: 9, clientY: 8, target: { closest: sel => (/data-anchor\^="l:"/.test(sel) ? line : null) } });
-  check('holding a line about half a second starts typing over it, where it was held', delay === 550 && started && started[0] === line && started[1] === 9 && started[2] === 8);
+  check('holding the words about half a second opens the notepad, where they were held', delay === 550 && started && started[0] === line && started[1] === 9 && started[2] === 8);
 } else check('_sbBkDown exists', false);
 const pinch = fn('_sbFsInitPinch');
-check('the book\'s swipe and pinch stand down while drawing or typing', (pinch.match(/if \(_sbmDraw \|\| _sbBk\.edit\)/g) || []).length === 3);
+check('the book\'s swipe and pinch stand down while drawing or typing', (pinch.match(/if \(_sbmDraw \|\| _sbNp\)/g) || []).length === 3);
 const keys = fn('_sbFsKeyHandler');
 check('the book\'s keys leave a line being typed alone, and Esc puts the pen away first',
   /if \(e\.target && e\.target\.isContentEditable\) return;/.test(keys) && /e\.key === 'Escape' && _sbmDraw && _sbBk\.penHere\) \{ _sbBk\.penHere = false; sbmDraw\(false\); return; \}/.test(keys));
-
-console.log('\nTyping over a line');
-const end = fn('_sbBkEditEnd');
-if (end) {
-  const T = (o) => {
-    const log = { wrote: null, released: 0, toast: '', rebuilt: 0 };
-    const line = { textContent: o.typed, removeEventListener() {}, removeAttribute() {}, classList: { remove() {} } };
-    const st = { edit: { line, song: { customLyrics: '' }, base: 'b', idx: o.idx, before: o.before.join('\n'), text: o.shown, chord: !!o.chord, steps: o.steps || 0 } };
-    new Function('_sbBk', '_sbmLinesOf', '_sbSetCopyWords', '_sbEditRelease', '_sbEditMayWrite', 'showToast', '_sbBkRebuild', 'sbTransposeChordLine',
-      '_sbBkEditKey', '_sbBkEditBeforeInput', '_sbBkEditPaste', '_sbBkEditBlur', end + '\n_sbBkEditEnd(arguments[12]);')(
-      st, () => (o.now || o.before).slice(), (s, w) => { log.wrote = w; }, () => { log.released++; }, () => o.may !== false,
-      (m) => { log.toast = m; }, () => { log.rebuilt++; }, (t, d) => t + '@' + d, null, null, null, null, o.save !== false);
-    log.lineAfter = line.textContent;
-    return log;
-  };
-  const L = ['[Verse]', 'C   G', 'Amazing grace'];
-  const same = T({ before: L, idx: 2, shown: 'Amazing grace', typed: 'Amazing grace' });
-  check('a line left as it was writes nothing, and lets the song go', same.wrote === null && same.released === 1);
-  const lyric = T({ before: L, idx: 2, shown: 'Amazing grace', typed: 'Amazing grace!' });
-  check('a line typed over is saved in its place in the copy\'s words', lyric.wrote === '[Verse]\nC   G\nAmazing grace!' && lyric.released === 1 && lyric.rebuilt === 1 && lyric.toast === 'Line saved');
-  const chord = T({ before: L, idx: 1, shown: 'D   A', typed: 'D   Bm', chord: true, steps: 2 });
-  check('a chord line typed in the key shown is kept in the copy\'s own key', chord.wrote === '[Verse]\nD   Bm@-2\nAmazing grace');
-  const esc = T({ before: L, idx: 2, shown: 'Amazing grace', typed: 'Amazing grace!', save: false });
-  check('Esc puts the line back and writes nothing', esc.wrote === null && esc.lineAfter === 'Amazing grace' && esc.released === 1);
-  const under = T({ before: L, now: ['[Verse]', 'C   G', 'Amazing love'], idx: 2, shown: 'Amazing grace', typed: 'Amazing grace!' });
-  check('words changed underneath while typing are not written over', under.wrote === null && /changed while you were typing/.test(under.toast));
-  const locked = T({ before: L, idx: 2, shown: 'Amazing grace', typed: 'Amazing grace!', may: false });
-  check('...nor when another device has the song', locked.wrote === null);
-} else check('_sbBkEditEnd exists', false);
-const start = fn('_sbBkEditStart');
-check('typing holds the song as every editor does, and refuses words that are not lines',
-  /if \(!_sbEditClaim\(song\)\) return;/.test(start) && /if \(!lines\) \{ showToast\(/.test(start) && /contentEditable = 'plaintext-only'/.test(start));
-check('Enter keeps it (a phone\'s Return too), Esc puts it back',
-  /e\.key === 'Enter' && !e\.isComposing\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); _sbBkEditEnd\(true\);/.test(fn('_sbBkEditKey')) &&
-  /e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); _sbBkEditEnd\(false\);/.test(fn('_sbBkEditKey')) &&
-  /insertParagraph' \|\| e\.inputType === 'insertLineBreak'\) \{ e\.preventDefault\(\); _sbBkEditEnd\(true\); \}/.test(fn('_sbBkEditBeforeInput')));
 
 console.log('\nIn the browser\'s full screen');
 const take = fn('_sbBkTake');
@@ -221,9 +185,9 @@ if (take) {
 } else check('_sbBkTake exists', false);
 check('the bar, a sheet and the toast already open are taken in, and everything is given back on closing',
   /\['toastNotification', 'sbmDrawBar', 'sbmSheet'\]\.forEach/.test(fn('_sbBkAdoptOn')) && /document\.body\.appendChild\(el\)/.test(fn('_sbBkAdoptOff')));
-check('closing keeps a line being typed, gives back what was taken, and puts away a pen taken out here',
+check('closing keeps what is being typed, gives back what was taken, and puts away a pen taken out here',
   /^\n  function sbFsClose\(\) \{\n    _sbBkLeave\(\);/.test(fn('sbFsClose')) &&
-  /if \(_sbBk\.edit\) _sbBkEditEnd\(true\);/.test(fn('_sbBkLeave')) && /_sbBkAdoptOff\(\);/.test(fn('_sbBkLeave')) && /if \(_sbmDraw && _sbBk\.penHere\) sbmDraw\(false\);/.test(fn('_sbBkLeave')));
+  /if \(_sbNp && _sbNp\.where === 'book'\) _sbNpEnd\(true\);/.test(fn('_sbBkLeave')) && /_sbBkAdoptOff\(\);/.test(fn('_sbBkLeave')) && /if \(_sbmDraw && _sbBk\.penHere\) sbmDraw\(false\);/.test(fn('_sbBkLeave')));
 check('the book\'s cards take the pen, and the words are not selected by a long press',
   has(/\.sbm-bk-card\.is-drawing \.sbm-marks \{ pointer-events: auto; touch-action: none;/) && has(/#sbFsPage \.sbm-bk-card \{ -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; \}/) && has(/#sbFsViewport \{ touch-action: manipulation; \}/));
 

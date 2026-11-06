@@ -251,8 +251,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
-     shown and drawn on; holding a line about half a second types over it
-     in place, Enter keeps it, Esc puts it back (gotcha 64).
+     shown and drawn on (gotcha 64); holding the words about half a second
+     makes the whole song a notepad. **Type** (a chip beside Draw on the
+     lyrics card, `sbmType`) does the same in the song view: type straight
+     onto the words and chords, Enter saves, Shift+Enter or the bar's New
+     line starts a line, Esc puts it back (gotcha 65) -- no Edit window.
   3. **LCD Projection** -- the slides, drawn from the same data.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
@@ -1838,15 +1841,9 @@ the anon key -- verify as `postgres`, not as the app.
     touch taps within 350ms and 32px (`_sbBkUp`) call `_sbBkDouble`, which
     takes the pen out (`sbmDraw(true)`, "Who's drawing?" first) and marks it
     `_sbBk.penHere`, so closing the book or Esc puts away only a pen taken
-    out there. Holding a line 550ms without moving 10px (`_sbBkDown`)
-    starts `_sbBkEditStart`: `_sbEditClaim`, the block `plaintext-only`, the
-    cursor where it was held (`caretRangeFromPoint`). `_sbBkEditEnd` reads
-    the lines again (`_sbmLinesOf`) and refuses when they changed since,
-    puts a chord line back into the copy's key
-    (`sbTransposeChordLine(text, -steps)`, the display's own transpose),
-    saves through `_sbSetCopyWords` with an Undo toast, and rebuilds the
-    book at the same page (`_sbBkRebuild`). The book's swipe, pinch and
-    keys stand down while drawing or typing.
+    out there. Holding the words 550ms without moving 10px (`_sbBkDown`)
+    opens the notepad on the whole song (`_sbBkHold`, gotcha 65). The
+    book's swipe, pinch and keys stand down while drawing or typing.
     The book asks for real browser FULL SCREEN, in which only the overlay
     is drawn: anything appended to `<body>` -- the draw bar, sheets, the
     toast, a confirm -- would be invisible. While it is open a
@@ -1857,6 +1854,37 @@ the anon key -- verify as `postgres`, not as the app.
     frames, and `sbOpenFullscreen` draws its first page and binds its
     gestures in one: replace `requestAnimationFrame` with a timer in the
     test page. `tools/songbook-book-mode-harness.js` checks it.
+
+65. **The sheet is a notepad: the whole song typed on at once, Enter to
+    keep it.** One engine for the song view's Type chip (`sbmType`, on
+    `#sbmLyrics`, Chords + Lyrics and 2 Col only) and Book Mode's hold
+    (`_sbBkHold`, on the page's `.sbm-bk-lyrics`; a two-column song is
+    refused there): `_sbNpStart` / `_sbNpEnd`, state `_sbNp` (`where`
+    'view' | 'book'). It makes the lyrics element `contenteditable="true"`
+    (the instrument strips `false`), holds the song (`_sbEditClaim`), puts
+    the cursor where the words were held or on the first LINE -- not in the
+    Intro strip that comes before it -- and shows `#sbNpBar` (New line,
+    Cancel, Save; its buttons keep the focus by `pointerdown`
+    preventDefault), placed above a phone's keyboard from `visualViewport`.
+    Enter (keydown, or `beforeinput` `insertParagraph` for a phone's 229)
+    saves; Shift+Enter is the browser's own line break; the bar's New line
+    is `execCommand('insertParagraph')` with `_sbNp.adding` set so it is not
+    taken for Return; Esc cancels; a tap elsewhere (blur, then a tick) saves.
+    Lines are read back by `_sbNpLines` -- a block a line, an empty block an
+    empty line, a `<br>` a line unless it is the block's own trailing one,
+    strips, buttons and old page drawings skipped -- which is also how the
+    sheet is read at the start, so shown and typed are compared like for
+    like. `_sbNpMap` stores a line found in both (by their longest common
+    run) as the STORED line it showed, exactly, so a song shown in another
+    key comes back untouched; a typed or changed chord line goes back by
+    `sbTransposeChordLine(t, -steps)`. Saved through `_sbSetCopyWords`, with
+    Undo; refused when the words changed underneath or another device has
+    the song. NOTHING may redraw the sheet while it is typed on:
+    `_sbmRender` and `_sbFsRenderPage` return early (`renderAfter`), and the
+    redraw runs when the notepad ends -- a window resize, which a phone's
+    keyboard opening is, used to rebuild the book page and wipe the typing.
+    Draw ends the notepad first (saving), and the line-transpose bar stands
+    down while it is open. `tools/songbook-notepad-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
