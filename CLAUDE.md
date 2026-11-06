@@ -252,7 +252,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
      shown and drawn on (gotcha 64); holding the words about half a second
-     makes the whole song a notepad. **Type** (a chip beside Draw on the
+     makes the whole song a notepad. Holding a CHOIR page does the same for
+     the arrangement: every line with who sings it ("Women:", "Melody:",
+     "Vocals 2:" -- typed labels are recognised), its chords over it in the
+     key sung, the lines sung at once on a purple bar, and Sing together /
+     Take turns on the bar for the lines highlighted (gotcha 67). **Type** (a chip beside Draw on the
      lyrics card, `sbmType`) does the same in the song view: type straight
      onto the words and chords, Enter saves, Shift+Enter or the bar's New
      line starts a line, Esc puts it back (gotcha 65) -- no Edit window.
@@ -1909,6 +1913,58 @@ the anon key -- verify as `postgres`, not as the app.
     A two-column song's columns use the same rule (`tcBreak`). Print and the
     PDF already broke only between sections (`_sbComputePageStarts`).
     `tools/book-stanza-pages-harness.js` checks it.
+
+67. **A part's label is read by `lhcVoiceLines.labelOf`, everywhere, and a
+    choir page in Book Mode is typed on as Overview Edit's text.** From the
+    operator (2026-11-06): the choir pages typeable, the part labels people
+    type recognised ("Vocals 1, 2, 3, Men, Women, Melody, etc."), a way to
+    mark highlighted lines as sung together, and the chords typeable.
+    `labelOf(line, parts)` returns `{ part, len }` or null: `[Name]` (colon
+    optional) as before; `W:` `M:` `B:`; `Women:` `Men:`; `All:` `Everyone:`
+    `Unison:` `Tutti:` `Both:` for everybody; and `Name:` when the name is
+    one parts are called by (`_PART_NAMES`: Melody, Vocals 2, Soprano, Alto,
+    Descant, Lead, Solo, 1st Part, Harmony, Women 2...) or one the song
+    already has (`parts`, from `V.lanes(rows)`). Anything else is words --
+    "Lord: have mercy" is sung -- so a new name needs brackets the first
+    time. A new name typed in lower case gets capitals; a known one keeps the
+    song's spelling, and `parseVoiceText(text, { parts })` keeps one
+    spelling per lane within a text. Every reader goes through it:
+    `parseVoiceText`, the pad's `_sbmPadIndent` / `_sbmPadWords` (so a chord
+    over "Melody: words" is indented past the label) and `_sbmPadHighlight`.
+    The other way, a line everyone sings that opens like a label is written
+    `[All] ...` (`V._needsAll`, used by `toVoiceText` and `_sbmAllPrefix`),
+    or it would come back as that part.
+    Holding a choir page (`_sbBkDown` on `.sbm-bk-card--choir .vl-score`,
+    `_sbBkHold` -> `_sbChNpStart`) claims the song, reads its lines, and
+    puts the whole arrangement on the page in place of the score
+    (`_sbChNpOpen`): `_sbmPadText` with a line writer (`_sbChNpLine`:
+    "Women: ", "Melody: ", nothing for everyone), the chords moved by the
+    copy's steps (`opts.chord`), and `opts.at` giving each moment's line, so
+    the cursor lands on the moment held (found by its `s:` anchor through
+    `lineNumbers`). The notepad is `_sbNp` with `kind: 'choir'`, so the
+    book's redraw, gestures, swipe and keys wait for it as for the words;
+    `_sbNpEnd` hands it to `_sbChNpEnd`. One block a line: a typed newline
+    (Chrome types Shift+Enter as `\n` in a pre-wrap page), a paste, or a span
+    from joined lines is rebuilt as blocks with the cursor kept
+    (`_sbChNpFlat` / `_sbChNpRebuild`, a marker character at the caret). As
+    it is typed, `_sbChNpInfo` (pure: the parser itself, over the text
+    without its chord lines) marks each line section / chord / blank / words,
+    with who sings it (the chip on the right, in the part's colour) and the
+    moments whose parts sing at once (`is-tg`, the purple bar and "Sing
+    together" badge). The bar's **Sing together** (`_sbChNpJoin`) takes the
+    blank lines out between the highlighted moments, refusing a section
+    between them, a part singing twice or a line for everyone; **Take
+    turns** (`_sbChNpSplit`) puts a blank line before each line that joined
+    the one above, its chord line going with it. Enter saves through
+    `_sbmPadSaveSong` (`openSig`, `parts`, `quiet`, and `mapChords`:
+    `_sbChNpChords` stores a chord line left as shown exactly as it was
+    stored, and moves a typed one back by the steps), keeping `_sbNp` while
+    it saves so the book does not redraw under it; a failed save leaves the
+    page typeable, except when the parts changed elsewhere. Undo writes the
+    rows it opened on back (`toVoiceText` -> `parseVoiceText`) and the lyrics
+    if nothing else changed them. The score's drawings are hidden while it is
+    typed on (`.sbm-chnp-card .sbm-marks`) and come back with the redraw.
+    `tools/songbook-choir-notepad-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
