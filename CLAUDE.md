@@ -1791,6 +1791,23 @@ the anon key -- verify as `postgres`, not as the app.
     item in three tracks and squeezed Program / Live to a 180px strip.
     `tools/lcd-editor-rollup-harness.js` checks it.
 
+63. **An editor opens with its cursor on the FIRST character.** A textarea
+    filled from script keeps its cursor at the end of what it was given, and
+    `focus()` scrolls to it: Overview Edit opened on a song's last line.
+    `window.lhcCaretToStart(el)` (the first global script, so every module
+    has it) puts the cursor before the first character and scrolls the box
+    to its top -- for a contenteditable, before the first text or line break,
+    skipping the formatting whitespace between blocks. Call it right after
+    `focus()` in anything new that opens on words already written: Overview
+    Edit (`_sbmPadOpen`), Lyrics & Chords (`openLyricsEditor`,
+    `sbOpenLyricsEditor`), the LCD pad (`lcdUnlockEditor`) and All Slides
+    (`openAllSlidesModal`, the builder's `_lbdSheet` for a textarea, the
+    Liturgy page's two), the notes editors, and the rest
+    `tools/editor-caret-start-harness.js` lists. The schedule's slide box
+    used to SELECT the whole slide, so one key replaced it; it starts at
+    the top too. One-line fields -- a name, a search, one choir line or its
+    chords -- keep the cursor at the end, as any field does.
+
 ## Quick Commands for Claude Code
 
 ```bash
