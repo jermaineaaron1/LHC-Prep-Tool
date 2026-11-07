@@ -1588,6 +1588,22 @@ const CASES = [
   ['enablers-calendar-harness.js', 'only a PIC can add a phone or an email again',
     s => s.replace("          html += '<div class=\"en-ct-group\">' + self._enCtHtml(name, 'phone', phone) + self._enCtHtml(name, 'email', email) + '</div>';",
                    "          html += '<span>' + (phone || 'No phone saved') + '</span>';")],
+  // The Songs page's search and the home cards (home-songs-search-harness).
+  ['home-songs-search-harness.js', 'the list finds the letters anywhere in the title again',
+    s => s.replace("      result = result.filter(function(s) { return _sfTitleStarts(s, f.q); });",
+                   "      result = result.filter(function(s) { return String(s.title || '').toLowerCase().indexOf(f.q.toLowerCase()) >= 0; });")],
+  ['home-songs-search-harness.js', 'a title matches wherever the letters fall in it',
+    s => s.replace("    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;", "    return !q || _sfTitleKey(song && song.title).indexOf(q) >= 0;")],
+  ['home-songs-search-harness.js', 'the hint stays three times as long',
+    s => s.replace("    timer = setTimeout(end, 5000);", "    timer = setTimeout(end, 15000);")],
+  ['home-songs-search-harness.js', 'the hint paints under the filters',
+    s => s.replace("    #songFinderView #sfCommandHeader > .sf-search-field.sf-search-flash { position: relative; z-index: 60; }", "")],
+  ['home-songs-search-harness.js', 'a chip opens the whole page as well as its book',
+    s => s.replace("        e.stopPropagation();\r\n        var id = chip.getAttribute('data-id');", "        var id = chip.getAttribute('data-id');")],
+  ['home-songs-search-harness.js', 'every order chip reads "Service - ..."',
+    s => s.replace("    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
+  ['home-songs-search-harness.js', 'the Roster card says 0 services again',
+    s => s.replace("        HOME_STATE.rosterNext = results[1] || [];\r\n        _homeRosterStat();\r\n", "        HOME_STATE.rosterNext = results[1] || [];\r\n")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

@@ -1103,7 +1103,9 @@
       background: linear-gradient(100deg, #f1f9f3 0%, #e4f4ea 55%, #d8efe1 100%);
       border: 1px solid rgba(24,142,68,.18);
     }
-    .home-jubilee-mark { width: 62px; height: 62px; object-fit: contain; flex-shrink: 0; }
+    /* 52px, from 62 (2026-11-07): the mark sets the strip's height on a
+       desk, so the strip is ten pixels shorter. */
+    .home-jubilee-mark { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
     .home-jubilee-words { flex: 1; min-width: 0; }
     .home-jubilee-slogan {
       font-size: 1.02rem; font-weight: 700; color: #103000; letter-spacing: .01em;
@@ -1123,7 +1125,10 @@
     @media (max-width: 640px) {
       /* Fifteen pixels shorter than it was: 16px of padding top and bottom
          became 9 and 8. The room goes to the tools below. */
-      .home-jubilee { flex-direction: column; text-align: center; gap: 10px; padding: 9px 14px 8px; }
+      .home-jubilee { flex-direction: column; text-align: center; gap: 8px; padding: 9px 14px 8px; }
+      /* And ten more (2026-11-07): the mark 56px from 62, the two gaps 8 from
+         10. Stacked, the strip is the mark plus the words plus the refs. */
+      .home-jubilee-mark { width: 56px; height: 56px; }
       .home-jubilee-refs { flex-direction: row; justify-content: center; }
       .home-jubilee-words { text-align: center; }
     }
@@ -1133,7 +1138,7 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 14px;
-      margin-bottom: 16px;
+      margin-bottom: 22px;
     }
     .home-nav-card {
       border-radius: var(--card-radius);
@@ -1202,6 +1207,93 @@
       padding: 2px 10px;
       background: rgba(0,0,0,0.04);
       border-radius: 999px;
+    }
+
+    /* ---- Songs / Songbooks and Worship Orders: their three newest ----
+       (2026-11-07) Those two cards are a <div> with a transparent button over
+       the whole of it (.home-nav-hit), not a <button>: a button may not hold
+       the buttons that open each songbook or order. The card's own click goes
+       where it always did; a chip sits above the cover and opens its book. */
+    .home-nav-hit {
+      position: absolute; inset: 0; z-index: 0; margin: 0; padding: 0;
+      border: 0; background: transparent; cursor: pointer; border-radius: inherit;
+    }
+    .home-nav-hit:focus-visible { outline: 3px solid rgba(24,142,68,.55); outline-offset: -3px; }
+    .home-nav-recent {
+      position: relative; z-index: 1;
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;
+      max-width: 100%; margin-top: 4px;
+    }
+    .home-nav-recent:empty { display: none; }
+    .home-recent-chip {
+      display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%;
+      padding: 3px 10px; border-radius: 999px; cursor: pointer;
+      border: 1px solid rgba(24,142,68,.28); background: rgba(255,255,255,.85); color: #14532d;
+      font: 600 0.64rem/1.35 "Poppins", sans-serif; white-space: nowrap;
+      box-shadow: 0 1px 2px rgba(15,23,42,.06); transition: background .15s, border-color .15s;
+    }
+    .home-recent-chip i { font-size: .62rem; opacity: .75; flex-shrink: 0; }
+    .home-recent-chip span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .home-recent-chip:hover { background: #ecfdf3; border-color: rgba(24,142,68,.5); }
+    .home-recent-chip:focus-visible { outline: 2px solid #188e44; outline-offset: 1px; }
+    .home-nav-orders .home-recent-chip { border-color: rgba(217,119,6,.32); color: #92400e; }
+    .home-nav-orders .home-recent-chip:hover { background: #fff7e6; border-color: rgba(217,119,6,.55); }
+    /* On a desk the cards stand upright in one row, and the tallest sets the
+       row: three names stacked under the words would make all five 85px
+       taller. There the list takes the place of the description and the
+       count, so the row stays within a few pixels of its old height. */
+    @media (min-width: 769px) {
+      .home-nav-card { padding: 20px 14px; }
+      .home-nav-card.has-recent .home-nav-desc, .home-nav-card.has-recent .home-nav-stat { display: none; }
+      .home-nav-card.has-recent .home-nav-recent { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; margin-top: 2px; }
+      .home-nav-card.has-recent .home-recent-chip { justify-content: center; }
+    }
+
+    /* ---- Songs page: how to search, for five seconds ----
+       (2026-11-07) A bubble under the search box, pointing up at it, while
+       the box glows: shown as the page opens with the box empty, gone after
+       five seconds or the moment the box is touched (_sfSearchHint). */
+    .sf-search-hint {
+      position: absolute; left: 6px; right: 6px; top: calc(100% + 11px); z-index: 40;
+      display: flex; align-items: center; gap: 11px; padding: 10px 14px;
+      border-radius: 12px; background: linear-gradient(135deg, #1a9a4b, #0b7644); color: #fff;
+      font: 500 .8rem/1.4 "Poppins", sans-serif; text-align: left; pointer-events: none;
+      box-shadow: 0 12px 30px rgba(9,42,21,.28);
+      animation: sfHintIn .35s cubic-bezier(.2,.9,.3,1.2) both, sfHintFlash 1.1s ease-in-out .35s 4;
+    }
+    .sf-search-hint::before {
+      content: ''; position: absolute; top: -7px; left: 22px;
+      border: 7px solid transparent; border-top: 0; border-bottom-color: #1a9a4b;
+    }
+    .sf-search-hint > i { font-size: 1.1rem; flex-shrink: 0; animation: sfHintNudge 1.1s ease-in-out .35s 4; }
+    .sf-search-hint b { display: block; font-weight: 700; font-size: .84rem; }
+    .sf-search-hint kbd {
+      display: inline-block; min-width: 1.6em; padding: 0 6px; margin: 0 2px; border-radius: 5px;
+      background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.35);
+      font: 700 .78rem/1.5 ui-monospace, "SF Mono", Consolas, monospace; text-align: center;
+    }
+    .sf-search-hint .sf-hint-caret { display: inline-block; width: 1px; height: 1em; margin-left: 1px; background: #fff; vertical-align: -2px; animation: sfHintCaret .8s steps(1) infinite; }
+    .sf-search-hint.is-out { animation: sfHintOut .3s ease-in forwards; }
+    /* Above the filters under it while the bubble shows: their boxes come
+       later in the page, at the same z-index:1 every child of the search
+       header has (#sfCommandHeader > *), and would paint over it. */
+    .sf-search-field.sf-search-flash,
+    #songFinderView #sfCommandHeader > .sf-search-field.sf-search-flash { position: relative; z-index: 60; }
+    .sf-search-flash #searchInput { animation: sfFieldFlash 1.1s ease-in-out 4; }
+    @keyframes sfHintIn { from { opacity: 0; transform: translateY(-8px) scale(.97); } to { opacity: 1; transform: none; } }
+    @keyframes sfHintOut { to { opacity: 0; transform: translateY(-6px); } }
+    @keyframes sfHintFlash {
+      0%, 100% { box-shadow: 0 12px 30px rgba(9,42,21,.28); }
+      50% { box-shadow: 0 0 0 5px rgba(74,222,128,.4), 0 12px 30px rgba(9,42,21,.28); }
+    }
+    @keyframes sfHintNudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+    @keyframes sfHintCaret { 50% { opacity: 0; } }
+    @keyframes sfFieldFlash {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+      50% { box-shadow: 0 0 0 5px rgba(34,197,94,.45); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sf-search-hint, .sf-search-hint > i, .sf-search-flash #searchInput, .sf-search-hint .sf-hint-caret { animation: none; }
     }
 
     /* Content Grid (Roster + Trending side by side) */
@@ -5050,7 +5142,7 @@
          description while the icon spans both and the stat pill holds the
          right-hand end. In a flex row the long pairs ("Worship Roster" /
          "Service duties & assignments") had nowhere to go. */
-      .home-nav-grid { grid-template-columns: 1fr; gap: 7px; margin-bottom: 10px; }
+      .home-nav-grid { grid-template-columns: 1fr; gap: 7px; margin-bottom: 18px; }
       .home-nav-card {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
@@ -5067,6 +5159,34 @@
       .home-nav-label { grid-area: label; font-size: 0.78rem; letter-spacing: 0.02em; line-height: 1.2; }
       .home-nav-desc { grid-area: desc; font-size: 0.63rem; line-height: 1.25; }
       .home-nav-stat { grid-area: stat; margin-top: 0; padding: 1px 8px; font-size: 0.58rem; }
+      /* A card with recent books or orders takes a third row for them, under
+         the words. They keep to one line, each shrinking to fit. */
+      .home-nav-card.has-recent { grid-template-areas: "icon label stat" "icon desc stat" ". recent recent"; }
+      .home-nav-card.has-recent .home-nav-recent {
+        grid-area: recent; justify-content: flex-start; flex-wrap: nowrap; margin-top: 6px;
+      }
+      /* At most a third each: a long name is cut short, never a short one. */
+      .home-nav-card.has-recent .home-recent-chip { flex: 0 1 auto; max-width: calc((100% - 10px) / 3); }
+    }
+    /* A narrow phone has no third to give: the row scrolls sideways, the
+       names whole (to 78% of it), the next one showing at the edge. */
+    @media (max-width: 479px) {
+      .home-nav-card.has-recent .home-nav-recent { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 1px; }
+      .home-nav-card.has-recent .home-nav-recent::-webkit-scrollbar { display: none; }
+      .home-nav-card.has-recent .home-recent-chip { flex: 0 0 auto; max-width: 78%; }
+      .home-nav-card.has-recent .home-recent-chip i { display: none; }
+    }
+    /* Wide enough for them beside the words, as drawn: the chips at the top
+       right of the card and its count under them -- when every name fits
+       there whole. Otherwise (.recent-below, set by _homeRecentFit) they keep
+       the row under the words, which is twice as wide. */
+    @media (min-width: 600px) and (max-width: 768px) {
+      .home-nav-card.has-recent:not(.recent-below) { grid-template-areas: "icon label recent" "icon desc stat"; }
+      .home-nav-card.has-recent:not(.recent-below) .home-nav-recent { justify-content: flex-end; flex-wrap: nowrap; margin-top: 0; max-width: 340px; justify-self: end; }
+      .home-nav-card.has-recent:not(.recent-below) .home-nav-stat { justify-self: end; }
+      /* No icon beside the words: the card's own says what they are. */
+      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip { flex: 0 1 auto; padding: 3px 9px; max-width: none; }
+      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip i { display: none; }
     }
 
     /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
@@ -6541,24 +6661,30 @@
 
         <!-- Navigation Cards Grid -->
         <div class="home-nav-grid">
-          <button class="home-nav-card home-nav-songs" data-view="songFinderView">
+          <div class="home-nav-card home-nav-songs" data-view="songFinderView">
+            <button type="button" class="home-nav-hit" aria-label="Songs and songbooks"></button>
             <div class="home-nav-icon"><i class="fa-solid fa-music"></i></div>
-            <div class="home-nav-label font-cinzel">Song Finder</div>
-            <div class="home-nav-desc">Browse & manage the song library</div>
+            <div class="home-nav-label font-cinzel">Songs / Songbooks</div>
+            <div class="home-nav-desc">Browse songs &amp; open songbooks</div>
             <div class="home-nav-stat" id="homeStatSongs">-- songs</div>
-          </button>
+            <!-- The three newest songbooks, each opening its book (renderHomeRecent) -->
+            <div class="home-nav-recent" id="homeRecentSongbooks" aria-label="Newest songbooks"></div>
+          </div>
           <button class="home-nav-card home-nav-roster" data-view="worshipRosterView">
             <div class="home-nav-icon"><i class="fa-solid fa-table"></i></div>
             <div class="home-nav-label font-cinzel">Worship Roster</div>
             <div class="home-nav-desc">Service duties & assignments</div>
             <div class="home-nav-stat" id="homeStatRoster">-- services</div>
           </button>
-          <button class="home-nav-card home-nav-orders" data-view="worshipOrderView">
+          <div class="home-nav-card home-nav-orders" data-view="worshipOrderView">
+            <button type="button" class="home-nav-hit" aria-label="Worship orders"></button>
             <div class="home-nav-icon"><i class="fa-solid fa-calendar-days"></i></div>
             <div class="home-nav-label font-cinzel">Worship Orders</div>
             <div class="home-nav-desc">Plan & organize services</div>
             <div class="home-nav-stat" id="homeStatOrders">-- orders</div>
-          </button>
+            <!-- The three orders edited last, each opening its order (renderHomeRecent) -->
+            <div class="home-nav-recent" id="homeRecentOrders" aria-label="Orders edited last"></div>
+          </div>
           <button class="home-nav-card home-nav-liturgy" data-view="liturgyView">
             <div class="home-nav-icon"><i class="fa-solid fa-book-bible"></i></div>
             <div class="home-nav-label font-cinzel">Liturgy Library</div>
@@ -6674,7 +6800,7 @@
                 id="searchInput" 
                 type="search" 
                 class="form-input pl-11 pr-10" 
-                placeholder="Search title, artist, theme or scripture..."
+                placeholder="Type the first letters of a song title..."
                 autocomplete="off"
               >
               <button id="clearSearchBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden" title="Clear search">
@@ -22719,6 +22845,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         }
       }
       renderSongbooksList();
+      // After the page has settled: a phone moves the filters about as it
+      // opens (syncMobileSongFilterPriority).
+      setTimeout(_sfSearchHint, 350);
     }
     if (viewId === 'worshipRosterView' && window.RosterEngine) {
       window.RosterEngine.init();
@@ -22996,18 +23125,29 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // ============================================================
   // 8) FILTER & SORT LOGIC
   // ============================================================
+  // ---- A song is found by the first letters of its title ----
+  // (2026-11-07) And only by them: "he" is "Here I Am to Worship", not every
+  // title, artist or theme with "he" somewhere in it ("the", "Heard",
+  // "Hopeful"...). Theme, feel, season and scripture have filters of their
+  // own. Case, accents, spacing and a leading quote or bracket are ignored.
+  // The list (applyFiltersAndSort) and the suggestions under the box
+  // (renderSearchSuggestions) both go through _sfTitleStarts.
+  function _sfTitleKey(text) {
+    var t = String(text == null ? '' : text);
+    try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+    return t.toLowerCase().replace(/\s+/g, ' ').replace(/^[^a-z0-9]+/, '');
+  }
+  function _sfTitleStarts(song, query) {
+    var q = _sfTitleKey(query);
+    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;
+  }
+
   function applyFiltersAndSort() {
     var f = STATE.filters;
     var result = STATE.songs.slice();
 
     if (f.q) {
-      var q = f.q.toLowerCase();
-      result = result.filter(function(s) {
-        // Premium catalogue search: match the fields people actually use
-        // when planning worship, while keeping exact title matches first via sort.
-        return [s.title, s.artist, s.theme, s.scripture, s.style, s.season]
-          .some(function(value) { return String(value || '').toLowerCase().indexOf(q) >= 0; });
-      });
+      result = result.filter(function(s) { return _sfTitleStarts(s, f.q); });
     }
 
     if (f.themes && f.themes.length > 0) result = result.filter(function(s) {
@@ -25435,6 +25575,52 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     window.setTimeout(function() { focusSongCardFromSuggestion(song.id, 4); }, window.innerWidth <= 768 ? 180 : 20);
   }
 
+  // ---- How to search: five seconds, as the Songs page opens ----
+  // (2026-11-07) A bubble under the search box pointing up at it, the box
+  // glowing, and an example from the library typed into the bubble. Only
+  // when the box is empty and on screen (on a phone the Songbooks tab hides
+  // it). It goes after five seconds, or the moment the box is touched.
+  function _sfSearchHint() {
+    var inp = $('searchInput');
+    var hv = $('songFinderView');
+    if (!inp || inp.value || inp.offsetParent === null || !hv || hv.style.display === 'none') return;
+    if (document.activeElement === inp) return;
+    var row = inp.parentNode, field = inp.closest('.sf-search-field');
+    if (!row || !field) return;
+    var old = document.getElementById('sfSearchHint');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    // An example: a title that begins with a letter and is short enough to
+    // read at a glance.
+    var pool = (STATE.songs || []).filter(function(s) { return /^[A-Za-z]{2}/.test(String(s.title || '')) && String(s.title).length <= 30; });
+    var ex = pool.length ? pool[Math.floor(Math.random() * pool.length)].title : '';
+    var hint = document.createElement('div');
+    hint.id = 'sfSearchHint';
+    hint.className = 'sf-search-hint';
+    hint.setAttribute('role', 'status');
+    hint.innerHTML = '<i class="fa-solid fa-keyboard" aria-hidden="true"></i><div><b>Type the first letters of a song title</b>' +
+      (ex ? '<span>e.g. <kbd class="sf-hint-typed"></kbd><span class="sf-hint-caret" aria-hidden="true"></span> finds &ldquo;' + escapeHtml(ex) + '&rdquo;</span>' : '') +
+      '</div>';
+    row.appendChild(hint);
+    field.classList.add('sf-search-flash');
+    // The example's first letters, typed one at a time.
+    var typed = hint.querySelector('.sf-hint-typed'), letters = ex.slice(0, 2), k = 0, typer = 0;
+    if (typed) typer = setInterval(function() { if (k >= letters.length) { clearInterval(typer); return; } typed.textContent += letters.charAt(k++); }, 450);
+    var timer = 0, gone = false;
+    var end = function() {
+      if (gone) return;
+      gone = true;
+      clearTimeout(timer); clearInterval(typer);
+      inp.removeEventListener('focus', end); inp.removeEventListener('input', end); inp.removeEventListener('pointerdown', end);
+      field.classList.remove('sf-search-flash');
+      hint.classList.add('is-out');
+      setTimeout(function() { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 320);
+    };
+    timer = setTimeout(end, 5000);
+    inp.addEventListener('focus', end);
+    inp.addEventListener('input', end);
+    inp.addEventListener('pointerdown', end);
+  }
+
   function renderSearchSuggestions(query) {
     var container = $('searchSuggestions');
     if (!container) return;
@@ -25445,13 +25631,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       return;
     }
 
-    var q = query.toLowerCase();
-    
-    // Search the same planning fields as the main catalogue filter.
-    var matches = STATE.songs.filter(function(s) {
-      return [s.title, s.artist, s.theme, s.scripture, s.style, s.season]
-        .some(function(value) { return String(value || '').toLowerCase().indexOf(q) >= 0; });
-    }).slice(0, 10);
+    // The titles that begin with what was typed, as the list below does.
+    var matches = STATE.songs.filter(function(s) { return _sfTitleStarts(s, query); }).slice(0, 10);
 
     if (!matches.length) {
       container.classList.remove('show');
@@ -25480,13 +25661,15 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
 
   function highlightMatch(text, query) {
     if (!query) return escapeHtml(text);
-    var escaped = escapeHtml(text);
-    var q = escapeHtml(query);
-    var idx = escaped.toLowerCase().indexOf(q.toLowerCase());
-    if (idx === 0) {
-      return '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">' + escaped.slice(0, q.length) + '</mark>' + escaped.slice(q.length);
-    }
-    return escaped;
+    var raw = String(text == null ? '' : text);
+    // Skip what _sfTitleKey skips at the front, then mark as many characters
+    // as were typed.
+    var lead = (raw.match(/^[^A-Za-z0-9\u00C0-\u024F]*/) || [''])[0].length;
+    var n = String(query).replace(/^[^A-Za-z0-9\u00C0-\u024F]+/, '').length;
+    if (!n || !_sfTitleStarts({ title: raw }, query)) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, lead)) +
+      '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">' + escapeHtml(raw.slice(lead, lead + n)) + '</mark>' +
+      escapeHtml(raw.slice(lead + n));
   }
 
   function navSuggestions(dir) {
@@ -27717,6 +27900,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         var homeView = document.getElementById('homeView');
         if (homeView && homeView.style.display !== 'none') {
           renderHomeUpcomingServices();
+          Array.prototype.forEach.call(document.querySelectorAll('.home-nav-card.has-recent'), _homeRecentFit);
         }
       }, 200);
     });
@@ -27735,12 +27919,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     el = $('homeStatOrders');
     if (el) el.textContent = orderCount + ' order' + (orderCount !== 1 ? 's' : '');
 
-    // Roster: count unique service dates this month
-    var rosterDates = {};
-    (HOME_STATE.rosterCurrent || []).forEach(function(e) { if (e.date) rosterDates[e.date] = true; });
-    var dateCount = Object.keys(rosterDates).length;
-    el = $('homeStatRoster');
-    if (el) el.textContent = dateCount + ' service' + (dateCount !== 1 ? 's' : '') + ' this month';
+    _homeRosterStat();
 
     // Liturgy count
     el = $('homeStatLiturgy');
@@ -27753,6 +27932,110 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       } catch(e) {}
       el.textContent = liturgyCount > 0 ? liturgyCount + ' item' + (liturgyCount !== 1 ? 's' : '') : 'Library';
     }
+    renderHomeRecent();
+  }
+
+  // Roster: the service dates this month that the roster has anything for.
+  // HOME_STATE.rosterCurrent used to come only from the Apps Script
+  // dashboard call, which no longer runs, so the card said "0 services this
+  // month" under a table of this month's services. It is now filled by the
+  // Supabase read Upcoming Services makes (renderHomeUpcomingServices).
+  function _homeRosterStat() {
+    var rosterDates = {};
+    (HOME_STATE.rosterCurrent || []).forEach(function(e) {
+      if (!e || !e.date) return;
+      var v = e.value;
+      if (v == null || v === '' || v === '__BLANK__') return;
+      rosterDates[e.date] = true;
+    });
+    var dateCount = Object.keys(rosterDates).length;
+    var el = $('homeStatRoster');
+    if (el) el.textContent = dateCount + ' service' + (dateCount !== 1 ? 's' : '') + ' this month';
+  }
+
+  // ---- The three newest songbooks and orders, on their cards ----
+  // (2026-11-07) In the order the Songbooks page lists them
+  // (renderSongbooksList): newest first, an order by when it was last
+  // edited, a songbook by when it was made -- the only date its row has.
+  // The songbooks are read lightly (three rows, three columns), at most once
+  // a minute, and kept on the device so the card has them at once next time.
+  var _homeSbRecent = null, _homeSbReadAt = 0;
+  function _homeRecentChips(hostId, items, kind) {
+    var host = $(hostId);
+    if (!host) return;
+    var card = host.closest ? host.closest('.home-nav-card') : null;
+    host.innerHTML = items.map(function(it) {
+      return '<button type="button" class="home-recent-chip" data-kind="' + kind + '" data-id="' + escapeHtml(it.id) + '" title="' +
+        escapeHtml((kind === 'order' ? 'Open the order for ' : 'Open the songbook ') + it.name) + '">' +
+        '<i class="fa-solid ' + (kind === 'order' ? 'fa-calendar-day' : 'fa-book-open') + '" aria-hidden="true"></i>' +
+        '<span>' + escapeHtml(it.name) + '</span></button>';
+    }).join('');
+    if (card) card.classList.toggle('has-recent', items.length > 0);
+    _homeRecentFit(card);
+    Array.prototype.forEach.call(host.querySelectorAll('.home-recent-chip'), function(chip) {
+      chip.onclick = function(e) {
+        // The card under the chip opens the whole page; this opens one book.
+        e.stopPropagation();
+        var id = chip.getAttribute('data-id');
+        if (chip.getAttribute('data-kind') === 'order') {
+          if (window.WO && window.WO.loadOrder) window.WO.loadOrder(id);
+          setActiveView('worshipOrderView');
+        } else if (typeof openStandaloneSongbook === 'function') {
+          openStandaloneSongbook('sb-' + id);
+        }
+      };
+    });
+  }
+  // "Service - Nov 8" is what a new order is called, so cut short it reads
+  // "Service - ..." three times over: such an order is shown by its date.
+  // An order someone named ("Carols by Candlelight") keeps its name.
+  function _homeOrderChipName(o) {
+    var title = String((o && o.title) || '').trim();
+    if ((!title || /^service\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);
+    return title || 'Service Order';
+  }
+  // Newest first by .t, an ISO date; undated last. The first n.
+  function _homeNewest(items, n) {
+    return (items || []).slice().sort(function(a, b) { return (Date.parse(b.t) || 0) - (Date.parse(a.t) || 0); }).slice(0, n);
+  }
+  // Beside the words only if every name fits there whole; else under them.
+  function _homeRecentFit(card) {
+    if (!card || !card.classList.contains('has-recent')) return;
+    card.classList.remove('recent-below');
+    var cut = Array.prototype.some.call(card.querySelectorAll('.home-recent-chip span'), function(sp) {
+      return sp.scrollWidth > sp.clientWidth + 1;
+    });
+    if (cut) card.classList.add('recent-below');
+  }
+  function renderHomeRecent() {
+    var orders = (STATE.orders || []).filter(function(o) {
+      return o && o.id && String(o.id).indexOf('standalone_') !== 0;
+    }).map(function(o) {
+      return { id: o.id, name: _homeOrderChipName(o), t: o.lastEdited || o.createdDate || '' };
+    });
+    orders = _homeNewest(orders, 3);
+    _homeRecentChips('homeRecentOrders', orders, 'order');
+
+    var paint = function(list) {
+      var books = (list || []).filter(function(b) { return b && b.id; }).map(function(b) {
+        return { id: b.id, name: b.name || 'Untitled Songbook', t: b.createdDate || '' };
+      });
+      books = _homeNewest(books, 3);
+      _homeRecentChips('homeRecentSongbooks', books, 'songbook');
+    };
+    if (!_homeSbRecent) {
+      try { _homeSbRecent = JSON.parse(localStorage.getItem('lhc_home_recent_songbooks') || 'null'); } catch (e) {}
+    }
+    if (_homeSbRecent) paint(_homeSbRecent);
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb || Date.now() - _homeSbReadAt < 60000) return;
+    _homeSbReadAt = Date.now();
+    Promise.resolve(sb.from('songbooks').select('id, name, created_date').order('created_date', { ascending: false }).limit(3)).then(function(r) {
+      if (!r || r.error) return;
+      _homeSbRecent = (r.data || []).map(function(row) { return { id: row.id, name: row.name || 'Untitled Songbook', createdDate: row.created_date || '' }; });
+      try { localStorage.setItem('lhc_home_recent_songbooks', JSON.stringify(_homeSbRecent)); } catch (e) {}
+      paint(_homeSbRecent);
+    }).catch(function() {});
   }
 
   // --- Upcoming Services ---
@@ -27997,6 +28280,10 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         SBQ_ROSTER.getData(curM, curY),
         SBQ_ROSTER.getData(nxtM, nxtY)
       ]).then(function(results) {
+        // Kept for the Roster card's count of this month's services.
+        HOME_STATE.rosterCurrent = results[0] || [];
+        HOME_STATE.rosterNext = results[1] || [];
+        _homeRosterStat();
         render(overlayEdits(buildMap((results[0] || []).concat(results[1] || []))));
       }).catch(function(err) {
         console.warn('Home roster: Supabase fetch failed, keeping initial data.', err);

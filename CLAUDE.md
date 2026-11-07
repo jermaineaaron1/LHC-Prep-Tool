@@ -89,8 +89,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
 
 ## Main Features
 
-### 1. Song Finder
-- Search songs by title (prefix matching)
+### 1. Songs / Songbooks (once "Song Finder")
+- Search songs by the FIRST letters of the title, and only those
+  (`_sfTitleStarts`, used by the list and the suggestions alike); theme,
+  feel, season and scripture are filters of their own. A five-second hint
+  under the box shows how, as the page opens (`_sfSearchHint`). Gotcha 69.
 - Filter by Theme, Key, Style, Tempo, Season
 - Multiple YouTube links per song
 - Multiple document attachments per song
@@ -2106,6 +2109,36 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbmScrub` holds off the file's own time while the thumb is held, and
     lets go once the range loses the focus, for a drag a scroll cancelled.
     `tools/songbook-reading-view-harness.js` checks all of it.
+
+69. **The home page's two cards with chips are not buttons, and search is
+    by the start of the title.** From the operator (2026-11-07). "Songs /
+    Songbooks" (was Song Finder) shows the three newest songbooks and
+    Worship Orders the three orders edited last (`renderHomeRecent`, from
+    `renderHomeNavStats`; newest first as the Songbooks page lists them; an
+    order named "Service - <date>" shows its date, `_homeOrderChipName`).
+    A button may not hold buttons, so those two cards are a `<div
+    data-view>` with a transparent `.home-nav-hit` button over the whole
+    card -- the card's click still opens its page -- and the chips sit
+    above it (`z-index: 1`) and stop their click reaching the card. The
+    songbooks are read lightly (id, name, date; three rows; at most once a
+    minute; kept in `lhc_home_recent_songbooks`), not by
+    `SBQ_SONGBOOKS.loadAll`, which reads every row whole. Where they go
+    depends on room: beside the words on a 600-768px screen only if every
+    name fits there whole (`_homeRecentFit`, again on resize), else a row
+    under the words; on a narrow phone that row scrolls sideways; on a desk
+    they take the place of the description and count, or the five cards'
+    row grows 85px. The Roster card's "N services this month" came only
+    from the retired Apps Script (`HOME_STATE.rosterCurrent`) and always
+    said 0; it is now set from the Supabase read Upcoming Services makes
+    (`_homeRosterStat`). The Songs page finds a song by the first letters of
+    its title only (`_sfTitleKey`: case, accents, spacing and a leading
+    quote ignored), in the list (`applyFiltersAndSort`) and the suggestions
+    (`renderSearchSuggestions`) alike; `highlightMatch` marks those letters.
+    `_sfSearchHint` shows a bubble under the empty, visible box for five
+    seconds as the page opens, gone on focus, typing or a tap; it lifts the
+    field to z-index 60 while it shows, because `#sfCommandHeader > *` puts
+    every child of the search header at 1 and the filters come later.
+    `tools/home-songs-search-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
