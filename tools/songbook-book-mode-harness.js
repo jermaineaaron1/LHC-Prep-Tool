@@ -55,8 +55,9 @@ function run(label, fnSrc, params, args, extra) {
 
 console.log('A tile on every song, opening the book at it');
 const render = fn('_sbmRender');
-check('the song\'s tiles end with Book Mode, after YouTube',
-  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n\s*'<\/div><\/div>';/.test(render));
+// (Since 2026-11-07 the Drawings tile comes after it.)
+check('the song\'s tiles have Book Mode after YouTube, then Drawings',
+  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n(\s*\/\/[^\n]*\n)*\s*_sbmDrawingsTile\(song\) \+\n\s*'<\/div><\/div>';/.test(render));
 check('...and it is on WO', has(/\n    sbmBookMode: sbmBookMode,\n/));
 const open = fn('sbOpenFullscreen');
 const startSrc = (open.match(/if \(typeof startSongId === 'string' && startSongId\) \{[^]*?\n    \}/) || [''])[0];

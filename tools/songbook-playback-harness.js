@@ -78,10 +78,12 @@ console.log('\nDraw, and who is drawing');
 check('Draw is filled, so it is not taken for Layers beside it',
   has(/class="sbm-chip sbm-chip--draw sbm-chip--pen' \+ \(_sbmDraw \? ' is-on' : ''\) \+ '"/) &&
   has(/#sbmRoot \.sbm-chip--pen \{ background: linear-gradient\(135deg, #7c3aed, #a855f7\);/));
-check('Layers says how the app knows who you are, whether or not it has a name for you yet',
-  (SRC.match(/\+\r?\n\s*_sbmWhoNote\(\);/g) || []).length === 2 && has(/How does it know who I am\?/) &&
+// (Layers became the Drawings window on 2026-11-07: the note is said once,
+// after both the named and the nameless way in.)
+check('Drawings says how the app knows who you are, whether or not it has a name for you yet',
+  has(/html \+= _sbmSharedDrawingsNote\(song\) \+ _sbmWhoNote\(\);/) && has(/How does it know who I am\?/) &&
   has(/Nobody signs in\. The first time someone draws on this phone or computer/));
-check('...and "Not Aaron?" says what it does', has(/\? Change the name<\/button><\/div>' \+/));
+check('...and "Not Aaron?" says what it does', has(/\? Change the name<\/button><\/div>';/));
 check('the name sheet says the name stays on this device', has(/Kept on this device only \\u2014 nobody signs in\./));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

@@ -123,6 +123,14 @@ if (L) {
   check('one for the guitar: shown to a guitarist', L.keep(forGuitar, me, {}, ['guitar']) === true && L.keep(forGuitar, me, {}, ['vocals', 'guitar']) === true);
   check('...and to nobody who has not said they play it', L.keep(forGuitar, me, {}, []) === false && L.keep(forGuitar, me, {}, ['drums']) === false &&
     L.keep(forGuitar, me, {}, undefined) === false);
+  // Private drawings can be switched on under Drawings (2026-11-07), one
+  // person at a time; nothing else lets them through.
+  check('somebody else\'s private drawing shows once that person\'s private ones are switched on',
+    L.keep(theirs, me, {}, [], { 'grace lim': true }) === true && L.keep(theirs, '', {}, [], { 'grace lim': true }) === true);
+  check('...and only that person\'s', L.keep(theirs, me, {}, ['guitar'], { 'ben ong': true }) === false && L.keep(theirs, me, {}, [], {}) === false &&
+    L.keep(theirs, me, {}, [], undefined) === false);
+  check('switching on private ones changes nothing else', L.keep(forGuitar, me, {}, [], { 'grace lim': true }) === false &&
+    L.keep(theirsAll, me, { 'grace lim': true }, [], { 'grace lim': true }) === false && L.keep(mine, me, { 'aaron tan': true }, [], { 'aaron tan': true }) === false);
   check('a drawing from before names: everybody\'s', L.keep(earlier, me, {}, []) === true && L.keep(preMigration, me, {}, []) === true);
   check('a reader who has not said who they are sees the everyone and the earlier, never anybody\'s own',
     L.keep(theirsAll, '', {}, []) && L.keep(earlier, '', {}, []) && !L.keep(theirs, '', {}, []) && !L.keep(mine, '', {}, []));
@@ -160,7 +168,8 @@ console.log('\nThe wiring');
     has(/function _sbmMarksOf\(base, versionId\) \{ return _sbmLayerFilter\(_sbVerMarks\(_sbmMarks\[base\], versionId\)\); \}/));
   check('the filter does nothing until the columns exist, and knows the reader\'s parts',
     has(/function _sbmLayerFilter\(marks\) \{\r?\n\s*if \(_sbmLayersOk !== true\) return marks \|\| \[\];/) &&
-    has(/select\('owner, owner_name, part, shared'\)\.limit\(1\)/) && has(/return _sbmLayerKeep\(m, me && me\.key, hidden, parts\);/));
+    has(/select\('owner, owner_name, part, shared'\)\.limit\(1\)/) && has(/return _sbmLayerKeep\(m, me && me\.key, hidden, parts, priv\);/) &&
+    has(/var me = _sbmMe\(\), hidden = _sbmLayersHidden\(\), parts = _sbmMyParts\(\), priv = _sbmPrivOn\(\);/));
   check('a new stroke says whose it is, and is everyone\'s',
     has(/if \(me\) \{ mark\.owner = me\.key; mark\.owner_name = me\.name; mark\.part = null; mark\.shared = true; \}/) && !has(/D\.share/));
   check('Done asks who should see what was drawn, and saves the answer on those strokes',
@@ -424,7 +433,7 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
     const note = body('_sbmWhoNote');
     check('"How does it know who I am?" says the parts go with the name, once they do',
       /It is kept with your name as well as on this device/.test(note) && /var kept = _sbmPrefsOk === true;/.test(note) && !/also kept on this device/.test(note));
-    check('the who sheet says so too', has(/Your drawings and the parts you choose under Layers carry this name/));
+    check('the who sheet says so too', has(/Your drawings and the parts you choose under Drawings carry this name/));
     const sql = fs.existsSync(PREFS_MIGRATION) ? fs.readFileSync(PREFS_MIGRATION, 'utf8') : '';
     check('the migration makes the table, one row per name',
       /create table if not exists public\.drawer_prefs/.test(sql) && /owner\s+text primary key/.test(sql) && /owner_name\s+text/.test(sql) &&

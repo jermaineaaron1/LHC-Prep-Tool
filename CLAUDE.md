@@ -58,7 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
-| `drawer_prefs` | The parts of the band a drawer plays or sings (Layers > Drawings meant for), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
+| `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
 lyrics and slides with nothing on them.
@@ -202,8 +202,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
      keeps what it replaced under "Earlier main versions", each restorable
      there or from the song's History in the song library -- and Share ›
      This song, a link that opens the book at that song (gotcha 46).
-     Drawings are each drawer's own until shared; Layers says whose you see
-     (gotcha 50). The choir score reads like a chord sheet: the words and
+     Drawings are everyone's unless their drawer says otherwise; the
+     **Drawings** tile (after Book Mode) lists every drawing kept on the
+     song -- yours, everyone's, each group's and other people's private
+     ones, which stay off until switched on -- with Show all and Only mine
+     (gotcha 50). The key's flat and sharp are large blue buttons, and a
+     key moved on one device redraws every other device's view at once, with
+     a word saying so; the A- / 100% / A+ size buttons are gone, and so is
+     the notice under a song sung twice. A gold floater at the foot of the
+     screen points to the words while they are out of sight below and goes
+     once you are there (gotcha 68). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
      moments, a part's label only where that part takes over, and a purple
      bar joining the parts that sing at the same time (gotcha 59).
@@ -246,9 +254,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      z-index 10060: the take, its part, time and length, Keep it or a red
      Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
-     with a notice saying where else it is sung, **Copy arrangement** (from
-     the other copy, or from an earlier service) and **Own drawings**
-     (gotcha 55).
+     its own: **Copy an arrangement** is under More (from the other copy, or
+     from an earlier service), and **Own drawings** in the Drawings window
+     while the copies share their drawings (gotcha 55).
      **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
@@ -1393,10 +1401,16 @@ the anon key -- verify as `postgres`, not as the app.
     Every view reads drawings through `_sbmMarksOf`, which filters by
     `_sbmLayerKeep`: your own, whoever they are for (unless you hid them);
     anybody else's when they are for everyone, or for a part the READER
-    has said, under Layers, that they play or sing (`lhc_sbm_parts`); the
-    rows from before layers, which have no owner, stay everybody's
-    ("Earlier drawings", hidden as one under the key ''). What a reader
-    hides, and which parts they chose, are theirs alone. The parts FOLLOW
+    has switched on under Drawings > For a group (`lhc_sbm_parts`);
+    anybody else's PRIVATE ones only when the reader has switched that
+    person's private drawings on (`lhc_sbm_priv_on`, `_sbmPrivOn`,
+    `sbmPrivToggle`) -- asked on 2026-11-07, the operator chose "Show
+    everyone's, private too", so "Only me" keeps a drawing off everybody
+    else's song until they choose to see it, and the drawer is told so
+    when they choose it; the rows from before layers, which have no owner,
+    stay everybody's ("Earlier drawings", hidden as one under the key '').
+    What a reader hides, and which parts and private ones they switched
+    on, are theirs alone. The parts FOLLOW
     THE NAME (`drawer_prefs`, `_sbmPrefs*`): giving a name (`sbmWhoSave` ->
     `_sbmPrefsNamed`) brings back the parts kept for it, a tick
     (`sbmLayerPart` -> `_sbmPrefsTicked`) is kept for it too, and a device
@@ -1411,10 +1425,17 @@ the anon key -- verify as `postgres`, not as the app.
     `lhc_sbm_parts` alone. Not done: a device already joined does not pull
     a change made on another device until the name is given again, and
     then it is joined, not replaced -- a part unticked elsewhere comes back.
-    Layers also
-    changes who sees all of one's drawings on the song (on the version the
-    service sings), and says how many drawings are for parts the reader has
-    not chosen. The rubber takes only one's own strokes and the earlier
+    The Drawings window (`sbmLayers` -> `_sbmDrawings`, from the tile after
+    Book Mode or the chip beside Draw; it was the Layers sheet) lists them
+    all through `_sbmDrawingsOf` (pure): yours by who sees them, others'
+    shared ones by person (a row says how many are for a group the reader
+    has off), the six groups with counts, and others' private ones by
+    person; Show all / Only mine (`sbmLayersAll`) set those same switches
+    for everybody on the song in front, and Draw on this song
+    (`sbmLayersDraw`) goes to the words with the pen out. It also changes
+    who sees all of one's drawings on the song (on the version the service
+    sings), and says when a copy shares its drawings with the song's other
+    copy (`_sbmSharedDrawingsNote`, with Own drawings). The rubber takes only one's own strokes and the earlier
     ones. Copies of drawings made for a new version read the UNFILTERED
     list (`_sbVerMarks`) and keep whose each is and who it is for, and a
     delete's count is of all of them. Print and the Phone view show what
@@ -1578,7 +1599,9 @@ the anon key -- verify as `postgres`, not as the app.
     already has a copy only loses the shared entry. Find a song in a section
     with `_woSongCopyIn(libId, secId)`, never by one entry per library id.
     The copies' DRAWINGS are still their version's (gotcha 46): two copies on
-    Standard share them, which the notice says, and **Own drawings**
+    Standard share them, which the Drawings window says (the notice under
+    the song's title that said it, and where else it was sung, went on
+    2026-11-07), and **Own drawings**
     (`sbmOwnVersion`) saves the copy as a version named for its section and
     service through the Versions sheet's own save (`_sbVerSaveAs`), copying
     the drawings it shows, so what is drawn after stays on it. **Copy an
@@ -1981,6 +2004,38 @@ the anon key -- verify as `postgres`, not as the app.
     if nothing else changed them. The score's drawings are hidden while it is
     typed on (`.sbm-chnp-card .sbm-marks`) and come back with the redraw.
     `tools/songbook-choir-notepad-harness.js` checks it.
+
+68. **The reading view, as the operator marked it up on 2026-11-07.** On a
+    phone the words started more than a screen below the controls, and
+    singers lost them. Taken away: the notice under a song sung twice
+    (gotcha 55) and the A- / 100% / A+ that sized the words (`sbmScale` is
+    gone; `_sbmScale` stays 1 and a size kept from before is not read, as
+    nobody could change it back; Reset Layout still resets it). The key's
+    flat and sharp are `sbm-xp-step` buttons, blue and 24px, styled after
+    the phone's smaller rule so they win. **A key moved on another device is
+    drawn at once**: `sbApplyBroadcast` always took the new `transposeSteps`
+    (the quick sync within a fifth of a second, the 2s poll otherwise), but
+    the reading view redrew only for a version, so a singer's chords stayed
+    in the old key until something else redrew them. Now `p.key` (only when
+    the steps really moved -- a 0 arriving for a copy never moved is not a
+    move), `p.words` (its words) and `p.version` go to `_sbmRemoteRedraw`,
+    which redraws the reading view and an open Book Mode (`_sbBkRebuild`)
+    120ms after the last of a burst and, for the song in front, says "Key
+    changed on another device: now B (+4)". **The floater** (`#sbmGuide`, a
+    button on `#songbookLiveModal`, not inside `#sbmRoot`, which every render
+    rewrites) points to the words card (`#sbmWordsCard`: the lyrics, the
+    score, or a song with no parts yet). `_sbmGuideWant(top, bottom, h, was)`
+    (pure) measures the WORDS (`#sbmLyrics` or `.sbm-score`), not the card's
+    heading: shown while less than 160px of them is in sight, gone once
+    they start in the top 40%, as it was in between, never when the whole
+    song is in sight -- a phone opens with the heading in sight and no line
+    of the song, a desk with three lines in sight. A tap scrolls `#sbmRoot`
+    past the desk's sticky `.sbm-top` and keeps it away for 2s while the
+    smooth scroll runs. It stands down while drawing, in Book Mode and in
+    Page view; `_sbmRender` schedules `_sbmGuideUpdate` on every render.
+    Testing in a hidden browser pane: smooth scrolling does not move, so
+    measure with the pane shown. `tools/songbook-reading-view-harness.js`
+    checks all of it.
 
 ## Quick Commands for Claude Code
 
