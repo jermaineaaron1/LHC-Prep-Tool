@@ -2112,16 +2112,23 @@ the anon key -- verify as `postgres`, not as the app.
 
 69. **The home page's two cards with chips are not buttons, and search is
     by the start of the title.** From the operator (2026-11-07). "Songs /
-    Songbooks" (was Song Finder) shows the three newest songbooks and
-    Worship Orders the three orders edited last (`renderHomeRecent`, from
-    `renderHomeNavStats`; newest first as the Songbooks page lists them; an
+    Songbooks" (was Song Finder) shows the three songbooks OPENED last on
+    this device, a service's book (8 Nov's, say) as much as one of My
+    Songbooks -- `openSongbook()`, which every way in ends in, records it
+    (`_sbRememberOpened`, `lhc_recent_songbooks`), and `_homeRecentBooks`
+    merges that with the newest of My Songbooks to fill in, leaving out an
+    order deleted (`STATE.orders`) or a songbook the database says is gone
+    (but not one merely opened since the last read). A service's chip opens
+    its Songbook (`openSongbookFromOrder`). Worship Orders shows the three
+    orders edited last (`renderHomeRecent`, from `renderHomeNavStats`; an
     order named "Service - <date>" shows its date, `_homeOrderChipName`).
     A button may not hold buttons, so those two cards are a `<div
     data-view>` with a transparent `.home-nav-hit` button over the whole
     card -- the card's click still opens its page -- and the chips sit
     above it (`z-index: 1`) and stop their click reaching the card. The
-    songbooks are read lightly (id, name, date; three rows; at most once a
-    minute; kept in `lhc_home_recent_songbooks`), not by
+    songbooks are read lightly (id, name, date: the newest three and the
+    ones opened here, by id; at most once a minute; kept in
+    `lhc_home_recent_songbooks`), not by
     `SBQ_SONGBOOKS.loadAll`, which reads every row whole. Where they go
     depends on room: beside the words on a 600-768px screen only if every
     name fits there whole (`_homeRecentFit`, again on resize), else a row

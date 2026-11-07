@@ -121,8 +121,42 @@ check('  a chip opens its book or order, not the page under it', /e\.stopPropaga
   /window\.WO\.loadOrder\(id\)/.test(chips) && /openStandaloneSongbook\('sb-' \+ id\)/.test(chips));
 check('  and sits above the cover', /\.home-nav-recent \{\r?\n\s*position: relative; z-index: 1;/.test(SRC));
 const recent = fn('renderHomeRecent') || '';
-check('  three of each, newest first', /orders = _homeNewest\(orders, 3\);/.test(recent) && /books = _homeNewest\(books, 3\);/.test(recent));
-check('  the songbooks read lightly: three rows, three columns', /\.from\('songbooks'\)\.select\('id, name, created_date'\)\.order\('created_date', \{ ascending: false \}\)\.limit\(3\)/.test(recent));
+check('  the three orders edited last', /orders = _homeNewest\(orders, 3\);/.test(recent));
+check('  the songbooks read lightly: the newest three, and the ones opened here by id, three columns',
+  /var cols = 'id, name, created_date';/.test(recent) &&
+  /\.from\('songbooks'\)\.select\(cols\)\.order\('created_date', \{ ascending: false \}\)\.limit\(3\)/.test(recent) &&
+  /\.from\('songbooks'\)\.select\(cols\)\.in\('id', openedIds\)/.test(recent));
+
+// (2026-11-07, later) "can it be any songbook that was accessed -- not just
+// private ones but also from the service (8 Nov for example)".
+console.log('\nthe Songs card: the songbooks opened last, of either kind');
+const remember = fn('_sbRememberOpened') || '';
+const openSb = fn('openSongbook') || '', openModal = fn('_openSongbookModal') || '';
+check('every way into a songbook records it, on this device -- a service\'s and one of My Songbooks',
+  /try \{ _sbRememberOpened\(\); \} catch \(e\) \{\}/.test(openSb) && /try \{ _sbRememberOpened\(\); \} catch \(e\) \{\}/.test(openModal) &&
+  /localStorage\.setItem\('lhc_recent_songbooks'/.test(remember) && /kind: standalone \? 'songbook' : 'order'/.test(remember));
+check('  a service\'s chip opens its Songbook, not the order', /\} else if \(k === 'sborder'\) \{\r?\n\s*if \(typeof openSongbookFromOrder === 'function'\) openSongbookFromOrder\(id\);/.test(chips));
+check('  the card is drawn from what was opened', /var books = _homeRecentBooks\(opened, byId, cache\.known \|\| null, cache\.newest \|\| \[\]\);/.test(recent));
+let RB = null;
+try { RB = new Function((fn('_homeRecentBooks') || '') + '\nreturn typeof _homeRecentBooks === "function" ? _homeRecentBooks : null;')(); } catch (e) { RB = null; }
+const show = list => (list || []).map(x => x.kind + ':' + x.name);
+const OPENED = [{ kind: 'order', id: 'o8', name: 'Service - Nov 8' }, { kind: 'songbook', id: 'b1', name: 'LHC Caroling 2026' },
+  { kind: 'order', id: 'oGone', name: 'Service - Oct 4' }, { kind: 'songbook', id: 'bGone', name: 'Old book' }, { kind: 'order', id: 'o1', name: 'Service - Nov 1' }];
+const ORDERS = { o8: { title: 'Service - Nov 8' }, o1: { title: 'Service - Nov 1' } };
+const NEWEST = [{ id: 'b1', name: 'LHC Caroling 2026' }, { id: 'b2', name: 'LHC Jubilee' }, { id: 'b3', name: 'Pastor Sunday' }];
+if (RB) {
+  eq('a service book and one of My Songbooks, as opened; gone ones left out', show(RB(OPENED, ORDERS, { b1: { name: 'LHC Caroling 2026' }, bGone: null }, NEWEST)),
+    ['sborder:Service - Nov 8', 'songbook:LHC Caroling 2026', 'sborder:Service - Nov 1']);
+  eq('  fewer than three opened: the newest of My Songbooks fill in, once each', show(RB(OPENED.slice(0, 2), ORDERS, null, NEWEST)),
+    ['sborder:Service - Nov 8', 'songbook:LHC Caroling 2026', 'songbook:LHC Jubilee']);
+  eq('  nothing opened yet on this device: the newest three, as before', show(RB([], ORDERS, null, NEWEST)),
+    ['songbook:LHC Caroling 2026', 'songbook:LHC Jubilee', 'songbook:Pastor Sunday']);
+  eq('  a book opened since the last read keeps its name; one asked for and missing is gone',
+    show(RB([{ kind: 'songbook', id: 'bNew', name: 'Watchnight' }, { kind: 'songbook', id: 'bGone', name: 'Old' }], null, { bGone: null }, [])),
+    ['songbook:Watchnight']);
+  eq('  a renamed book shows its new name', show(RB([{ kind: 'songbook', id: 'b1', name: 'Carols' }], null, { b1: { name: 'LHC Caroling 2026' } }, [])),
+    ['songbook:LHC Caroling 2026']);
+} else check('a service book and one of My Songbooks, as opened; gone ones left out', false, '_homeRecentBooks not found');
 check('  never a songbook\'s pseudo-order among the orders', /String\(o\.id\)\.indexOf\('standalone_'\) !== 0/.test(recent));
 if (F.newest) {
   eq('  newest by last edit; undated last', F.newest([{ id: 'a', t: '2026-10-01' }, { id: 'b', t: '' }, { id: 'c', t: '2026-11-07' }, { id: 'd', t: '2026-11-01' }], 3).map(x => x.id), ['c', 'd', 'a']);

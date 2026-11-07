@@ -27960,14 +27960,17 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // The songbooks are read lightly (three rows, three columns), at most once
   // a minute, and kept on the device so the card has them at once next time.
   var _homeSbRecent = null, _homeSbReadAt = 0;
+  // Kinds: 'order' opens the order (Worship Orders card); 'sborder' opens a
+  // service's Songbook and 'songbook' one of My Songbooks (Songs card).
   function _homeRecentChips(hostId, items, kind) {
     var host = $(hostId);
     if (!host) return;
     var card = host.closest ? host.closest('.home-nav-card') : null;
     host.innerHTML = items.map(function(it) {
-      return '<button type="button" class="home-recent-chip" data-kind="' + kind + '" data-id="' + escapeHtml(it.id) + '" title="' +
-        escapeHtml((kind === 'order' ? 'Open the order for ' : 'Open the songbook ') + it.name) + '">' +
-        '<i class="fa-solid ' + (kind === 'order' ? 'fa-calendar-day' : 'fa-book-open') + '" aria-hidden="true"></i>' +
+      var k = it.kind || kind;
+      return '<button type="button" class="home-recent-chip" data-kind="' + k + '" data-id="' + escapeHtml(it.id) + '" title="' +
+        escapeHtml((k === 'order' ? 'Open the order for ' : 'Open the songbook ') + it.name) + '">' +
+        '<i class="fa-solid ' + (k === 'songbook' ? 'fa-book-open' : 'fa-calendar-day') + '" aria-hidden="true"></i>' +
         '<span>' + escapeHtml(it.name) + '</span></button>';
     }).join('');
     if (card) card.classList.toggle('has-recent', items.length > 0);
@@ -27977,9 +27980,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         // The card under the chip opens the whole page; this opens one book.
         e.stopPropagation();
         var id = chip.getAttribute('data-id');
-        if (chip.getAttribute('data-kind') === 'order') {
+        var k = chip.getAttribute('data-kind');
+        if (k === 'order') {
           if (window.WO && window.WO.loadOrder) window.WO.loadOrder(id);
           setActiveView('worshipOrderView');
+        } else if (k === 'sborder') {
+          if (typeof openSongbookFromOrder === 'function') openSongbookFromOrder(id);
         } else if (typeof openStandaloneSongbook === 'function') {
           openStandaloneSongbook('sb-' + id);
         }
@@ -27997,6 +28003,38 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // Newest first by .t, an ISO date; undated last. The first n.
   function _homeNewest(items, n) {
     return (items || []).slice().sort(function(a, b) { return (Date.parse(b.t) || 0) - (Date.parse(a.t) || 0); }).slice(0, n);
+  }
+  // The Songs / Songbooks card's three: the songbooks opened last on this
+  // device, of either kind, then the newest of My Songbooks to fill in.
+  //   opened  [{ kind: 'order'|'songbook', id, name }], newest first
+  //   orders  { id: order } when the orders are loaded, else null
+  //   known   { id: { name } } for My Songbooks read from the database, with
+  //           id: null for one asked about and not found; an id not in it
+  //           was not asked about (opened since), and keeps the name kept
+  //   newest  [{ id, name }] of My Songbooks, newest first
+  // A book that has gone (its order deleted, its row missing) is left out.
+  function _homeRecentBooks(opened, orders, known, newest) {
+    var out = [], seen = {};
+    var add = function(kind, id, name) {
+      var key = kind + ':' + id;
+      if (!id || seen[key] || out.length >= 3) return;
+      seen[key] = true;
+      out.push({ kind: kind, id: String(id), name: name });
+    };
+    (opened || []).forEach(function(x) {
+      if (!x || !x.id) return;
+      if (x.kind === 'order') {
+        var o = orders ? orders[x.id] : null;
+        if (orders && !o) return;
+        add('sborder', x.id, String((o && (o.title || o.serviceDate)) || x.name || 'Service Songbook'));
+      } else if (x.kind === 'songbook') {
+        var b = known ? known[x.id] : undefined;
+        if (b === null) return;
+        add('songbook', x.id, String((b && b.name) || x.name || 'Songbook'));
+      }
+    });
+    (newest || []).forEach(function(b) { if (b && b.id) add('songbook', b.id, String(b.name || 'Untitled Songbook')); });
+    return out;
   }
   // Beside the words only if every name fits there whole; else under them.
   function _homeRecentFit(card) {
@@ -28016,23 +28054,45 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     orders = _homeNewest(orders, 3);
     _homeRecentChips('homeRecentOrders', orders, 'order');
 
-    var paint = function(list) {
-      var books = (list || []).filter(function(b) { return b && b.id; }).map(function(b) {
-        return { id: b.id, name: b.name || 'Untitled Songbook', t: b.createdDate || '' };
-      });
-      books = _homeNewest(books, 3);
+    // The songbooks opened on this device (_sbRememberOpened, WO module).
+    var opened = [];
+    try { opened = JSON.parse(localStorage.getItem('lhc_recent_songbooks') || '[]'); } catch (e) {}
+    if (!Array.isArray(opened)) opened = [];
+    var byId = null;
+    if (STATE.orders && STATE.orders.length) {
+      byId = {};
+      STATE.orders.forEach(function(o) { if (o && o.id) byId[o.id] = o; });
+    }
+    var paint = function(cache) {
+      cache = cache || {};
+      var books = _homeRecentBooks(opened, byId, cache.known || null, cache.newest || []);
       _homeRecentChips('homeRecentSongbooks', books, 'songbook');
     };
     if (!_homeSbRecent) {
       try { _homeSbRecent = JSON.parse(localStorage.getItem('lhc_home_recent_songbooks') || 'null'); } catch (e) {}
+      // The first form kept here was the newest three alone.
+      if (Array.isArray(_homeSbRecent)) _homeSbRecent = { newest: _homeSbRecent, known: null };
     }
-    if (_homeSbRecent) paint(_homeSbRecent);
+    paint(_homeSbRecent);
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb || Date.now() - _homeSbReadAt < 60000) return;
     _homeSbReadAt = Date.now();
-    Promise.resolve(sb.from('songbooks').select('id, name, created_date').order('created_date', { ascending: false }).limit(3)).then(function(r) {
-      if (!r || r.error) return;
-      _homeSbRecent = (r.data || []).map(function(row) { return { id: row.id, name: row.name || 'Untitled Songbook', createdDate: row.created_date || '' }; });
+    // Lightly: the newest three, and the ones opened here by id -- three
+    // columns each -- so a renamed book shows its new name and a deleted one
+    // drops out.
+    var openedIds = opened.filter(function(x) { return x && x.kind === 'songbook' && x.id; }).map(function(x) { return String(x.id); }).slice(0, 6);
+    var cols = 'id, name, created_date';
+    Promise.all([
+      Promise.resolve(sb.from('songbooks').select(cols).order('created_date', { ascending: false }).limit(3)),
+      openedIds.length ? Promise.resolve(sb.from('songbooks').select(cols).in('id', openedIds)) : Promise.resolve({ data: [] })
+    ]).then(function(rs) {
+      if (!rs[0] || rs[0].error || !rs[1] || rs[1].error) return;
+      var toBook = function(row) { return { id: row.id, name: row.name || 'Untitled Songbook', createdDate: row.created_date || '' }; };
+      var known = {};
+      (rs[0].data || []).concat(rs[1].data || []).forEach(function(row) { known[row.id] = toBook(row); });
+      // Only the ids asked about are known to be missing when absent.
+      openedIds.forEach(function(id) { if (!known[id]) known[id] = null; });
+      _homeSbRecent = { newest: (rs[0].data || []).map(toBook), known: known };
       try { localStorage.setItem('lhc_home_recent_songbooks', JSON.stringify(_homeSbRecent)); } catch (e) {}
       paint(_homeSbRecent);
     }).catch(function() {});
@@ -49897,6 +49957,8 @@ var WO = (function() {
   function _openSongbookModal() {
     var modal = $('songbookLiveModal');
     if (!modal) return;
+    // My Songbooks open here rather than through openSongbook().
+    try { _sbRememberOpened(); } catch (e) {}
     var orderTitle = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || '') : '';
     var nameEl = $('sbOrderNameDisplay');
     if (nameEl) nameEl.textContent = orderTitle || 'Worship Songbook';
@@ -49937,9 +49999,35 @@ var WO = (function() {
     setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); _edEnsureChannel(); }, 2000);
   }
 
+  // ---- The songbooks opened on this device, newest first ----
+  // (2026-11-07) For the home page's Songs / Songbooks card, which shows the
+  // three opened last -- a service's book as much as one of My Songbooks.
+  // Every way in (a service's step 2, the Songbooks page, a shared link, a
+  // home chip) ends in openSongbook() -- or, for one of My Songbooks, in
+  // _openSongbookModal() -- with currentOrderData already the book being
+  // opened. Kept on the device: what one person opened is theirs.
+  function _sbRememberOpened() {
+    if (!currentOrderData || !currentOrderData.id) return;
+    var oid = String(currentOrderData.id);
+    var standalone = !!_sbStandaloneId || oid.indexOf('standalone_') === 0;
+    var entry = {
+      kind: standalone ? 'songbook' : 'order',
+      id: standalone ? String(_sbStandaloneId || oid.replace(/^standalone_/, '')) : oid,
+      name: String(currentOrderData.orderName || currentOrderData.title || ''),
+      at: Date.now()
+    };
+    var list = [];
+    try { list = JSON.parse(localStorage.getItem('lhc_recent_songbooks') || '[]'); } catch (e) {}
+    if (!Array.isArray(list)) list = [];
+    list = list.filter(function(x) { return x && !(x.kind === entry.kind && String(x.id) === entry.id); });
+    list.unshift(entry);
+    try { localStorage.setItem('lhc_recent_songbooks', JSON.stringify(list.slice(0, 12))); } catch (e) {}
+  }
+
   function openSongbook() {
     var modal = $('songbookLiveModal');
     if (!modal) return;
+    try { _sbRememberOpened(); } catch (e) {}
     var orderTitle = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || '') : '';
     var nameEl = $('sbOrderNameDisplay');
     if (nameEl) nameEl.textContent = orderTitle || 'Worship Order';

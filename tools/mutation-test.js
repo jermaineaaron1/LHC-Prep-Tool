@@ -1604,6 +1604,18 @@ const CASES = [
     s => s.replace("    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
   ['home-songs-search-harness.js', 'the Roster card says 0 services again',
     s => s.replace("        HOME_STATE.rosterNext = results[1] || [];\r\n        _homeRosterStat();\r\n", "        HOME_STATE.rosterNext = results[1] || [];\r\n")],
+  // The Songs card: the songbooks opened last, of either kind.
+  ['home-songs-search-harness.js', 'opening a songbook is not remembered',
+    s => s.replace("    try { _sbRememberOpened(); } catch (e) {}\r\n", '')],
+  ['home-songs-search-harness.js', 'a deleted songbook stays on the card',
+    s => s.replace("        if (b === null) return;\r\n", '')],
+  ['home-songs-search-harness.js', 'a book opened since the last read is dropped as if deleted',
+    s => s.replace("        if (b === null) return;\r\n", "        if (known && !b) return;\r\n")],
+  ['home-songs-search-harness.js', 'a service\'s chip opens the order editor instead of its Songbook',
+    s => s.replace("          if (typeof openSongbookFromOrder === 'function') openSongbookFromOrder(id);",
+                   "          if (window.WO && window.WO.loadOrder) window.WO.loadOrder(id);")],
+  ['home-songs-search-harness.js', 'opening one of My Songbooks is not remembered',
+    s => s.replace("    // My Songbooks open here rather than through openSongbook().\r\n    try { _sbRememberOpened(); } catch (e) {}\r\n", '')],
 ];
 
 let caught = 0, missed = 0, stale = 0;
