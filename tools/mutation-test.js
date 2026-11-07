@@ -1596,6 +1596,29 @@ const CASES = [
   ['enablers-calendar-harness.js', 'only a PIC can add a phone or an email again',
     s => s.replace("          html += '<div class=\"en-ct-group\">' + self._enCtHtml(name, 'phone', phone) + self._enCtHtml(name, 'email', email) + '</div>';",
                    "          html += '<span>' + (phone || 'No phone saved') + '</span>';")],
+  // Every WhatsApp share, not only the duty card: wa.me's redirect broke an
+  // emoji outside the BMP into U+FFFD.
+  ['enablers-calendar-harness.js', 'the shared WhatsApp helper goes by wa.me again',
+    s => s.replace("  return 'https://api.whatsapp.com/send?text=' + encodeURIComponent(text == null ? '' : String(text));",
+                   "  return 'https://wa.me/?text=' + encodeURIComponent(text == null ? '' : String(text));")],
+  ['enablers-calendar-harness.js', 'one share builds its own wa.me link again',
+    s => s.replace("window.open(window.lhcWhatsAppUrl(_sbSongShareText(song)), '_blank');",
+                   "window.open('https://wa.me/?text=' + encodeURIComponent(_sbSongShareText(song)), '_blank');")],
+  ['enablers-calendar-harness.js', 'the playlist share opens with an emoji WhatsApp breaks',
+    s => s.replace("    var msg = '\\u266B *' + orderTitle + serviceDate", "    var msg = '\\uD83C\\uDFB5 *' + orderTitle + serviceDate")],
+  // From the review of #397 (2026-11-07).
+  ['enablers-calendar-harness.js', 'an older year\'s rows, landing late, are kept as the new year\'s',
+    s => s.replace("        ]).then(function(results) {\r\n          if (loadTok !== self._enLoadTok) return;\r\n", "        ]).then(function(results) {\r\n")],
+  ['enablers-calendar-harness.js', 'an old value on a PIC\'s card stops the other field being saved',
+    s => s.replace("        return String(v == null ? '' : v).trim() === was.trim() ? { ok: true, value: was } : self._enCleanContact(f, v);",
+                   "        return self._enCleanContact(f, v);")],
+  ['enablers-calendar-harness.js', 'Send All opens its windows after a wait on the network, where they are blocked',
+    s => s.replace("      if (!self._enRowsNow(STATE.rosterYear)) {", "      if (false) {")],
+  ['enablers-calendar-harness.js', 'a liturgical cell that is not JSON shows its raw text, "__BLANK__" and all',
+    s => s.replace("        if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }",
+                   "        if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = { day: r.value }; } }")],
+  ['enablers-calendar-harness.js', 'a liturgical cell is matched by its stored text, missing an ISO-dated one',
+    s => s.replace("        var sv = (at && saved[at.key]) || {};", "        var sv = saved[day.dateStr] || {};")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

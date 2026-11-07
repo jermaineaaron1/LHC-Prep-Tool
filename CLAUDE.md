@@ -2055,13 +2055,26 @@ the anon key -- verify as `postgres`, not as the app.
     every month opened this session under keys with no year -- that is how
     October's duties reached November's card. The month's services are
     `getServiceDays` named by the saved liturgical cells (`_enLitMonth`), as
-    the roster's own header row names them. **Every roster WhatsApp send goes
-    by `_enWaUrl`** (`api.whatsapp.com/send`), never `wa.me`: wa.me redirects
-    there, and an emoji outside the Basic Multilingual Plane did not survive
-    the trip -- the card's U+1F64F reached the chat as U+FFFD. The card's own
-    words keep to BMP characters as well. The names chosen on Calendar are
-    this device's (`lhc_en_cal_names`); a card's Calendar button replaces
-    them with that person. `tools/enablers-calendar-harness.js` checks it.
+    the roster's own header row names them -- matched by DATE (`_enDateOf`
+    key, so an old ISO-dated row counts), and only when the cell is the JSON
+    the roster writes; anything else ("__BLANK__") gets the roster's own
+    name for the day, as the roster shows it. Only the newest
+    `_loadEnablersData` fills the caches (`_enLoadTok`): a year's rows landing
+    after the next year's were kept as the next year's. A PIC's Save checks
+    only a field that changed, so an old value the checks would refuse does
+    not block the other. Send All opens its windows from the click (a window
+    opened after a network wait is blocked), so with the year's rows not yet
+    read it reads them and asks to be pressed again. **Every WhatsApp share
+    in the app goes by `api.whatsapp.com/send`** -- `window.lhcWhatsAppUrl(text)`
+    (the first global script), or the roster's `_enWaUrl`, which adds a
+    phone -- never `wa.me`: wa.me redirects there, and an emoji outside the
+    Basic Multilingual Plane did not survive the trip (the duty card's
+    U+1F64F reached the chat as U+FFFD; the song, playlist and planning-notes
+    shares carried U+1F3B5 and U+1F4CB the same way). What the app writes
+    into a message keeps to BMP characters as well; the helper covers what
+    people type. The names chosen on Calendar are this device's
+    (`lhc_en_cal_names`); a card's Calendar button replaces them with that
+    person. `tools/enablers-calendar-harness.js` checks it.
 
 69. **The reading view, as the operator marked it up on 2026-11-07.** On a
     phone the words started more than a screen below the controls, and

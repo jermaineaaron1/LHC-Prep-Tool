@@ -12360,6 +12360,19 @@ I once was lost but now am found"
 
 <!-- JavaScript for modal features -->
 <script>
+// ---- A WhatsApp link that carries its text whole --------------------------
+// (2026-11-07) Straight to api.whatsapp.com/send, never wa.me. wa.me answers a
+// link by redirecting it there, and on the way an emoji outside the Basic
+// Multilingual Plane -- U+1F64F, U+1F3B5 and the like, two UTF-16 units each
+// -- came out as U+FFFD: a duty card reached the chat ending in a question
+// mark in a diamond. What the app writes into a message keeps to BMP
+// characters as well; this covers what people type (titles, names, notes).
+// The roster's own sends go by RosterEngine._enWaUrl, which adds a phone.
+// CLAUDE.md gotcha 68.
+window.lhcWhatsAppUrl = function(text) {
+  return 'https://api.whatsapp.com/send?text=' + encodeURIComponent(text == null ? '' : String(text));
+};
+
 // ---- Where an editor's cursor starts: on its first character -------------
 // (2026-11-06) A box filled from script keeps its cursor at the END of what it
 // was given, and focusing it scrolls to that end: the Songbook's Overview
@@ -19235,7 +19248,7 @@ window.lyricsPreviewShare = function(btn) {
   var songUrl  = baseUrl + '?song=' + encodeURIComponent(song.id);
   var title    = song.title || 'Worship Song';
   var artist   = song.artist ? ' — ' + song.artist : '';
-  var waMsg    = '🎵 *' + title + '*' + artist + '\n\n' + songUrl;
+  var waMsg    = '\u266B *' + title + '*' + artist + '\n\n' + songUrl;
 
   // On mobile use the native Web Share API when available
   if (navigator.share && window.innerWidth <= 768) {
@@ -19255,7 +19268,7 @@ window.lyricsPreviewShare = function(btn) {
   sheet.style.cssText = 'position:absolute;top:calc(100% + 6px);right:0;background:white;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:8px;z-index:9999;min-width:200px;';
   sheet.innerHTML =
     '<div style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px 6px;">Share this song</div>' +
-    '<button onclick="window.open(\'https://wa.me/?text=\'+encodeURIComponent(\'' + waMsg.replace(/'/g,"\\'").replace(/\n/g,'\\n') + '\'),\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-brands fa-whatsapp" style="color:#25d366;font-size:1.1rem;width:20px;"></i> WhatsApp</button>' +
+    '<button onclick="window.open(\'https://api.whatsapp.com/send?text=\'+encodeURIComponent(\'' + waMsg.replace(/'/g,"\\'").replace(/\n/g,'\\n') + '\'),\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-brands fa-whatsapp" style="color:#25d366;font-size:1.1rem;width:20px;"></i> WhatsApp</button>' +
     '<button onclick="window.open(\'mailto:?subject=' + emailSub + '&body=' + emailBod + '\',\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-envelope" style="color:#0e9f6e;font-size:1rem;width:20px;"></i> Email</button>' +
     '<button onclick="(navigator.clipboard?navigator.clipboard.writeText(\'' + songUrl.replace(/'/g,"\\'") + '\'):Promise.reject()).then(function(){if(typeof showToast===\'function\')showToast(\'Link copied!\',\'success\');}).catch(function(){});document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-link" style="color:#0891b2;font-size:1rem;width:20px;"></i> Copy link</button>';
 
@@ -23415,9 +23428,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       var directLink = baseUrl + '?sb=order-' + data.orderId;
       _sbFetchOrderItems(data.orderId).then(function(orderItems) {
         var songLines = orderItems.map(function(i) { return (i.content && i.content.title) || i.title || ''; });
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, songLines, directLink)), '_blank');
+        window.open(window.lhcWhatsAppUrl(_sbShareMsg(data.name, data.serviceDate, songLines, directLink)), '_blank');
       }).catch(function() {
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, [], directLink)), '_blank');
+        window.open(window.lhcWhatsAppUrl(_sbShareMsg(data.name, data.serviceDate, [], directLink)), '_blank');
       });
     } else {
       var rawId = itemId.replace(/^sb-/, '');
@@ -23426,7 +23439,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         var song = (STATE.songs || []).find(function(s) { return s.id === sid; });
         return song ? song.title : '';
       });
-      window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, '', songLines, directLink)), '_blank');
+      window.open(window.lhcWhatsAppUrl(_sbShareMsg(data.name, '', songLines, directLink)), '_blank');
     }
   };
 
@@ -24279,9 +24292,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     }
 
     if (kind === 'whatsapp') {
-      var msg = '🎵 *' + (song.title || 'Worship Song') + '*' + (song.artist ? ' — ' + song.artist : '') +
+      var msg = '\u266B *' + (song.title || 'Worship Song') + '*' + (song.artist ? ' — ' + song.artist : '') +
                 '\n\nOpen the chords and lyrics:\n' + url;
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      window.open(window.lhcWhatsAppUrl(msg), '_blank', 'noopener,noreferrer');
       _shareFeedback('WhatsApp opened', true);
       return;
     }
@@ -24960,8 +24973,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
     var songUrl = baseUrl + '?song=' + encodeURIComponent(song.id);
     var artist = song.artist ? ' — ' + song.artist : '';
-    var message = '🎵 *' + (song.title || 'Worship Song') + '*' + artist + '\n\nOpen the chords and lyrics:\n' + songUrl;
-    window.open('https://wa.me/?text=' + encodeURIComponent(message), '_blank', 'noopener,noreferrer');
+    var message = '\u266B *' + (song.title || 'Worship Song') + '*' + artist + '\n\nOpen the chords and lyrics:\n' + songUrl;
+    window.open(window.lhcWhatsAppUrl(message), '_blank', 'noopener,noreferrer');
   }
 
   function bindSongItemEvents() {
@@ -28586,7 +28599,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       var link = window._shareLinkValue || window.location.href;
       var ctx = window._shareContext || 'LHC Worship Prep';
       var msg = '✝️ *' + ctx + '*\n_Luther House Chapel_\n\n' + link;
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+      window.open(window.lhcWhatsAppUrl(msg), '_blank');
     };
 
     // Copy link — animated check state
@@ -39967,13 +39980,13 @@ var WO = (function() {
       ? 'https://www.youtube.com/watch_videos?video_ids=' + videoIds.join(',')
       : '';
 
-    var msg = '🎵 *' + orderTitle + serviceDate + ' – Playlist*\n\n';
+    var msg = '\u266B *' + orderTitle + serviceDate + ' – Playlist*\n\n';
     if (ytPlaylistUrl) {
       msg += '▶️ Play all: ' + ytPlaylistUrl + '\n\n';
     }
     msg += '*Track listing:*\n' + trackLines;
 
-    var waUrl = 'https://wa.me/?text=' + encodeURIComponent(msg);
+    var waUrl = window.lhcWhatsAppUrl(msg);
     window.open(waUrl, '_blank');
   }
 
@@ -57800,7 +57813,7 @@ var WO = (function() {
   }
   function sbShareSongWhatsApp() {
     var song = _sbmSong(); if (!song) return;
-    window.open('https://wa.me/?text=' + encodeURIComponent(_sbSongShareText(song)), '_blank');
+    window.open(window.lhcWhatsAppUrl(_sbSongShareText(song)), '_blank');
   }
   function sbCopySongLink() {
     var song = _sbmSong(); if (!song) return;
@@ -77801,7 +77814,7 @@ var WO = (function() {
   // link can be trusted to carry: a phone's share sheet takes it whole, and
   // elsewhere it is copied and WhatsApp opened, to paste it into the chat.
   function _lbdSendWhatsApp(text) {
-    if (text.length <= 3500) { window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener'); return; }
+    if (text.length <= 3500) { window.open(window.lhcWhatsAppUrl(text), '_blank', 'noopener'); return; }
     var touch = false;
     try { touch = window.matchMedia('(hover: none) and (pointer: coarse)').matches; } catch (e) {}
     if (touch && navigator.share) { navigator.share({ text: text }).catch(function() {}); return; }
@@ -92336,7 +92349,7 @@ var WO = (function() {
     }
     var msg = _sbShareMessage({ title: name, date: serviceDate, rows: _sbShareRows(),
                                 songbookUrl: _sbShareUrl(), playlistUrl: playlistUrl });
-    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+    window.open(window.lhcWhatsAppUrl(msg), '_blank');
   }
 
   // The key a song is sung in here: the library song's key (an order's
@@ -101769,12 +101782,12 @@ var LiturgyModule = (function() {
     var els = folderData.specialElements || [];
     var confirmed = els.filter(function(e) { return e.checked; });
     var pending   = els.filter(function(e) { return !e.checked; });
-    var text = '\u26EA *Luther House Chapel*\n\uD83D\uDCCB *' + occ.label + ' \u2014 Service Planning*\n\n';
+    var text = '\u26EA *Luther House Chapel*\n\u270D\uFE0F *' + occ.label + ' \u2014 Service Planning*\n\n';
     if (notesText) text += '*Planning Notes:*\n' + notesText + '\n\n';
     if (confirmed.length) { text += '*\u2705 Confirmed Elements:*\n'; confirmed.forEach(function(e){ text += '\u2022 ' + e.label + '\n'; }); text += '\n'; }
     if (pending.length)   { text += '*\u23F3 Pending Confirmation:*\n'; pending.forEach(function(e){ text += '\u2022 ' + e.label + '\n'; }); text += '\n'; }
     text += '_Shared from LHC Worship Prep_';
-    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+    window.open(window.lhcWhatsAppUrl(text), '_blank');
   }
 
   // Sync all data from cloud without full page reload
@@ -114988,7 +115001,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     var url = location.origin + location.pathname + '?view=availability';
     var msg = 'Hi! Please mark the worship dates you CANNOT serve here (pick your name): ' + url;
     if (navigator.clipboard) navigator.clipboard.writeText(url).then(function() { if (typeof showToast === 'function') showToast('Availability link copied', 'success'); }).catch(function() {});
-    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+    window.open(window.lhcWhatsAppUrl(msg), '_blank');
   }
   window.shareAvailabilityLink = shareAvailabilityLink;
 
@@ -118310,6 +118323,10 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       self._enablersYear = year;
       self._enablersFreqCache = null;
       self._enablersRowsOk = false;
+      // Only the newest load may fill the caches: with the year changed while
+      // one was on its way, the older reply landed last and its rows were
+      // kept as the new year's -- every month of it then showed no duties.
+      var loadTok = self._enLoadTok = (self._enLoadTok || 0) + 1;
       self._enablersMetaCache = {};
       // Other years' rows, read when the calendar or a duty card asks.
       self._enYearRows = {};
@@ -118329,6 +118346,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
           // rostered to a group can be credited to its members.
           sb.from('roster_names').select('name, category')
         ]).then(function(results) {
+          if (loadTok !== self._enLoadTok) return;
           self._enablersFreqCache = results[0] || [];
           self._enablersRowsOk = true;
           var metaRows = (results[1].data) || [];
@@ -118341,6 +118359,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
           });
           self._renderEnablersTab(self._enablersActiveTab || 'all');
         }).catch(function() {
+          if (loadTok !== self._enLoadTok) return;
           self._enablersFreqCache = [];
           self._renderEnablersTab(self._enablersActiveTab || 'all');
         });
@@ -118382,7 +118401,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         try { names = JSON.parse(localStorage.getItem('lhc_en_cal_names') || '[]'); } catch (e) {}
         if (!Array.isArray(names)) names = [];
         names = names.filter(function(n) { return typeof n === 'string' && n.trim(); }).slice(0, 6);
-        this._enCal = { y: now.getFullYear(), m: now.getMonth(), names: names };
+        this._enCal = { y: Number(this._enablersYear) || now.getFullYear(), m: now.getMonth(), names: names };
       }
       return this._enCal;
     },
@@ -118477,26 +118496,29 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       (rows || []).forEach(function(r) {
         if (!r || Number(r.year) !== Number(year) || Number(r.month) !== Number(month)) return;
         if (r.role_id !== 'liturgical' && r.role_id !== 'service_type') return;
-        var k = String(r.service_date == null ? '' : r.service_date).trim();
+        // By the date it names: an old row stored "2026-11-08" is the 8th.
+        var at = self._enDateOf(r.service_date, r.year);
+        if (!at) return;
         if (r.role_id === 'service_type') {
-          if (r.value && r.value !== '__BLANK__') types[k] = String(r.value);
+          if (r.value && r.value !== '__BLANK__') types[at.key] = String(r.value);
           return;
         }
+        // The roster reads a liturgical cell only as the JSON it writes, and
+        // shows its own name for the day otherwise ("__BLANK__", say) -- so
+        // the calendar does too.
         var v = r.value;
-        if (typeof v === 'string') {
-          // One malformed cell is shown as the text it is.
-          try { v = JSON.parse(v); } catch (e) { v = { day: r.value }; }
-        }
-        if (v && typeof v === 'object') saved[k] = v;
+        if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+        if (v && typeof v === 'object') saved[at.key] = v;
       });
       return self.getServiceDays(year, month).map(function(day, idx) {
-        var sv = saved[day.dateStr] || {};
+        var at = self._enDateOf(day.dateStr, year);
+        var sv = (at && saved[at.key]) || {};
         return {
           date: day.dateStr,
-          at: self._enDateOf(day.dateStr, year),
+          at: at,
           day: sv.day || day.name || self.getDefaultDayText(month, idx),
           color: sv.color || day.color || 'Green',
-          serviceType: types[day.dateStr] || day.fixedServiceType || '',
+          serviceType: (at && types[at.key]) || day.fixedServiceType || '',
           special: day.type === 'special'
         };
       });
@@ -118869,13 +118891,15 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     _enCopy: function(text, msg) {
       var self = this;
       var done = function() { self.showToast(msg || 'Copied', 'success'); };
+      var fail = function() { self.showToast('Could not copy. Press and hold the link to copy it instead.', 'error'); };
       var fallback = function() {
+        var ok = false;
         try {
           var ta = document.createElement('textarea');
           ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
-          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-          done();
-        } catch (e) { self.showToast('Could not copy. Press and hold the link to copy it instead.', 'error'); }
+          document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (e) { ok = false; }
+        if (ok) done(); else fail();
       };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
       else fallback();
@@ -119513,7 +119537,12 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 
     _saveContactToSupabase: function(name, phone, email, btn) {
       var self = this, idle = '<i class="fa-solid fa-floppy-disk mr-1"></i>Save';
-      var p = self._enCleanContact('phone', phone), e = self._enCleanContact('email', email);
+      var cur = self._enMeta(name);
+      var clean = function(f, v) {
+        var was = String(cur[f] == null ? '' : cur[f]);
+        return String(v == null ? '' : v).trim() === was.trim() ? { ok: true, value: was } : self._enCleanContact(f, v);
+      };
+      var p = clean('phone', phone), e = clean('email', email);
       if (!p.ok || !e.ok) { self.showToast(name + ': ' + (!p.ok ? p.error : e.error), 'error'); return; }
       if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
       // Under the row's own spelling of the name, and read back -- it used to
@@ -119535,11 +119564,19 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         .filter(function(m) { return m.phone; });
       if (!members.length) { self.showToast('No members have phone numbers saved yet.', 'error'); return; }
       var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-      // The cards are written from the year's rows, so those are read first.
-      self._enRowsForYear(STATE.rosterYear).then(function() {
-        if (!confirm('Send ' + MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear + ' duty cards to ' + members.length + ' members via WhatsApp?\n\nThis will open ' + members.length + ' WhatsApp windows in sequence.')) return;
-        self.bulkSendDutyCards(members);
-      }, function(e) { self.showToast('The roster could not be read: ' + ((e && e.message) || e), 'error'); });
+      // The cards are written from the year's rows. With them read, the
+      // windows open from this click, as they always did. Without, they are
+      // read first and the PIC presses again: a window opened after waiting
+      // on the network is no longer the click's, and the browser blocks it.
+      if (!self._enRowsNow(STATE.rosterYear)) {
+        self.showToast('Reading the ' + STATE.rosterYear + ' roster' + String.fromCharCode(8230), 'info');
+        self._enRowsForYear(STATE.rosterYear).then(function() {
+          self.showToast('Ready: press Send All again to send the ' + MONTHS[STATE.rosterMonth] + ' cards.', 'success');
+        }, function(e) { self.showToast('The roster could not be read: ' + ((e && e.message) || e), 'error'); });
+        return;
+      }
+      if (!confirm('Send ' + MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear + ' duty cards to ' + members.length + ' members via WhatsApp?\n\nThis will open ' + members.length + ' WhatsApp windows in sequence.')) return;
+      self.bulkSendDutyCards(members);
     },
 
     _renderEnablersDuty: function(selectedDuty) {
@@ -122463,7 +122500,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
           this.showToast('Link copied to clipboard!', 'success');
         }.bind(this)).catch(function() {});
       }
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+      window.open(window.lhcWhatsAppUrl(msg), '_blank');
     },
 
     shareWeekly: function(dateStr, dateName) {
@@ -122598,7 +122635,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       ];
 
       var fullMsg = m1.join('\n') + '\n\n\n' + m2.join('\n');
-      var waUrl = 'https://wa.me/?text=' + encodeURIComponent(fullMsg);
+      var waUrl = window.lhcWhatsAppUrl(fullMsg);
       self._showShareWarningModal(dateStr, dateName, fullMsg, waUrl);
     },
 
@@ -123950,7 +123987,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     var q = window.lhcYouTubeQueue(_items);
     if (q) lines.push('', 'Or in the YouTube app: ' + q);
     lines.push('', '_LHC Worship Prep_');
-    window.open('https://wa.me/?text=' + encodeURIComponent(lines.join('\n')), '_blank', 'noopener');
+    window.open(window.lhcWhatsAppUrl(lines.join('\n')), '_blank', 'noopener');
   };
   window.plOpenYouTube = function() {
     var q = window.lhcYouTubeQueue(_items);
