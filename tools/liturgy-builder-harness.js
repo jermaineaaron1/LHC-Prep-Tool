@@ -734,7 +734,7 @@ console.log('\n[service liturgies]');
   check('...saving first anything still waiting, so the link opens what was shared',
     has(/function lbdShareWhatsApp\(words\) \{\r?\n[^\n]*\r?\n[^\n]*\r?\n\s*if \(_autoSaveTimer\) \{ clearTimeout\(_autoSaveTimer\); _autoSaveTimer = null; try \{ saveCurrentOrder\(true\); \} catch \(e\) \{\} \}/));
   check('a long message goes by a phone\'s share sheet, or is copied with WhatsApp opened, not crammed into a link',
-    has(/if \(text\.length <= 3500\) \{ window\.open\('https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(text\), '_blank', 'noopener'\); return; \}/) &&
+    has(/if \(text\.length <= 3500\) \{ window\.open\(window\.lhcWhatsAppUrl\(text\), '_blank', 'noopener'\); return; \}/) &&
     has(/if \(touch && navigator\.share\) \{ navigator\.share\(\{ text: text \}\)\.catch\(function\(\) \{\}\); return; \}/) &&
     has(/copied = document\.execCommand\('copy'\);/));
   check('the Songbook has WhatsApp first of its desk top bar\'s buttons, before the Inbox, and under its name on a phone',
