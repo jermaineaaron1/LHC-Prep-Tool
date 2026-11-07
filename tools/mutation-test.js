@@ -1503,6 +1503,28 @@ const CASES = [
     s => s.replace('    if (owner && m.shared === false) return false;\r\n', '')],
   ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
     s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
+  // The parts a reader plays or sings follow their name (drawer_prefs). A
+  // phone that changed hands must not carry one person's parts into the
+  // next person's row, which would then follow THEM to every device; a tick
+  // that is not kept with the name is the bug this replaced; and a name's
+  // read that comes back after another name was given must change nothing.
+  ['songbook-layers-harness.js', 'a handed-on phone carries one person\'s parts into another\'s name',
+    s => s.replace("var mode = (of && of !== key) ? 'theirs' : !of ? 'join' :", "var mode = !of ? 'join' :")],
+  ['songbook-layers-harness.js', 'a part ticked under Layers stays on the device only',
+    s => s.replace('    _sbmPrefsTicked(p, i === -1);\r\n', '')],
+  ['songbook-layers-harness.js', 'a name read after another name was given still lands',
+    s => s.replace('      if (!opts.keep && gen !== _sbmPrefsGen) return null;\r\n', '')],
+  // A change on one phone reaches the others: the name's parts win unless
+  // the device holds a change not saved yet. Joined instead, a part unticked
+  // on one phone comes back from the other; without the marker, a change
+  // whose save failed is lost to the name's older parts; without the tick
+  // count, a read that left before a tick undoes it.
+  ['songbook-layers-harness.js', 'a part unticked on one phone comes back from the other',
+    s => s.replace("(dirty || saved == null) ? 'mine' : 'saved';", "'join';")],
+  ['songbook-layers-harness.js', 'a change not saved yet is overwritten by the name\'s older parts',
+    s => s.replace('var dirty = _sbmPartsDirty(me.key) || ticks !== _sbmPrefsTicks;', 'var dirty = false;')],
+  ['songbook-layers-harness.js', 'a read that left before a tick undoes it',
+    s => s.replace('var dirty = _sbmPartsDirty(me.key) || ticks !== _sbmPrefsTicks;', 'var dirty = _sbmPartsDirty(me.key);')],
   ['songbook-versions-harness.js', 'a version moved with its song reads as changed',
     s => s.replace('    if (_sbVerHasChords(w.lyrics) && _sbVerSung(w.lyrics, s) === _sbVerSung(v.lyrics, sv)) return { key: false, words: false };\r\n', '')],
   // Going back to Standard writes versionId '' over the stored one; a sync
