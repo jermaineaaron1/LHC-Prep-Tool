@@ -1500,7 +1500,7 @@ const CASES = [
   // Somebody's own drawing is theirs until they share it; without the
   // check every private stroke on a chord sheet is drawn for everyone.
   ['songbook-layers-harness.js', 'other people\'s private drawings are shown',
-    s => s.replace('    if (owner && m.shared === false) return false;\r\n', '')],
+    s => s.replace('    if (owner && m.shared === false) return !!(privOn && privOn[owner]);\r\n', '')],
   ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
     s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
@@ -1535,6 +1535,20 @@ const CASES = [
                    'snap.versionId ? { versionId: snap.versionId } : {}')],
   ['songbook-versions-harness.js', 'a link to one song opens the book at its index',
     s => s.replace("        try { localStorage.setItem('lhc_sbm_song_' + _deepSb.replace(/^(order|sb)-/, ''), _deepSbSong); } catch (e) {}\r\n", '')],
+  // The reading view as asked for on 2026-11-07. A key moved on another
+  // device reached this one and was never drawn; a 0 arriving for a copy
+  // never moved must not be announced as a new key; other people's private
+  // drawings show only when switched on; the floater must go once arrived.
+  ['songbook-reading-view-harness.js', 'a key moved elsewhere is not drawn until something else redraws',
+    s => s.replace('    _sbmRemoteRedraw(patches);\r\n', '')],
+  ['songbook-reading-view-harness.js', 'every copy never moved is announced as a key change',
+    s => s.replace('if (inc.transposeSteps !== (parseInt(song.transposeSteps, 10) || 0)) p.key = true;', 'p.key = true;')],
+  ['songbook-layers-harness.js', 'everybody\'s private drawings show to everyone',
+    s => s.replace('if (owner && m.shared === false) return !!(privOn && privOn[owner]);', 'if (owner && m.shared === false) return true;')],
+  ['songbook-reading-view-harness.js', 'the floater stays after the words are reached',
+    s => s.replace('    if (top < h * 0.4) return false;             // arrived: they fill the screen, or are past\r\n', '')],
+  ['songbook-reading-view-harness.js', 'the Drawings tile keeps the count from before the drawings were read',
+    s => s.replace('        _sbmPhoneMarks(null);\r\n        _sbmDrawingsTileCount();\r\n', '        _sbmPhoneMarks(null);\r\n')],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],

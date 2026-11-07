@@ -50064,7 +50064,7 @@ var WO = (function() {
   // read here.
   var _sbmSid = null;            // the song in front of you
   var _sbmPageView = false;      // true = show the A4 book instead
-  var _sbmScale = 1;             // lyrics size, A- / A+
+  var _sbmScale = 1;             // lyrics size; A- / A+ are gone, so always 1
   var _sbmPlayer = null;         // { audio, rec, songId }
   var _sbmRecs = {};             // songId -> rows from song_recordings
   var _sbmRecsAt = {};           // songId -> when they were fetched
@@ -50084,8 +50084,8 @@ var WO = (function() {
   function _sbmInit() {
     if (_sbmInited) return;
     _sbmInited = true;
-    try { _sbmScale = parseFloat(localStorage.getItem('lhc_sbm_scale')) || 1; } catch (e) {}
-    if (window.__SBM_PREVIEW) _sbmScale = 1;   // a phone at its own size, not the desk's
+    // The words' size (A- / A+) is not chosen here since 2026-11-07, so a
+    // size kept from before is not read: nobody could change it back.
     if (window.matchMedia) {
       var mq = window.matchMedia('(max-width: 820px)');
       // Only an open book is redrawn when the screen crosses the phone's
@@ -50543,19 +50543,28 @@ var WO = (function() {
   // when it is meant for a part of the band, only to readers who play or
   // sing that part (myParts); otherwise -- everyone's -- unless they hid that
   // person. An earlier drawing has no owner and is everyone's ('' hides them).
-  function _sbmLayerKeep(m, meKey, hidden, myParts) {
+  // A private one (shared false) is shown to somebody else only when they
+  // have switched that person's private drawings on under Drawings (privOn,
+  // gotcha 50): asked, the operator chose "Show everyone's, private too".
+  function _sbmLayerKeep(m, meKey, hidden, myParts, privOn) {
     if (!m) return false;
     hidden = hidden || {};
     var owner = m.owner || '';
     if (owner && meKey && owner === meKey) return !hidden[owner];
-    if (owner && m.shared === false) return false;
+    if (owner && m.shared === false) return !!(privOn && privOn[owner]);
     if (owner && m.part && (myParts || []).indexOf(m.part) === -1) return false;
     return !hidden[owner];
   }
   function _sbmLayerFilter(marks) {
     if (_sbmLayersOk !== true) return marks || [];
-    var me = _sbmMe(), hidden = _sbmLayersHidden(), parts = _sbmMyParts();
-    return (marks || []).filter(function(m) { return _sbmLayerKeep(m, me && me.key, hidden, parts); });
+    var me = _sbmMe(), hidden = _sbmLayersHidden(), parts = _sbmMyParts(), priv = _sbmPrivOn();
+    return (marks || []).filter(function(m) { return _sbmLayerKeep(m, me && me.key, hidden, parts, priv); });
+  }
+  // Whose private drawings this reader has switched on: { owner: true }.
+  // The device's, like what it hides.
+  function _sbmPrivOn() {
+    var h = {}; try { h = JSON.parse(localStorage.getItem('lhc_sbm_priv_on') || '{}') || {}; } catch (e) {}
+    return (h && typeof h === 'object') ? h : {};
   }
   function _sbmMarkMine(m) { var me = _sbmMe(); return !!(m && me && m.owner && m.owner === me.key); }
   // ---- the geometry, kept pure for tools/songbook-marks-harness.js ----
@@ -51081,6 +51090,7 @@ var WO = (function() {
         _sbmMarks[base] = r.data || [];
         _sbmMarksPaintAll();
         _sbmPhoneMarks(null);
+        _sbmDrawingsTileCount();
       });
     });
   }
@@ -51331,7 +51341,7 @@ var WO = (function() {
       '<input class="sbm-input" id="sbmWhoName" list="sbmWhoNames" maxlength="40" autocomplete="name" placeholder="Your name" value="' + escapeHtml(name) + '">' +
       '<datalist id="sbmWhoNames"></datalist>' +
       '<p class="who-note"><i class="fa-solid fa-mobile-screen"></i>' + (_sbmPrefsOk === true
-        ? 'Kept on this device \u2014 nobody signs in. Your drawings and the parts you choose under Layers carry this name, so the same name on another device brings them back.'
+        ? 'Kept on this device \u2014 nobody signs in. Your drawings and the parts you choose under Drawings carry this name, so the same name on another device brings them back.'
         : 'Kept on this device only \u2014 nobody signs in. Your drawings carry this name, so the same name on another device finds them.') + '</p>' +
       '<p class="who-note"><i class="fa-solid fa-users"></i>When you finish drawing, you choose who sees it: everyone, only you, or one part of the band.</p>' +
       '<div class="who-foot"><button class="sbm-btn" onclick="WO.sbmCloseSheet()">Cancel</button>' +
@@ -51446,7 +51456,8 @@ var WO = (function() {
     }).join('');
     _sbmSheet('Who should see your drawing?',
       '<div class="who"><p class="who-note"><i class="fa-solid fa-pen-nib"></i>' + ids.length + ' stroke' + (ids.length === 1 ? '' : 's') + ' drawn just now. Everyone sees them unless you choose otherwise.</p>' +
-      '<div class="who-parts who-parts--aud">' + btns + '</div></div>');
+      '<div class="who-parts who-parts--aud">' + btns + '</div>' +
+      '<p class="who-note"><i class="fa-solid fa-lock"></i>Only me keeps it off everyone else’s song; they can still switch it on under Drawings.</p></div>');
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'audience');
   }
   function sbmAudience(aud) {
@@ -51462,7 +51473,7 @@ var WO = (function() {
       _sbmMarksPaintAll();
       _sbmPhoneMarks(null);
       _sbmLiveSend();
-      showToast('Your drawing is for ' + _sbmAudienceLabel(aud) + ' now. Change it any time under Layers.', 'success');
+      showToast('Your drawing is for ' + _sbmAudienceLabel(aud) + ' now' + (aud === 'me' ? ': others see it only if they switch your private drawings on' : '') + '. Change it any time under Drawings.', 'success');
     }).catch(function(err) { showToast('Could not change who sees it: ' + (err && err.message || 'no answer') + '. Everyone sees it for now.', 'error'); });
   }
 
@@ -51687,7 +51698,7 @@ var WO = (function() {
   }
   function _sbmLayersChip() {
     if (_sbmMarksOk !== true || _sbmLayersOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw sbm-chip--layers" onclick="WO.sbmLayers()" title="Whose drawings you see, and who sees yours"><i class="fa-solid fa-users"></i>Layers</button>';
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--layers" onclick="WO.sbmLayers()" title="Every drawing on this song: whose, which you see, and who sees yours"><i class="fa-solid fa-layer-group"></i>Drawings</button>';
   }
   // The drawers of one song's drawings as a reader may list them (pure):
   // their own, counted by who sees them; then everybody else's that this
@@ -51713,54 +51724,132 @@ var WO = (function() {
     });
     return { me: me, others: others, elsewhere: elsewhere };
   }
-  function sbmLayers() {
+  // ---- Drawings: every drawing kept on the song in front ----
+  //
+  // From the operator (2026-11-07): one window -- the Drawings tile beside
+  // Book Mode, or the chip beside Draw -- where a reader reaches every
+  // drawing kept on the song: their own, everyone's, the ones drawn for a
+  // group of the band (any group, played in or not), and other people's
+  // private ones, which stay off until the reader switches them on. Asked
+  // whether those should be reachable at all: "Show everyone's, private
+  // too". So "Only me" keeps a drawing off everybody else's song unless they
+  // choose to see it; like the rest of this it is not a lock.
+  //
+  // The drawings on one song (its version) as the window lists them (pure):
+  // the reader's own, counted by who sees them; everybody else's shared ones
+  // by person, the earlier drawings last; those for a group, by group; and
+  // the private ones, by person.
+  function _sbmDrawingsOf(marks, meKey) {
+    var me = { key: meKey || '', n: 0, by: {} }, people = {}, groups = {}, priv = {}, total = 0;
+    (marks || []).forEach(function(m) {
+      if (!m) return;
+      total++;
+      var o = m.owner || '', aud = _sbmAudienceOf(m), name = o ? (m.owner_name || o) : '';
+      if (o && meKey && o === meKey) { me.n++; me.by[aud] = (me.by[aud] || 0) + 1; return; }
+      if (o && aud === 'me') { (priv[o] = priv[o] || { key: o, name: name, n: 0 }).n++; return; }
+      var p = people[o] = people[o] || { key: o, name: name, n: 0, parts: {}, byPart: {} };
+      p.n++;
+      if (o && aud !== 'all') {
+        p.parts[aud] = true;
+        p.byPart[aud] = (p.byPart[aud] || 0) + 1;
+        var g = groups[aud] = groups[aud] || { n: 0, names: [] };
+        g.n++;
+        if (g.names.indexOf(name) === -1) g.names.push(name);
+      }
+    });
+    var list = function(o) {
+      return Object.keys(o).map(function(k) { return o[k]; }).sort(function(a, b) {
+        if (!a.key !== !b.key) return a.key ? -1 : 1;
+        return String(a.name).localeCompare(String(b.name));
+      });
+    };
+    return { total: total, me: me, people: list(people), groups: groups, priv: list(priv) };
+  }
+  function sbmLayers() { _sbmDrawings(false); }
+  function _sbmDrawings(read) {
     var song = _sbmSong(); if (!song) return;
-    var base = _sbBaseSongId(song), me = _sbmMe(), hidden = _sbmLayersHidden(), parts = _sbmMyParts();
-    var L = _sbmLayerPeople(_sbVerMarks(_sbmMarks[base], song.versionId), me && me.key, parts);
-    var eye = function(key, label) {
-      var on = !hidden[key];
-      return '<button class="sbm-btn lay-eye' + (on ? ' is-on' : '') + '" onclick="WO.sbmLayerToggle(\'' + escapeJsArg(key) + '\')" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + (on ? 'Hide ' : 'Show ') + escapeHtml(label) + '">' +
+    var base = _sbBaseSongId(song), title = 'Drawings — ' + _sbmClip(song.title || 'this song', 30);
+    var again = function() { var s0 = document.getElementById('sbmSheet'); if (s0 && s0.getAttribute('data-sheet') === 'layers') _sbmDrawings(true); };
+    // Not read on this device yet: read, then list.
+    if (!read && !_sbmMarks[base] && _sbmMarksOk !== false && window._supabase) {
+      _sbmSheet(title, '<div class="ver-empty">Reading the drawings…</div>');
+      var sh0 = document.getElementById('sbmSheet'); if (sh0) sh0.setAttribute('data-sheet', 'layers');
+      _sbmLoadMarks(song, true).then(again, again);
+      return;
+    }
+    var all = _sbVerMarks(_sbmMarks[base], song.versionId), me = _sbmMe(), layers = _sbmLayersOk === true;
+    var hidden = _sbmLayersHidden(), parts = _sbmMyParts(), privOn = _sbmPrivOn();
+    var D = _sbmDrawingsOf(all, layers && me ? me.key : ''), shown = _sbmLayerFilter(all).length;
+    var count = function(n) { return n + ' drawing' + (n === 1 ? '' : 's'); };
+    var eye = function(on, click, label) {
+      return '<button class="sbm-btn lay-eye' + (on ? ' is-on' : '') + '" onclick="' + click + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + (on ? 'Hide ' : 'Show ') + escapeHtml(label) + '">' +
         '<i class="fa-solid ' + (on ? 'fa-eye' : 'fa-eye-slash') + '"></i>' + (on ? 'Showing' : 'Hidden') + '</button>';
     };
-    var count = function(n) { return n + ' drawing' + (n === 1 ? '' : 's'); };
-    var html = '<div class="lay">' +
-      '<div class="ver-head"><span>Drawings meant for</span></div>' +
-      '<div class="who-parts lay-parts">' + _SBM_PARTS.map(function(p) {
-        var on = parts.indexOf(p[0]) !== -1;
-        return '<button type="button" class="who-part' + (on ? ' is-on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="WO.sbmLayerPart(\'' + p[0] + '\')">' + escapeHtml(p[1]) + '</button>';
-      }).join('') + '</div>' +
-      '<p class="lay-hint">Choose what you play or sing to see the drawings meant for it. Drawings for everyone always show.' +
-        (_sbmPrefsOk === true && me ? ' Kept with your name, so they follow you to another device.' : '') + '</p>';
-    if (me) {
-      var mineBits = Object.keys(L.me.by).map(function(a) { return L.me.by[a] + ' for ' + _sbmAudienceLabel(a); });
-      html += '<div class="ver-head lay-h2"><span>Yours</span></div>' +
-        '<div class="lay-row lay-row--me"><div class="lay-row__main"><b>' + escapeHtml(me.name) + '</b>' +
-          '<small>' + (L.me.n ? escapeHtml(count(L.me.n) + ' on this song: ' + mineBits.join(', ')) : 'Nothing drawn on this song yet') + '</small></div>' +
-          (L.me.n ? eye(me.key, 'your drawings') : '') + '</div>' +
-        (L.me.n ? '<div class="lay-sub">Who sees yours</div><div class="who-parts lay-aud">' + _sbmAudienceChoices().map(function(c) {
-          var all = L.me.by[c[0]] === L.me.n;
-          return '<button type="button" class="who-part' + (all ? ' is-on' : '') + '" onclick="WO.sbmLayersAudience(\'' + c[0] + '\')">' + escapeHtml(c[2]) + '</button>';
-        }).join('') + '</div>' : '') +
-        '<div class="lay-acts"><button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '? Change the name</button></div>' +
-        _sbmWhoNote();
+    var ver = (song.versionId && _sbVerOk === true) ? _sbVerById(base, song.versionId) : null;
+    // How many are kept and how many show, with the quick ways to see all
+    // of them or only yours, and to draw.
+    var html = '<div class="lay"><div class="lay-sum"><div class="lay-sum__t"><b>' + escapeHtml(count(D.total)) + '</b> kept on this song' + (ver ? ' (' + escapeHtml(ver.name) + ')' : '') +
+        (D.total && layers ? '<span class="lay-sum__n">' + shown + ' showing</span>' : '') + '</div>' +
+      '<div class="lay-sum__acts">' +
+        (D.total && layers ? '<button class="sbm-btn" onclick="WO.sbmLayersAll(\'all\')"><i class="fa-solid fa-eye"></i>Show all</button>' +
+          (me ? '<button class="sbm-btn" onclick="WO.sbmLayersAll(\'mine\')"><i class="fa-solid fa-user"></i>Only mine</button>' : '') : '') +
+        '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmLayersDraw()"><i class="fa-solid fa-pen-nib"></i>Draw on this song</button></div></div>';
+    if (!layers) {
+      html += '<p class="lay-hint">Everyone sees every drawing in this songbook.</p>' + _sbmSharedDrawingsNote(song);
     } else {
-      html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>' +
-        _sbmWhoNote();
-    }
-    html += '<div class="ver-head lay-h2"><span>By others</span><span class="ver-head__n">' + L.others.length + '</span></div>';
-    html += L.others.length ? '<div class="lay-list">' + L.others.map(function(p) {
-      var label = p.key ? p.name : 'Earlier drawings';
-      var forParts = Object.keys(p.parts).map(function(a) { return _sbmPartLabel(a); });
-      return '<div class="lay-row' + (hidden[p.key] ? ' is-hidden' : '') + '"><div class="lay-row__main"><b>' + escapeHtml(label) + '</b>' +
-        (forParts.length ? '<span class="lay-part">for ' + escapeHtml(forParts.join(', ')) + '</span>' : '') +
-        '<small>' + escapeHtml(count(p.n) + (p.key ? '' : ', from before drawings had names')) + '</small></div>' + eye(p.key, label) + '</div>';
-    }).join('') + '</div>' : '<div class="ver-empty">Nobody else’s drawings to show on this song.</div>';
-    var away = Object.keys(L.elsewhere);
-    if (away.length) {
-      html += '<p class="lay-hint">' + escapeHtml(away.map(function(a) { return count(L.elsewhere[a]) + ' for ' + _sbmPartLabel(a); }).join(', ')) + ' — choose that part above to see ' + (away.length === 1 && L.elsewhere[away[0]] === 1 ? 'it' : 'them') + '.</p>';
+      // Yours.
+      if (me) {
+        var mineBits = Object.keys(D.me.by).map(function(a) { return D.me.by[a] + ' for ' + _sbmAudienceLabel(a); });
+        html += '<div class="ver-head lay-h2"><span>Yours</span></div>' +
+          '<div class="lay-row lay-row--me' + (D.me.n && hidden[me.key] ? ' is-hidden' : '') + '"><div class="lay-row__main"><b>' + escapeHtml(me.name) + '</b>' +
+            '<small>' + (D.me.n ? escapeHtml(count(D.me.n) + ': ' + mineBits.join(', ')) : 'Nothing drawn on this song yet') + '</small></div>' +
+            (D.me.n ? eye(!hidden[me.key], 'WO.sbmLayerToggle(\'' + escapeJsArg(me.key) + '\')', 'your drawings') : '') + '</div>' +
+          (D.me.n ? '<div class="lay-sub">Who sees yours</div><div class="who-parts lay-aud">' + _sbmAudienceChoices().map(function(c) {
+            var every = D.me.by[c[0]] === D.me.n;
+            return '<button type="button" class="who-part' + (every ? ' is-on' : '') + '" onclick="WO.sbmLayersAudience(\'' + c[0] + '\')">' + escapeHtml(c[2]) + '</button>';
+          }).join('') + '</div>' : '') +
+          '<div class="lay-acts"><button class="sbm-btn" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user-pen"></i>Not ' + escapeHtml(me.name.split(' ')[0]) + '? Change the name</button></div>';
+      } else {
+        html += '<div class="lay-acts"><button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWho(false)"><i class="fa-solid fa-user"></i>Tell the app who you are, to draw your own</button></div>';
+      }
+      // Everybody else's, shared: for everyone, or for a group.
+      html += '<div class="ver-head lay-h2"><span>Shared by others</span><span class="ver-head__n">' + D.people.length + '</span></div>';
+      html += D.people.length ? '<div class="lay-list">' + D.people.map(function(p) {
+        var label = p.key ? p.name : 'Earlier drawings';
+        var forParts = Object.keys(p.parts).map(function(a) { return _sbmPartLabel(a); });
+        // Showing the person does not show what they drew for a group that is off.
+        var off = Object.keys(p.byPart).filter(function(a) { return parts.indexOf(a) === -1; });
+        var offN = off.reduce(function(t, a) { return t + p.byPart[a]; }, 0);
+        return '<div class="lay-row' + (hidden[p.key] ? ' is-hidden' : '') + '"><div class="lay-row__main"><b>' + escapeHtml(label) + '</b>' +
+          (forParts.length ? '<span class="lay-part">for ' + escapeHtml(forParts.join(', ')) + '</span>' : '') +
+          '<small>' + escapeHtml(count(p.n) + (p.key ? '' : ', from before drawings had names') +
+            (offN ? ' \u00b7 ' + offN + ' for ' + off.map(_sbmPartLabel).join(', ') + ', which you have off below' : '')) + '</small></div>' +
+          eye(!hidden[p.key], 'WO.sbmLayerToggle(\'' + escapeJsArg(p.key) + '\')', label) + '</div>';
+      }).join('') + '</div>' : '<div class="ver-empty">Nobody else has shared a drawing on this song.</div>';
+      // The groups: any of them, played in or not.
+      html += '<div class="ver-head lay-h2"><span>For a group</span></div>' +
+        '<div class="who-parts lay-parts">' + _SBM_PARTS.map(function(p) {
+          var on = parts.indexOf(p[0]) !== -1, g = D.groups[p[0]], n = g ? g.n : 0;
+          return '<button type="button" class="who-part' + (on ? ' is-on' : '') + (n ? '' : ' is-empty') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="WO.sbmLayerPart(\'' + p[0] + '\')"' +
+            (g ? ' title="Drawn by ' + escapeHtml(g.names.join(', ')) + '"' : '') + '>' + escapeHtml(p[1]) + (n ? '<span class="lay-n">' + n + '</span>' : '') + '</button>';
+        }).join('') + '</div>' +
+        '<p class="lay-hint">Switch a group on to see what was drawn for it, whether or not you play in it. Drawings for everyone always show.' +
+          (_sbmPrefsOk === true && me ? ' Kept with your name, so they follow you to another device.' : '') + '</p>';
+      // Other people's private drawings: off until switched on.
+      if (D.priv.length) {
+        html += '<div class="ver-head lay-h2"><span>Private</span><span class="ver-head__n">' + D.priv.length + '</span></div>' +
+          '<div class="lay-list">' + D.priv.map(function(p) {
+            var on = !!privOn[p.key];
+            return '<div class="lay-row lay-row--priv' + (on ? '' : ' is-hidden') + '"><div class="lay-row__main"><b>' + escapeHtml(p.name) + '</b>' +
+              '<span class="lay-part"><i class="fa-solid fa-lock" aria-hidden="true"></i>drawn for themselves</span><small>' + escapeHtml(count(p.n)) + '</small></div>' +
+              eye(on, 'WO.sbmPrivToggle(\'' + escapeJsArg(p.key) + '\')', p.name + '’s private drawings') + '</div>';
+          }).join('') + '</div>' +
+          '<p class="lay-hint">Off your song unless you switch them on here.</p>';
+      }
+      html += _sbmSharedDrawingsNote(song) + _sbmWhoNote();
     }
     html += '</div>';
-    _sbmSheet('Layers — ' + _sbmClip(song.title || 'this song', 30), html);
+    _sbmSheet(title, html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
     // Whether the parts go with the name is known once drawer_prefs has been
     // asked; a change made to them on another device is read back here too.
@@ -51768,6 +51857,48 @@ var WO = (function() {
       var s = document.getElementById('sbmSheet'); if (s && s.getAttribute('data-sheet') === 'layers') sbmLayers();
     });
     if (me) _sbmPrefsPull();
+  }
+  // Show all: the drawings of everybody who has drawn on this song --
+  // everyone's, every group's they drew for, and their private ones. Only
+  // mine: everybody else's on this song hidden. Both go through the same
+  // settings as the window's rows, so a row can still be changed after.
+  function sbmLayersAll(mode) {
+    var song = _sbmSong(); if (!song) return;
+    var me = _sbmMe(), D = _sbmDrawingsOf(_sbVerMarks(_sbmMarks[_sbBaseSongId(song)], song.versionId), me && me.key);
+    var h = _sbmLayersHidden(), pv = _sbmPrivOn();
+    if (me) delete h[me.key];
+    D.people.forEach(function(p) { if (mode === 'mine') h[p.key] = true; else delete h[p.key]; });
+    D.priv.forEach(function(p) { if (mode === 'mine') delete pv[p.key]; else pv[p.key] = true; });
+    try { localStorage.setItem('lhc_sbm_layers_hidden', JSON.stringify(h)); localStorage.setItem('lhc_sbm_priv_on', JSON.stringify(pv)); } catch (e) {}
+    // The groups drawn for are switched on through the groups' own path.
+    if (mode !== 'mine') Object.keys(D.groups).forEach(function(g) { if (_sbmMyParts().indexOf(g) === -1) sbmLayerPart(g); });
+    _sbmPartsShown();
+  }
+  function sbmPrivToggle(key) {
+    var pv = _sbmPrivOn();
+    if (pv[key]) delete pv[key]; else pv[key] = true;
+    try { localStorage.setItem('lhc_sbm_priv_on', JSON.stringify(pv)); } catch (e) {}
+    _sbmPartsShown();
+  }
+  // Draw on this song, from the window: at the words, with the pen out.
+  function sbmLayersDraw() {
+    _sbmCloseSheet();
+    _sbmGuideGo();
+    if (!_sbmDraw) sbmDraw(true);
+  }
+  // The Drawings tile, beside Book Mode, with how many are kept on the song.
+  function _sbmDrawingsTile(song) {
+    if (_sbmMarksOk === false || !song) return '';
+    var n = _sbVerMarks(_sbmMarks[_sbBaseSongId(song)], song.versionId).length;
+    return '<button class="sbm-tile sbm-tile--draw" data-sbm-drawings="1" onclick="WO.sbmLayers()" title="Every drawing kept on this song: yours, everyone’s, each group’s and the private ones">' +
+      '<i class="fa-solid fa-pen-nib"></i>Drawings<span class="sbm-tile__count sbm-tile__count--draw"' + (n ? '' : ' hidden') + '>' + n + '</span></button>';
+  }
+  // ...its count, once the song's drawings have been read.
+  function _sbmDrawingsTileCount() {
+    var song = _sbmSong(), el = document.querySelector('#sbmRoot [data-sbm-drawings] .sbm-tile__count');
+    if (!song || !el) return;
+    var n = _sbVerMarks(_sbmMarks[_sbBaseSongId(song)], song.versionId).length;
+    el.textContent = String(n); el.hidden = !n;
   }
   // How the app knows who is drawing, said where it is used: nobody signs
   // in, so it is a name kept on this device -- given the first time someone
@@ -51779,8 +51910,8 @@ var WO = (function() {
     return '<details class="lay-how"><summary><i class="fa-solid fa-circle-question"></i>How does it know who I am?</summary>' +
       '<p>Nobody signs in. The first time someone draws on this phone or computer, the app asks their name (offering the names already drawing, then the roster\u2019s) and keeps it on this device. ' +
       'Every drawing made here carries that name, so the same name on another device brings your drawings back there.</p>' +
-      '<p>What you play or sing is what you choose under \u201cDrawings meant for\u201d: it decides which drawings meant for one part of the band you see. ' +
-      (kept ? 'It is kept with your name as well as on this device, so giving the same name on another device brings your parts back too, joined with any ticked there before; a change on one device reaches the others the next time they open the songbook or Layers. Until you give a name, they stay on this device. '
+      '<p>The groups you switch on under \u201cFor a group\u201d decide which drawings meant for one part of the band you see. ' +
+      (kept ? 'It is kept with your name as well as on this device, so giving the same name on another device brings your parts back too, joined with any ticked there before; a change on one device reaches the others the next time they open the songbook or Drawings. Until you give a name, they stay on this device. '
             : 'It is kept on this device. ') +
       'When you finish drawing, you choose who sees it: everyone, only you, or one part.</p>' +
       '<p>Lending your phone? Change the name first, or the drawings are made in yours.' +
@@ -52002,7 +52133,7 @@ var WO = (function() {
       });
     if (theirs && Date.now() - _sbmEraseWarnAt > 4000) {
       _sbmEraseWarnAt = Date.now();
-      showToast('That is ' + theirs + '’s drawing: only they can rub it out. Hide it under Layers.', 'info');
+      showToast('That is ' + theirs + '’s drawing: only they can rub it out. Hide it under Drawings.', 'info');
     }
   }
 
@@ -52799,14 +52930,6 @@ var WO = (function() {
   }
 
   // ---- lyric size: a size, not a zoom ----
-  function sbmScale(delta) {
-    _sbmScale = Math.min(1.8, Math.max(0.7, Math.round((_sbmScale + delta) * 10) / 10));
-    try { localStorage.setItem('lhc_sbm_scale', String(_sbmScale)); } catch (e) {}
-    var root = document.getElementById('sbmRoot');
-    if (root) root.style.setProperty('--sbm-lyrics-scale', String(_sbmScale));
-    var pct = document.getElementById('sbmPct');
-    if (pct) pct.textContent = Math.round(_sbmScale * 100) + '%';
-  }
 
   // ---- what the song carries ----
   // Each with where it comes from, so it can be taken off: src 'lib-doc' /
@@ -53269,6 +53392,110 @@ var WO = (function() {
       var b = row.querySelector('.sbm-rec__play');
       if (b) b.innerHTML = (mine && !p.audio.paused) ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>';
     });
+  }
+
+  // ---- the way to the words ----
+  //
+  // From the operator (2026-11-07): singers lose the words among the
+  // controls -- on a phone they start more than a screen below the top. A
+  // floater at the foot of the screen points the way while they are out of
+  // sight below, takes you there, and goes once you have arrived; it comes
+  // back only when you scroll up away from them again.
+  var _sbmGuideOn = false, _sbmGuideGoing = 0;
+  // Whether to point the way (pure): top and bottom are where the words
+  // themselves start and end -- the lyrics, or the score, not the card's
+  // heading -- measured from the top of the scroller; h is the scroller's
+  // height; was, whether it pointed until now. A phone opens with the card's
+  // heading in sight and not one line of the song, so a heading is not
+  // enough; a desk opens with a few lines in sight, and a floater over them
+  // would cover what it points to.
+  function _sbmGuideWant(top, bottom, h, was) {
+    if (!(h > 0) || typeof top !== 'number' || isNaN(top)) return false;
+    if (top >= 0 && bottom <= h) return false;   // all of them in sight already
+    if (h - top < 160) return true;              // a sliver of them in sight, or none
+    if (top < h * 0.4) return false;             // arrived: they fill the screen, or are past
+    return !!was;                                // in between: as it was
+  }
+  // What it points to, as the view mode calls it.
+  function _sbmGuideLabel(song) {
+    var view = _sbSongHasChoir(song) ? _sbChoirView(song) : (song.sbmLyricsMode || 'both');
+    return view === 'choir' ? 'Choir parts' : view === 'lyrics' ? 'Lyrics' : 'Chords & Lyrics';
+  }
+  function _sbmGuideUpdate() {
+    var modal = document.getElementById('songbookLiveModal'), root = document.getElementById('sbmRoot');
+    if (!modal || !root) return;
+    if (!root.__sbmGuide) {
+      root.__sbmGuide = true;
+      root.addEventListener('scroll', _sbmGuideCheck, { passive: true });
+      window.addEventListener('resize', _sbmGuideCheck);
+    }
+    var g = document.getElementById('sbmGuide');
+    if (!g) {
+      g = document.createElement('button');
+      g.type = 'button'; g.id = 'sbmGuide'; g.className = 'sbm sbm-guide';
+      g.addEventListener('click', _sbmGuideGo);
+      modal.appendChild(g);
+    }
+    var song = _sbmSong();
+    if (song) g.innerHTML = '<i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span>' + escapeHtml(_sbmGuideLabel(song)) + '</span>';
+    _sbmGuideCheck();
+    // Fonts and the chord fit move the card once more after the first paint.
+    setTimeout(_sbmGuideCheck, 450);
+  }
+  function _sbmGuideCheck() {
+    var g = document.getElementById('sbmGuide'); if (!g) return;
+    var root = document.getElementById('sbmRoot'), card = document.getElementById('sbmWordsCard'), want = false;
+    if (root && card && _sbmBookOpen() && _sbmActive() && !_sbmDraw && !_sbBkOpen() && Date.now() - _sbmGuideGoing > 2000) {
+      var words = card.querySelector('#sbmLyrics, .sbm-score') || card;
+      var r = root.getBoundingClientRect(), c = words.getBoundingClientRect();
+      want = _sbmGuideWant(c.top - r.top, c.bottom - r.top, r.height, _sbmGuideOn);
+    }
+    _sbmGuideOn = want;
+    g.classList.toggle('is-on', want);
+    g.setAttribute('aria-hidden', want ? 'false' : 'true');
+    g.tabIndex = want ? 0 : -1;
+  }
+  // To the words: the card's top just under the desk's sticky top bar.
+  function _sbmGuideGo() {
+    var root = document.getElementById('sbmRoot'), card = document.getElementById('sbmWordsCard');
+    if (!root || !card) return;
+    var bar = root.querySelector('.sbm-top'), pad = (bar && getComputedStyle(bar).position === 'sticky') ? bar.offsetHeight : 0;
+    var to = Math.max(0, root.scrollTop + card.getBoundingClientRect().top - root.getBoundingClientRect().top - pad - 8);
+    var smooth = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    _sbmGuideGoing = Date.now();
+    _sbmGuideCheck();   // gone at once, not after the scroll
+    try { root.scrollTo({ top: to, behavior: smooth ? 'smooth' : 'auto' }); } catch (e) { root.scrollTop = to; }
+  }
+
+  // ---- what another device changed, drawn at once ----
+  //
+  // From the operator (2026-11-07): one person moves the key, and it moves
+  // for everyone, immediately. The new key always reached the other devices
+  // -- the quick sync within a fifth of a second, the poll within two -- but
+  // the reading view drew it only when something else redrew it, so a
+  // singer's chords stayed in the old key. Now a key, the words or a version
+  // from elsewhere redraw the reading view and an open Book Mode, and the
+  // song in front says the key moved: chords that change under a singer
+  // with no word why are worse than chords that do not change. Patches come
+  // in bursts, so one redraw a moment after the last.
+  var _sbmRemoteT = 0, _sbmRemoteKey = null;
+  function _sbmRemoteRedraw(patches) {
+    var ids = Object.keys(patches || {}).filter(function(k) { var p = patches[k]; return p && (p.key || p.words || p.version); });
+    if (!ids.length || !_sbmBookOpen()) return;
+    var song = _sbmSong();
+    if (song && patches[song.id] && patches[song.id].key) _sbmRemoteKey = song.id;
+    clearTimeout(_sbmRemoteT);
+    _sbmRemoteT = setTimeout(function() {
+      if (!_sbmBookOpen()) return;
+      if (_sbmActive()) _sbmRender();
+      if (_sbBkOpen()) _sbBkRebuild();
+      var s1 = _sbmSong();
+      if (s1 && _sbmRemoteKey === s1.id) {
+        var k = _sbSungKey(s1), st = _sbmStepsOf(s1), sg = st > 0 ? '+' : '';
+        showToast('Key changed on another device: now ' + (k ? k + (st ? ' (' + sg + st + ')' : '') : (st ? sg + st + ' semitones' : 'the original key')), 'info');
+      }
+      _sbmRemoteKey = null;
+    }, 120);
   }
 
   // ---- actions that reach existing functions, then redraw this surface ----
@@ -54072,31 +54299,18 @@ var WO = (function() {
     if (!song || !song.songId || _sbStandaloneId || !currentOrderData) return [];
     return _sbmSongs().filter(function(s) { return s && s !== song && s.itemType !== 'blank' && s.songId === song.songId; });
   }
-  // On such a song: where else it is sung, that this copy's key, words and
-  // markings are its own, and whose drawings it shows -- they belong to the
-  // version it sings, so two copies on one version share them -- with the
-  // way to copy an arrangement onto it and, while it shares, to make its
-  // drawings its own.
-  function _sbmTwiceRibbon(song) {
-    var others = _sbmOtherCopies(song);
-    if (!others.length) return '';
-    var name = function(s) { return _sbmSectionLabel(s, true) || 'another part of the service'; };
-    var names = function(list) { return list.map(function(s) { return '<b>' + escapeHtml(name(s)) + '</b>'; }).join(' and '); };
-    // Each other copy's section is the way to it.
-    var where = others.map(function(s) {
-      return '<button class="sbm-twice__go" onclick="WO.sbmSelectSong(\'' + escapeJsArg(s.id) + '\')" title="Go to it">' + escapeHtml(name(s)) + '</button>';
-    }).join(' and ');
-    var same = others.filter(function(s) { return (s.versionId || '') === (song.versionId || ''); });
-    var v = song.versionId && _sbVerOk === true ? _sbVerById(_sbBaseSongId(song), song.versionId) : null;
-    var drawn = same.length
-      ? '; its drawings are shared with ' + names(same) + ' (' + (v ? '“' + escapeHtml(v.name) + '”' : song.versionId ? 'one version' : 'Standard') + ').'
-      : ', and so are its drawings.';
-    return '<div class="sbm-twice"><div class="sbm-twice__t"><i class="fa-solid fa-clone" aria-hidden="true"></i>' +
-      '<span>Also sung in ' + where + '. Key, words and markings here are this copy’s own' + drawn + '</span></div>' +
-      '<div class="sbm-twice__acts">' +
-        '<button onclick="WO.sbmArrangements()" title="Copy the way another copy, or an earlier service, sang it">Copy arrangement</button>' +
-        (same.length && _sbVerOk === true ? '<button onclick="WO.sbmOwnVersion()" title="Save this copy as a version of its own, so what is drawn on it stays on it">Own drawings</button>' : '') +
-      '</div></div>';
+  // A song sung twice in the service whose copies sing one version shares
+  // its drawings. That is said in the Drawings window, with the way to make
+  // this copy's its own; the notice under the song's title that said it, and
+  // where else it is sung, went on 2026-11-07 (the operator: it stood
+  // between a singer and the words). Copy an arrangement is under More.
+  function _sbmSharedDrawingsNote(song) {
+    if (_sbVerOk !== true || !song) return '';
+    var same = _sbmOtherCopies(song).filter(function(x) { return (x.versionId || '') === (song.versionId || ''); });
+    if (!same.length) return '';
+    var names = same.map(function(x) { return '<b>' + escapeHtml(_sbmSectionLabel(x, true) || 'another part of the service') + '</b>'; }).join(' and ');
+    return '<div class="lay-twice"><i class="fa-solid fa-clone" aria-hidden="true"></i><div class="lay-twice__t">Also sung in ' + names + ': the drawings here are shared with it.' +
+      '<button class="sbm-btn" onclick="WO.sbmCloseSheet();WO.sbmOwnVersion()" title="Save this copy as a version of its own, so what is drawn on it stays on it">Give this one its own drawings</button></div></div>';
   }
 
   // ---- copying an arrangement ----
@@ -54999,6 +55213,8 @@ var WO = (function() {
     // typed, so it waits for Enter, Esc or a tap elsewhere (gotcha 65).
     if (_sbNp && _sbNp.where === 'view' && _sbNp.el && _sbNp.el.isConnected) { _sbNp.renderAfter = true; return; }
     _sbmInit();
+    // The way to the words, once this render (whichever way it ends) is in.
+    setTimeout(_sbmGuideUpdate, 0);
     var modal = document.getElementById('songbookLiveModal');
     var root = document.getElementById('sbmRoot');
     if (!modal || !root) return;
@@ -55077,18 +55293,16 @@ var WO = (function() {
     if (nOther) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>' + nOther + ' link' + (nOther === 1 ? '' : 's') + '</span>';
     if (wide) badges += '<span class="sbm-badge sbm-badge--tap" onclick="WO.sbmContents()"><i class="fa-solid fa-list-ol"></i>' + (idx + 1) + ' of ' + list.length + '</span>';
     var mdHere = currentOrderData ? _woMedleyOf(song.id) : null;
-    songCard += '<div class="sbm-song__badges">' + badges + '</div>' + (mdHere ? _sbmMedleyRibbon(song, mdHere) : '') + _sbmTwiceRibbon(song) + '</div>';
+    songCard += '<div class="sbm-song__badges">' + badges + '</div>' + (mdHere ? _sbmMedleyRibbon(song, mdHere) : '') + '</div>';
 
     // -- toolbar --
     var toolbar = '<div class="sbm-toolbar">' +
       '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmShare()"><i class="fa-solid fa-share-nodes"></i>Share</button>' +
       '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbUndo();WO.sbmRedraw()"><i class="fa-solid fa-rotate-left"></i>Undo</button>' +
       (wide ? '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbRedo();WO.sbmRedraw()"><i class="fa-solid fa-rotate-right"></i>Redo</button>' : '') +
-      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbRefresh()"><i class="fa-solid fa-rotate"></i>Refresh</button>' +
-      '<div class="sbm-toolbar__rule"></div>' +
-      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmScale(-0.1)" aria-label="Smaller lyrics">A<sup>\u2212</sup></button>' +
-      '<div class="sbm-toolbar__pct" id="sbmPct">' + Math.round(_sbmScale * 100) + '%</div>' +
-      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbmScale(0.1)" aria-label="Larger lyrics">A<sup>+</sup></button></div>';
+      // The A- / 100% / A+ that sized the words went 2026-11-07 (the
+      // operator: too many controls between a singer and the words).
+      '<button class="sbm-btn sbm-btn--ghost" onclick="WO.sbRefresh()"><i class="fa-solid fa-rotate"></i>Refresh</button></div>';
 
     html += '<div class="sbm-stack">';
 
@@ -55102,9 +55316,11 @@ var WO = (function() {
     html += '<div class="sbm-card"><div class="sbm-two">' +
       '<div><div class="sbm-label"><i class="fa-solid fa-music"></i>Key / Transpose</div>' +
         '<div class="sbm-seg sbm-seg--xp">' +
-          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(-1)" aria-label="Transpose down a semitone">\u266d</button>' +
+          // The two steps are blue and large: the key is what a band changes
+          // most, and the grey glyphs were missed (2026-11-07).
+          '<button class="sbm-seg__btn sbm-xp-step" onclick="WO.sbmTranspose(-1)" aria-label="Transpose down a semitone" title="Down a semitone">\u266d</button>' +
           '<button class="sbm-seg__btn' + (steps === 0 ? ' is-on' : '') + '" onclick="WO.sbmTranspose(0)">' + (steps === 0 ? 'Original' : (steps > 0 ? '+' : '') + steps) + '</button>' +
-          '<button class="sbm-seg__btn" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone">\u266f</button></div>' +
+          '<button class="sbm-seg__btn sbm-xp-step" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone" title="Up a semitone">\u266f</button></div>' +
         (view !== 'lyrics' && view !== 'choir' ? '<div class="sbm-xp-hint"><i class="fa-solid fa-i-cursor" aria-hidden="true"></i>Select some lines in the song to move only those</div>' : '') + '</div>' +
       '<div class="sbm-sep"><div class="sbm-label"><i class="fa-solid fa-file-lines"></i>View mode</div>' +
         '<div class="sbm-seg sbm-seg--teal sbm-seg--view">' +
@@ -55139,6 +55355,8 @@ var WO = (function() {
       // The songbook full screen, at this song: drawn on with a double-click,
       // a line typed over by holding it (gotcha 64).
       '<button class="sbm-tile" onclick="WO.sbmBookMode()" title="Read the songbook full screen at this song. Double-click to draw; hold a line to type over it."><i class="fa-solid fa-book-open"></i>Book Mode</button>' +
+      // Every drawing kept on the song: whose, which show, who sees yours.
+      _sbmDrawingsTile(song) +
       '</div></div>';
 
     // -- choir parts --
@@ -55167,14 +55385,14 @@ var WO = (function() {
       var lyricsHtml = _sbmLyricsSource(song);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmTypeChip(noChords) + _sbmLayersChip() + '</div>' +
+      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmTypeChip(noChords) + _sbmLayersChip() + '</div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
     }
     // A song with no choir parts, in Choir: its words as they would stand,
     // every line sung by All, and the way to make that its arrangement.
     if (!hasChoir && view === 'choir') {
       var seed = V ? V.fromLyrics(song.customLyrics || song.lyrics || '') : [];
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts \u2014 ' + escapeHtml(song.title || '') + '</span></div>' +
+      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts \u2014 ' + escapeHtml(song.title || '') + '</span></div>' +
         '<div class="sbm-choir-start"><i class="fa-solid fa-people-group" aria-hidden="true"></i><div class="sbm-choir-start__t">' +
           '<b>No choir parts yet.</b> Set them up and every line starts as <b>All</b>; then change who sings what with Edit Parts, or a line\u2019s part chip.</div>' +
           (seed.length ? '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmChoirStart()"><i class="fa-solid fa-wand-magic-sparkles"></i>Set up choir parts</button>' : '') + '</div>' +
@@ -55182,7 +55400,7 @@ var WO = (function() {
     }
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true, !wide);
-      html += '<div class="sbm-card"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
+      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
         _sbmTogetherKey(score) +
         '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
@@ -64332,11 +64550,14 @@ var WO = (function() {
         if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
           song.richLyrics = inc.richLyrics;
           p.lyrics = true;
+          p.words = true;
           p.label = p.label || 'editing';
         }
 
         // ── Transpose ──────────────────────────────────────────────────────────
         if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
+          // A key that really moved -- not 0 arriving for a copy never moved.
+          if (inc.transposeSteps !== (parseInt(song.transposeSteps, 10) || 0)) p.key = true;
           song.transposeSteps = inc.transposeSteps;
           sbTransposeSteps[song.id] = inc.transposeSteps;
           p.lyrics = true;
@@ -64407,9 +64628,9 @@ var WO = (function() {
     });
 
     _sbLastRealtimeBroadcastTs = Date.now();
-    // The reading view draws from the song's state rather than being patched,
-    // so a version chosen elsewhere redraws it.
-    if (Object.keys(patches).some(function(k) { return patches[k].version; }) && _sbmActive()) _sbmRender();
+    // The reading view and Book Mode draw from the song's state rather than
+    // being patched, so a key, words or a version from elsewhere redraw them.
+    _sbmRemoteRedraw(patches);
 
     // ── Apply surgical patches (Google-Docs style — no full re-render) ─────────
     Object.keys(patches).forEach(function(songId) {
@@ -93048,7 +93269,7 @@ var WO = (function() {
     openSongbookByOrderId: openSongbookByOrderId,
     openSongbookStandalone: openSongbookStandalone,
     closeSongbook: closeSongbook,
-    sbmSelectSong: sbmSelectSong, sbmStep: sbmStep, sbmScale: sbmScale, sbmTranspose: sbmTranspose,
+    sbmSelectSong: sbmSelectSong, sbmStep: sbmStep, sbmTranspose: sbmTranspose,
     sbmView: sbmView, sbmPart: sbmPart, sbmRecord: sbmRecord, sbmEdit: sbmEdit, sbmPageView: sbmPageView,
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources, sbmVideos: sbmVideos,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
@@ -93075,7 +93296,7 @@ var WO = (function() {
     sbmRecMenu: sbmRecMenu, sbmRecRename: sbmRecRename, sbmRecMove: sbmRecMove, sbmRecMoveTo: sbmRecMoveTo, sbmRecDelete: sbmRecDelete, sbOverviewFor: sbOverviewFor,
     sbmPracPart: sbmPracPart, sbRecMoveFromPanel: sbRecMoveFromPanel,
     sbmDraw: sbmDraw, sbmDrawColour: sbmDrawColour, sbmDrawWeight: sbmDrawWeight, sbmDrawTool: sbmDrawTool, sbmDrawScroll: sbmDrawScroll, sbmDrawUndo: sbmDrawUndo, sbmAudience: sbmAudience, sbmLayerPart: sbmLayerPart,
-    sbmWho: sbmWho, sbmWhoSave: sbmWhoSave, sbmLayers: sbmLayers, sbmLayerToggle: sbmLayerToggle, sbmLayersAudience: sbmLayersAudience,
+    sbmWho: sbmWho, sbmWhoSave: sbmWhoSave, sbmLayers: sbmLayers, sbmLayersAll: sbmLayersAll, sbmLayersDraw: sbmLayersDraw, sbmPrivToggle: sbmPrivToggle, sbmLayerToggle: sbmLayerToggle, sbmLayersAudience: sbmLayersAudience,
     sbmLiveRefresh: sbmLiveRefresh, sbmLiveDismiss: sbmLiveDismiss, sbmLiveBanner: _sbmLiveBanner,
     sbmPhone: sbmPhone, sbmPhoneDevice: sbmPhoneDevice, sbmPhoneReload: sbmPhoneReload, sbmPhoneBoot: sbmPhoneBoot, sbmPhoneApply: sbmPhoneApply,
     sbmCut: sbmCut, sbmCutClose: sbmCutClose, sbmCutPickerChanged: sbmCutPickerChanged, sbmCutPlay: sbmCutPlay, sbmCutPlaySel: sbmCutPlaySel, sbmCutSetStart: sbmCutSetStart, sbmCutSetEnd: sbmCutSetEnd,
@@ -111474,15 +111695,13 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-badge--tap { cursor: pointer; }
 .sbm-badge--key { background: rgba(201,162,39,0.22); }
 
-/* ---- Toolbar: Share | Undo | Refresh || A- 100% A+ ---------------------- */
+/* ---- Toolbar: Share | Undo | Refresh (A- 100% A+ went 2026-11-07) ------ */
 .sbm-toolbar {
-  display: grid; grid-template-columns: 1.25fr 1.15fr 1.3fr 1px 0.8fr 0.95fr 0.8fr; gap: 5px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px;
   align-items: stretch; margin: 10px var(--sbm-gutter) 0;
 }
 .sbm-toolbar .sbm-btn { min-height: var(--sbm-touch); padding: 0 4px; font-size: 13px; gap: 5px; min-width: 0; }
 .sbm-toolbar .sbm-btn i { font-size: 13px; }
-.sbm-toolbar__rule { background: rgba(255,255,255,0.28); margin: 6px 0; }
-.sbm-toolbar__pct { display: flex; align-items: center; justify-content: center; font: 700 14px/1 var(--sbm-font-ui); min-width: 0; color: #fff; background: rgba(255,255,255,0.1); border-radius: var(--sbm-radius-md); border: 1px solid rgba(255,255,255,0.2); }
 
 /* ---- Cards --------------------------------------------------------------- */
 .sbm-stack { padding: 12px var(--sbm-gutter) 0; display: flex; flex-direction: column; gap: var(--sbm-space-md); }
@@ -111846,8 +112065,6 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm--wide .sbm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; padding: 0; }
 .sbm--wide .sbm-toolbar .sbm-btn--ghost { background: var(--sbm-card); border-color: var(--sbm-line); color: var(--sbm-navy); min-height: 40px; padding: 0 14px; }
 .sbm--wide .sbm-toolbar .sbm-btn--ghost:hover { background: var(--sbm-card-2); }
-.sbm--wide .sbm-toolbar__rule { width: 1px; height: 26px; background: var(--sbm-line); margin: 0 6px; }
-.sbm--wide .sbm-toolbar__pct { min-width: 54px; text-align: center; color: var(--sbm-navy); font: 700 14px/1 var(--sbm-font-ui); }
 .sbm--wide .sbm-card { padding: 18px 22px; }
 .sbm--wide .sbm-btn:hover, .sbm--wide .sbm-tile:hover, .sbm--wide .sbm-seg__btn:hover:not(.is-on), .sbm--wide .sbm-chip:hover:not(.is-on) { filter: brightness(0.96); }
 .sbm--wide .sbm-btn--ghost:hover { background: rgba(255,255,255,0.2); filter: none; }
@@ -112131,7 +112348,6 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 /* ---- Dark buttons with white text on the phone's navy, and a shorter key row ---- */
 .sbm-song__contents { background: var(--sbm-navy-ink); border-color: rgba(255,255,255,0.38); color: #fff; }
 #sbmRoot:not(.sbm--wide) .sbm-toolbar .sbm-btn--ghost { background: var(--sbm-navy-ink); border-color: rgba(255,255,255,0.32); color: #fff; }
-#sbmRoot:not(.sbm--wide) .sbm-toolbar__pct { color: #fff; }
 #sbmRoot:not(.sbm--wide) .sbm-seg__btn { min-height: 38px; }
 /* ---- The practice page's part chips, and a dated take ---------------- */
 .sbm-prac__partsCard .sbm-label { margin-bottom: 6px; }
@@ -112361,12 +112577,10 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-song__artist { font-size: 13.5px; }
 #sbmRoot:not(.sbm--wide) .sbm-song__badges { margin-top: 8px; gap: 5px; }
 #sbmRoot:not(.sbm--wide) .sbm-badge { min-height: 24px; padding: 0 8px; font-size: 11.5px; gap: 5px; }
-/* Share | Undo | Refresh | A- 100% A+ : 15px shorter */
+/* Share | Undo | Refresh : 15px shorter */
 #sbmRoot:not(.sbm--wide) .sbm-toolbar { margin-top: 8px; gap: 4px; }
 #sbmRoot:not(.sbm--wide) .sbm-toolbar .sbm-btn { min-height: 29px; font-size: 12px; gap: 4px; border-radius: 8px; }
 #sbmRoot:not(.sbm--wide) .sbm-toolbar .sbm-btn i { font-size: 11px; }
-#sbmRoot:not(.sbm--wide) .sbm-toolbar__pct { font-size: 12px; border-radius: 8px; }
-#sbmRoot:not(.sbm--wide) .sbm-toolbar__rule { margin: 4px 0; }
 /* the controls card: 10px shorter throughout */
 #sbmRoot:not(.sbm--wide) .sbm-stack { padding-top: 10px; gap: 10px; }
 #sbmRoot:not(.sbm--wide) .sbm-stack > .sbm-card + .sbm-card { margin-top: 0; }   /* the stack's gap is the space */
@@ -112742,22 +112956,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* Somebody else is editing the song: the tile says so, and its tap says who. */
 .sbm-tile--locked { color: #64748b; background: #f1f5f9; border-style: dashed; }
 /* A song the service sings more than once: where else, and what is its own. */
-.sbm-twice {
-  margin-top: 10px; padding: 8px 8px 8px 10px; border-radius: 10px;
-  background: rgba(96,165,250,0.16); border: 1px solid rgba(147,197,253,0.45); color: #fff; font: 500 13px/1.4 var(--sbm-font-ui);
-}
-.sbm-twice__t { display: flex; align-items: flex-start; gap: 8px; }
-.sbm-twice__t > i { color: #93c5fd; margin-top: 3px; }
-.sbm-twice__t b { font-weight: 700; }
-.sbm-twice__go {
-  display: inline; padding: 0; border: 0; background: none; color: #fff; cursor: pointer;
-  font: 700 13px/1.4 var(--sbm-font-ui); text-decoration: underline; text-decoration-color: rgba(147,197,253,0.8); text-underline-offset: 2px;
-}
-.sbm-twice__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.sbm-twice__acts button {
-  min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3);
-  background: rgba(255,255,255,0.1); color: #fff; font: 600 12px/1 var(--sbm-font-ui); cursor: pointer;
-}
 .arr-lead { margin: 0 0 12px; font: 500 13px/1.45 var(--sbm-font-ui); color: var(--sbm-text-2); }
 /* The song's video, in YouTube's red beside More. */
 .sbm-tile--yt { position: relative; color: #fff; background: linear-gradient(160deg, #ff4136, #d61f1f); border-color: transparent; box-shadow: 0 4px 12px rgba(214,31,31,0.28); }
@@ -112810,6 +113008,56 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* ---- Versions of a song ---- */
 .sbm-tile-row--7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 @media (max-width: 359px) { .sbm-tile-row--7 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* ---- The key's two steps, blue and big enough to find (2026-11-07) ---- */
+#sbmRoot .sbm-seg--xp { border-color: #1d4ed8; }
+#sbmRoot .sbm-seg--xp .sbm-seg__btn.sbm-xp-step {
+  flex: 0 0 auto; width: 30%; max-width: 64px; min-width: 44px; padding: 0;
+  background: #2563eb; color: #fff; border-left-color: #1d4ed8;
+  font: 700 24px/1 var(--sbm-font-ui);
+}
+#sbmRoot .sbm-seg--xp .sbm-seg__btn.sbm-xp-step:hover { background: #1d4ed8; filter: none; }
+#sbmRoot .sbm-seg--xp .sbm-seg__btn.sbm-xp-step:active { background: #1e40af; }
+#sbmRoot .sbm-seg--xp .sbm-seg__btn.sbm-xp-step:focus-visible { outline: 3px solid #93c5fd; outline-offset: -3px; }
+#sbmRoot:not(.sbm--wide) .sbm-seg--xp .sbm-seg__btn { min-height: 38px; }
+
+/* ---- The Drawings tile, beside Book Mode ---- */
+.sbm-tile--draw { position: relative; color: #5b21b6; }
+.sbm-tile--draw i { color: #7c3aed; }
+.sbm-tile__count--draw { background: #7c3aed; color: #fff; }
+.sbm-tile__count[hidden] { display: none; }
+
+/* ---- The Drawings window ---- */
+.lay-sum { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 14px; padding: 12px; border-radius: var(--sbm-radius-md); background: var(--sbm-surface, #f1f5f9); }
+.lay-sum__t { font: 500 14px/1.35 var(--sbm-font-ui); color: var(--sbm-text); }
+.lay-sum__t b { font-weight: 700; }
+.lay-sum__n { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #166534; font: 700 11.5px/1.4 var(--sbm-font-ui); }
+.lay-sum__acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.lay-sum__acts .sbm-btn { min-height: 38px; padding: 0 12px; font-size: 13px; }
+.who-part .lay-n { display: inline-block; min-width: 18px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: rgba(15,31,61,0.1); font-size: 11px; line-height: 1.4; text-align: center; }
+.who-part.is-on .lay-n { background: rgba(255,255,255,0.25); }
+.who-part.is-empty:not(.is-on) { color: var(--sbm-muted); }
+.lay-row--priv .lay-part i { margin-right: 4px; font-size: 10px; }
+.lay-twice { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; padding: 10px 12px; border-radius: var(--sbm-radius-md); border: 1px solid rgba(37,99,235,0.3); background: rgba(37,99,235,0.07); font: 500 13px/1.45 var(--sbm-font-ui); color: var(--sbm-text); }
+.lay-twice > i { color: #2563eb; margin-top: 3px; }
+.lay-twice__t .sbm-btn { display: flex; margin-top: 8px; min-height: 36px; padding: 0 12px; font-size: 12.5px; }
+
+/* ---- The way to the words: a floater while they are below ---- */
+.sbm-guide {
+  position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  display: inline-flex; align-items: center; gap: 9px; min-height: 46px; max-width: calc(100% - 32px); padding: 0 20px 0 16px;
+  border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  background: var(--sbm-gold); color: #1a1405; font: 700 15px/1 var(--sbm-font-ui);
+  box-shadow: 0 10px 28px rgba(4,12,30,0.38), 0 0 0 3px rgba(255,255,255,0.8);
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 18px);
+  transition: opacity .22s ease, transform .22s ease, visibility 0s linear .22s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sbm-guide.is-on { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); transition: opacity .22s ease, transform .22s ease, visibility 0s; }
+.sbm-guide i { font-size: 16px; animation: sbmGuideNudge 1.5s ease-in-out infinite; }
+.sbm-guide:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+@keyframes sbmGuideNudge { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .sbm-guide { transition: none; } .sbm-guide i { animation: none; } }
 .sbm-badge--ver { background: rgba(201,162,39,0.24); }
 .sbm-badge--ver i { color: var(--sbm-gold); }
 .sbm-share__h { margin: 6px 0 2px; }

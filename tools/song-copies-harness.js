@@ -177,11 +177,14 @@ check('it runs as an order opens, as the Songbook opens and redraws, and as the 
   has(/lcdRefreshLibrary: function\(\) \{\r?\n(\s*\/\/[^\n]*\r?\n)*\s*if \(_woSyncLibLinks\(\) && _sbmBookOpen\(\)\) renderSongbookLive\(\);/));
 
 console.log('\nIn the Songbook');
-check('a song sung twice says where else, on its card', has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ _sbmTwiceRibbon\(song\) \+ '<\/div>';/) &&
-  has(/'<span>Also sung in ' \+ where \+ '\. Key, words and markings here are this copy’s own' \+ drawn \+ '<\/span><\/div>'/));
-check('...offering Copy arrangement, and Own drawings while it shares them',
-  has(/onclick="WO\.sbmArrangements\(\)"[^>]*>Copy arrangement<\/button>/) &&
-  has(/\(same\.length && _sbVerOk === true \? '<button onclick="WO\.sbmOwnVersion\(\)"/));
+// The notice under the song's title went on 2026-11-07 (the operator: it
+// stood between a singer and the words). That the drawings are shared, and
+// Own drawings, are in the Drawings window; Copy an arrangement is in More.
+check('no notice on the song\'s card any more', has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ '<\/div>';/) &&
+  !has(/_sbmTwiceRibbon/) && !has(/sbm-twice/));
+check('...the Drawings window says a copy shares its drawings, and offers Own drawings',
+  has(/var same = _sbmOtherCopies\(song\)\.filter\(function\(x\) \{ return \(x\.versionId \|\| ''\) === \(song\.versionId \|\| ''\); \}\);/) &&
+  has(/onclick="WO\.sbmCloseSheet\(\);WO\.sbmOwnVersion\(\)"/) && has(/html \+= _sbmSharedDrawingsNote\(song\) \+ _sbmWhoNote\(\);/));
 check('Copy an arrangement is in More for any song of a service', has(/if \(song && order\) rows\.push\(\['fa-clone', 'Copy an arrangement/));
 check('copying is one step with Undo, saved like a version chosen',
   has(/var before = _sbArrSnap\(song\);\r?\n\s*_sbArrApply\(song, r\.src\);\r?\n\s*_sbVerSaved\(\);/) &&
