@@ -2176,6 +2176,15 @@ the anon key -- verify as `postgres`, not as the app.
     remark, then who sees it, Everyone (the default) marked -- with Try it
     now (`sbmLayersDraw`). `closeSongbook` closes any coach mark.
     `tools/songbook-coach-harness.js` checks them.
+    **On a phone (2026-11-07, measured, every browser).** The tiles stay one
+    row, but at 10px on one line "Book Mode" was wider than its tile on every
+    phone up to 430px and "YouTube" / "Drawings" up to 390-412px, so each ran
+    into the next: between 360 and 600px a label may break at its space, the
+    tile has no side padding, and the size is `clamp(8.5px, 2.45vw, 10px)`.
+    The four view modes were cut to "Ch...", "Lyri...", "Chords + Ly...",
+    "2 ..." beside the key: under 600px the short ones share a row and
+    Chords + Lyrics (`data-view="both"`) takes the next, in the room the
+    key's hint leaves, so the card is no taller.
 
 70. **The home page's two cards with chips are not buttons, and search is
     by the start of the title.** From the operator (2026-11-07). "Songs /
@@ -2213,6 +2222,56 @@ the anon key -- verify as `postgres`, not as the app.
     field to z-index 60 while it shows, because `#sfCommandHeader > *` puts
     every child of the search header at 1 and the filters come later.
     `tools/home-songs-search-harness.js` checks it.
+
+71. **Every phone and browser, not only Chrome.** Every iOS browser is
+    Safari underneath (Chrome on an iPhone included), and Samsung, Xiaomi
+    and Honor phones ship their own browser on an older Chromium. A review
+    on 2026-11-07 rendered the app in WebKit beside Chromium (Playwright,
+    with every non-GET request to Supabase refused at the network) and
+    found what Chrome forgives and they do not:
+    - **No regex lookbehind**, `(?<=` / `(?<!`: a SyntaxError on Safari
+      before 16.4, and a syntax error takes its whole `<script>` block
+      down. The one in `highlightChordsInLine` sat in a block of about
+      8,000 lines. Match the character and offset by its group instead.
+    - `.at()` (Chrome 92, Safari 15.4) is polyfilled by the FIRST script on
+      the page, ahead of Tailwind's runtime, which calls it too. Treat any
+      API from after about 2021 the same way.
+    - **Prefixes Safari still needs**, written beside the standard property:
+      `-webkit-backdrop-filter` (no blur at all before Safari 18),
+      `-webkit-user-select` (every Safari), `-webkit-mask-image` (Chrome
+      before 120), `-webkit-appearance`. `dvh` / `svh` need a `vh` line
+      before them, `color-mix()` a plain colour before it.
+    - **`getBoundingClientRect()` inside a CSS `zoom`** is what is on screen
+      in Chrome 128+, but the element's own pre-zoom px in Safari and in
+      Chromium before 128; `offsetWidth` is pre-zoom everywhere. Measure the
+      ratio, never assume either: the roster's pinned date header
+      (`_stickyScrollHandler`'s `syncAll`) was 21% too wide over the table
+      on iPhones. It is also on `<body>`, outside `#worshipRosterView`, so it
+      sets its widths `!important` in a fixed layout and checks them against
+      the real header on screen. LCD Projection's Fixed layout has the same
+      ratio (`_k`, `_screenTop`, `_ownRect`).
+    - `webkitRequestFullscreen` returns nothing, so `.catch` on its result
+      threw and stopped Book Mode before it laid out its pages. An iPhone has
+      no element fullscreen at all.
+    - The first script also, on iOS only: holds the viewport's
+      `maximum-scale` at 1 while a field is touched or focused, which stops
+      Safari zooming in on any field under 16px and leaving the page zoomed;
+      and gives a home-screen install `viewport-fit=cover`, without which iOS
+      reports every `env(safe-area-inset-*)` as 0 and the top bar sat under
+      the clock. `html.lhc-ios`, `html.lhc-standalone` say which.
+    - `color-scheme: only light` keeps the forced dark modes of Samsung,
+      Xiaomi, Honor and Chrome off a page that has no dark design.
+    - If jsDelivr cannot be reached, supabase-js comes from unpkg instead;
+      without it the whole app stopped at its first line.
+    - Icons come from Font Awesome's FREE set (6.5.1). A Pro name draws
+      nothing: the bottom bar's More was `fa-grid-2`, an empty square.
+    - Firefox could not be run on the review machine (Windows blocks the
+      Playwright build), so it was checked from the source only.
+    `tools/check-inline-scripts.py` cannot see any of this: Node parses what
+    Safari 15 cannot. `tools/browser-compat-harness.js` can.
+    Still open, by choice: `:has()` (13 rules) and `@container` (8) are
+    dropped by Chromium before 105 and Safari before 16; what they style
+    falls back to the plain layout.
 
 ## Quick Commands for Claude Code
 
