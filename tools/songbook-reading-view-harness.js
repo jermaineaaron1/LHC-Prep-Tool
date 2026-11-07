@@ -190,7 +190,9 @@ check('it stands down while drawing, in Book Mode, in Page view and while it is 
 check('a tap takes you to the words, past the desk\'s sticky bar, and it goes at once',
   /getComputedStyle\(bar\)\.position === 'sticky'/.test(go) && /_sbmGuideGoing = Date\.now\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(go) &&
   /root\.scrollTo\(\{ top: to, behavior: smooth \? 'smooth' : 'auto' \}\)/.test(go) && /prefers-reduced-motion: reduce/.test(go));
-check('it says where it goes, as the view mode calls it', /'Choir parts' : view === 'lyrics' \? 'Lyrics' : 'Chords & Lyrics'/.test(fn('_sbmGuideLabel')));
+// (2026-11-07, second pass: the operator wrote "Scroll down for Lyrics / chords" on it.)
+check('it says what to do: scroll down for the lyrics / chords (no chords in the Lyrics view)',
+  /return view === 'lyrics' \? 'Scroll down for lyrics' : 'Scroll down for lyrics \/ chords';/.test(fn('_sbmGuideLabel')));
 
 // --------------------------------------------------------- Drawings
 console.log('\nThe Drawings window');
@@ -270,6 +272,61 @@ check('a person\'s drawings for a group that is off say so on their row', /which
 check('the drawer is told what Only me now means', has(/Only me keeps it off everyone else’s song; they can still switch it on under Drawings\./) &&
   has(/aud === 'me' \? ': others see it only if they switch your private drawings on' : ''/));
 check('the new actions are reachable from the page', has(/sbmLayersAll: sbmLayersAll, sbmLayersDraw: sbmLayersDraw, sbmPrivToggle: sbmPrivToggle,/));
+
+// ---------------------------------------------- the second pass, same day
+// From a second marked-up screenshot: a take is played from any point of its
+// timeline ("can rewind / fast forward"); the key above the choir score goes;
+// a double-tap anywhere on the lyrics / chords draws. Asked, the operator
+// chose drawing over the double-click that edited a choir line in place.
+console.log('\nA take, from any point of it');
+let T = null;
+try {
+  T = new Function(['_sbmPlayerDur', '_sbmClampTime'].map(extractFn).join('\n') + '\nreturn { dur: _sbmPlayerDur, at: _sbmClampTime };')();
+} catch (e) { console.log('  (not present: ' + e.message + ')'); }
+if (!T) check('the take\'s length and a time in it are worked out by functions of their own', false);
+else {
+  check('the file\'s own length once known, else the length kept when it was recorded',
+    T.dur({ audio: { duration: 55.2 }, rec: { duration_sec: 50 } }) === 55.2 && T.dur({ audio: { duration: Infinity }, rec: { duration_sec: 50 } }) === 50 &&
+    T.dur({ audio: { duration: NaN }, rec: {} }) === 0 && T.dur(null) === 0);
+  check('a time lands inside the take: never before it, never past its end',
+    T.at(12.5, 55) === 12.5 && T.at(-3, 55) === 0 && T.at(80, 55) === 55 && T.at('x', 55) === 0 && T.at(9, 0) === 9);
+}
+const pr = fn('_sbmPracticeHtml');
+check('the timeline is a slider: dragged or tapped anywhere, its time shown while dragged, set when let go',
+  /<input type="range" class="sbm-player__range" min="0" max="0" step="0\.1" value="0" disabled aria-label="Where in the take" oninput="WO\.sbmSeekTo\(this, false\)" onchange="WO\.sbmSeekTo\(this, true\)">/.test(pr));
+check('...with ten seconds back and on beside the time', /onclick="WO\.sbmSkip\(-10\)"/.test(pr) && /onclick="WO\.sbmSkip\(10\)"/.test(pr) && /class="sbm-player__time"/.test(pr));
+const seek = fn('sbmSeekTo');
+check('a take not yet playing starts where it was set; one playing follows the finger',
+  /if \(done \|\| \(!a\.paused && a\.readyState >= 2\)\) \{ try \{ a\.currentTime = t; \} catch \(e\) \{\} \}/.test(seek) && /_sbmScrub = !done;/.test(seek));
+const paint = fn('_sbmPaintPlayer');
+check('while the thumb is held the file does not move it back, and a cancelled drag lets go',
+  /if \(!_sbmScrub\) _sbmPaintSeek\(_sbmClampTime\(a\.currentTime, dur\), dur\);/.test(paint) &&
+  /if \(_sbmScrub && document\.activeElement !== rg\) _sbmScrub = false;/.test(paint) && /rg\.disabled = !\(dur > 0\);/.test(paint));
+check('the old click-only strip is gone, and the new actions are on WO',
+  !has(/sbm-player__track/) && !has(/function sbmSeek\(/) && !has(/sbmSeek: sbmSeek/) && has(/sbmSeekTo: sbmSeekTo, sbmSkip: sbmSkip,/));
+check('the slider is big enough for a finger', has(/\.sbm-player__range \{[^}]*height: 30px;/) && has(/\.sbm-player__range::-webkit-slider-thumb \{ -webkit-appearance: none; width: 22px; height: 22px;/));
+
+console.log('\nThe choir score, without the key above it');
+check('no "Sing together / Waiting" key: the badge on each moment says it', !has(/_sbmTogetherKey/) && !has(/sbm-together-key/));
+
+console.log('\nA double-tap on the words draws');
+const bind = fn('_sbmDblBind'), dbl = fn('_sbmDblDraw'), card = fn('_sbmDblCard');
+check('bound once on the song view, at every render', has(/if \(!modal \|\| !root\) return;\r?\n\s*_sbmDblBind\(root\);/) && /root\.__sbmDbl = true;/.test(bind));
+check('a double-click, or two taps close in time and place on a phone',
+  /root\.addEventListener\('dblclick', function\(e\) \{ var c = _sbmDblCard\(e\.target\); if \(c\) _sbmDblDraw\(e\); \}\);/.test(bind) &&
+  /if \(T && now - T\.at < 350 && Math\.hypot\(e\.clientX - T\.x, e\.clientY - T\.y\) < 32\) \{ _sbmTap = null; _sbmDblDraw\(e\); \}/.test(bind) &&
+  /e\.pointerType !== 'touch' \|\| !d \|\| d\.moved \|\| Date\.now\(\) - d\.at > 400 \|\| _sbmDraw \|\| _sbNp/.test(bind));
+check('anywhere on a card of words, but not its chips, a button, a field or an instrument strip',
+  /t\.closest\('button, a, input, textarea, select, label, \[contenteditable="true"\], \.sbm-label, \.sbm-inst, \.sbm-xpsel'\)/.test(card) &&
+  /return \(card && card\.querySelector\('\.sbm-lyrics, \.sbm-score'\)\) \? card : null;/.test(card));
+check('the pen comes out once, however the double-tap arrives, and not over typing',
+  /if \(_sbmDraw \|\| _sbNp \|\| Date\.now\(\) - _sbmDblAt < 600\) return;/.test(dbl) && /if \(!_sbmDraw\) sbmDraw\(true\);/.test(dbl));
+check('the song view no longer edits a choir line where it sits; the printed pages still do',
+  has(/if \(window\.lhcVoiceEdit && !page\.closest\('#sbmRoot'\)\) \{/));
+check('...so it no longer offers "+ chords" there, and two taps are not a zoom',
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-chord-hint \{ display: none; \}/) && has(/#sbmRoot \.sbm-card \{ touch-action: manipulation; \}/) &&
+  !has(/for the double-click that changes the part \*\//));
+check('the Draw chip says so', has(/a ring, an arrow, a breath mark\. Or double-tap the words\. /));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {

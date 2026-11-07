@@ -51258,19 +51258,61 @@ var WO = (function() {
     for (var i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
     g.stroke(); g.globalAlpha = 1;
   }
-  // What the score's one mark means: the bar joins parts singing at once,
-  // and (-) is a part waiting while another sings. Shown only when the song
-  // has a moment of the first kind.
-  function _sbmTogetherKey(score) {
-    if (!score || score.indexOf('vl-sys--together') < 0) return '';
-    return '<div class="sbm-together-key">' +
-      '<span class="sbm-together-key__i"><span class="sbm-together-key__bar" aria-hidden="true"></span>Sing together: the parts on a purple bar sing at the same time</span>' +
-      '<span class="sbm-together-key__i"><span class="sbm-together-key__rest" aria-hidden="true">(&mdash;)</span>Waiting while another part sings</span></div>';
-  }
   function _sbmDrawChip() {
     if (_sbmMarksOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. ' +
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. Or double-tap the words. ' +
       (_sbmLayersOk === true ? 'When you finish, you choose who sees it.' : 'Everyone sees it.') + '"><i class="fa-solid fa-pen-nib"></i>' + (_sbmDraw ? 'Drawing\u2026' : 'Draw') + '</button>';
+  }
+
+  // ---- double-tap the words to draw ----
+  //
+  // From the operator (2026-11-07): a double-tap -- or a double-click --
+  // anywhere on the lyrics / chords card, or the choir parts card, starts
+  // drawing, as it does in Book Mode (gotcha 64). Asked, they chose it over
+  // the double-click that edited a choir line where it sat, so the song view
+  // no longer binds lhcVoiceEdit (sbBindChoirRecorders); a line is edited in
+  // Overview edit or Edit Parts, and the printed pages keep their own. A
+  // phone has no double-click (gotcha 28): two taps close in time and place
+  // count as one, and touch-action keeps them from zooming the page.
+  var _sbmTap = null, _sbmTapDown = null, _sbmDblAt = 0;
+  // The card a double-tap draws on, or null: a card of words (the ones that
+  // take drawings, _sbmMarkCards), not its heading row of chips, nor a
+  // button, field or instrument strip in it.
+  function _sbmDblCard(t) {
+    if (!t || !t.closest) return null;
+    if (t.closest('button, a, input, textarea, select, label, [contenteditable="true"], .sbm-label, .sbm-inst, .sbm-xpsel')) return null;
+    var card = t.closest('#sbmRoot .sbm-card');
+    return (card && card.querySelector('.sbm-lyrics, .sbm-score')) ? card : null;
+  }
+  function _sbmDblBind(root) {
+    if (!root || root.__sbmDbl) return;
+    root.__sbmDbl = true;
+    root.addEventListener('dblclick', function(e) { var c = _sbmDblCard(e.target); if (c) _sbmDblDraw(e); });
+    root.addEventListener('pointerdown', function(e) {
+      _sbmTapDown = (e.pointerType === 'touch' && e.isPrimary !== false) ? { x: e.clientX, y: e.clientY, at: Date.now(), moved: false } : null;
+    });
+    root.addEventListener('pointermove', function(e) {
+      var d = _sbmTapDown; if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) d.moved = true;
+    }, { passive: true });
+    root.addEventListener('pointercancel', function() { _sbmTapDown = null; _sbmTap = null; });
+    root.addEventListener('pointerup', function(e) {
+      var d = _sbmTapDown; _sbmTapDown = null;
+      if (e.pointerType !== 'touch' || !d || d.moved || Date.now() - d.at > 400 || _sbmDraw || _sbNp || !_sbmDblCard(e.target)) { _sbmTap = null; return; }
+      var now = Date.now(), T = _sbmTap;
+      if (T && now - T.at < 350 && Math.hypot(e.clientX - T.x, e.clientY - T.y) < 32) { _sbmTap = null; _sbmDblDraw(e); }
+      else _sbmTap = { at: now, x: e.clientX, y: e.clientY };
+    });
+  }
+  // The pen comes out, once for the two ways a double-tap can arrive.
+  function _sbmDblDraw(e) {
+    if (_sbmDraw || _sbNp || Date.now() - _sbmDblAt < 600) return;
+    _sbmDblAt = Date.now();
+    if (e && e.preventDefault) e.preventDefault();
+    try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
+    _sbmMarksSupport().then(function(ok) {
+      if (!ok) { showToast('Drawing is not set up on this database yet', 'error'); return; }
+      if (!_sbmDraw) sbmDraw(true);
+    });
   }
 
   // ---- drawing ----
@@ -53355,35 +53397,74 @@ var WO = (function() {
     var p = audio.play(); if (p && p.catch) p.catch(function() {});
     _sbmPaintPlayer();
   }
-  function sbmSeek(ev) {
-    if (!_sbmPlayer || !_sbmPlayer.audio) return;
-    var track = ev.currentTarget, r = track.getBoundingClientRect();
-    var x = (ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX) - r.left;
-    var frac = Math.max(0, Math.min(1, x / r.width));
-    var a = _sbmPlayer.audio;
-    if (isFinite(a.duration)) a.currentTime = frac * a.duration;
+  // How long the take in the player is: the file's own length once it is
+  // known, else the length kept when it was recorded.
+  function _sbmPlayerDur(p) {
+    var a = p && p.audio; if (!a) return 0;
+    return (isFinite(a.duration) && a.duration > 0) ? a.duration : (Number(p.rec && p.rec.duration_sec) || 0);
+  }
+  // Where a time lands in a take (pure): never before its start or past its end.
+  function _sbmClampTime(t, dur) {
+    t = Number(t); if (!(t > 0)) return 0;
+    return (dur > 0 && t > dur) ? dur : t;
+  }
+  // The timeline dragged (done false: the thumb and the time follow the
+  // finger, and a take that is playing follows it too) or let go (done
+  // true). A take not loaded far enough to seek starts there when it plays:
+  // a time set before the file is read is where it begins.
+  var _sbmScrub = false;
+  function sbmSeekTo(el, done) {
+    var p = _sbmPlayer; if (!p || !p.audio || !el) return;
+    var dur = _sbmPlayerDur(p), t = _sbmClampTime(parseFloat(el.value), dur), a = p.audio;
+    _sbmScrub = !done;
+    if (done || (!a.paused && a.readyState >= 2)) { try { a.currentTime = t; } catch (e) {} }
+    _sbmPaintSeek(t, dur);
+    if (done) _sbmPaintPlayer();
+  }
+  // Ten seconds back or on.
+  function sbmSkip(sec) {
+    var p = _sbmPlayer; if (!p || !p.audio) return;
+    var a = p.audio;
+    try { a.currentTime = _sbmClampTime((a.currentTime || 0) + sec, _sbmPlayerDur(p)); } catch (e) {}
+    _sbmPaintPlayer();
+  }
+  // The timeline's thumb, its filled part and the time beside it.
+  function _sbmPaintSeek(t, dur) {
+    var box = document.getElementById('sbmPlayer'); if (!box) return;
+    var r = box.querySelector('.sbm-player__range'), tm = box.querySelector('.sbm-player__time');
+    if (r) {
+      r.max = String(dur > 0 ? dur : 0);
+      if (!_sbmScrub) r.value = String(t);
+      r.style.setProperty('--sbm-at', (dur > 0 ? Math.min(100, (t / dur) * 100) : 0).toFixed(1) + '%');
+    }
+    if (tm) tm.textContent = _sbFmtDur(t) + ' / ' + _sbFmtDur(dur);
   }
   function _sbmPaintPlayer() {
     var box = document.getElementById('sbmPlayer'); if (!box) return;
     var p = _sbmPlayer;
     var song = _sbmSong();
     var btn = box.querySelector('.sbm-player__btn'), nm = box.querySelector('.sbm-player__name'),
-        pt = box.querySelector('.sbm-player__part'), fill = box.querySelector('.sbm-player__fill'),
-        tm = box.querySelector('.sbm-player__time');
+        pt = box.querySelector('.sbm-player__part'), rg = box.querySelector('.sbm-player__range');
     box.classList.toggle('sbm-player--idle', !p);
+    // A drag that ended with no change event (cancelled by a scroll) lets go
+    // once the timeline has lost the focus.
+    if (_sbmScrub && document.activeElement !== rg) _sbmScrub = false;
+    var dur = p ? _sbmPlayerDur(p) : 0;
+    if (rg) rg.disabled = !(dur > 0);
+    Array.prototype.forEach.call(box.querySelectorAll('.sbm-player__skip'), function(b) { b.disabled = !(dur > 0); });
     if (!p) {
       if (btn) { btn.innerHTML = '<i class="fa-solid fa-play"></i>'; btn.disabled = true; }
       if (nm) nm.textContent = 'Choose a recording';
       if (pt) pt.textContent = '';
-      if (fill) fill.style.width = '0';
-      if (tm) tm.textContent = '0:00 / 0:00';
+      _sbmScrub = false;
+      _sbmPaintSeek(0, 0);
     } else {
-      var a = p.audio, dur = isFinite(a.duration) ? a.duration : (p.rec.duration_sec || 0);
+      var a = p.audio;
       if (btn) { btn.disabled = false; btn.innerHTML = a.paused ? '<i class="fa-solid fa-play"></i>' : '<i class="fa-solid fa-pause"></i>'; }
       if (nm) nm.textContent = song ? _sbmTakeTitle(p.rec, song, _sbmRecs[_sbBaseSongId(song)] || []) : (p.rec.name || 'Recording');
       if (pt) pt.textContent = song ? _sbmTakeSub(p.rec, song) : '';
-      if (fill) fill.style.width = (dur ? (a.currentTime / dur) * 100 : 0) + '%';
-      if (tm) tm.textContent = _sbFmtDur(a.currentTime) + ' / ' + _sbFmtDur(dur);
+      // While the thumb is held, the finger says where it is, not the file.
+      if (!_sbmScrub) _sbmPaintSeek(_sbmClampTime(a.currentTime, dur), dur);
     }
     var list = document.getElementById('sbmRecList');
     if (list) Array.prototype.forEach.call(list.querySelectorAll('.sbm-rec'), function(row) {
@@ -53416,10 +53497,11 @@ var WO = (function() {
     if (top < h * 0.4) return false;             // arrived: they fill the screen, or are past
     return !!was;                                // in between: as it was
   }
-  // What it points to, as the view mode calls it.
+  // What it says (the operator, 2026-11-07: "Scroll down for Lyrics / chords"):
+  // the choir score has words and chords too; the Lyrics view has no chords.
   function _sbmGuideLabel(song) {
     var view = _sbSongHasChoir(song) ? _sbChoirView(song) : (song.sbmLyricsMode || 'both');
-    return view === 'choir' ? 'Choir parts' : view === 'lyrics' ? 'Lyrics' : 'Chords & Lyrics';
+    return view === 'lyrics' ? 'Scroll down for lyrics' : 'Scroll down for lyrics / chords';
   }
   function _sbmGuideUpdate() {
     var modal = document.getElementById('songbookLiveModal'), root = document.getElementById('sbmRoot');
@@ -55218,6 +55300,7 @@ var WO = (function() {
     var modal = document.getElementById('songbookLiveModal');
     var root = document.getElementById('sbmRoot');
     if (!modal || !root) return;
+    _sbmDblBind(root);
     modal.classList.add('sbm-on');
     root.style.setProperty('--sbm-lyrics-scale', String(_sbmScale));
 
@@ -55402,7 +55485,6 @@ var WO = (function() {
       var score = _sbChoirBodyHtml(song, true, !wide);
       html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
           '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
-        _sbmTogetherKey(score) +
         '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
@@ -55485,7 +55567,13 @@ var WO = (function() {
     return '<div class="sbm-card" id="sbmPractice"><div class="sbm-label"><i class="fa-solid fa-music"></i>Practice tracks<span class="sbm-practice__sel"></span></div>' +
       '<div class="sbm-player" id="sbmPlayer"><button class="sbm-player__btn" onclick="WO.sbmPlayToggle()"><i class="fa-solid fa-play"></i></button>' +
         '<div style="min-width:0;"><div class="sbm-player__name"></div><div class="sbm-player__part"></div>' +
-        '<div class="sbm-player__bar"><div class="sbm-player__track" onclick="WO.sbmSeek(event)"><div class="sbm-player__fill"></div></div><div class="sbm-player__time"></div></div></div></div>' +
+        // The timeline is dragged, or tapped, to any point of the take -- before
+        // it plays or while it does -- and the two buttons go back and on ten
+        // seconds (the operator, 2026-11-07: "can rewind / fast forward").
+        '<div class="sbm-player__bar"><input type="range" class="sbm-player__range" min="0" max="0" step="0.1" value="0" disabled aria-label="Where in the take" oninput="WO.sbmSeekTo(this, false)" onchange="WO.sbmSeekTo(this, true)"></div>' +
+        '<div class="sbm-player__ctl"><button type="button" class="sbm-player__skip" onclick="WO.sbmSkip(-10)" aria-label="Back ten seconds" disabled><i class="fa-solid fa-rotate-left"></i>10s</button>' +
+          '<div class="sbm-player__time"></div>' +
+          '<button type="button" class="sbm-player__skip" onclick="WO.sbmSkip(10)" aria-label="On ten seconds" disabled>10s<i class="fa-solid fa-rotate-right"></i></button></div></div></div>' +
       '<div class="sbm-recs" id="sbmRecList"></div>' +
       '<div class="sbm-pair"><button class="sbm-btn" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record a take</button>' +
       '<button class="sbm-btn" onclick="WO.sbmImport()"><i class="fa-solid fa-file-import"></i>Import audio</button></div></div>';
@@ -62817,8 +62905,9 @@ var WO = (function() {
       window.lhcVoiceRec.bind(page, songId);
       // Edit a line where it sits. Re-reads and redraws on save, so the
       // grouping and the alignment are recomputed from the rows rather than
-      // patched in the DOM.
-      if (window.lhcVoiceEdit) {
+      // patched in the DOM. Not in the song view: there a double-tap draws
+      // (the operator, 2026-11-07; _sbmDblBind).
+      if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {
         window.lhcVoiceEdit.bind(page, songId, function() {
           window.SBQ_VOICE_LINES.forSong(songId).then(function(fresh) {
             _sbVoiceLines[songId] = fresh || [];
@@ -93278,7 +93367,7 @@ var WO = (function() {
     sbmBrowse: sbmBrowse, sbmFind: sbmFind, sbmBrowseSave: sbmBrowseSave,
     sbmPasteFound: sbmPasteFound,
     sbmBrowseRemove: sbmBrowseRemove,
-    sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeek: sbmSeek, sbmImport: sbmImport,
+    sbmPlay: sbmPlay, sbmPlayToggle: sbmPlayToggle, sbmSeekTo: sbmSeekTo, sbmSkip: sbmSkip, sbmImport: sbmImport,
     sbmShare: sbmShare, sbmRedraw: sbmRedraw, sbmInstRecord: sbmInstRecord,
     // Step 2: the inbox, adding a song, medleys
     openSongbookInbox: openSongbookInbox, sbmInbox: sbmInbox, sbmInboxAttach: sbmInboxAttach,
@@ -111748,9 +111837,21 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-player__name { font: 700 17px/1.2 var(--sbm-font-serif); color: var(--sbm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sbm-player--idle .sbm-player__name { font: 500 15px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); }
 .sbm-player__part { font: 500 13px/1.2 var(--sbm-font-ui); color: var(--sbm-muted); margin-top: 2px; }
-.sbm-player__bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.sbm-player__track { flex: 1 1 auto; height: 8px; border-radius: 4px; background: rgba(15,31,61,0.12); position: relative; cursor: pointer; }
-.sbm-player__fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 4px; background: var(--sbm-teal); }
+.sbm-player__bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+/* The take's timeline: dragged or tapped to any point (2026-11-07). */
+.sbm-player__range { flex: 1 1 auto; min-width: 0; width: 100%; height: 30px; margin: 0; padding: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; --sbm-at: 0%; }
+.sbm-player__range:disabled { cursor: default; opacity: 0.55; }
+.sbm-player__range::-webkit-slider-runnable-track { height: 8px; border-radius: 99px; background: linear-gradient(90deg, var(--sbm-teal) var(--sbm-at), rgba(15,31,61,0.14) var(--sbm-at)); }
+.sbm-player__range::-moz-range-track { height: 8px; border-radius: 99px; background: rgba(15,31,61,0.14); }
+.sbm-player__range::-moz-range-progress { height: 8px; border-radius: 99px; background: var(--sbm-teal); }
+.sbm-player__range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -7px; border-radius: 50%; background: #fff; border: 3px solid var(--sbm-teal); box-shadow: 0 1px 5px rgba(11,25,48,0.3); }
+.sbm-player__range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 3px solid var(--sbm-teal); box-shadow: 0 1px 5px rgba(11,25,48,0.3); }
+.sbm-player__range:disabled::-webkit-slider-thumb { border-color: var(--sbm-muted); }
+.sbm-player__range:focus-visible { outline: 2px solid var(--sbm-teal); outline-offset: 2px; border-radius: 6px; }
+.sbm-player__ctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.sbm-player__skip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-text); font: 700 12px/1 var(--sbm-font-ui); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sbm-player__skip i { font-size: 12px; color: var(--sbm-teal); }
+.sbm-player__skip:disabled { opacity: 0.45; cursor: default; }
 .sbm-player__time { font: 600 13px/1 var(--sbm-font-ui); color: var(--sbm-text-2); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .sbm-recs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .sbm-rec {
@@ -112682,8 +112783,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot .sbm-score .vl-score .vl-sys-lines { border-left: 0; padding-left: 0; gap: 0; }
 #sbmRoot .sbm-score .vl-score .vl-ln { padding: 1px 4px; row-gap: 0; background: transparent; }
 #sbmRoot .sbm-score .vl-score .vl-ln--same > .vl-who { visibility: hidden; }
-/* under the mouse it comes back faintly, for the double-click that changes the part */
-#sbmRoot.sbm--wide .sbm-score .vl-score .vl-ln--same[data-line-id]:hover > .vl-who { visibility: visible; opacity: 0.45; }
 #sbmRoot .sbm-score .vl-score .vl-who { height: 20px; line-height: 20px; padding: 0 7px; margin: 0; font-size: 10px; border-radius: 4px; }
 #sbmRoot .sbm-score .vl-score .vl-body { font-size: var(--vl-text); line-height: 1.4; color: #000; }
 #sbmRoot .sbm-score .vl-score .vl-words { font-weight: 700; }
@@ -112746,10 +112845,6 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; background: #7c3aed; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-sys-lines { padding-left: 11px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-sys--together > .vl-sys-lines::before { left: 2px; width: 3px; }
-.sbm-together-key { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 600 12px/1.35 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); }
-.sbm-together-key__i { display: inline-flex; align-items: center; gap: 7px; }
-.sbm-together-key__bar { flex: 0 0 auto; width: 4px; height: 18px; border-radius: 4px; background: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.10); }
-.sbm-together-key__rest { flex: 0 0 auto; color: #94a3b8; font-weight: 400; letter-spacing: 0.1em; }
 /* ...and the panel says it in words, on a badge over its top edge */
 #sbmRoot .sbm-score .vl-score .vl-sys--together { margin-top: 16px; }
 #sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-sys-lines { padding-top: 10px; }
@@ -113058,6 +113153,13 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-guide:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 @keyframes sbmGuideNudge { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
 @media (prefers-reduced-motion: reduce) { .sbm-guide { transition: none; } .sbm-guide i { animation: none; } }
+
+/* ---- A double-tap on the words draws (2026-11-07) ---- */
+/* Two taps are the gesture, not a zoom; the song view's score no longer
+   edits a line where it sits, so it no longer offers "+ chords" there. */
+#sbmRoot .sbm-card { touch-action: manipulation; }
+#sbmRoot .sbm-score .vl-score .vl-chord-hint { display: none; }
+#sbmRoot .vl-chords--edit .vl-chord-text { cursor: inherit; }
 .sbm-badge--ver { background: rgba(201,162,39,0.24); }
 .sbm-badge--ver i { color: var(--sbm-gold); }
 .sbm-share__h { margin: 6px 0 2px; }

@@ -128,9 +128,11 @@ check('the reading view joins them with a bar on a soft panel, keeping the bar\'
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys-lines \{ position: relative; padding-left: 12px; \}/) &&
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-sys-lines \{ background: rgba\(124, 58, 237, 0\.06\);/) &&
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-sys-lines::before \{ content: ""; position: absolute;/));
-check('...and says what the bar means above the score, when the song has one',
-  has(/function _sbmTogetherKey\(score\) \{\r?\n\s*if \(!score \|\| score\.indexOf\('vl-sys--together'\) < 0\) return '';/) &&
-  has(/Sing together: the parts on a purple bar sing at the same time/) && has(/_sbmTogetherKey\(score\) \+\r?\n\s*'<div class="sbm-score sb-song-page--choir" id="sbChoirPage-'/));
+// The key above the score that explained the bar went on 2026-11-07 (the
+// operator marked it "remove"): the badge on each such moment says it.
+check('...with no key above the score: the badge on the moment says it',
+  !has(/_sbmTogetherKey/) && !has(/sbm-together-key/) &&
+  has(/data-choir-song="' \+ escapeHtml\(_sbBaseSongId\(song\)\) \+ '">' \+\r?\n\s*_sbPartColourCss\(song\) \+ \(score \|\| '<p class="sbm-empty">Loading the choir parts/));
 check('...and each such moment carries a "Sing together" badge on its top edge, with room kept for it',
   has(/\.vl-sys--together > \.vl-sys-lines::after \{\r?\n\s*content: "Sing together"; position: absolute; top: -8px;/) &&
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together \{ margin-top: 16px; \}/));
