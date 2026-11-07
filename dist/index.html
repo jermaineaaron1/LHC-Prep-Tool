@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>LHC Worship Prep — Song Finder, Roster & Orders</title>
   <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=0.5,maximum-scale=4,user-scalable=yes" />
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="only light" />
   <!-- "Add to Home Screen" / shortcut experience -->
   <meta name="theme-color" content="#188e44" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -13,6 +13,82 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="/manifest.json" />
   <base target="_top" />
+
+  <!-- ================================================================
+       EVERY PHONE AND BROWSER. Runs before anything else on the page.
+       1. .at() for browsers that predate it (Chrome 92, Safari 15.4). The
+          app and the Tailwind runtime both call it, and several Android
+          makers (Xiaomi, Honor, older Samsung) ship an older Chromium.
+       2. iPhone / iPad: Safari zooms the page in on a field whose text is
+          under 16px and leaves it zoomed, so the page looks cut off after
+          typing. Chrome never does. While a field is being touched or is
+          focused, the viewport's maximum-scale is held at 1, which turns
+          that zoom off and nothing else; pinch-zoom is untouched the rest
+          of the time (gotcha 71 in CLAUDE.md).
+       3. Installed on an iPhone's home screen, the page runs under a
+          see-through status bar (black-translucent). The top and bottom
+          bars already leave room with env(safe-area-inset-*), but iOS
+          reports those only to a page that asks to cover the screen.
+       ================================================================ -->
+  <script>
+  (function () {
+    function at(n) {
+      n = Math.trunc(n) || 0;
+      if (n < 0) n += this.length;
+      if (n < 0 || n >= this.length) return undefined;
+      return this[n];
+    }
+    var protos = [Array.prototype, String.prototype];
+    if (typeof Int8Array !== 'undefined' && Object.getPrototypeOf) protos.push(Object.getPrototypeOf(Int8Array.prototype));
+    protos.forEach(function (p) {
+      if (p && !p.at) { try { Object.defineProperty(p, 'at', { value: at, writable: true, configurable: true }); } catch (e) {} }
+    });
+
+    var ua = navigator.userAgent || '';
+    var iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!iOS) return;
+    var root = document.documentElement;
+    root.classList.add('lhc-ios');
+    var meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    var base = meta.getAttribute('content') || '';
+    if (navigator.standalone === true) {
+      root.classList.add('lhc-standalone');
+      if (!/viewport-fit/.test(base)) base += ',viewport-fit=cover';
+      meta.setAttribute('content', base);
+    }
+    var held = base.replace(/maximum-scale=[\d.]+/, 'maximum-scale=1');
+    if (held === base) held = base + ',maximum-scale=1';
+    var NOT_TYPED = /^(button|submit|reset|checkbox|radio|range|color|file|image|hidden)$/i;
+    function typed(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+      if (el.tagName === 'INPUT') return !NOT_TYPED.test(el.type || '');
+      return !!el.isContentEditable;
+    }
+    var on = false, timer = null;
+    function hold() {
+      clearTimeout(timer);
+      if (!on) { on = true; meta.setAttribute('content', held); }
+    }
+    function release(ms) {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        if (typed(document.activeElement)) return;
+        on = false; meta.setAttribute('content', base);
+      }, ms);
+    }
+    document.addEventListener('touchstart', function (e) {
+      if (e.touches && e.touches.length > 1) return;            // a pinch
+      var vv = window.visualViewport;
+      if (vv && vv.scale > 1.05) return;                        // zoomed by hand: leave it
+      var t = e.target;
+      if (typed(t) || (t && t.closest && t.closest('label'))) { hold(); release(1500); }
+    }, { capture: true, passive: true });
+    document.addEventListener('focusin', function (e) { if (typed(e.target)) hold(); }, true);
+    document.addEventListener('focusout', function () { release(400); }, true);
+  })();
+  </script>
 
   <!-- Deep-link parameters for media sharing -->
   <script>
@@ -37,6 +113,12 @@
 
   <!-- Supabase client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // jsDelivr unreachable (a weak phone signal, a network that blocks it):
+    // without the library the whole app stops at its first line, so try a
+    // second CDN before anything else runs.
+    if (!window.supabase) document.write('<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');
+  </script>
 
   <!-- ================================================================
        PHONE VIEW. The songbook's "Phone view" opens this same page in a
@@ -785,6 +867,16 @@
 
     /* ==================== BASE STYLES ==================== */
     html { height: 100%; margin: 0; overflow-x: hidden; }
+    /* The same page on every phone. Tailwind's reset sets these too, but
+       only once its script has run. color-scheme: only light keeps the
+       forced dark modes of Samsung, Xiaomi and Honor browsers off a page
+       that has no dark design; text-size-adjust stops iOS enlarging text
+       when the phone is turned sideways. */
+    :root { color-scheme: only light; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+    /* An iPhone home-screen app covers the screen (viewport-fit=cover, set
+       by the first script), so turned sideways it keeps clear of the notch. */
+    html.lhc-standalone body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
     body { min-height: 100%; margin: 0; overflow-x: hidden; }
     body {
       font-family: "Lato", system-ui, -apple-system, sans-serif;
@@ -849,7 +941,7 @@
       transition: all 170ms ease-out;
       white-space: nowrap;
       cursor: pointer;
-      user-select: none;
+      -webkit-user-select: none; user-select: none;
     }
     .lhc-pill-button:hover {
       background: #f9fafb;
@@ -885,7 +977,7 @@
       background: #ffffff;
       color: #374151;
       font-family: inherit; font-size: 0.85rem; font-weight: 600;
-      text-align: left; cursor: pointer; user-select: none;
+      text-align: left; cursor: pointer; -webkit-user-select: none; user-select: none;
       transition: all 170ms ease-out;
       -webkit-tap-highlight-color: transparent;
     }
@@ -1078,7 +1170,7 @@
       inset: 0;
       z-index: 9999;
       background: rgba(0,0,0,0.25);
-      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
       display: none;
       align-items: center;
       justify-content: center;
@@ -1873,7 +1965,7 @@
       letter-spacing: 0.5px;
     }
     .form-select {
-      appearance: none;
+      -webkit-appearance: none; appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 12px center;
@@ -2525,7 +2617,7 @@
         position: static;
         inset: auto;
         background: none;
-        backdrop-filter: none;
+        -webkit-backdrop-filter: none; backdrop-filter: none;
         display: block;
         z-index: auto;
         padding: 0;
@@ -3576,7 +3668,7 @@
     /* ---- Enablers: the duty card, seen before it is sent ---- */
     .en-dc-back { position: fixed; inset: 0; z-index: 9800; background: rgba(15,23,42,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
     .en-dc {
-      width: 100%; max-width: 440px; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden;
+      width: 100%; max-width: 440px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden;
       background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.3); font-family: 'Poppins', sans-serif;
     }
     .en-dc__head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: linear-gradient(135deg, #0d9488, #14b8a6); color: #fff; }
@@ -3610,7 +3702,7 @@
     .en-dc__nophone { font-size: 12px; color: #6b7280; line-height: 1.5; }
     @media (max-width: 600px) {
       .en-dc-back { align-items: flex-end; padding: 0; }
-      .en-dc { max-width: none; border-radius: 16px 16px 0 0; max-height: 92dvh; padding-bottom: env(safe-area-inset-bottom, 0px); }
+      .en-dc { max-width: none; border-radius: 16px 16px 0 0; max-height: 92vh; max-height: 92dvh; padding-bottom: env(safe-area-inset-bottom, 0px); }
     }
 
     /* ---- Enablers: the question asked before changing someone's contact ---- */
@@ -3630,7 +3722,7 @@
       .enabler-date-pill { font-size: 10px; padding: 2px 6px; }
       /* Enablers modal overlay: no side padding on small phones */
       #enablersModal { padding: 0 !important; }
-      #enablersModal > div { border-radius: 0; min-height: 100dvh; }
+      #enablersModal > div { border-radius: 0; min-height: 100vh; min-height: 100dvh; }
       /* Content area: reduce horizontal padding */
       #enablersContent { padding: 12px 12px !important; }
     }
@@ -3870,7 +3962,7 @@
       outline: none;
       box-shadow: 0 4px 12px rgba(20, 184, 166, 0.2);
       cursor: pointer;
-      appearance: none;
+      -webkit-appearance: none; appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2314b8a6' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 8px center;
@@ -4054,7 +4146,7 @@
       inset: 0;
       z-index: 10000;
       background: rgba(15, 23, 42, 0.45);
-      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
       display: none;
       align-items: center;
       justify-content: center;
@@ -4085,7 +4177,7 @@
       inset: 0;
       z-index: 10000;
       background: rgba(15, 23, 42, 0.5);
-      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
       display: none;
       align-items: flex-start;
       justify-content: center;
@@ -4623,7 +4715,7 @@
       .rmp-date-jump {
         position: sticky; top: 0; z-index: 5; margin-bottom: 10px; padding: 6px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(52px,1fr); gap: 5px; overflow-x: auto;
         border: 1px solid #bfd2c9; border-radius: 12px;
-        background: rgba(239,246,242,.97); backdrop-filter: blur(2px);
+        background: rgba(239,246,242,.97); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
         box-shadow: 0 6px 13px rgba(22,63,48,.12), inset 0 1px 0 #fff;
       }
       .rmp-date-jump button {
@@ -4814,6 +4906,7 @@
       .wo-preview-panel:not(.wo-preview-collapsed) { transform: translateX(0) !important; }
       .wo-preview-header { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
       .wo-preview-actions { flex-wrap: nowrap; overflow-x: auto; gap: 6px; -webkit-overflow-scrolling: touch; padding-bottom: 3px; }
+      .wo-preview-actions { scrollbar-width: none; }
       .wo-preview-actions::-webkit-scrollbar { display: none; }
       .wo-text-btn, .wo-bg-btn, .wo-golive-btn, .wo-live-present-btn { flex-shrink: 0; padding: 7px 11px; font-size: 0.78rem; }
       .wo-preview-screen { min-height: 200px !important; padding: 20px; }
@@ -4937,6 +5030,7 @@
         overflow-x: visible;
         padding-bottom: 2px;
       }
+      #lyricsPreviewToolbar > div { scrollbar-width: none; }
       #lyricsPreviewToolbar > div::-webkit-scrollbar { display: none; }
       /* The action row reads as a distinct second line, not a wrapped tail. */
       #lyricsPreviewToolbar > .lp-row-actions {
@@ -4995,9 +5089,9 @@
       #previewModal .modal-content {
         width: 100% !important;
         max-width: 100% !important;
-        height: 97dvh !important;
+        height: 97vh !important; height: 97dvh !important;
         height: 97vh !important;
-        max-height: 97dvh !important;
+        max-height: 97vh !important; max-height: 97dvh !important;
         max-height: 97vh !important;
         border-radius: 16px 16px 0 0 !important;
         margin: 0 !important;
@@ -5243,7 +5337,7 @@
       display: none;
       position: fixed; inset: 0;
       background: rgba(15,23,42,0.28);
-      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
       z-index: 600;
     }
     #lhcNotifOverlay.open { display: block; animation: overlayFadeIn 0.22s ease both; }
@@ -5421,7 +5515,7 @@
     /* ==================== PHASE 2: IMPROVED LOADING OVERLAY ==================== */
     #loadingIndicator {
       background: rgba(15,23,42,0.3) !important;
-      backdrop-filter: blur(8px) !important;
+      -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
     }
     .lhc-loader-card {
       background: white;
@@ -6858,21 +6952,21 @@
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterThemeDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Key</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose key filter" onclick="toggleFilterKeyDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterKeyDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
+                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose key filter" onclick="toggleFilterKeyDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterKeyDropdown();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
                 <div id="filterKeyDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:160px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Style</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose style filter" onclick="toggleFilterStyleDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterStyleDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
+                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose style filter" onclick="toggleFilterStyleDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterStyleDropdown();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
                 <div id="filterStyleDropdown" class="theme-dropdown hidden" style="z-index:300;min-width:240px;padding:8px 0;">
                   <!-- populated by populateStyleFilterDropdown() -->
                 </div>
@@ -6881,21 +6975,21 @@
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Feel</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterTempoDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose feel filter" onclick="toggleFilterTempoDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterTempoDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterTempoDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose feel filter" onclick="toggleFilterTempoDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterTempoDropdown();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterTempoDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-leaf" aria-hidden="true"></i> Season</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterSeasonDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-book-bible" aria-hidden="true"></i> Scripture</label>
               <div id="filterScriptureWrap" style="position:relative;">
-                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Choose scripture filter" onclick="openBiblePickerModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBiblePickerModal();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Choose scripture filter" onclick="openBiblePickerModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBiblePickerModal();}" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <!-- Selected passage chips shown below -->
                 <div id="filterScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;"></div>
               </div>
@@ -9198,7 +9292,7 @@
   .link-item i.fa-google-drive { color: #4285f4; }
   .link-item i.fa-youtube { color: #ff0000; }
   .link-item .link-info { flex: 1; min-width: 0; }
-  .link-item .link-name { font-weight: 600; color: #334155; truncate; }
+  .link-item .link-name { font-weight: 600; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .link-item .link-ext { font-size: 10px; color: #64748b; text-transform: uppercase; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
   .link-item .link-actions { display: flex; gap: 6px; }
   .link-item .link-btn { padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; color: #475569; }
@@ -10083,7 +10177,7 @@
     #addSongModal, #editSongModal { padding: 0 !important; align-items: flex-end; }
     #addSongModal .asm-content, #editSongModal .asm-content {
       width: 100% !important; max-width: 100% !important;
-      max-height: 97dvh; height: 97dvh;
+      max-height: 97vh; max-height: 97dvh; height: 97vh; height: 97dvh;
       border-radius: 20px 20px 0 0 !important;
       padding: 0 !important;
       overflow: hidden;
@@ -10191,7 +10285,7 @@
 
 /* Page break between sections */
 .lb2-page-break {
-  width: 210mm; display: flex; align-items: center; padding: 18px 0; user-select: none;
+  width: 210mm; display: flex; align-items: center; padding: 18px 0; -webkit-user-select: none; user-select: none;
 }
 .lb2-page-break-inner { display: flex; align-items: center; width: 100%; gap: 8px; }
 .lb2-page-break-line { flex: 1; height: 2px; background: repeating-linear-gradient(90deg, #86efac 0, #86efac 8px, transparent 8px, transparent 14px); border-radius: 2px; }
@@ -10452,7 +10546,7 @@
               <div class="asm-field">
                 <label class="form-label">Style / Category</label>
                 <div class="theme-multiselect" style="position:relative;">
-                  <div id="newSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('new')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+                  <div id="newSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('new')" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
                   <div id="newSongStyleDropdown" class="theme-dropdown hidden" style="z-index:600;min-width:240px;padding:6px 0;"></div>
                 </div>
                 <input type="hidden" id="newSongCategory" value="">
@@ -10907,7 +11001,7 @@
               <div class="asm-field">
                 <label class="form-label">Style / Category</label>
                 <div class="theme-multiselect" style="position:relative;">
-                  <div id="editSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('edit')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+                  <div id="editSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('edit')" style="-webkit-user-select:none; user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
                   <div id="editSongStyleDropdown" class="theme-dropdown hidden" style="z-index:600;min-width:240px;padding:6px 0;"></div>
                 </div>
                 <input type="hidden" id="editSongCategory" value="">
@@ -11756,7 +11850,7 @@ I once was lost but now am found"
     background:#1a2540;border-radius:10px;padding:5px 9px;
     border:1.5px solid rgba(148,163,184,0.35);
     box-shadow:0 6px 24px rgba(0,0,0,0.55),0 1px 0 rgba(255,255,255,0.06);
-    align-items:center;gap:4px;pointer-events:auto;user-select:none;">
+    align-items:center;gap:4px;pointer-events:auto;-webkit-user-select:none; user-select:none;">
     <button class="sbft-btn" id="sbftBold"   onclick="WO.sbToggleBold()"      title="Bold"><b>B</b></button>
     <button class="sbft-btn" id="sbftItalic" onclick="WO.sbToggleItalic()"    title="Italic"><em>I</em></button>
     <button class="sbft-btn" id="sbftUline"  onclick="WO.sbToggleUnderline()" title="Underline"><u>U</u></button>
@@ -11779,7 +11873,7 @@ I once was lost but now am found"
   <!-- ── Custom confirm modal (replaces browser confirm()) ──────────────── -->
   <div id="sbConfirmModal" style="display:none;position:fixed;inset:0;z-index:9990;
     align-items:flex-end;justify-content:center;padding:0 16px 48px;
-    background:rgba(0,0,0,0.45);backdrop-filter:blur(2px);">
+    background:rgba(0,0,0,0.45);-webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);">
     <div style="background:#1e293b;border-radius:16px;padding:22px 24px 20px;max-width:380px;width:100%;
       box-shadow:0 12px 40px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.07);">
       <div id="sbConfirmTitle" style="font-size:0.95rem;font-weight:700;color:#f1f5f9;margin-bottom:7px;font-family:'Poppins',sans-serif;"></div>
@@ -12196,7 +12290,7 @@ I once was lost but now am found"
   </div>
 
   <!-- ==================== LYRICS PARSE MODAL (661) ==================== -->
-  <div id="sbParseModal" style="display:none;position:fixed;inset:0;z-index:3300;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+  <div id="sbParseModal" style="display:none;position:fixed;inset:0;z-index:3300;background:rgba(15,23,42,0.7);-webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);align-items:center;justify-content:center;">
     <div style="background:white;border-radius:16px;width:min(720px,96vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
       <!-- Header -->
       <div style="padding:16px 20px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
@@ -20569,7 +20663,7 @@ function renderRichEditor(text) {
   function highlightChordsInLine(line, escFn) {
     // Match chord tokens: root [#b]? + any quality suffix, handling slash chords
     // Uses the same comprehensive pattern as the transpose engine
-    var chordPattern = /(?:^|(?<=[ (]))([A-G][#b]?(?:(?:m(?:aj|in|M)?|M(?:aj)?|dim|aug|sus|add|dom|no|alt)(?:[0-9]{0,2})?|[0-9]{1,2})?(?:[#b][0-9]{0,2})?(?:sus[24]?)?(?:\/[A-G][#b]?(?:m(?:aj)?)?[0-9]{0,2})?)/g;
+    var chordPattern = /(^|[ (])([A-G][#b]?(?:(?:m(?:aj|in|M)?|M(?:aj)?|dim|aug|sus|add|dom|no|alt)(?:[0-9]{0,2})?|[0-9]{1,2})?(?:[#b][0-9]{0,2})?(?:sus[24]?)?(?:\/[A-G][#b]?(?:m(?:aj)?)?[0-9]{0,2})?)/g;
 
     // Process the line to highlight chords while preserving spacing
     var result = '';
@@ -20577,13 +20671,16 @@ function renderRichEditor(text) {
     var match;
 
     while ((match = chordPattern.exec(line)) !== null) {
-      // Add any text/spaces before this chord
-      if (match.index > lastIndex) {
-        result += escFn(line.substring(lastIndex, match.index));
+      // The space or bracket before a chord is matched (group 1) rather
+      // than looked behind at: a lookbehind is a syntax error on Safari
+      // before 16.4 (iOS 16.3 and older), and the error took this whole
+      // script block down with it.
+      var chordAt = match.index + match[1].length;
+      if (chordAt > lastIndex) {
+        result += escFn(line.substring(lastIndex, chordAt));
       }
-      // Add the highlighted chord
-      result += '<span class="editor-chord">' + escFn(match[0]) + '</span>';
-      lastIndex = match.index + match[0].length;
+      result += '<span class="editor-chord">' + escFn(match[2]) + '</span>';
+      lastIndex = chordAt + match[2].length;
     }
 
     // Add any remaining text after the last chord
@@ -28264,7 +28361,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         if (matchedOrder) {
           html += '<button class="home-order-link has-order" data-order-id="' + escapeHtml(matchedOrder.id) + '"><i class="fa-solid fa-file-lines"></i> View Order</button>';
         } else {
-          html += '<button class="home-order-link home-create-order-btn" data-date="' + escapeHtml(day.dateStr) + '" data-name="' + escapeHtml(day.name || day.dateStr) + '" data-liturgical="' + escapeHtml(day.name || '') + '"><i class="fa-solid fa-plus"></i> + Order</button>';
+          html += '<button class="home-order-link home-create-order-btn" data-date="' + escapeHtml(day.dateStr) + '" data-name="' + escapeHtml(day.name || day.dateStr) + '" data-liturgical="' + escapeHtml(day.name || '') + '"><i class="fa-solid fa-plus"></i> Order</button>';
         }
         html += '<button class="home-wa-share-btn" data-date="' + escapeHtml(day.dateStr) + '" data-name="' + escapeHtml(day.name || '') + '" data-color="' + escapeHtml(day.color || 'Green') + '" title="Share roster graphic via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>';
         html += '</div></th>';
@@ -29347,6 +29444,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var _deepView = (window.__DEEPLINK_VIEW || '').trim();
     if (_deepView === 'practice')         setActiveView('practiceGameView');
     if (_deepView === 'worshipOrderView' && !_isShareLaunch) setActiveView('worshipOrderView');
+    if ((_deepView === 'songFinderView' || _deepView === 'worshipRosterView' || _deepView === 'liturgyView') &&
+        !_isShareLaunch && !_isDeepLinkLaunch) setActiveView(_deepView);
 
     // Handle ?view=roster&rmonth=&ryear= deep-link — opens straight to the live
     // duty roster for that month (used by the roster's "Share Live Link" button)
@@ -38525,6 +38624,14 @@ var WO = (function() {
     // this is an exact no-op and the arithmetic is unchanged.
     var _z = _lcdFixedZoom || 1;
     function _own(visualPx) { return visualPx / _z; }
+    // ...but getBoundingClientRect() from INSIDE the zoomed console is post-
+    // zoom only in Chrome 128+. Safari (and the Chromium before 128 in
+    // Samsung, Xiaomi and Honor browsers) reports the console's own px, its
+    // top included. _k is which: _z in the first, 1 in the second.
+    var _k = _z;
+    if (_z !== 1 && mc.offsetWidth > 0) { var _mcw = mc.getBoundingClientRect().width; if (_mcw > 0) _k = _mcw / mc.offsetWidth; }
+    function _ownRect(rectPx) { return rectPx / _k; }
+    function _screenTop(el) { return el.getBoundingClientRect().top * (_z / _k); }
     var cols = [document.getElementById('lcdLibraryPanel'), document.getElementById('woWorshipOrder')];
     var windowed = !mc.classList.contains('wo-song-order')
       && !document.body.classList.contains('lcd-workspace-fullscreen')
@@ -38534,7 +38641,7 @@ var WO = (function() {
           || document.body.classList.contains('lcd-fixed-layout'));
     var h = '';
     if (windowed) {
-      h = Math.max(420, Math.round(_own(window.innerHeight - mc.getBoundingClientRect().top - 10))) + 'px';
+      h = Math.max(420, Math.round(_own(window.innerHeight - _screenTop(mc) - 10))) + 'px';
     }
     // Only the two long lists are capped. They are lists -- scrolling inside
     // them is the point.
@@ -38579,11 +38686,11 @@ var WO = (function() {
     var lower = pp && pp.querySelector('.lcd-lower-row');
     if (outputs) {
       if (windowed) {
-        var band = Math.max(420, Math.round(_own(window.innerHeight - mc.getBoundingClientRect().top - 10)));
+        var band = Math.max(420, Math.round(_own(window.innerHeight - _screenTop(mc) - 10)));
         var chrome = 0;
         Array.prototype.slice.call(pp.children).forEach(function(c) {
           if (c === outputs || c === lower) return;
-          chrome += _own(c.getBoundingClientRect().height);
+          chrome += _ownRect(c.getBoundingClientRect().height);
         });
         var avail = band - chrome - 24;
         // The editor and output never drop below this, so a big media library
@@ -39374,7 +39481,7 @@ var WO = (function() {
 
       // ── Media & Links parking section ──────────────────────────────────────
       '.wo-parking-wrap{margin:12px 0 6px;border:1.5px solid #dce8fb;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(24,142,68,.07);}',
-      '.wo-parking-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(135deg,#f0f4fb 0%,#e8eef8 100%);cursor:pointer;user-select:none;transition:background .15s;}',
+      '.wo-parking-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(135deg,#f0f4fb 0%,#e8eef8 100%);cursor:pointer;-webkit-user-select:none; user-select:none;transition:background .15s;}',
       '.wo-parking-hdr:hover{background:linear-gradient(135deg,#e4ecf8 0%,#dce6f5 100%);}',
       '.wo-parking-hdr-left{display:flex;align-items:center;gap:7px;flex:1;min-width:0;}',
       '.wo-parking-inbox-icon{color:#188e44;font-size:.9rem;}',
@@ -39400,7 +39507,7 @@ var WO = (function() {
       '.wo-lc-empty{text-align:center;padding:24px 16px;color:#9ca3af;display:flex;flex-direction:column;align-items:center;gap:8px;}',
       '.wo-lc-empty i{font-size:2rem;opacity:.5;}',
       '.wo-lc-empty p{font-size:.8rem;margin:0;}',
-      '.wo-lc-card{display:flex;align-items:center;gap:8px;border-radius:10px;padding:8px 10px 8px 4px;transition:transform .12s,box-shadow .12s,opacity .15s;position:relative;user-select:none;}',
+      '.wo-lc-card{display:flex;align-items:center;gap:8px;border-radius:10px;padding:8px 10px 8px 4px;transition:transform .12s,box-shadow .12s,opacity .15s;position:relative;-webkit-user-select:none; user-select:none;}',
       '.wo-lc-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.1);transform:translateY(-1px);}',
       '.wo-lc-card.wo-lc-dragging{opacity:.35;transform:scale(.96);}',
       // Drag handle — visible grip strip on the left, touch-action:none stops iOS scroll from this element
@@ -48691,7 +48798,7 @@ var WO = (function() {
       var isActive = window.__playlistActiveIdx === idx;
 
       html += '<div class="playlist-item" data-idx="' + idx + '" draggable="true"' +
-        ' style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:' + (isActive ? '#edf9f4' : 'white') + ';border:1.5px solid ' + (isActive ? '#0e9f6e' : '#e2e8f0') + ';border-radius:10px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;user-select:none;"' +
+        ' style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:' + (isActive ? '#edf9f4' : 'white') + ';border:1.5px solid ' + (isActive ? '#0e9f6e' : '#e2e8f0') + ';border-radius:10px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;-webkit-user-select:none; user-select:none;"' +
         ' onclick="togglePlaylistEmbed(' + idx + ')">';
 
       // Drag handle
@@ -55854,7 +55961,7 @@ var WO = (function() {
     var view = hasChoir ? _sbChoirView(song) : (song.sbmLyricsMode || 'both');
     var cols = song.sbLyricsColumns === 2;
     var seg = function(val, label, on) {
-      return '<button class="sbm-seg__btn' + (on ? ' is-on' : '') + '" onclick="WO.sbmView(\'' + val + '\')">' + label + '</button>';
+      return '<button class="sbm-seg__btn' + (on ? ' is-on' : '') + '" data-view="' + val + '" onclick="WO.sbmView(\'' + val + '\')">' + label + '</button>';
     };
     html += '<div class="sbm-card"><div class="sbm-two">' +
       '<div><div class="sbm-label"><i class="fa-solid fa-music"></i>Key / Transpose</div>' +
@@ -61149,7 +61256,7 @@ var WO = (function() {
              ' data-cont-h="' + contentH + '"' +
              ' style="position:relative;height:' + contentH + 'px;">' +
           '<div class="sb-page-lyrics" style="transform:translateY(-' + offset + 'px);' +
-               'pointer-events:none;user-select:none;" aria-hidden="true">' +
+               'pointer-events:none;-webkit-user-select:none; user-select:none;" aria-hidden="true">' +
             lyricsHtml +
           '</div>' +
           '<svg class="sb-draw-svg" id="' + svgId + '"' +
@@ -71971,7 +72078,7 @@ var WO = (function() {
         tile.appendChild(inner);
 
         var badge = document.createElement('div');
-        badge.style.cssText = 'position:absolute;bottom:8px;right:12px;font-size:0.62rem;color:#94a3b8;font-family:sans-serif;pointer-events:none;user-select:none;';
+        badge.style.cssText = 'position:absolute;bottom:8px;right:12px;font-size:0.62rem;color:#94a3b8;font-family:sans-serif;pointer-events:none;-webkit-user-select:none; user-select:none;';
         badge.textContent = (pi + 1) + ' / ' + totalPages;
         tile.appendChild(badge);
 
@@ -72004,7 +72111,7 @@ var WO = (function() {
     // Request true browser fullscreen
     var req = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.mozRequestFullScreen;
     if (req) {
-      req.call(overlay).catch(function() {});
+      try { var _fsReqP = req.call(overlay); if (_fsReqP && _fsReqP.catch) _fsReqP.catch(function() {}); } catch (e) {}
     }
     requestAnimationFrame(function() {
       _sbFsCalcFit();
@@ -89711,13 +89818,13 @@ var WO = (function() {
       var pptIframe = _selectedPptContainer.querySelector('iframe');
       if (pptIframe) {
         var req = pptIframe.requestFullscreen || pptIframe.webkitRequestFullscreen || pptIframe.mozRequestFullScreen;
-        if (req) { req.call(pptIframe).catch(function(){}); return; }
+        if (req) { try { var _fsReqP = req.call(pptIframe); if (_fsReqP && _fsReqP.catch) _fsReqP.catch(function(){}); } catch (e) {} return; }
       }
       // Fallback: fullscreen the preview panel's iframe
       var previewIframe = document.querySelector('#woPreviewScreen iframe');
       if (previewIframe) {
         var req2 = previewIframe.requestFullscreen || previewIframe.webkitRequestFullscreen;
-        if (req2) { req2.call(previewIframe).catch(function(){}); return; }
+        if (req2) { try { var _fsReqP2 = req2.call(previewIframe); if (_fsReqP2 && _fsReqP2.catch) _fsReqP2.catch(function(){}); } catch (e) {} return; }
       }
     }
     // Build unified slide list: song/liturgy boxes + PPT thumbnail slides, in DOM order
@@ -89826,7 +89933,7 @@ var WO = (function() {
 
     // True browser fullscreen (works during user gesture)
     var req = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.mozRequestFullScreen;
-    if (req) req.call(overlay).catch(function(){});
+    if (req) { try { var _fsReqP = req.call(overlay); if (_fsReqP && _fsReqP.catch) _fsReqP.catch(function(){}); } catch (e) {} }
 
     _wofsRender();
     _wofsRenderFilmstrip();
@@ -102476,7 +102583,7 @@ function filterLiturgyItems() {
   .roster-filter-btn { padding: 6px 12px; font-size: 11px; font-weight: 600; border-radius: 8px; border: 1px solid #e2e8f0; background: white; color: #475569; cursor: pointer; transition: all 0.2s ease; font-family: "Poppins", sans-serif; }
   .roster-filter-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
   .roster-filter-btn.active { background: linear-gradient(135deg, var(--roster-teal-dark), var(--roster-teal)); color: white; border-color: transparent; }
-  .roster-month-select, .roster-year-select { padding: 6px 28px 6px 10px; font-size: 14px; font-weight: 600; font-family: "Poppins", sans-serif; border: 2px solid #e2e8f0; border-radius: 8px; background: white; color: #475569; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; background-size: 14px; }
+  .roster-month-select, .roster-year-select { padding: 6px 28px 6px 10px; font-size: 14px; font-weight: 600; font-family: "Poppins", sans-serif; border: 2px solid #e2e8f0; border-radius: 8px; background: white; color: #475569; cursor: pointer; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; background-size: 14px; }
   .roster-month-select:hover, .roster-year-select:hover { border-color: var(--roster-teal); }
   .roster-month-select:focus, .roster-year-select:focus { outline: none; border-color: var(--roster-teal); box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15); }
   .roster-context-menu { position: fixed; z-index: 10001; background: white; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); padding: 8px 0; min-width: 220px; display: none; font-family: "Poppins", sans-serif; }
@@ -102848,7 +102955,7 @@ function filterLiturgyItems() {
   .wo-asl-size-wrap:focus-within { border-color: #188e44; }
   .wo-asl-size-input { width: 38px; border: none; outline: none; font-size: 0.78rem; font-family: 'Poppins', sans-serif; color: #374151; background: transparent; text-align: center; -moz-appearance: textfield; }
   .wo-asl-size-input::-webkit-inner-spin-button, .wo-asl-size-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-  .wo-asl-size-label { font-size: 0.7rem; color: #9ca3af; font-family: 'Poppins', sans-serif; user-select: none; }
+  .wo-asl-size-label { font-size: 0.7rem; color: #9ca3af; font-family: 'Poppins', sans-serif; -webkit-user-select: none; user-select: none; }
   .wo-asl-fmt-btn { width: 28px; height: 28px; border: 1px solid #d1d5db; border-radius: 5px; background: white; cursor: pointer; font-size: 0.88rem; color: #374151; display: flex; align-items: center; justify-content: center; transition: background 0.15s, border-color 0.15s; padding: 0; }
   .wo-asl-fmt-btn:hover { background: #d4f3e7; border-color: #188e44; }
   .wo-asl-fmt-btn b { font-weight: 800; }
@@ -103978,7 +104085,7 @@ function filterLiturgyItems() {
     align-items: flex-start;
     gap: 6px;
     cursor: pointer;
-    user-select: none;
+    -webkit-user-select: none; user-select: none;
     transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
     min-height: 60px;
   }
@@ -104365,7 +104472,7 @@ function filterLiturgyItems() {
   .wo-close-fullscreen:hover { color: white; }
   .wofs-indicator { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: rgba(255,255,255,0.18); font-family: 'Poppins', sans-serif; z-index: 2; letter-spacing: .12em; font-weight: 300; transition: opacity 1s; }
   /* Fullscreen overlay side-nav arrows */
-  .wofs-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.42); border: 1.5px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.65); width: 52px; height: 52px; border-radius: 50%; font-size: 1.25rem; cursor: pointer; z-index: 8; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .28s, background .18s, color .18s, border-color .18s; backdrop-filter: blur(6px); }
+  .wofs-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.42); border: 1.5px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.65); width: 52px; height: 52px; border-radius: 50%; font-size: 1.25rem; cursor: pointer; z-index: 8; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .28s, background .18s, color .18s, border-color .18s; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   .wo-fullscreen-overlay:hover .wofs-nav-btn { opacity: 1; }
   .wofs-nav-btn:hover { background: rgba(255,255,255,0.2); color: #fff; border-color: rgba(255,255,255,0.55); }
   .wofs-nav-prev { left: 18px; }
@@ -104403,7 +104510,7 @@ function filterLiturgyItems() {
   .wo-song-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 8px; margin-bottom: 15px; }
   .wo-song-filter { padding: 8px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.85rem; font-family: 'Poppins', sans-serif; background: white; box-sizing: border-box; width: 100%; }
   .wo-ms-wrap { position: relative; min-width: 0; }
-  .wo-ms-btn { cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .wo-ms-btn { cursor: pointer; -webkit-user-select: none; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
   .wo-ms-drop { position: fixed; z-index: 10010; display: none; background: white; border: 2px solid #aee8d2; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.18); min-width: 190px; max-height: 230px; overflow-y: auto; padding: 4px 0; }
   .wo-ms-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: 0.82rem; font-family: 'Poppins', sans-serif; transition: background 0.1s; }
   .wo-ms-item:hover { background: #f0faf3; }
@@ -105200,8 +105307,8 @@ function filterLiturgyItems() {
      is content -- it is stripped before the words are read back. */
   .sb-proj-frame [contenteditable="true"] { outline: none; resize: none; }
   .sb-proj-frame.is-editing:not(.is-text) { cursor: move; }
-  .sb-proj-frame.is-editing:not(.is-text) [data-role] { cursor: move; user-select: none; }
-  .sb-proj-frame.is-text [data-role] { cursor: text; user-select: text; }
+  .sb-proj-frame.is-editing:not(.is-text) [data-role] { cursor: move; -webkit-user-select: none; user-select: none; }
+  .sb-proj-frame.is-text [data-role] { cursor: text; -webkit-user-select: text; user-select: text; }
   .sb-proj-frame.is-editing {
     outline: 2px dashed rgba(4,223,84,0.9); outline-offset: 2px;
     cursor: move; background: rgba(6,188,73,0.06);
@@ -105317,14 +105424,14 @@ function filterLiturgyItems() {
     background: rgba(24,142,68,0.16); border: 1px solid rgba(6,188,73,0.35);
     color: #bdedcd; font-family: 'Poppins', sans-serif; font-size: 0.76rem;
     font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    user-select: none;
+    -webkit-user-select: none; user-select: none;
   }
   .sb-asl-song:first-child { margin-top: 0; }
   .sb-asl-title {
     margin: 0 0 10px; padding: 6px 12px; border-radius: 8px;
     background: rgba(255,255,255,0.04); border: 1px dashed #334155;
     color: #94a3b8; font-family: 'Poppins', sans-serif; font-size: 0.72rem;
-    user-select: none;
+    -webkit-user-select: none; user-select: none;
   }
   .sb-asl-slide { position: relative; padding: 8px 12px; border-radius: 8px; }
   .sb-asl-slide:focus-within { background: rgba(6,188,73,0.07); }
@@ -105334,7 +105441,7 @@ function filterLiturgyItems() {
      with the words it sits beside. */
   .sb-asl-slide-tools {
     position: absolute; top: 4px; right: 8px; min-height: 0;
-    opacity: 0.28; transition: opacity 150ms; user-select: none;
+    opacity: 0.28; transition: opacity 150ms; -webkit-user-select: none; user-select: none;
   }
   .sb-asl-slide:hover .sb-asl-slide-tools,
   .sb-asl-slide:focus-within .sb-asl-slide-tools { opacity: 1; }
@@ -106034,7 +106141,7 @@ function filterLiturgyItems() {
   }
 
   /* ---- N. Collapsible Media Tray ----------------------------------------- */
-  .lcd-media-header { cursor: pointer; user-select: none; }
+  .lcd-media-header { cursor: pointer; -webkit-user-select: none; user-select: none; }
   .lcd-media-collapse {
     flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
     width: 24px; height: 24px; margin-right: 2px; border-radius: 6px; cursor: pointer;
@@ -106164,7 +106271,7 @@ function filterLiturgyItems() {
   /* ---- I. Song preview (double-click a Song Library card) ----------------- */
   .lcd-songprev-overlay {
     position: fixed; inset: 0; z-index: 16050;
-    background: rgba(6,11,22,0.78); backdrop-filter: blur(2px);
+    background: rgba(6,11,22,0.78); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
     align-items: center; justify-content: center; padding: 3vh 3vw;
   }
   .lcd-songprev {
@@ -106711,7 +106818,7 @@ function filterLiturgyItems() {
     background: rgba(15,23,42,0.72);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 14px;
-    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   }
   #woSaveOverlay .wso-icon { font-size: 2rem; color: #34d399; animation: wso-pulse 0.9s ease-in-out infinite alternate; }
   #woSaveOverlay .wso-text { color: #f1f5f9; font-size: 1rem; font-weight: 600; font-family: 'Poppins', sans-serif; }
@@ -107143,7 +107250,7 @@ function filterLiturgyItems() {
   /* Section Assignment Modal */
   .wo-section-modal-overlay {
     position: fixed; inset: 0; z-index: 15000;
-    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.5); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
     display: none; align-items: center; justify-content: center;
   }
   .wo-section-modal-overlay.show { display: flex; }
@@ -107208,7 +107315,7 @@ function filterLiturgyItems() {
   /* Edit Custom Lyrics Modal */
   .wo-lyrics-modal-overlay {
     position: fixed; inset: 0; z-index: 16000;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
     display: none; align-items: center; justify-content: center;
   }
   .wo-lyrics-modal-overlay.show { display: flex; }
@@ -107273,7 +107380,7 @@ function filterLiturgyItems() {
   /* Fullscreen Lyrics Editor */
   .wo-fullscreen-editor-overlay {
     display: none; position: fixed; inset: 0; z-index: 10000;
-    background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+    background: rgba(0,0,0,0.85); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
     justify-content: center; align-items: center; padding: 20px;
   }
   .wo-fullscreen-editor-overlay.show { display: flex; }
@@ -107302,7 +107409,7 @@ function filterLiturgyItems() {
   .wo-transpose-label-small {
     font-size: 0.7rem; font-weight: 700; color: rgba(255,255,255,0.65);
     letter-spacing: 0.05em; text-transform: uppercase;
-    padding: 0 4px 0 2px; user-select: none;
+    padding: 0 4px 0 2px; -webkit-user-select: none; user-select: none;
   }
   .wo-actions-divider {
     width: 1px; height: 28px; background: rgba(255,255,255,0.25);
@@ -107402,7 +107509,7 @@ function filterLiturgyItems() {
   /* ── Fullscreen Editor: Mobile / Tablet Responsive (319) ─────────────── */
   @media (max-width: 1024px) {
     .wo-fullscreen-editor {
-      width: 100%; max-width: 100%; height: 100dvh; height: 100vh;
+      width: 100%; max-width: 100%; height: 100vh; height: 100dvh; height: 100vh;
       border-radius: 0;
     }
     .wo-fullscreen-editor-overlay {
@@ -107439,7 +107546,7 @@ function filterLiturgyItems() {
   }
   @media (orientation: portrait) and (max-width: 1024px) {
     .wo-fullscreen-editor {
-      height: 100dvh; height: 100vh;
+      height: 100vh; height: 100dvh; height: 100vh;
       border-radius: 0;
     }
     .wo-fullscreen-editor-overlay { padding: 0; }
@@ -107448,7 +107555,7 @@ function filterLiturgyItems() {
   /* Save As Modal */
   .wo-saveas-modal-overlay {
     display: none; position: fixed; inset: 0; z-index: 10001;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
     justify-content: center; align-items: center;
   }
   .wo-saveas-modal-overlay.show { display: flex; }
@@ -108296,7 +108403,7 @@ function filterLiturgyItems() {
   .sb-cont-page { display:none; } /* not used in live view */
   .sb-inpage-break { display:none; } /* not used in live view */
   /* Column-break marker shown inside the lyrics editor */
-  .sb-col-break-marker { display:flex;align-items:center;border-top:2px dashed #0e9f6e;padding:2px 8px 2px 6px;font-size:0.7rem;font-weight:700;color:#0e9f6e;background:#edf9f4;margin:4px 0;border-radius:0 4px 4px 0;cursor:default;user-select:none; }
+  .sb-col-break-marker { display:flex;align-items:center;border-top:2px dashed #0e9f6e;padding:2px 8px 2px 6px;font-size:0.7rem;font-weight:700;color:#0e9f6e;background:#edf9f4;margin:4px 0;border-radius:0 4px 4px 0;cursor:default;-webkit-user-select:none; user-select:none; }
   .sb-col-break-rm { margin-left:auto;background:none;border:none;font-size:0.8rem;cursor:pointer;color:#0e9f6e;opacity:0.45;padding:0 2px;line-height:1;flex-shrink:0; }
   .sb-col-break-rm:hover { opacity:1;color:#ef4444; }
   /* Text annotation layer — sits above lyrics, below draw canvas */
@@ -108345,7 +108452,7 @@ function filterLiturgyItems() {
     padding: 3px 10px 3px 8px;
     border-radius: 0 12px 12px 0;
     border: 1.5px solid #86dfa6; border-left: none;
-    white-space: nowrap; cursor: ns-resize; user-select: none;
+    white-space: nowrap; cursor: ns-resize; -webkit-user-select: none; user-select: none;
     box-shadow: 1px 2px 6px rgba(14,106,48,0.18);
     letter-spacing: 0.03em;
   }
@@ -108369,7 +108476,7 @@ function filterLiturgyItems() {
   #sbPrintPreviewBtn.active { background:rgba(14,159,110,0.35) !important; border:1.5px solid #7fd9b8 !important; color:#aee8d2 !important; }
   /* Faded A4 guide lines — static horizontal lines at every A4 page boundary in live view */
   .sb-a4-guide { position:absolute; left:0; right:0; height:0; border-top:1px dashed rgba(6,188,73,0.28); pointer-events:none; z-index:4; }
-  .sb-a4-guide::after { content:'A4'; position:absolute; right:10px; top:-9px; font-size:0.55rem; font-family:sans-serif; color:rgba(6,188,73,0.45); background:rgba(239,246,255,0.7); padding:1px 5px; border-radius:4px; letter-spacing:0.04em; pointer-events:none; user-select:none; }
+  .sb-a4-guide::after { content:'A4'; position:absolute; right:10px; top:-9px; font-size:0.55rem; font-family:sans-serif; color:rgba(6,188,73,0.45); background:rgba(239,246,255,0.7); padding:1px 5px; border-radius:4px; letter-spacing:0.04em; pointer-events:none; -webkit-user-select:none; user-select:none; }
   @media print { .sb-a4-guide { display:none !important; } }
   /* Compact page header inside the white A4 card — matches book mode / print header */
   .sb-page-header { display:flex; align-items:center; gap:14px; padding:14px 24px 10px; border-bottom:2px solid #e2e8f0; background:#fafbff; }
@@ -108385,7 +108492,7 @@ function filterLiturgyItems() {
   .sb-load-text-btn:hover { background:#bbfadc; border-color:#0b7644; }
   .sb-panel-copy-note { font-size:0.72rem; color:#94a3b8; display:inline-flex; align-items:center; gap:4px; margin-right:auto; }
   .sb-doc-text-view { height:70vh; overflow-y:auto; background:white; }
-  .sb-doc-text-content { padding:24px 32px; font-size:0.93rem; line-height:1.8; color:#1e293b; font-family:Georgia,'Times New Roman',serif; user-select:text; cursor:text; }
+  .sb-doc-text-content { padding:24px 32px; font-size:0.93rem; line-height:1.8; color:#1e293b; font-family:Georgia,'Times New Roman',serif; -webkit-user-select:text; user-select:text; cursor:text; }
   .sb-doc-text-content p { margin:0 0 6px 0; }
   .sb-doc-text-blank { height:10px !important; margin:0 !important; }
   /* Fallback for non-embeddable website links */
@@ -108407,7 +108514,7 @@ function filterLiturgyItems() {
     flex-shrink: 0;
     animation: sb-typing-fadein 0.25s ease;
     pointer-events: none;
-    user-select: none;
+    -webkit-user-select: none; user-select: none;
   }
   .sb-typing-dots { display:inline-flex; align-items:center; gap:2px; }
   .sb-typing-dots span { width:4px; height:4px; border-radius:50%; background:#14b8a6; display:inline-block; animation:sb-typing-bounce 1.2s ease-in-out infinite; }
@@ -108453,7 +108560,7 @@ function filterLiturgyItems() {
     border-radius: 20px;
     padding: 3px 10px;
     flex-shrink: 0;
-    pointer-events: none; user-select: none;
+    pointer-events: none; -webkit-user-select: none; user-select: none;
     position: relative; z-index: 4;
     animation: ed-lock-in 0.22s ease;
   }
@@ -108704,7 +108811,7 @@ function filterLiturgyItems() {
 
   /* Page break drag handle (357 — A4 boundary visual) */
   /* 556 — 1 line blank before break, 2 lines blank after break */
-  .sb-page-break { width:210mm; display:flex; align-items:center; padding:20px 0 20px 0; user-select:none; }
+  .sb-page-break { width:210mm; display:flex; align-items:center; padding:20px 0 20px 0; -webkit-user-select:none; user-select:none; }
   .sb-page-break-inner { display:flex; align-items:center; width:100%; gap:8px; }
   .sb-page-break-line { flex:1; height:2px; background:repeating-linear-gradient(90deg,#4cc47a 0,#4cc47a 8px,transparent 8px,transparent 14px); border-radius:2px; }
   .sb-page-break-controls { display:flex; align-items:center; gap:6px; flex-shrink:0; }
@@ -109299,7 +109406,7 @@ function filterLiturgyItems() {
   .liturgy-form-input { width: 100%; padding: 12px 15px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 0.95rem; font-family: 'Poppins', sans-serif; transition: all 0.3s ease; outline: none; }
   .liturgy-form-input:focus { border-color: #0b7644; box-shadow: 0 0 0 3px rgba(11, 118, 68, 0.1); }
   .liturgy-form-textarea { min-height: 200px; resize: vertical; font-family: Georgia, serif; line-height: 1.6; }
-  .liturgy-form-select { appearance: none; background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E") no-repeat right 15px center; padding-right: 40px; cursor: pointer; }
+  .liturgy-form-select { -webkit-appearance: none; appearance: none; background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E") no-repeat right 15px center; padding-right: 40px; cursor: pointer; }
   .liturgy-type-selector { display: flex; gap: 10px; flex-wrap: wrap; }
   .liturgy-type-option { flex: 1; min-width: 100px; padding: 12px 15px; border: 2px solid #e5e7eb; border-radius: 10px; text-align: center; cursor: pointer; transition: all 0.3s ease; background: white; }
   .liturgy-type-option:hover { border-color: #079352; background: #e1fdf0; }
@@ -111212,7 +111319,7 @@ button.lbw-el-line:hover .lbw-el-title { text-decoration: underline; text-decora
 .lbw-text--rich [style*="font-size: 36pt"] { font-size: 1.24em !important; }
 .lbw-text--rich [style*="font-size: 48pt"] { font-size: 1.42em !important; }
 .lbw-text--rich [style*="font-size: 60pt"] { font-size: 1.62em !important; }
-.lbw-brk { display: flex; align-items: center; gap: 8px; height: 22px; margin: 7px 0 5px; user-select: none; }
+.lbw-brk { display: flex; align-items: center; gap: 8px; height: 22px; margin: 7px 0 5px; -webkit-user-select: none; user-select: none; }
 .lbw-brk > span {
   flex: 0 0 auto; padding: 1px 9px; border-radius: 999px; background: #f0f2ee; border: 1px solid #e1e6df;
   color: #7b887f; font: 800 10px/1.6 var(--lbw-ui); letter-spacing: 0.1em; text-transform: uppercase;
@@ -111737,13 +111844,13 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
     opacity:0; visibility:hidden; pointer-events:none;
     transform:translate(12px,-50%) scale(.96);
     transition:opacity .18s ease,transform .18s ease,visibility .18s;
-    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
   }
   #songbookLiveModal.sb-annot-open .sb-annot-palette {
     opacity:1; visibility:visible; pointer-events:auto;
     transform:translate(0,-50%) scale(1);
   }
-  .sb-annot-palette-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 3px 8px; color:#a7f3d0; font-size:.72rem; font-weight:700; letter-spacing:.04em; cursor:grab; user-select:none; }
+  .sb-annot-palette-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 3px 8px; color:#a7f3d0; font-size:.72rem; font-weight:700; letter-spacing:.04em; cursor:grab; -webkit-user-select:none; user-select:none; }
   .sb-annot-palette-head:active, .sb-palette-dragging .sb-annot-palette-head { cursor:grabbing; }
   .sb-palette-grab .sb-annot-palette-head { cursor:grabbing; background:rgba(45,212,191,.12); border-radius:8px; }
   .sb-annot-palette-head button { width:25px; height:25px; border:0; border-radius:7px; background:rgba(255,255,255,.08); color:#dcf5e5; cursor:pointer; }
@@ -111798,7 +111905,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 
 <style id="sb-mobile-reading-fix-css">
   @media (max-width:820px) {
-    #songbookLiveModal { width:100vw; height:100dvh; max-width:100vw; overflow:hidden; }
+    #songbookLiveModal { width:100vw; height: 100vh; height:100dvh; max-width:100vw; overflow:hidden; }
     #songbookLiveModal .sb-header { display:flex; flex-direction:column; min-height:0; height:auto; padding:7px 9px 8px; gap:6px; overflow:visible; }
     #songbookLiveModal .sb-header-brand { width:100%; height:34px; min-height:34px; padding:0 42px 0 0; flex:none; }
     #songbookLiveModal .sb-header-title { font-size:.88rem; line-height:1.05; }
@@ -112123,6 +112230,15 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 /* The view modes are as wide as their names: Chords + Lyrics needs the room
    the others leave, and in equal shares it was cut to "Chords + Ly...". */
 .sbm-seg--view .sbm-seg__btn { flex: 1 1 auto; padding: 0 8px; }
+/* Still cut on a phone, in every browser, beside the key: "Ch...", "Lyri...",
+   "Chords + Ly...", "2 ..." at 390px. The short modes share the first row and
+   Chords + Lyrics takes the second, in the room the key's hint already
+   leaves under them, so the card is no taller. */
+@media (max-width: 600px) {
+  #sbmRoot:not(.sbm--wide) .sbm-seg--view { flex-wrap: wrap; }
+  #sbmRoot:not(.sbm--wide) .sbm-seg--view .sbm-seg__btn { flex: 1 1 0; }
+  #sbmRoot:not(.sbm--wide) .sbm-seg--view .sbm-seg__btn[data-view="both"] { order: 1; flex: 1 0 100%; border-left: 0; border-top: 1px solid var(--sbm-line); }
+}
 
 /* Chips (part selector, year, filters) */
 .sbm-chip {
@@ -112168,7 +112284,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
   position: sticky; bottom: 0; z-index: 5;
   display: grid; grid-template-columns: 1fr 1.3fr; gap: var(--sbm-space-md);
   padding: var(--sbm-space-md) var(--sbm-gutter) calc(var(--sbm-space-md) + env(safe-area-inset-bottom, 0px));
-  background: rgba(246,248,252,0.94); backdrop-filter: blur(10px);
+  background: rgba(246,248,252,0.94); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   border-top: 1px solid var(--sbm-line);
 }
 
@@ -112231,7 +112347,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
   margin: 0 var(--sbm-gutter); padding: 14px 14px 12px;
   background: rgba(10,22,48,0.55); border: 1px solid rgba(255,255,255,0.14);
   border-radius: var(--sbm-radius-lg); color: var(--sbm-on-dark);
-  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
 .sbm-song__row { display: flex; align-items: center; gap: 12px; }
 .sbm-song__num {
@@ -112284,7 +112400,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-part i { font-size: 22px; color: var(--p, var(--sbm-navy)); }
 .sbm-part__name { font: 700 15px/1.1 var(--sbm-font-ui); color: var(--p, var(--sbm-navy)); }
 .sbm-part__n { font: 500 12px/1 var(--sbm-font-ui); color: var(--sbm-muted); }
-.sbm-part.is-on { border-color: var(--p, var(--sbm-navy)); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 12%, #fff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--p, var(--sbm-navy)) 25%, transparent); }
+.sbm-part.is-on { border-color: var(--p, var(--sbm-navy)); background: #f3f5fa; box-shadow: 0 0 0 2px rgba(15,23,42,.14); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 12%, #fff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--p, var(--sbm-navy)) 25%, transparent); }
 
 /* ---- Practice player ----------------------------------------------------- */
 .sbm-practice__sel {
@@ -112447,7 +112563,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-ed__toggles { display: flex; flex-wrap: wrap; gap: 8px; }
 .sbm-ed__tg {
   display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px 0 12px;
-  border-radius: 10px; border: 1px solid var(--sbm-line); background: color-mix(in srgb, var(--p, var(--sbm-navy)) 10%, #fff);
+  border-radius: 10px; border: 1px solid var(--sbm-line); background: #f6f7fb; background: color-mix(in srgb, var(--p, var(--sbm-navy)) 10%, #fff);
   font: 600 14px/1 var(--sbm-font-ui); color: var(--p, var(--sbm-navy)); cursor: pointer;
 }
 .sbm-ed__tg .sw { width: 34px; height: 20px; border-radius: 10px; background: #cbd5e1; position: relative; transition: background .15s; }
@@ -112958,7 +113074,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-sec-take { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(13,148,136,0.35); background: var(--sbm-teal-soft); color: var(--sbm-teal); font: 700 11px/1 var(--sbm-font-ui); cursor: pointer; letter-spacing: 0; text-transform: none; }
 .sbm-sec-take i { font-size: 10px; }
 .sbm-sec-takes { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
-.sbm-sec-take--part { color: var(--p); background: color-mix(in srgb, var(--p) 11%, #fff); border-color: color-mix(in srgb, var(--p) 40%, #fff); }
+.sbm-sec-take--part { color: var(--p); background: #f6f7fb; border-color: var(--p); background: color-mix(in srgb, var(--p) 11%, #fff); border-color: color-mix(in srgb, var(--p) 40%, #fff); }
 
 /* ---- Marks: remarks drawn on the song ------------------------------------ */
 .sbm-card--marks { position: relative; }
@@ -113333,7 +113449,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-ed__ib.sbm-ed__here { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 600 12px/1 var(--sbm-font-ui); }
 /* Edit Parts: tick boxes to join into moments sung together, or to split
    back into turns -- the bar for it shows once something is ticked */
-.sbm-ed__tick { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; padding: 0 6px; min-height: 30px; font: 600 12px/1 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); cursor: pointer; user-select: none; }
+.sbm-ed__tick { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; padding: 0 6px; min-height: 30px; font: 600 12px/1 var(--sbm-font-ui); color: var(--sbm-text-2, #475569); cursor: pointer; -webkit-user-select: none; user-select: none; }
 .sbm-ed__tick input { width: 18px; height: 18px; margin: 0; accent-color: #7c3aed; cursor: pointer; }
 .sbm-ed__moment.is-ticked { background: rgba(124, 58, 237, 0.07); border-radius: 0 10px 10px 0; }
 .sbm-ed__selbar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -113571,6 +113687,15 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* ---- Versions of a song ---- */
 .sbm-tile-row--7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 @media (max-width: 359px) { .sbm-tile-row--7 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Measured 2026-11-07, the same in every browser: at 10px on one line,
+   "Book Mode" (54px) was wider than its tile on every phone up to 430px,
+   and "YouTube" and "Drawings" up to 390-412px (tiles 37-47px inside), so
+   each ran into the next. On a phone a label may break at its space, the
+   tile gives up its side padding, and the size follows the screen down to
+   8.5px -- still one row, as the reading view was laid out. */
+@media (min-width: 360px) and (max-width: 600px) {
+  #sbmRoot:not(.sbm--wide) .sbm-tile-row--7 .sbm-tile { padding-left: 0; padding-right: 0; white-space: normal; text-align: center; line-height: 1.05; font-size: clamp(8.5px, 2.45vw, 10px); }
+}
 
 /* ---- The key's two steps, blue and big enough to find (2026-11-07) ---- */
 #sbmRoot .sbm-seg--xp { border-color: #1d4ed8; }
@@ -114388,7 +114513,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       '#availSelf label{display:block;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#6b7d73;margin:0 0 5px;}' +
       '#availSelf select,#availSelf input[type=date],#availSelf input[type=text]{width:100%;padding:9px 11px;border:1px solid #d3ccb8;border-radius:8px;font-size:.98rem;font-family:inherit;background:#fff;color:#17271f;}' +
       '#availSelf .as-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;}' +
-      '#availSelf .as-chip{border:1px solid #d3ccb8;background:#f6f4ec;color:#40544a;border-radius:999px;padding:7px 12px;font-size:.86rem;cursor:pointer;user-select:none;transition:all .12s;}' +
+      '#availSelf .as-chip{border:1px solid #d3ccb8;background:#f6f4ec;color:#40544a;border-radius:999px;padding:7px 12px;font-size:.86rem;cursor:pointer;-webkit-user-select:none; user-select:none;transition:all .12s;}' +
       '#availSelf .as-chip:hover{border-color:#1b5e43;}' +
       '#availSelf .as-chip.on{background:#9a3b2f;border-color:#9a3b2f;color:#fff;}' +
       '#availSelf .as-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;}' +
@@ -117036,22 +117161,55 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         var scale = parseFloat(table.style.zoom) || 1;
         cloneTable.style.zoom = scale;
 
-        // With zoom applied to clone, set column widths as unzoomed CSS values
-        // (getBoundingClientRect returns visual/zoomed px, so divide by scale)
+        // With zoom applied to clone, set column widths as unzoomed CSS values.
+        // getBoundingClientRect() inside the zoomed table is what is on screen
+        // in Chrome 128+, but the table's own unzoomed px in Safari and in the
+        // older Chromium of Samsung, Xiaomi and Honor browsers -- divided by the
+        // scale there, every pinned header column came out 1/0.85 too wide over
+        // the body. offsetWidth is unzoomed everywhere, so measure which it is.
         var realThs = table.querySelectorAll('thead th');
         var cloneThs = cloneTable.querySelectorAll('thead th');
-        var totalW = 0;
-        realThs.forEach(function(th, i) {
-          var w = th.getBoundingClientRect().width / scale;
-          if (w < 1) w = 1;
-          totalW += w;
-          if (cloneThs[i]) {
-            cloneThs[i].style.width = w + 'px';
-            cloneThs[i].style.minWidth = w + 'px';
-            cloneThs[i].style.maxWidth = w + 'px';
-          }
+        var rectSum = 0, cssSum = 0;
+        realThs.forEach(function(th) { rectSum += th.getBoundingClientRect().width; cssSum += th.offsetWidth; });
+        var rectPerPx = (rectSum > 0 && cssSum > 0) ? rectSum / cssSum : scale;
+        var widths = [];
+        realThs.forEach(function(th) {
+          var w = th.getBoundingClientRect().width / rectPerPx;
+          widths.push(w < 1 ? 1 : w);
         });
-        if (totalW > 0) cloneTable.style.width = totalW + 'px';
+        // The clone lives on <body>, outside #worshipRosterView, so the
+        // page's !important column rules for the real table never reach it,
+        // and other !important rules beat plain inline widths: the first
+        // column came out narrower and the rest wider, in every browser.
+        // Set them important, border-box, in a fixed layout; then compare the
+        // two on screen and correct once, so nothing in between (a scaled
+        // ancestor, another border) can leave a pinned column off its own.
+        function setWidths(f) {
+          var total = 0;
+          widths.forEach(function(w, i) {
+            w = w * f; total += w;
+            var c = cloneThs[i];
+            if (!c) return;
+            c.style.setProperty('box-sizing', 'border-box', 'important');
+            c.style.setProperty('width', w + 'px', 'important');
+            c.style.setProperty('min-width', w + 'px', 'important');
+            c.style.setProperty('max-width', w + 'px', 'important');
+          });
+          if (total > 0) cloneTable.style.setProperty('width', total + 'px', 'important');
+        }
+        // .roster-table's min-width: 820px is lifted for the real table by a
+        // #worshipRosterView rule; on <body> the clone kept it and spread the
+        // spare width over its columns.
+        cloneTable.style.setProperty('min-width', '0', 'important');
+        cloneTable.style.tableLayout = 'fixed';
+        setWidths(1);
+        var onScreen = 0, pinned = 0;
+        realThs.forEach(function(th, i) {
+          if (!cloneThs[i]) return;
+          onScreen += th.getBoundingClientRect().width;
+          pinned += cloneThs[i].getBoundingClientRect().width;
+        });
+        if (onScreen > 0 && pinned > 0 && Math.abs(pinned - onScreen) > 1) setWidths(onScreen / pinned);
 
         // Sync horizontal scroll — scrollLeft is in layout px, translateX is in clone's
         // unzoomed coordinate space, so divide by scale to get the right visual shift
@@ -120163,18 +120321,18 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       html += '<i class="fa-solid fa-user-clock" style="margin-right:5px;"></i>Auto-Suggest will never roster '+self.escapeHtml(selectedName)+'. They stay fully selectable by hand, and show an <b>Occasional</b> badge wherever names are picked.</div>';
       html += '<div id="enInd_joinedRow" style="margin-bottom:8px;'+(meta.status!=='newly_joined'?'display:none;':'')+'">';
       html += '<label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Joined (month/year)</label>';
-      html += '<input id="enInd_joined" type="month" value="'+(meta.joinedDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
+      html += '<input id="enInd_joined" type="month" placeholder="YYYY-MM" value="'+(meta.joinedDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
       var isSusp = meta.status==='suspended';
       html += '<div id="enInd_suspRow" style="margin-bottom:8px;'+(!isSusp?'display:none;':'')+'">';
       html += '<label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Suspension period</label>';
       html += '<div style="display:flex;gap:6px;margin-bottom:6px;">';
-      html += '<div style="flex:1;"><label style="font-size:11px;color:#9ca3af;">From</label><input id="enInd_suspFrom" type="month" value="'+(meta.suspendedFrom||'')+'" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;"></div>';
-      html += '<div style="flex:1;"><label style="font-size:11px;color:#9ca3af;">To</label><input id="enInd_suspTo" type="month" value="'+(meta.suspendedTo||'')+'" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;"></div>';
+      html += '<div style="flex:1;"><label style="font-size:11px;color:#9ca3af;">From</label><input id="enInd_suspFrom" type="month" placeholder="YYYY-MM" value="'+(meta.suspendedFrom||'')+'" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;"></div>';
+      html += '<div style="flex:1;"><label style="font-size:11px;color:#9ca3af;">To</label><input id="enInd_suspTo" type="month" placeholder="YYYY-MM" value="'+(meta.suspendedTo||'')+'" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;"></div>';
       html += '</div><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Reason</label>';
       html += '<input id="enInd_suspReason" type="text" value="'+self.escapeHtml(meta.suspendedReason||'')+'" placeholder="Reason for suspension..." style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;box-sizing:border-box;"></div>';
       html += '<div id="enInd_inactRow" style="margin-bottom:8px;'+(meta.status!=='inactive'?'display:none;':'')+'">';
       html += '<label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Inactive since (approx. month/year)</label>';
-      html += '<input id="enInd_inactDate" type="month" value="'+(meta.inactiveDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
+      html += '<input id="enInd_inactDate" type="month" placeholder="YYYY-MM" value="'+(meta.inactiveDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Note (optional)</label>';
       html += '<input id="enInd_note" type="text" value="'+self.escapeHtml(meta.note||'')+'" placeholder="Any notes..." style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;box-sizing:border-box;"></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Address as (shown when preaching)</label>';
@@ -124827,7 +124985,7 @@ window.LHC_Install = (function() {
     <span>Orders</span>
   </button>
   <button class="lhc-bn-btn" id="bnMore" onclick="toggleSidebar()" aria-label="More">
-    <div class="lhc-bn-icon"><i class="fa-solid fa-grid-2"></i></div>
+    <div class="lhc-bn-icon"><i class="fa-solid fa-table-cells-large"></i></div>
     <span>More</span>
   </button>
 </nav>
@@ -125150,7 +125308,7 @@ window.LHC_Install = (function() {
     content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
     background-image:linear-gradient(rgba(8,35,18,.030) 1px,transparent 1px),linear-gradient(90deg,rgba(8,35,18,.030) 1px,transparent 1px);
     background-size:32px 32px;
-    mask-image:linear-gradient(to right,#000,transparent 92%);
+    -webkit-mask-image:linear-gradient(to right,#000,transparent 92%); mask-image:linear-gradient(to right,#000,transparent 92%);
   }
   #songFinderView #sfCommandHeader > * { position:relative;z-index:1; }
   #songFinderView .sf-command-copy { max-width:720px; }
@@ -125248,7 +125406,7 @@ window.LHC_Install = (function() {
   }
   /* The A-Z divider is wayfinding, not decoration, so it takes --sf-muted:
      --sf-soft lands at 4.42 against this tinted sticky background. */
-  #songFinderView .song-atlas-section-header { position:sticky;top:0;z-index:5;margin:2px 0 4px;padding:3px 7px;border:0;background:rgba(247,249,253,.94);backdrop-filter:blur(8px);color:var(--sf-muted);font-family:inherit;font-size:.65rem;letter-spacing:.16em; }
+  #songFinderView .song-atlas-section-header { position:sticky;top:0;z-index:5;margin:2px 0 4px;padding:3px 7px;border:0;background:rgba(247,249,253,.94);-webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);color:var(--sf-muted);font-family:inherit;font-size:.65rem;letter-spacing:.16em; }
   #songFinderView .song-list-item {
     position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:8px;margin:0 0 4px;padding:8px;border:1px solid var(--sf-line);border-left:1px solid var(--sf-line);border-radius:14px;background:#fff;cursor:pointer;box-shadow:0 2px 5px rgba(8,35,18,.035);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease,background .18s ease;
   }
@@ -125363,7 +125521,7 @@ window.LHC_Install = (function() {
   }
 
   /* Premium add/edit record — a professional cataloguing workspace. */
-  #addSongModal,#editSongModal { background:rgba(8,35,18,.55);backdrop-filter:blur(12px); }
+  #addSongModal,#editSongModal { background:rgba(8,35,18,.55);-webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
   #addSongModal .asm-content,#editSongModal .asm-content { width:min(1120px,94vw);max-height:92vh;border:1px solid rgba(255,255,255,.18);border-radius:22px;background:var(--sf-surface,#f5faf7);box-shadow:0 35px 100px rgba(8,35,18,.30);overflow:hidden; }
   #addSongModal .asm-header,#editSongModal .asm-header { padding:8px 12px;background:linear-gradient(120deg,#101c3f,#2b2a63);border:0; }
   #addSongModal .asm-header h3,#editSongModal .asm-header h3 { color:#fff !important;font-size:1.16rem; }
@@ -125505,10 +125663,10 @@ window.LHC_Install = (function() {
 
     #docPreviewModal.song-resource-modal,
     #youtubePreviewModal.song-resource-modal {
-      inset:0;width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;padding:0 !important;overflow:hidden !important;
+      inset:0;width:100vw;max-width:100vw;height: 100vh; height:100dvh;max-height: 100vh; max-height:100dvh;padding:0 !important;overflow:hidden !important;
     }
     #docPreviewModal.song-resource-modal .modal-content {
-      width:100vw !important;max-width:100vw !important;height:100dvh !important;max-height:100dvh !important;
+      width:100vw !important;max-width:100vw !important;height: 100vh !important; height:100dvh !important;max-height: 100vh !important; max-height:100dvh !important;
       margin:0 !important;border-radius:0 !important;overflow:hidden !important;box-sizing:border-box;min-width:0;
     }
     #docPreviewHeader {
@@ -125558,7 +125716,7 @@ window.LHC_Install = (function() {
     #songFinderView .sf-song-actions .sf-action-share span { display:inline; }
     #songFinderView .sf-song-pills .meta-pill:nth-child(n+3) { display:none; }
     #songFinderView .sf-resource-status { gap:5px; }
-    #addSongModal .asm-content,#editSongModal .asm-content { width:100vw;max-height:100dvh;border-radius:18px 18px 0 0; }
+    #addSongModal .asm-content,#editSongModal .asm-content { width:100vw;max-height: 100vh; max-height:100dvh;border-radius:18px 18px 0 0; }
     #addSongModal .asm-header,#editSongModal .asm-header { padding:8px 10px; }
     #addSongModal .asm-scroll,#editSongModal .asm-scroll { padding:0 12px; }
     #addSongModal .asm-section,#editSongModal .asm-section { padding:8px; }
@@ -125969,7 +126127,7 @@ window.LHC_Install = (function() {
        the song; the window now takes the screen down to the action bar and
        the rail is reached by scrolling. */
     #lyricsPreviewContent {
-      min-height: calc(100dvh - 310px) !important;
+      min-height: calc(100vh - 310px) !important; min-height: calc(100dvh - 310px) !important;
       height: auto !important;
     }
   }
@@ -125998,7 +126156,7 @@ window.LHC_Install = (function() {
   #lpFullscreenTitle { display: none; }
   .lp-lyrics-only #lpBody {
     display: flex; flex-direction: column;
-    height: 100dvh; min-height: 100dvh;
+    height: 100vh; height: 100dvh; min-height: 100vh; min-height: 100dvh;
   }
   .lp-lyrics-only #lpFullscreenTitle {
     display: block; flex: 0 0 auto;
@@ -126024,7 +126182,7 @@ window.LHC_Install = (function() {
     display: none; align-items: center; gap: 7px;
     min-height: 44px; padding: 0 16px;
     border: 1px solid var(--sf-line-2, #d3e7da); border-radius: 999px;
-    background: rgba(255,255,255,.94); backdrop-filter: blur(6px);
+    background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
     color: var(--sf-navy, #06180d); font-size: .78rem; font-weight: 700;
     box-shadow: 0 6px 20px rgba(8,35,18,.22); cursor: pointer;
   }
@@ -126591,7 +126749,7 @@ window.LHC_Install = (function() {
     /* Keyboard-aware: when the on-screen keyboard opens the visual viewport
        shrinks, and 100dvh follows it, so the editor page and its Save stay
        reachable instead of being pushed under the keyboard. */
-    #lyricsEditorModal .lyrics-editor-content { max-height:100dvh; }
+    #lyricsEditorModal .lyrics-editor-content { max-height: 100vh; max-height:100dvh; }
   }
 
   /* ── CHUNK 9: theme search, keyboard focus and validation ──────────────── */
@@ -126754,7 +126912,7 @@ window.LHC_Install = (function() {
   }
   @media (max-width:560px) {
     .ato-grid { grid-template-columns:1fr; }
-    #addToOrderModal .ato-content { width:100vw; max-height:100dvh; border-radius:16px 16px 0 0; }
+    #addToOrderModal .ato-content { width:100vw; max-height: 100vh; max-height:100dvh; border-radius:16px 16px 0 0; }
   }
 
   /* ==========================================================================
