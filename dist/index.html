@@ -50502,7 +50502,7 @@ var WO = (function() {
       if (!_sbmMarksOk) return false;
       // ...and whether drawings know whose they are (_sbmLayerKeep).
       return sup.from('song_marks').select('owner, owner_name, part, shared').limit(1).then(
-        function(r2) { _sbmLayersOk = !r2.error; if (_sbmLayersOk) _sbmPrefsFirst(); return true; },
+        function(r2) { _sbmLayersOk = !r2.error; if (_sbmLayersOk) _sbmPrefsPull(); return true; },
         function() { _sbmLayersOk = false; return true; });
     }).catch(function() { _sbmMarksOk = false; return false; });
     return _sbmMarksProbe;
@@ -51401,7 +51401,7 @@ var WO = (function() {
       var as = (mine[0] && mine[0].owner_name) || name;   // as they first wrote it
       if (J && J.moved) _sbmPartsShown();
       var text = _sbmWelcome(as.split(' ')[0], had, J);
-      if (text) showToast(text, 'success', (J && J.added.length) ? { duration: 6000 } : undefined);
+      if (text) showToast(text, 'success', _sbmWelcome('', 0, J) ? { duration: 6000 } : undefined);
     });
     if (was && was.key !== _sbmMeKey(name) && _sbmDraw) { _sbmDraw.undo = []; _sbmDraw.group = null; }
     if (thenDraw && !_sbmDraw) { sbmDraw(true); return; }
@@ -51502,15 +51502,19 @@ var WO = (function() {
   // What a reader plays or sings is kept on the device (lhc_sbm_parts) and,
   // once they have given a name, with that name too (drawer_prefs,
   // migrations/2026-11-07_drawer_prefs.sql): giving the name on another
-  // device brings the parts back with the drawings. lhc_sbm_parts_of says
-  // whose the device's parts are -- the name they were last joined with,
-  // '' when they were ticked with no name, or before parts followed names.
-  // A device with no name, and every device until the table exists, works
-  // from the device alone, as before. Like the rest of layers this is about
-  // what is shown, not a lock: every row can be read through the page's key.
-  // Every request goes through window._supabase, so the Phone view's
-  // read-only client (gotcha 33) turns the writes away there.
-  var _sbmPrefsOk = null, _sbmPrefsProbe = null, _sbmPrefsGen = 0, _sbmPrefsBusy = false, _sbmPrefsQueue = {};
+  // device brings the parts back with the drawings, and a change made on one
+  // device reaches the others the next time they open the songbook or Layers
+  // (_sbmPrefsPull). Two marks on the device say how its parts stand:
+  // lhc_sbm_parts_of, whose they are -- the name they were last synced with,
+  // '' when they were ticked with no name, or before parts followed names --
+  // and lhc_sbm_parts_dirty, the name they hold a change for that has not
+  // been saved yet (a tick whose write has not landed). A device with no
+  // name, and every device until the table exists, works from the device
+  // alone, as before. Like the rest of layers this is about what is shown,
+  // not a lock: every row can be read through the page's key. Every request
+  // goes through window._supabase, so the Phone view's read-only client
+  // (gotcha 33) turns the writes away there.
+  var _sbmPrefsOk = null, _sbmPrefsProbe = null, _sbmPrefsGen = 0, _sbmPrefsTicks = 0, _sbmPrefsPulledAt = 0, _sbmPrefsBusy = false, _sbmPrefsQueue = {};
   function _sbmPrefsSupport() {
     if (_sbmPrefsOk !== null) return Promise.resolve(_sbmPrefsOk);
     if (_sbmPrefsProbe) return _sbmPrefsProbe;
@@ -51521,74 +51525,109 @@ var WO = (function() {
     return _sbmPrefsProbe;
   }
   function _sbmPartsOf() { try { return String(localStorage.getItem('lhc_sbm_parts_of') || ''); } catch (e) { return ''; } }
+  // Does the device hold a change to this name's parts not saved yet? Set by
+  // a tick; cleared once a write of what the device holds has landed, or the
+  // device and the row are found to agree.
+  function _sbmPartsDirty(key) { try { return !!key && localStorage.getItem('lhc_sbm_parts_dirty') === key; } catch (e) { return false; } }
+  function _sbmPartsClean(key) { try { if (key && localStorage.getItem('lhc_sbm_parts_dirty') === key) localStorage.removeItem('lhc_sbm_parts_dirty'); } catch (e) {} }
+  // The same parts, in any order (pure).
+  function _sbmPartsSame(a, b) {
+    a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
+    return a.length === b.length && a.every(function(p) { return b.indexOf(p) !== -1; });
+  }
   // A name's saved parts meeting this device's (pure). local: the device's;
-  // of: whose they are; key: the name now; saved: that name's, or null when
-  // it has none; drop: a part just unticked here, which the saved ones must
-  // not tick again. The device's parts are joined with the name's when they
-  // are nobody's or already that name's; somebody else's -- a phone that
-  // changed hands -- are left out, so one person's parts never become
-  // another's. Gives the parts, those that came with the name (added),
-  // whether the device brought any of its own (mixed), whether the device's
-  // parts are not what they were (moved) and whether the name's row is
-  // behind (write).
-  function _sbmPartsJoin(local, of, key, saved, drop) {
+  // of: whose they are ('' for nobody's); key: the name now; saved: that
+  // name's, or null when it has none; tick: { part, on } just ticked here,
+  // which stands whatever the rest comes to; dirty: the device holds a change
+  // for this name not saved yet. Four ways it can go (mode):
+  //   join    nobody's parts meet the name's: the two joined.
+  //   saved   already the name's, nothing waiting: the name's win, so a part
+  //           unticked on another device stays unticked here.
+  //   mine    already the name's, with a change waiting (or the name has no
+  //           row): the device's win, and are written.
+  //   theirs  somebody else's -- a phone that changed hands: the name's own
+  //           alone, so one person's parts never become another's.
+  // Gives the parts, the mode, the parts that came (added) and went
+  // (removed), whether the device brought any of its own to a join (mixed),
+  // whether the device's parts are not what they were (moved) and whether
+  // the name's row is behind (write).
+  function _sbmPartsJoin(local, of, key, saved, tick, dirty) {
     var rank = {}; _SBM_PARTS.forEach(function(p, i) { rank[p[0]] = i; });
     var rankOf = function(p) { return Object.prototype.hasOwnProperty.call(rank, p) ? rank[p] : 99; };
     var order = function(a, b) { return (rankOf(a) - rankOf(b)) || (a < b ? -1 : a > b ? 1 : 0); };
-    var tidy = function(a, skip) {
+    var tidy = function(a) {
       var out = [];
-      (Array.isArray(a) ? a : []).forEach(function(p) { if (typeof p === 'string' && p && p !== skip && out.indexOf(p) === -1) out.push(p); });
+      (Array.isArray(a) ? a : []).forEach(function(p) { if (typeof p === 'string' && p && out.indexOf(p) === -1) out.push(p); });
       return out;
     };
-    var mine = (of && of !== key) ? [] : tidy(local, drop), had = tidy(saved, drop), was = tidy(saved);
-    var added = had.filter(function(p) { return mine.indexOf(p) === -1; }).sort(order);
-    var parts = mine.concat(added).sort(order);
-    var differ = function(a, b) { return a.length !== b.length || a.some(function(p) { return b.indexOf(p) === -1; }); };
-    var write = saved == null ? parts.length > 0 : differ(parts, was);
-    return { parts: parts, added: added, mixed: mine.length > 0, moved: differ(parts, tidy(local)), write: write };
+    var here = tidy(local), was = tidy(saved);
+    var mode = (of && of !== key) ? 'theirs' : !of ? 'join' : (dirty || saved == null) ? 'mine' : 'saved';
+    var parts = (mode === 'theirs' || mode === 'saved') ? was.slice()
+      : mode === 'mine' ? here.slice()
+      : here.concat(was.filter(function(p) { return here.indexOf(p) === -1; }));
+    if (tick && tick.part) {
+      var at = parts.indexOf(tick.part);
+      if (tick.on && at === -1) parts.push(tick.part);
+      if (!tick.on && at !== -1) parts.splice(at, 1);
+    }
+    parts.sort(order);
+    var not = function(a, b) { return a.filter(function(p) { return b.indexOf(p) === -1; }).sort(order); };
+    return {
+      parts: parts, mode: mode, added: not(parts, here), removed: not(here, parts),
+      mixed: mode === 'join' && here.length > 0, moved: !_sbmPartsSame(parts, here),
+      write: saved == null ? parts.length > 0 : !_sbmPartsSame(parts, was)
+    };
   }
-  // What to say when a name comes back (pure): '' when nothing did. first:
-  // the name to greet ('' for none); had: their drawings in this book; J: the
-  // join, when parts came with the name.
+  // What to say when a name comes back, or its parts changed elsewhere
+  // (pure): '' when there is nothing to say. first: the name to greet (''
+  // for none); had: their drawings in this book; J: the join.
   function _sbmWelcome(first, had, J) {
     var bits = [];
     if (had) bits.push('your ' + had + ' drawing' + (had === 1 ? '' : 's') + ' in this songbook ' + (had === 1 ? 'is' : 'are') + ' showing');
-    if (J && J.added && J.added.length) {
+    if (J && J.added && (J.added.length || (J.mode === 'saved' && J.moved))) {
       var names = J.parts.map(function(p) { return _sbmPartLabel(p) || p; });
-      var list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
-      bits.push(J.mixed ? 'your parts are ' + list + ' now: the ones kept with your name and the ones ticked here' : 'your parts are back (' + list + ')');
+      var list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : (names[0] || '');
+      bits.push(J.mode === 'saved' ? (list ? 'your parts are ' + list + ' now, as chosen on another device' : 'your parts were all unticked on another device')
+        : J.mixed ? 'your parts are ' + list + ' now: the ones kept with your name and the ones ticked here'
+        : 'your parts are back (' + list + ')');
     }
     if (!bits.length) return '';
     var text = bits.join(', and ');
     return first ? 'Welcome back, ' + first + ': ' + text : text.charAt(0).toUpperCase() + text.slice(1);
   }
-  // A name's parts read and joined with this device's, and the device and
-  // the row each brought up to date. opts.of: whose the device's parts are,
-  // when not as noted; opts.drop: as _sbmPartsJoin; opts.keep: the row only,
-  // the device left as it is. Gives the join, or null when nothing was read
-  // or another name was given while it was being read.
+  // A name's parts read and met with this device's (_sbmPartsJoin), and the
+  // device and the row each brought up to date. opts.of: whose the device's
+  // parts are, when not as noted; opts.tick: as _sbmPartsJoin; opts.keep:
+  // the row only, the device left as it is. A tick made while the read was
+  // on its way is newer than what came back, so it counts as waiting. Gives
+  // the join, or null when nothing was read or another name was given
+  // meanwhile.
   function _sbmPrefsSync(me, opts) {
     opts = opts || {};
-    var sup = window._supabase, gen = _sbmPrefsGen;
+    var sup = window._supabase, gen = _sbmPrefsGen, ticks = _sbmPrefsTicks;
     if (!me || !me.key || !sup || _sbmPrefsOk !== true) return Promise.resolve(null);
     return Promise.resolve(sup.from('drawer_prefs').select('parts').eq('owner', me.key).limit(1)).then(function(r) {
       if (!r || r.error) return null;
       if (!opts.keep && gen !== _sbmPrefsGen) return null;
       var row = (r.data || [])[0] || null;
-      var J = _sbmPartsJoin(_sbmMyParts(), opts.of != null ? opts.of : _sbmPartsOf(), me.key, row ? row.parts : null, opts.drop);
+      var dirty = _sbmPartsDirty(me.key) || ticks !== _sbmPrefsTicks;
+      var J = _sbmPartsJoin(_sbmMyParts(), opts.of != null ? opts.of : _sbmPartsOf(), me.key, row ? row.parts : null, opts.tick, dirty);
       if (!opts.keep) {
         try { localStorage.setItem('lhc_sbm_parts', JSON.stringify(J.parts)); localStorage.setItem('lhc_sbm_parts_of', me.key); } catch (e) {}
       }
       if (J.write) _sbmPrefsWrite(me, J.parts);
+      else _sbmPartsClean(me.key);   // the device and the row agree
       return J;
     }, function() { return null; });
   }
   // A name's parts saved. One write at a time; a tick while one is on its
-  // way waits, and only the last of each name's goes.
+  // way waits, and only the last of each name's goes. Once a write has
+  // landed and the device still holds what it carried, nothing is waiting.
   function _sbmPrefsWrite(me, parts) {
     var sup = window._supabase;
     if (!me || !me.key || !sup || _sbmPrefsOk !== true) return;
-    if (_sbmPrefsBusy) { _sbmPrefsQueue[me.key] = { me: me, parts: parts.slice() }; return; }
+    var sent = (parts || []).slice();
+    if (_sbmPrefsBusy) { _sbmPrefsQueue[me.key] = { me: me, parts: sent }; return; }
     _sbmPrefsBusy = true;
     var done = function() {
       _sbmPrefsBusy = false;
@@ -51596,30 +51635,38 @@ var WO = (function() {
       var next = _sbmPrefsQueue[k]; delete _sbmPrefsQueue[k];
       _sbmPrefsWrite(next.me, next.parts);
     };
-    Promise.resolve(sup.from('drawer_prefs').upsert({ owner: me.key, owner_name: me.name, parts: parts.slice(), updated_at: new Date().toISOString() }, { onConflict: 'owner' }))
-      .then(function(r) { if (r && r.error) console.warn('[layers] parts not kept with the name: ' + r.error.message); }, function() {})
+    Promise.resolve(sup.from('drawer_prefs').upsert({ owner: me.key, owner_name: me.name, parts: sent, updated_at: new Date().toISOString() }, { onConflict: 'owner' }))
+      .then(function(r) {
+        if (r && r.error) { console.warn('[layers] parts not kept with the name: ' + r.error.message); return; }
+        if (!_sbmPrefsQueue[me.key] && _sbmPartsOf() === me.key && _sbmPartsSame(sent, _sbmMyParts())) _sbmPartsClean(me.key);
+      }, function() {})
       .then(done, done);
   }
-  // A part ticked or unticked under Layers, kept with the name too. The first
-  // time this name meets this device's parts they are joined first and the
-  // tick put on top, so parts kept from another device are not written over.
+  // A part ticked or unticked under Layers, kept with the name too. Until
+  // its write lands the device holds the newest word on its parts
+  // (lhc_sbm_parts_dirty). The first time this name meets this device's
+  // parts they are met first and the tick put on top, so parts kept from
+  // another device are not written over.
   function _sbmPrefsTicked(p, on) {
     var me = _sbmMe();
     if (!me || _sbmLayersOk !== true || window.__SBM_PREVIEW) return;
+    _sbmPrefsTicks++;
+    try { localStorage.setItem('lhc_sbm_parts_dirty', me.key); } catch (e) {}
     _sbmPrefsSupport().then(function(ok) {
       var now = _sbmMe();
       if (!ok || !now || now.key !== me.key) return;
       if (_sbmPartsOf() === me.key) { _sbmPrefsWrite(me, _sbmMyParts()); return; }
-      return _sbmPrefsSync(me, { drop: on ? null : p }).then(function(J) {
+      return _sbmPrefsSync(me, { tick: { part: p, on: !!on } }).then(function(J) {
         if (J && J.moved) _sbmPartsShown();
-        if (J && J.added.length) showToast(_sbmWelcome('', 0, J), 'success', { duration: 6000 });
+        var t = _sbmWelcome('', 0, J); if (t) showToast(t, 'success', { duration: 6000 });
       });
     }).catch(function() {});
   }
-  // A name just given on this device: the parts kept with it come back. The
-  // device's own are joined with them when they were nobody's or already
-  // this name's. When they were the name given up -- a phone changing
-  // hands -- they are kept with THAT name first, if they never were, and
+  // A name just given on this device: the parts kept with it come back --
+  // joined with the device's when those were nobody's, and in place of them
+  // when they were already this name's and nothing was waiting. When they
+  // were the name given up (a phone changing hands), what the device held
+  // for that name is kept with THAT name first, if it never reached it, and
   // left out of this one. Gives the join, or null.
   function _sbmPrefsNamed(was, me) {
     if (!me || _sbmLayersOk !== true || window.__SBM_PREVIEW) return Promise.resolve(null);
@@ -51628,22 +51675,24 @@ var WO = (function() {
       if (!ok || gen !== _sbmPrefsGen) return null;
       var noted = _sbmPartsOf(), swap = !!(was && was.key !== me.key);
       var of = (swap && !noted) ? was.key : noted;   // ticked under the name given up
-      var first = (swap && of === was.key && noted !== was.key) ? _sbmPrefsSync(was, { keep: true, of: '' }) : Promise.resolve(null);
+      var hand = swap && of === was.key && (noted !== was.key || _sbmPartsDirty(was.key));
+      var first = hand ? _sbmPrefsSync(was, { keep: true, of: noted }) : Promise.resolve(null);
       return first.then(function() { return gen === _sbmPrefsGen ? _sbmPrefsSync(me, { of: of }) : null; });
     }).catch(function() { return null; });
   }
-  // Once a page, when the layers are found: a name on this device whose parts
-  // have not met its saved ones yet -- ticked before the name was given, or
-  // before parts followed names -- has them joined.
-  function _sbmPrefsFirst() {
+  // A name's parts read back: once a page, when the layers are found, and
+  // when Layers is opened -- not twice in 30 seconds. A change made on
+  // another device arrives here unless this device holds one not saved yet.
+  function _sbmPrefsPull() {
     if (window.__SBM_PREVIEW) return;
-    var me = _sbmMe(); if (!me || _sbmPartsOf() === me.key) return;
+    var me = _sbmMe(); if (!me || Date.now() - _sbmPrefsPulledAt < 30000) return;
+    _sbmPrefsPulledAt = Date.now();
     _sbmPrefsSupport().then(function(ok) {
       var now = _sbmMe();
-      if (!ok || !now || now.key !== me.key || _sbmPartsOf() === me.key) return;
+      if (!ok || !now || now.key !== me.key) return;
       return _sbmPrefsSync(me).then(function(J) {
         if (J && J.moved) _sbmPartsShown();
-        if (J && J.added.length) showToast(_sbmWelcome('', 0, J), 'success', { duration: 6000 });
+        var t = _sbmWelcome('', 0, J); if (t) showToast(t, 'success', { duration: 6000 });
       });
     }).catch(function() {});
   }
@@ -51802,10 +51851,12 @@ var WO = (function() {
     html += '</div>';
     _sbmSheet(title, html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
-    // Whether the parts go with the name is known once drawer_prefs has been asked.
+    // Whether the parts go with the name is known once drawer_prefs has been
+    // asked; a change made to them on another device is read back here too.
     if (_sbmPrefsOk === null && window._supabase) _sbmPrefsSupport().then(function() {
       var s = document.getElementById('sbmSheet'); if (s && s.getAttribute('data-sheet') === 'layers') sbmLayers();
     });
+    if (me) _sbmPrefsPull();
   }
   // Show all: the drawings of everybody who has drawn on this song --
   // everyone's, every group's they drew for, and their private ones. Only
@@ -51860,7 +51911,7 @@ var WO = (function() {
       '<p>Nobody signs in. The first time someone draws on this phone or computer, the app asks their name (offering the names already drawing, then the roster\u2019s) and keeps it on this device. ' +
       'Every drawing made here carries that name, so the same name on another device brings your drawings back there.</p>' +
       '<p>The groups you switch on under \u201cFor a group\u201d decide which drawings meant for one part of the band you see. ' +
-      (kept ? 'It is kept with your name as well as on this device, so giving the same name on another device brings your parts back too, joined with any ticked there before. Until you give a name, they stay on this device. '
+      (kept ? 'It is kept with your name as well as on this device, so giving the same name on another device brings your parts back too, joined with any ticked there before; a change on one device reaches the others the next time they open the songbook or Drawings. Until you give a name, they stay on this device. '
             : 'It is kept on this device. ') +
       'When you finish drawing, you choose who sees it: everyone, only you, or one part.</p>' +
       '<p>Lending your phone? Change the name first, or the drawings are made in yours.' +
