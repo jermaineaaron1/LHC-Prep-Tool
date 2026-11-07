@@ -48,7 +48,7 @@ function check(name, ok, detail) {
 
 console.log('Where it is');
 check('the song\'s More menu has Move to section, in a service\'s book',
-  has(/if \(song\) rows\.push\(\['fa-right-left', 'Move to section\\u2026 \(Song of Preparation, Dismissal\\u2026\)', 'WO\.sbmMoveToSection\(\)'\]\);/) &&
+  has(/if \(song\) rows\.push\(\['fa-right-left', 'Move to section\\u2026 \(Song of Preparation, Dismissal\\u2026\)', 'WO\.sbmMoveToSection\(\)', '#[0-9a-f]{6}'\]\);/) &&
   has(/sbmMoveToSection: sbmMoveToSection, sbmMoveToSectionPick: sbmMoveToSectionPick,/));
 check('...the sheet lists the sections, the one it is in ticked and not to be chosen',
   /var here = sec\.id === cur;/.test(fn('sbmMoveToSection')) && /\(here \? ' disabled' : ''\)/.test(fn('sbmMoveToSection')));

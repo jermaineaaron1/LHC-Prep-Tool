@@ -328,6 +328,70 @@ check('...so it no longer offers "+ chords" there, and two taps are not a zoom',
   !has(/for the double-click that changes the part \*\//));
 check('the Draw chip says so', has(/a ring, an arrow, a breath mark\. Or double-tap the words\. /));
 
+// ---------------------------------------------- the third pass, same day
+// One row of tiles with More at its end; More's icons in colour, with Links
+// and Browse; a bright yellow floater 10px taller; and, the first time on a
+// device (asked: "First time per device"), a five-second flash to the words.
+console.log('\nOne row of tiles, More at its end');
+const rnd = fn('_sbmRender');
+const tileRow = (rnd.match(/html \+= '<div class="sbm-tile-row sbm-tiles sbm-tile-row--7">'[^]*?'<\/div><\/div>';/) || [''])[0];
+const order = ['WO.sbmRecord()', 'WO.sbmPractice()', 'WO.sbmVideos()', 'WO.sbmBookMode()', '_sbmDrawingsTile(song)', 'WO.sbmEdit()', 'WO.sbmMore()'];
+const at = order.map(k => tileRow.indexOf(k));
+check('Record, Tracks, YouTube, Book Mode, Drawings, Edit, More -- in that order, in one row',
+  !!tileRow && at.every((p, i) => p > -1 && (i === 0 || p > at[i - 1])), JSON.stringify(at));
+check('...Practice is called Tracks', /<\/i>Tracks<\/button>/.test(tileRow) && !/<\/i>Practice<\/button>/.test(tileRow));
+check('...and Links, Browse, Versions and Medley are not tiles any more',
+  !/WO\.sbmResources\(\)|WO\.sbmBrowse\(\)|WO\.sbmVersions\(\)|WO\.sbmMedley\(\)/.test(tileRow) && !/var verTile/.test(rnd));
+const more = fn('sbmMore');
+check('More has Links and Browse, where Read in full screen and Edit choir parts were',
+  /\['fa-link', 'Links', 'WO\.sbmResources\(\)'/.test(more) &&
+  /\['fa-globe', 'Browse online', 'WO\.sbmCloseSheet\(\);WO\.sbmBrowse\(\)'/.test(more) &&
+  !/'Read in full screen'/.test(more) && !/'Edit choir parts'/.test(more));
+check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Versions of this song'/.test(more));
+const rowsIn = (more.match(/\['fa-[a-z-]+', [^\]]*\]/g) || []);
+check('every icon in More has a colour of its own', rowsIn.length >= 16 && rowsIn.every(r => /, '#[0-9a-f]{6}'\]$/.test(r)) &&
+  /<i class="fa-solid ' \+ r\[0\] \+ '" style="color:' \+ r\[3\] \+ '"><\/i>/.test(more), rowsIn.filter(r => !/'#[0-9a-f]{6}'\]$/.test(r)).join(' | '));
+check('...and Playlist has an icon the free set has (fa-list-music is not in it)', !/fa-list-music/.test(more) && /\['fa-circle-play', 'Playlist'/.test(more));
+
+console.log('\nThe floater, bright yellow and larger');
+const guideCss = (SRC.match(/\.sbm-guide \{[^}]*\}/) || [''])[0];
+check('bright yellow, 56px tall (10px more), its words larger', /background: #ffd60a;/.test(guideCss) && /min-height: 56px;/.test(guideCss) && /font: 800 17px\/1/.test(guideCss));
+
+console.log('\nThe first time: a five-second flash to the words');
+const gc = fn('_sbmGuideCheck'), show = fn('_sbmIntroShow'), due = fn('_sbmIntroDue'), end = fn('_sbmIntroEnd');
+check('it comes when the floater would, the first time, and the floater waits for it',
+  /if \(want && _sbmIntroDue\(\)\) _sbmIntroShow\(\);\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
+check('once per device, never in the desk\'s Phone view', /if \(_sbmIntroDone \|\| window\.__SBM_PREVIEW\) return false;/.test(due) &&
+  /localStorage\.getItem\('lhc_sbm_intro_seen'\)/.test(due) && /localStorage\.setItem\('lhc_sbm_intro_seen', String\(Date\.now\(\)\)\);/.test(show) && /_sbmIntroDone = true;/.test(show));
+check('five seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 5000\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
+  /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
+check('it says where the words are, and flashes', /The chords and lyrics are below/.test(show) && /Scroll down to reach them/.test(show) &&
+  has(/animation: sbmIntroPop [^;]*, sbmIntroFlash 1\.2s ease-in-out \.4s 3;/) && has(/@keyframes sbmIntroTime \{ from \{ transform: scaleX\(1\); \} to \{ transform: scaleX\(0\); \} \}/));
+// Run it: the first time it shows, the second it does not.
+{
+  let Idue = null;
+  try {
+    Idue = new Function('localStorage', 'window', 'document', 'setTimeout', 'clearTimeout', '_sbmGuideCheck',
+      extractVar('_sbmIntroT') + '\n' + ['_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
+  } catch (e) { Idue = null; }
+  if (!Idue) check('the flash runs', false);
+  else {
+    const store = {}, added = [];
+    const ls = { getItem: k => store[k] == null ? null : store[k], setItem: (k, v) => { store[k] = String(v); } };
+    let el = null;
+    const doc = { getElementById: id => id === 'songbookLiveModal' ? { appendChild: e => { el = e; added.push(e); } } : (id === 'sbmIntro' ? el : null),
+      createElement: () => ({ setAttribute() {}, addEventListener() {}, remove() { el = null; } }) };
+    const api = Idue(ls, {}, doc, () => 1, () => {}, () => {});
+    const first = api.due();
+    api.show();
+    check('the first time it shows, and is noted as seen', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen);
+    const api2 = Idue(ls, {}, doc, () => 1, () => {}, () => {});
+    check('...and on this device never again', api2.due() === false);
+    const api3 = Idue({ getItem: () => null, setItem: () => {} }, { __SBM_PREVIEW: true }, doc, () => 1, () => {}, () => {});
+    check('...nor in the desk\'s Phone view', api3.due() === false);
+  }
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

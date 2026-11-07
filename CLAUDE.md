@@ -231,9 +231,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
      to play or delete, with an audio file to add (gotcha 52). Between the
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
-     as the song needs (gotcha 53). A song's videos are the red YouTube tile
-     next to More (`sbmVideos`: one plays at once, several are listed; a song
-     with none is offered Add a link), not a chip in its header. A green
+     as the song needs (gotcha 53). The song's tiles are one row -- Record,
+     Tracks, YouTube, Book Mode, Drawings, Edit, and More at its end; Links,
+     Browse online, Versions and Medley are in More, every icon there in a
+     colour of its own (gotcha 69). A song's videos are the red YouTube tile
+     (`sbmVideos`: one plays at once, several are listed; a song with none is
+     offered Add a link), not a chip in its header. A green
      WhatsApp button -- first of the desk top bar's buttons, before the
      Inbox; under the book's name on a phone -- shares the whole songbook at
      once (`sbShareWhatsApp`): each section by its name alone, as the builder
@@ -1283,7 +1286,7 @@ the anon key -- verify as `postgres`, not as the app.
     card, the printed page, the Phone view -- and a stroke is saved with the
     copy's `version_id`, but only once `_sbVerSupport()` has found the table
     AND the column: until the migration is run the insert would be refused
-    whole, and the Versions tile is simply not drawn. Choosing a version
+    whole, and Versions is simply not offered in More. Choosing a version
     copies its key and words onto the copy (`_sbVerApply`); after that they
     are the service's own again, and a version changes only by Update. The
     words are kept EXACTLY as the saving service had them (`customLyrics`
@@ -1906,7 +1909,13 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbBk.penHere`, so closing the book or Esc puts away only a pen taken
     out there. Holding the words 550ms without moving 10px (`_sbBkDown`)
     opens the notepad on the whole song (`_sbBkHold`, gotcha 65). The
-    book's swipe, pinch and keys stand down while drawing or typing.
+    book's swipe, pinch and keys stand down while drawing or typing. A
+    swipe turns like a book: right to left is the next page, left to right
+    the one before (it was the other way until 2026-11-07). A zoom set on a
+    page carries on to the pages after it until one of them is zoomed, and
+    that zoom carries on in turn (`_sbFsZoomAt`, pure, over
+    `_sbFsPageZooms`, which `_sbFsSaveZoom` keeps per order in localStorage
+    and per song in the cloud); the pages before any zoom fit the screen.
     The book asks for real browser FULL SCREEN, in which only the overlay
     is drawn: anything appended to `<body>` -- the draw bar, sheets, the
     toast, a confirm -- would be invisible. While it is open a
@@ -2105,6 +2114,23 @@ the anon key -- verify as `postgres`, not as the app.
     (`_sbmPlayerDur`): a recorded .webm reports none, and seeks fine anyway.
     `_sbmScrub` holds off the file's own time while the thumb is held, and
     lets go once the range loses the focus, for a drag a scroll cancelled.
+    **A third pass the same day.** The tiles are one row, More at its end:
+    Record, Tracks (Practice renamed), YouTube, Book Mode, Drawings, Edit,
+    More; Links, Browse, Versions and Medley went into More, where Links and
+    Browse online took the places of Read in full screen and Edit choir parts
+    (the Book Mode and Edit tiles do those), and every icon has a colour of
+    its own (`rows[i][3]`; Playlist's `fa-list-music` is not in Font
+    Awesome's free set, so it had no icon -- `fa-circle-play` now). The
+    floater is bright yellow (`#ffd60a`) and 10px taller (56px). **The first
+    time on a device** (asked: "First time per device", `lhc_sbm_intro_seen`)
+    the floater's own test brings up a five-second flash instead
+    (`_sbmIntroShow`, on `#songbookLiveModal`): "The chords and lyrics are
+    below", a hand, falling arrows, a bar emptying over the five seconds, a
+    yellow glow pulsing three times; a tap anywhere or Got it ends it, and
+    the floater takes over (`_sbmIntroEnd` -> `_sbmGuideCheck`). It is
+    noted as seen when it shows, and never shown in the desk's Phone view.
+    Testing in a hidden browser pane: its animations sit at their first
+    frame, so turn them off in the test page to see it.
     `tools/songbook-reading-view-harness.js` checks all of it.
 
 ## Quick Commands for Claude Code

@@ -1560,6 +1560,14 @@ const CASES = [
     s => s.replace('if (done || (!a.paused && a.readyState >= 2)) { try { a.currentTime = t; } catch (e) {} }', 'if (!a.paused && a.readyState >= 2) { try { a.currentTime = t; } catch (e) {} }')],
   ['songbook-reading-view-harness.js', 'ten seconds on runs past the end of the take',
     s => s.replace('    return (dur > 0 && t > dur) ? dur : t;\r\n', '    return t;\r\n')],
+  // The third pass: a swipe turns like a book, a zoom carries on to the
+  // pages after it, and the first-time flash shows once per device.
+  ['songbook-book-mode-harness.js', 'a swipe from right to left goes back a page again',
+    s => s.replace('            if (dx < 0) sbFsNext();\r\n', '            if (dx > 0) sbFsNext();\r\n')],
+  ['songbook-book-mode-harness.js', 'a zoom stays on the page it was set on',
+    s => s.replace('    for (var i = idx; i >= 0; i--) {\r\n      var z = map ? map[i] : undefined;', '    for (var i = idx; i >= idx; i--) {\r\n      var z = map ? map[i] : undefined;')],
+  ['songbook-reading-view-harness.js', 'the first-time flash shows every time',
+    s => s.replace("    try { localStorage.setItem('lhc_sbm_intro_seen', String(Date.now())); } catch (e) {}\r\n", '')],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],
