@@ -1549,6 +1549,17 @@ const CASES = [
     s => s.replace('    if (top < h * 0.4) return false;             // arrived: they fill the screen, or are past\r\n', '')],
   ['songbook-reading-view-harness.js', 'the Drawings tile keeps the count from before the drawings were read',
     s => s.replace('        _sbmPhoneMarks(null);\r\n        _sbmDrawingsTileCount();\r\n', '        _sbmPhoneMarks(null);\r\n')],
+  // The second pass the same day: a double-tap on the words draws, the song
+  // view's score no longer edits a line in place, and a take plays from
+  // wherever its timeline was set, never past its end.
+  ['songbook-reading-view-harness.js', 'a double-tap on the words does nothing',
+    s => s.replace('    if (!modal || !root) return;\r\n    _sbmDblBind(root);\r\n', '    if (!modal || !root) return;\r\n')],
+  ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
+    s => s.replace("if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {", 'if (window.lhcVoiceEdit) {')],
+  ['songbook-reading-view-harness.js', 'a time set while paused is forgotten when the take plays',
+    s => s.replace('if (done || (!a.paused && a.readyState >= 2)) { try { a.currentTime = t; } catch (e) {} }', 'if (!a.paused && a.readyState >= 2) { try { a.currentTime = t; } catch (e) {} }')],
+  ['songbook-reading-view-harness.js', 'ten seconds on runs past the end of the take',
+    s => s.replace('    return (dur > 0 && t > dur) ? dur : t;\r\n', '    return t;\r\n')],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],

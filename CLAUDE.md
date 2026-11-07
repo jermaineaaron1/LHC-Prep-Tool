@@ -220,7 +220,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      a word saying so; the A- / 100% / A+ size buttons are gone, and so is
      the notice under a song sung twice. A gold floater at the foot of the
      screen points to the words while they are out of sight below and goes
-     once you are there (gotcha 69). The choir score reads like a chord sheet: the words and
+     once you are there; a double-tap (or double-click) anywhere on the
+     words draws; and Practice Tracks' timeline is dragged to any point of a
+     take, with ten seconds back and on (gotcha 69). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
      moments, a part's label only where that part takes over, and a purple
      bar joining the parts that sing at the same time (gotcha 59).
@@ -749,8 +751,8 @@ the anon key -- verify as `postgres`, not as the app.
     (gotcha 59), two parts taking turns and two parts singing at once read
     the same. So a moment where two parts or more have words is marked
     `vl-sys--together` and the reading view draws it as a bar on a soft
-    panel with a small "Sing together" badge on its top edge, and a key
-    above the score (`_sbmTogetherKey`). The badge is the reading view's
+    panel with a small "Sing together" badge on its top edge (the key above
+    the score that explained it went on 2026-11-07). The badge is the reading view's
     CSS (`::after`), not a banner in the markup, which stays gone
     (`voice-lines-harness.js` checks both).
 
@@ -812,7 +814,8 @@ the anon key -- verify as `postgres`, not as the app.
 
 18. **Editing one line uses `updateLine`, never `replaceAll`.**
     Double-clicking a line's words, or its part chip, writes one column of
-    one row. `replaceAll` deletes and re-inserts everything, which clears
+    one row -- on the printed pages and the song library's Choir parts tab;
+    in the Songbook's song view a double-tap draws instead (gotcha 69). `replaceAll` deletes and re-inserts everything, which clears
     the bars on rows nobody was editing. Inline edits preserve them; the
     full editor is for restructuring, and pays the price above.
     The editors (Edit Parts, Overview Edit) READ the arrangement before
@@ -1731,10 +1734,9 @@ the anon key -- verify as `postgres`, not as the app.
     library's Choir parts tab and the editors' previews keep their look: no
     rule, brace or band; Chords + Lyrics' size (18px x the lyric scale),
     weight and chord colour (`#04756f`); an empty chord row has no height
-    and its "+ chords" hint hangs in the air above the line. A desk keeps
-    label | words | recorder, the repeated label `visibility: hidden` in its
-    column (shown faintly under the mouse, for the double-click that
-    changes a part); a phone floats the label in at the start of its line,
+    and its "+ chords" hint is hidden there (a double-tap draws, gotcha 69).
+    A desk keeps label | words | recorder, the repeated label
+    `visibility: hidden` in its column; a phone floats the label in at the start of its line,
     drops a repeated one (`display: none`) so the words use the full width,
     and puts the recorder at the top right (absolute) with a float in the
     words making room on their first line only. A part filter can leave a
@@ -1746,8 +1748,7 @@ the anon key -- verify as `postgres`, not as the app.
     purple bar and a soft panel; parts taking turns (one sings, the rest
     `(—)`) stay plain. Every moment keeps the bar's 12px, so the labels stay
     in one column; a "Sing together" badge sits over the panel's top edge
-    (16px kept above it); the key above the score explains the bar only
-    when the song has such a moment. What makes a moment "together" is how
+    (16px kept above it). What makes a moment "together" is how
     the parts are grouped: in Edit Parts each box is one moment -- a box
     whose parts have words is marked `is-together` and badged as it is
     typed (`_sbmEdTogether`, `_sbmEdTogetherMark`), and its "+ Part
@@ -2082,8 +2083,29 @@ the anon key -- verify as `postgres`, not as the app.
     smooth scroll runs. It stands down while drawing, in Book Mode and in
     Page view; `_sbmRender` schedules `_sbmGuideUpdate` on every render.
     Testing in a hidden browser pane: smooth scrolling does not move, so
-    measure with the pane shown. `tools/songbook-reading-view-harness.js`
-    checks all of it.
+    measure with the pane shown.
+    **A second pass the same day**, from a second marked-up screenshot. The
+    floater says what to do: "Scroll down for lyrics / chords" ("...for
+    lyrics" in the Lyrics view). The key above the choir score is gone; the
+    badge on each such moment says it. **A double-tap anywhere on a card of
+    words draws** (`_sbmDblBind`, on `#sbmRoot` at every render; mouse
+    `dblclick`, or two touch taps within 350ms and 32px; `_sbmDblCard` is
+    any `.sbm-card` holding `.sbm-lyrics, .sbm-score`, not its heading row
+    of chips, a button, a field or an instrument strip; `_sbmDblDraw`
+    brings the pen out once however it arrives). Asked, the operator chose
+    this over the double-click that edited a choir line where it sat, so
+    `sbBindChoirRecorders` no longer binds `lhcVoiceEdit` inside `#sbmRoot`
+    (the printed pages and the song library keep it), the score's "+ chords"
+    hint is hidden there, and `#sbmRoot .sbm-card` is `touch-action:
+    manipulation`, or two taps zoom. **Practice Tracks' timeline** is a
+    range input (`.sbm-player__range`): dragged, its time follows and a take
+    playing follows the finger; let go, the take is there; set while paused,
+    the take starts there. Ten seconds back and on (`sbmSkip`). The length
+    is the file's once known, else `song_recordings.duration_sec`
+    (`_sbmPlayerDur`): a recorded .webm reports none, and seeks fine anyway.
+    `_sbmScrub` holds off the file's own time while the thumb is held, and
+    lets go once the range loses the focus, for a drag a scroll cancelled.
+    `tools/songbook-reading-view-harness.js` checks all of it.
 
 ## Quick Commands for Claude Code
 
