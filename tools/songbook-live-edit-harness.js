@@ -154,7 +154,7 @@ check('the three whole-song editors take the song as they open',
 check('...let it go as they close, or when they could not open',
   has(/var base = _sbmPad && _sbmPad\.o \? _sbmPad\.o\.base : '';\r?\n\s*_sbmPad = null;\r?\n\s*_sbEditRelease\(base\);/) &&
   has(/var base = _sbmEd \? _sbmEd\.base : '';\r?\n\s*_sbmEd = null;\r?\n\s*_sbEditRelease\(base\);/) &&
-  (SRC.match(/function\(e\) \{ _sbEditRelease\(base\); _sbLinesUnread\(e\); \}/g) || []).length === 2);
+  (SRC.match(/function\(e\) \{ _sbEditRelease\(base\); _sbLinesUnread\(e\); \}/g) || []).length === 3);   // Overview, Edit Parts, the choir notepad
 check('...and a save from anyone who lost it is refused, editor left open',
   has(/if \(ed\.base && !_sbEditMayWrite\(ed\.base\)\) return;/) && has(/if \(P\.o && P\.o\.base && !_sbEditMayWrite\(P\.o\.base\)\) return;/) &&
   has(/if \(!_sbEditMayWrite\(song\)\) return false;/));

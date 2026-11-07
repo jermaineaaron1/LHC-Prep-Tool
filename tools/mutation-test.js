@@ -369,13 +369,13 @@ const CASES = [
                    'chordRow = V._chordRow(hit, over, !!o.chordEdit, !!o.chordEdit, o);')],
   // Both found in real use, on a song somebody was actually writing.
   ['voice-lines-harness.js', 'the colon after a part name goes into the lyric again',
-    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);',
-                   'var br = /^\\[([^\\]]+)\\]\\s*/.exec(rest);')],
+    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(s);',
+                   'var br = /^\\[([^\\]]+)\\]\\s*/.exec(s);')],
   ['voice-lines-harness.js', 'a part named in one section is drawn over the whole song',
     s => s.replace("var laneList = lanesBySection[g.section || ''] || [];",
                    'var laneList = V.lanes(lines);')],
   ['voice-lines-harness.js', 'a named part is read as lyrics instead',
-    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(rest);', 'var br = null;')],
+    s => s.replace('var br = /^\\[([^\\]]+)\\]\\s*:?\\s*/.exec(s);', 'var br = null;')],
 
   // The editor, and the cue the carolers asked for. The first of these is
   // the placement rule itself: a line with no bars sings AT THE SAME MOMENT
@@ -1346,7 +1346,7 @@ const CASES = [
   // section's chords, a section put back without the others, a colour
   // drawn for every song on the screen.
   ['songbook-overview-harness.js', 'a chord line is left in the parts text, sung by everyone',
-    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\]\), chord: l\.slice\(Math\.min\(pre, lead\)\)\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
+    s => s.replace(/(chords\.push\(\{ words: _sbmPadWords\(lines\[j\], parts\), chord: l\.slice\(Math\.min\(pre, lead\)\)\.replace\(\/\\s\+\$\/, ''\) \}\);)\r?\n\s*continue;/, '$1')],
   ['songbook-overview-harness.js', "a section edited on its own takes the next section's chords",
     s => s.replace("      var hit = V.chordFor(index, g, cursor);\r\n      var name = String(g.section || ''), key = name.trim().toLowerCase();",
                    "      var name = String(g.section || ''), key = name.trim().toLowerCase();")
@@ -1398,9 +1398,9 @@ const CASES = [
   ['songbook-overview-harness.js', 'the pad shows every time a section is sung as one',
     s => s.replace("      if (want !== null && (key !== want || runs[key] !== wantRun)) return;", "      if (want !== null && key !== want) return;")],
   ['songbook-overview-harness.js', 'a chord over a held note is put back over the held note',
-    s => s.replace("        if (chord && ln === lead) { out.push(_sbmPadIndent(t) + chord); chord = ''; }", "        if (chord) { out.push(_sbmPadIndent(t) + chord); chord = ''; }")],
+    s => s.replace("        if (chord && ln === lead) { out.push(_sbmPadIndent(t, o.parts) + chord); chord = ''; }", "        if (chord) { out.push(_sbmPadIndent(t, o.parts) + chord); chord = ''; }")],
   ['songbook-overview-harness.js', 'a line opening with a number loses it to the bars',
-    s => s.replace("  function _sbmAllPrefix(text) { return /^\\s*\\d+\\s*(?:[-\\u2013\\u2014]\\s*\\d+)?\\s+/.test(String(text || '')) ? '[All] ' : ''; }",
+    s => s.replace("  function _sbmAllPrefix(text) { return window.lhcVoiceLines._needsAll(text) ? '[All] ' : ''; }",
                    "  function _sbmAllPrefix(text) { return ''; }")],
   ['songbook-cut-harness.js', 'a take moved to General stays on its line',
     s => s.replace("    if (!hit && isLane) hit = moment.find(function(x) { return V.partFamily(x.part) === 'both'; });",
