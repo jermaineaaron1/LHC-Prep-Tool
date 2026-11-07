@@ -359,10 +359,14 @@ check('bright yellow, 56px tall (10px more), its words larger', /background: #ff
 
 console.log('\nThe first time: a five-second flash to the words');
 const gc = fn('_sbmGuideCheck'), show = fn('_sbmIntroShow'), due = fn('_sbmIntroDue'), end = fn('_sbmIntroEnd');
-check('it comes when the floater would, the first time, and the floater waits for it',
-  /if \(want && _sbmIntroDue\(\)\) _sbmIntroShow\(\);\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
-check('once per device, never in the desk\'s Phone view', /if \(_sbmIntroDone \|\| window\.__SBM_PREVIEW\) return false;/.test(due) &&
-  /localStorage\.getItem\('lhc_sbm_intro_seen'\)/.test(due) && /localStorage\.setItem\('lhc_sbm_intro_seen', String\(Date\.now\(\)\)\);/.test(show) && /_sbmIntroDone = true;/.test(show));
+// (Since the second ask it shows whenever the words are not yet up the screen,
+// a desk too, and the floater comes after it: tools/songbook-coach-harness.js.)
+check('it comes at the first opening, the floater after it, and waits while it is up',
+  /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) && /if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
+// (Second ask: "only at the initial opening of a songbook when the app is
+// first opened" -- once each time the app is opened, held in memory.)
+check('once each time the app is opened, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW;/.test(due) &&
+  !/lhc_sbm_intro_seen/.test(SRC) && /_sbmIntroDone = true;/.test(show));
 check('five seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 5000\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
   /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
 check('it says where the words are, and flashes', /Scroll down!/.test(show) && /The chords &amp; lyrics are just below/.test(show) &&
@@ -398,9 +402,10 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
     const api = Idue(ls, {}, doc, () => 1, () => {}, () => {});
     const first = api.due();
     api.show();
-    check('the first time it shows, and is noted as seen', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen);
+    check('the first time it shows, and is not written to the device', first === true && added.length === 1 && Object.keys(store).length === 0);
+    check('...and not again while the app stays open', api.due() === false);
     const api2 = Idue(ls, {}, doc, () => 1, () => {}, () => {});
-    check('...and on this device never again', api2.due() === false);
+    check('...but again the next time the app is opened', api2.due() === true);
     const api3 = Idue({ getItem: () => null, setItem: () => {} }, { __SBM_PREVIEW: true }, doc, () => 1, () => {}, () => {});
     check('...nor in the desk\'s Phone view', api3.due() === false);
   }

@@ -1567,7 +1567,15 @@ const CASES = [
   ['songbook-book-mode-harness.js', 'a zoom stays on the page it was set on',
     s => s.replace('    for (var i = idx; i >= 0; i--) {\r\n      var z = map ? map[i] : undefined;', '    for (var i = idx; i >= idx; i--) {\r\n      var z = map ? map[i] : undefined;')],
   ['songbook-reading-view-harness.js', 'the first-time flash shows every time',
-    s => s.replace("    try { localStorage.setItem('lhc_sbm_intro_seen', String(Date.now())); } catch (e) {}\r\n", '')],
+    s => s.replace("    _sbmIntroDone = true;\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
+  // The coach marks (the same day): the recordings sheet's, and the two
+  // minutes before the drawing one, counted only while the book is in front.
+  ['songbook-coach-harness.js', 'the recordings sheet opens with no coach mark',
+    s => s.replace('    setTimeout(_sbmCoachRecord, 80);\r\n', '')],
+  ['songbook-coach-harness.js', 'time in another tab counts toward the two minutes',
+    s => s.replace('    if (document.hidden || !_sbmBookOpen() || !_sbmActive()) return;\r\n    _sbmCoachClock.ms', '    _sbmCoachClock.ms')],
+  ['songbook-coach-harness.js', 'a coach mark shows twice while the app stays open',
+    s => s.replace('    _sbmCoachSeen[key] = true;\r\n', '')],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],
