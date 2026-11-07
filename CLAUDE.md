@@ -2138,9 +2138,12 @@ the anon key -- verify as `postgres`, not as the app.
     its own (`rows[i][3]`; Playlist's `fa-list-music` is not in Font
     Awesome's free set, so it had no icon -- `fa-circle-play` now). The
     floater is bright yellow (`#ffd60a`) and 10px taller (56px). **The first
-    time on a device** (asked: "First time per device", `lhc_sbm_intro_seen`)
-    the floater's own test brings up a five-second flash instead
-    (`_sbmIntroShow`, on `#songbookLiveModal`): half the screen tall and a
+    songbook opened each time the app is opened** (first asked "First time
+    per device"; then "only at the initial opening of a songbook when the app
+    is first opened" -- held in memory, `_sbmIntroDone`, nothing stored) a
+    five-second flash comes whenever the words are not yet up the screen
+    (`_sbmIntroWant`: a desk with a few lines in sight too, the floater after
+    it) (`_sbmIntroShow`, on `#songbookLiveModal`): half the screen tall and a
     cartoon -- a yellow card with a thick outline and a hard shadow,
     wobbling, rays turning behind it, "Scroll down!" in bubble letters, a
     phone whose song scrolls up for ever under a white-gloved finger
@@ -2148,10 +2151,31 @@ the anon key -- verify as `postgres`, not as the app.
     `--sbm-set`), falling arrows and a bar emptying over the five seconds,
     the card flashing three times; a tap anywhere or Got it ends it, and
     the floater takes over (`_sbmIntroEnd` -> `_sbmGuideCheck`). It is
-    noted as seen when it shows, and never shown in the desk's Phone view.
+    never shown in the desk's Phone view.
     Testing in a hidden browser pane: its animations sit at their first
     frame, so turn them off in the test page to see it.
     `tools/songbook-reading-view-harness.js` checks all of it.
+    **Coach marks** (the operator, the same day, "both for mobile and desktop
+    users"), each once each time the app is opened and never in the Phone
+    view (`_sbmCoachDue`, `_sbmCoachSeen`): a layer on `<body>` at z-index
+    3800, over the recordings sheet (3750), that lets taps through except on
+    its own buttons, follows what it points at (`__place` every 200ms -- the
+    sheet's list loads under it) and goes by itself (`_sbmCoachOpen` /
+    `_sbmCoachClose`). The recordings sheet (`_sbmCoachRecord`, from
+    `sbOpenRecordings`): four seconds, a ring numbered 1 on the kind of take
+    (`#sbRecCategory`: whole song, an instrument, a voice part; a section has
+    its own mic in the song) and 2 on Record, a gloved finger pressing it;
+    gone when Record is pressed or the sheet closed. A take stopped
+    (`sbToggleRecording`, which the floating Stop pill also calls):
+    `_sbmCoachTracks`, five seconds, the Tracks tile brought into sight above
+    the sheet, a ring on it that opens Tracks and arrows up to it. Two
+    minutes in a songbook (`_sbmCoachClock`, a 5s tick from `_sbmGuideUpdate`
+    counting only while the book is open, in front and not hidden, at most
+    6s a tick, waiting while `_sbmCoachBusy`): `_sbmCoachDraw`, nine seconds
+    on the songbook's own layer -- double-tap the chords & lyrics to draw a
+    remark, then who sees it, Everyone (the default) marked -- with Try it
+    now (`sbmLayersDraw`). `closeSongbook` closes any coach mark.
+    `tools/songbook-coach-harness.js` checks them.
 
 70. **The home page's two cards with chips are not buttons, and search is
     by the start of the title.** From the operator (2026-11-07). "Songs /
