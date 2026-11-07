@@ -48,8 +48,11 @@ const lines = SRC.split('\n');
 const MIGRATION = path.join(__dirname, '..', 'migrations', '2026-11-01_song_marks_layers.sql');
 const PREFS_MIGRATION = path.join(__dirname, '..', 'migrations', '2026-11-07_drawer_prefs.sql');
 
+const _sliced = {};
 function extractFn(name) {
-  const startIdx = lines.findIndex(l => new RegExp('^  function ' + name + '\\s*\\(').test(l));
+  if (_sliced[name]) return _sliced[name];
+  const head = new RegExp('^  function ' + name + '\\s*\\(');
+  const startIdx = lines.findIndex(l => head.test(l));
   if (startIdx < 0) throw new Error('function not found: ' + name);
   let depth = 0, started = false, out = [];
   for (let i = startIdx; i < lines.length; i++) {
@@ -58,12 +61,13 @@ function extractFn(name) {
       if (ch === '{') { depth++; started = true; }
       else if (ch === '}') depth--;
     }
-    if (started && depth === 0) return out.join('\n');
+    if (started && depth === 0) return (_sliced[name] = out.join('\n'));
   }
   throw new Error('unbalanced braces while extracting: ' + name);
 }
 function extractVar(name) {
-  const l = lines.find(x => new RegExp('^  var ' + name + ' = ').test(x));
+  const head = new RegExp('^  var ' + name + ' = ');
+  const l = lines.find(x => head.test(x));
   if (!l) throw new Error('var not found: ' + name);
   return l;
 }
@@ -197,12 +201,14 @@ console.log('\nThe wiring');
 // Which parts a reader plays or sings (Layers > Drawings meant for) used to
 // be the DEVICE's: on a new phone the name brought back your own drawings,
 // and drawings other people made for your part stayed hidden until you
-// ticked it again. Now they are kept with the name too (drawer_prefs).
+// ticked it again. Now they are kept with the name too (drawer_prefs), and
+// a change made on one device reaches the others: the name's parts win,
+// unless the device holds a change not saved yet (lhc_sbm_parts_dirty).
 
 let J = null;
 try {
   J = new Function(extractVar('_SBM_PARTS') + '\n' +
-    ['_sbmPartLabel', '_sbmPartsJoin', '_sbmWelcome'].map(extractFn).join('\n') +
+    ['_sbmPartLabel', '_sbmPartsSame', '_sbmPartsJoin', '_sbmWelcome'].map(extractFn).join('\n') +
     '\nreturn { join: _sbmPartsJoin, welcome: _sbmWelcome };')();
 } catch (e) {
   console.log('  (parts-follow-the-name helpers not present: ' + e.message.split('\n')[0] + ')');
@@ -217,17 +223,27 @@ else {
   r = J.join(['bass'], '', 'aaron tan', ['guitar']);
   check('parts ticked here with no name are JOINED with the name\'s, and the row is told', same(r.parts, ['guitar', 'bass']) && same(r.added, ['guitar']) && r.mixed && r.write, JSON.stringify(r));
   r = J.join(['bass'], 'aaron tan', 'aaron tan', ['guitar']);
-  check('...and so are parts already this name\'s', same(r.parts, ['guitar', 'bass']) && r.write);
+  check('parts already this name\'s, nothing waiting: the NAME\'s win, so a part unticked on another device stays unticked',
+    same(r.parts, ['guitar']) && r.mode === 'saved' && same(r.removed, ['bass']) && same(r.added, ['guitar']) && r.moved && !r.write, JSON.stringify(r));
+  r = J.join(['bass'], 'aaron tan', 'aaron tan', ['guitar'], null, true);
+  check('...with a change waiting on the device: the DEVICE\'s win, and are written',
+    same(r.parts, ['bass']) && r.mode === 'mine' && !r.moved && r.write, JSON.stringify(r));
+  r = J.join(['bass'], 'aaron tan', 'aaron tan', null);
+  check('...and a name whose row has gone is given the device\'s again', same(r.parts, ['bass']) && r.mode === 'mine' && r.write);
+  r = J.join(['bass'], '', 'aaron tan', ['guitar'], null, true);
+  check('a change waiting on parts that were nobody\'s still joins: nothing is lost either side', same(r.parts, ['guitar', 'bass']) && r.mode === 'join');
   r = J.join(['keys'], '', 'aaron tan', null);
   check('a name with nothing kept takes the device\'s parts', same(r.parts, ['keys']) && r.write && !r.added.length && !r.moved);
   r = J.join([], '', 'aaron tan', null);
   check('nothing either side: nothing to write', same(r.parts, []) && !r.write && !r.moved);
   r = J.join(['drums'], 'grace lim', 'aaron tan', null);
   check('a phone that changed hands: somebody else\'s parts are NOT carried into this name', same(r.parts, []) && !r.write && r.moved, JSON.stringify(r));
-  r = J.join(['drums'], 'grace lim', 'aaron tan', ['guitar']);
-  check('...the new name gets its own alone', same(r.parts, ['guitar']) && !r.write && !r.mixed);
-  r = J.join([], '', 'aaron tan', ['guitar', 'keys'], 'guitar');
+  r = J.join(['drums'], 'grace lim', 'aaron tan', ['guitar'], null, true);
+  check('...the new name gets its own alone, whatever the last person had waiting', same(r.parts, ['guitar']) && r.mode === 'theirs' && !r.write && !r.mixed);
+  r = J.join([], '', 'aaron tan', ['guitar', 'keys'], { part: 'guitar', on: false });
   check('a part just unticked here is not ticked again by the name\'s, and the row loses it', same(r.parts, ['keys']) && r.write && same(r.added, ['keys']), JSON.stringify(r));
+  r = J.join(['drums', 'bass'], 'grace lim', 'aaron tan', ['guitar'], { part: 'bass', on: true });
+  check('a part just ticked on a handed-on phone stands; the last person\'s others do not', same(r.parts, ['guitar', 'bass']) && r.write, JSON.stringify(r));
   r = J.join(['guitar', 'vocals'], 'aaron tan', 'aaron tan', ['vocals', 'guitar']);
   check('the same parts in another order: nothing to write, nothing new', !r.write && !r.added.length && !r.moved);
   r = J.join(['guitar', 'guitar', '', null, 7], '', 'aaron tan', ['guitar', 'guitar']);
@@ -251,6 +267,12 @@ else {
     J.welcome('Aaron', 0, J.join(['bass', 'keys'], '', 'aaron tan', ['guitar'])));
   check('no greeting: a sentence of its own', J.welcome('', 0, J.join([], '', 'k', ['bass'])) === 'Your parts are back (Bass)');
   check('nothing came back: nothing said', J.welcome('Aaron', 0, null) === '' && J.welcome('Aaron', 0, J.join(['bass'], '', 'k', ['bass'])) === '');
+  check('a change from another device says so',
+    J.welcome('', 0, J.join(['guitar', 'bass'], 'k', 'k', ['guitar'])) === 'Your parts are Guitar now, as chosen on another device' &&
+    J.welcome('', 0, J.join(['guitar'], 'k', 'k', [])) === 'Your parts were all unticked on another device',
+    J.welcome('', 0, J.join(['guitar', 'bass'], 'k', 'k', ['guitar'])));
+  check('...and a device that agrees, or whose own change won, says nothing',
+    J.welcome('', 0, J.join(['guitar'], 'k', 'k', ['guitar'])) === '' && J.welcome('', 0, J.join(['bass'], 'k', 'k', ['guitar'], null, true)) === '');
 }
 
 // The sync itself, against a stand-in database and storage.
@@ -258,7 +280,7 @@ function makeSim(o) {
   o = o || {};
   const store = Object.assign({}, o.store || {});
   const ls = { getItem: k => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } };
-  const db = { table: o.table !== false, rows: JSON.parse(JSON.stringify(o.rows || {})), probes: 0, reads: 0, writes: [], requests: 0, hold: false, held: [], holdReads: false, heldReads: [] };
+  const db = o.db || { table: o.table !== false, rows: JSON.parse(JSON.stringify(o.rows || {})), probes: 0, reads: 0, writes: [], requests: 0, hold: false, held: [], holdReads: false, heldReads: [], failWrites: false };
   const toasts = [], warns = [], hooks = { shown: 0 };
   const sup = {
     from(t) {
@@ -270,13 +292,13 @@ function makeSim(o) {
         if (q.f.owner == null) db.probes++; else db.reads++;
         const go = () => !db.table ? { data: null, error: { message: 'relation "public.drawer_prefs" does not exist' } }
           : { data: q.f.owner == null ? Object.keys(db.rows).slice(0, 1).map(k => ({ owner: k })) : (db.rows[q.f.owner] ? [{ parts: db.rows[q.f.owner].slice() }] : []), error: null };
-        if (q.f.owner != null && db.holdReads) return new Promise(res => db.heldReads.push(() => res(go()))).then(a, b);
+        if (q.f.owner != null && db.holdReads) { const was = go(); return new Promise(res => db.heldReads.push(() => res(was))).then(a, b); }
         return Promise.resolve(go()).then(a, b);
       };
       q.upsert = (row, opt) => {
         db.writes.push({ owner: row.owner, owner_name: row.owner_name, parts: row.parts.slice(), onConflict: opt && opt.onConflict });
         const p = new Promise(r => {
-          const fin = () => { if (db.table) db.rows[row.owner] = row.parts.slice(); r({ error: db.table ? null : { message: 'no table' } }); };
+          const fin = () => { const ok = db.table && !db.failWrites; if (ok) db.rows[row.owner] = row.parts.slice(); r({ error: ok ? null : { message: 'no answer' } }); };
           if (db.hold) db.held.push(fin); else fin();
         });
         return { then: (a, b) => p.then(a, b) };
@@ -287,10 +309,12 @@ function makeSim(o) {
   const win = { _supabase: o.noSupabase ? undefined : sup };
   if (o.preview) win.__SBM_PREVIEW = { key: 'x' };
   const fns = ['_sbmPartLabel', '_sbmMeKey', '_sbmMe', '_sbmMyParts', '_sbmPartsOf', '_sbmPartsJoin', '_sbmWelcome',
-    '_sbmPrefsSupport', '_sbmPrefsSync', '_sbmPrefsWrite', '_sbmPrefsTicked', '_sbmPrefsNamed', '_sbmPrefsFirst', 'sbmLayerPart'];
+    '_sbmPartsDirty', '_sbmPartsClean', '_sbmPartsSame',
+    '_sbmPrefsSupport', '_sbmPrefsSync', '_sbmPrefsWrite', '_sbmPrefsTicked', '_sbmPrefsNamed', '_sbmPrefsPull', 'sbmLayerPart'];
   const body = extractVar('_SBM_PARTS') + '\n' + extractVar('_sbmPrefsOk') + '\nvar _sbmLayersOk = true;\n' +
     'function _sbmPartsShown() { hooks.shown++; }\n' + fns.map(extractFn).join('\n') +
-    '\nreturn { me: _sbmMe, parts: _sbmMyParts, of: _sbmPartsOf, named: _sbmPrefsNamed, first: _sbmPrefsFirst, tick: sbmLayerPart, ok: function() { return _sbmPrefsOk; } };';
+    '\nreturn { me: _sbmMe, parts: _sbmMyParts, of: _sbmPartsOf, named: _sbmPrefsNamed, pull: _sbmPrefsPull, tick: sbmLayerPart, ok: function() { return _sbmPrefsOk; },' +
+    ' dirty: function() { return localStorage.getItem("lhc_sbm_parts_dirty"); }, unthrottle: function() { _sbmPrefsPulledAt = 0; } };';
   const api = new Function('window', 'localStorage', 'showToast', 'console', 'hooks', body)(
     win, ls, (m, t) => toasts.push(m), { warn: m => warns.push(m), log() {} }, hooks);
   api.name = n => { store.lhc_sbm_me = JSON.stringify({ name: n }); };
@@ -353,7 +377,7 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
     s.api.tick('keys'); await flush();
     check('a part ticked is saved for the name too', same(s.db.writes.map(w => w.parts), [['guitar', 'keys']]) && same(s.db.rows['aaron tan'], ['guitar', 'keys']), JSON.stringify(s.db.writes));
     s.api.tick('guitar'); await flush();
-    check('...and one unticked', same(s.db.rows['aaron tan'], ['keys']), JSON.stringify(s.db.rows));
+    check('...and one unticked; once saved, nothing is left waiting', same(s.db.rows['aaron tan'], ['keys']) && s.api.dirty() === null, JSON.stringify({ rows: s.db.rows, dirty: s.api.dirty() }));
     s.db.hold = true;
     s.api.tick('bass'); await flush(); s.api.tick('drums'); await flush(); s.api.tick('bass'); await flush();
     const inFlight = s.db.writes.length;
@@ -375,24 +399,24 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
       same(s.api.parts(), ['bass']) && s.db.requests === 0 && s.api.of() === '', JSON.stringify({ parts: s.api.parts(), requests: s.db.requests }));
 
     s = makeSim({ preview: true, rows: { 'aaron tan': ['guitar'] }, store: { lhc_sbm_me: JSON.stringify({ name: 'Aaron Tan' }), lhc_sbm_parts: '["bass"]' } });
-    s.api.tick('keys'); await s.api.named(null, s.api.me()); s.api.first(); await flush();
+    s.api.tick('keys'); await s.api.named(null, s.api.me()); s.api.pull(); await flush();
     check('the Phone view syncs nothing', s.db.requests === 0, 'requests: ' + s.db.requests);
 
     // The first page after the table appears, on a device named before.
     s = makeSim({ rows: { 'aaron tan': ['guitar'] }, store: { lhc_sbm_me: JSON.stringify({ name: 'Aaron Tan' }), lhc_sbm_parts: '["bass"]' } });
-    s.api.first(); await flush();
+    s.api.pull(); await flush();
     check('a device named before parts followed names joins them once, and says so',
       same(s.api.parts(), ['guitar', 'bass']) && same(s.db.rows['aaron tan'], ['guitar', 'bass']) && s.api.of() === 'aaron tan' && s.toasts.length === 1 && s.hooks.shown === 1,
       JSON.stringify({ parts: s.api.parts(), rows: s.db.rows, toasts: s.toasts }));
     const reads = s.db.reads;
-    s.api.first(); await flush();
+    s.api.pull(); await flush();
     check('...and only once', s.db.reads === reads && s.db.probes === 1);
 
     // Another name given while the first page's join is still being read,
     // and that read coming back LAST.
     s = makeSim({ rows: { 'aaron tan': ['guitar'], 'ben ong': ['drums'] }, store: { lhc_sbm_me: JSON.stringify({ name: 'Aaron Tan' }), lhc_sbm_parts: '[]' } });
     s.db.holdReads = true;
-    s.api.first(); await flush();
+    s.api.pull(); await flush();
     const stale = s.db.heldReads.shift();
     const a = s.api.me(); s.api.name('Ben Ong');
     const named = s.api.named(a, s.api.me()); await flush();
@@ -405,6 +429,63 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
       JSON.stringify({ stale: !!stale, before, parts: s.api.parts(), of: s.api.of() }));
   }
 
+  console.log('\nThe parts follow the name: a change on one phone reaching the other');
+  if (ok) {
+    const aaron = JSON.stringify({ name: 'Aaron Tan' });
+    const A = makeSim({ store: { lhc_sbm_me: aaron, lhc_sbm_parts: '[]' } });
+    A.api.tick('guitar'); await flush(); A.api.tick('bass'); await flush();
+    check('phone A ticks Guitar and Bass: kept with the name, nothing left waiting',
+      same(A.db.rows['aaron tan'], ['guitar', 'bass']) && A.api.dirty() === null && A.api.of() === 'aaron tan', JSON.stringify({ rows: A.db.rows, dirty: A.api.dirty() }));
+    const B = makeSim({ db: A.db });
+    B.api.name('Aaron Tan'); await B.api.named(null, B.api.me()); await flush();
+    B.api.tick('bass'); await flush();
+    check('phone B gives the name, gets both, and unticks Bass', same(B.api.parts(), ['guitar']) && same(A.db.rows['aaron tan'], ['guitar']));
+    const A2 = makeSim({ db: A.db, store: A.store });   // phone A opens the songbook again
+    A2.api.pull(); await flush();
+    check('a part unticked on one phone stays unticked on the other, and it says so',
+      same(A2.api.parts(), ['guitar']) && same(A.db.rows['aaron tan'], ['guitar']) && A2.toasts[0] === 'Your parts are Guitar now, as chosen on another device' && A2.hooks.shown === 1,
+      JSON.stringify({ parts: A2.api.parts(), rows: A.db.rows, toasts: A2.toasts }));
+    const A3 = makeSim({ db: A.db, store: A.store }), w3 = A.db.writes.length;
+    A3.api.name('Aaron Tan');
+    const j3 = await A3.api.named(A3.api.me(), A3.api.me()); await flush();
+    check('...and giving the same name again there takes the name\'s, not a join of the two',
+      same(A3.api.parts(), ['guitar']) && j3 && j3.mode === 'saved' && A.db.writes.length === w3, JSON.stringify({ parts: A3.api.parts(), j3 }));
+
+    const s = makeSim({ rows: { 'aaron tan': ['guitar', 'bass'] }, store: { lhc_sbm_me: aaron, lhc_sbm_parts: '["guitar","bass"]', lhc_sbm_parts_of: 'aaron tan' } });
+    s.db.failWrites = true;
+    s.api.tick('bass'); await flush();
+    check('a tick whose save fails leaves the device marked as holding a change', s.api.dirty() === 'aaron tan' && same(s.db.rows['aaron tan'], ['guitar', 'bass']));
+    s.db.failWrites = false;
+    const s2 = makeSim({ db: s.db, store: s.store });
+    s2.api.pull(); await flush();
+    check('...and next time the device\'s change wins: the part stays unticked, is saved, and nothing is said',
+      same(s2.api.parts(), ['guitar']) && same(s.db.rows['aaron tan'], ['guitar']) && s2.api.dirty() === null && s2.toasts.length === 0,
+      JSON.stringify({ parts: s2.api.parts(), rows: s.db.rows, dirty: s2.api.dirty(), toasts: s2.toasts }));
+
+    const t = makeSim({ rows: { 'aaron tan': ['guitar'] }, store: { lhc_sbm_me: aaron, lhc_sbm_parts: '["guitar"]', lhc_sbm_parts_of: 'aaron tan' } });
+    t.db.holdReads = true;
+    t.api.pull(); await flush();
+    const late = t.db.heldReads.shift();
+    t.db.holdReads = false;
+    t.api.tick('keys'); await flush();
+    if (late) { late(); await flush(); }
+    check('a read that left before a tick cannot undo it, even when the tick was saved first',
+      !!late && same(t.api.parts(), ['guitar', 'keys']) && same(t.db.rows['aaron tan'], ['guitar', 'keys']),
+      JSON.stringify({ late: !!late, parts: t.api.parts(), rows: t.db.rows }));
+
+    const h = makeSim({ rows: { 'grace lim': ['drums'] }, store: { lhc_sbm_me: JSON.stringify({ name: 'Grace Lim' }), lhc_sbm_parts: '["drums","keys"]', lhc_sbm_parts_of: 'grace lim', lhc_sbm_parts_dirty: 'grace lim' } });
+    const g = h.api.me(); h.api.name('Aaron Tan');
+    await h.api.named(g, h.api.me()); await flush();
+    check('a phone handed on with a change not saved: the change is kept with its own name first',
+      same(h.db.rows['grace lim'], ['keys', 'drums']) && same(h.api.parts(), []) && !h.db.rows['aaron tan'], JSON.stringify({ rows: h.db.rows, parts: h.api.parts() }));
+
+    const p = makeSim({ rows: { 'aaron tan': ['guitar'] }, store: { lhc_sbm_me: aaron, lhc_sbm_parts: '["guitar"]', lhc_sbm_parts_of: 'aaron tan' } });
+    p.api.pull(); await flush(); p.api.pull(); await flush();
+    const twice = p.db.reads;
+    p.api.unthrottle(); p.api.pull(); await flush();
+    check('read back at most once in 30 seconds', twice === 1 && p.db.reads === 2, 'reads: ' + twice + ' then ' + p.db.reads);
+  }
+
   console.log('\nThe parts follow the name: the wiring');
   {
     const has = re => re.test(SRC);
@@ -412,7 +493,12 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
     check('a tick under Layers is kept with the name', has(/try \{ localStorage\.setItem\('lhc_sbm_parts', JSON\.stringify\(a\)\); \} catch \(e\) \{\}\r?\n\s*_sbmPrefsTicked\(p, i === -1\);/));
     check('giving a name brings its parts back with its drawings, in one toast, and redraws when they change',
       has(/Promise\.all\(\[drawn, _sbmPrefsNamed\(was, me\)\]\)/) && has(/if \(J && J\.moved\) _sbmPartsShown\(\);\r?\n\s*var text = _sbmWelcome/));
-    check('a device named before is joined once the layers are found', has(/function\(r2\) \{ _sbmLayersOk = !r2\.error; if \(_sbmLayersOk\) _sbmPrefsFirst\(\); return true; \}/));
+    check('a device named before is joined, and a named one reads its parts back, once the layers are found',
+      has(/function\(r2\) \{ _sbmLayersOk = !r2\.error; if \(_sbmLayersOk\) _sbmPrefsPull\(\); return true; \}/));
+    check('opening Layers reads the name\'s parts back too', /\n\s*if \(me\) _sbmPrefsPull\(\);/.test(body('sbmLayers')));
+    check('a tick marks the device as holding a change until it is saved',
+      /_sbmPrefsTicks\+\+;\r?\n\s*try \{ localStorage\.setItem\('lhc_sbm_parts_dirty', me\.key\); \} catch \(e\) \{\}/.test(body('_sbmPrefsTicked')) &&
+      /_sbmPartsClean\(me\.key\)/.test(body('_sbmPrefsWrite')) && /var dirty = _sbmPartsDirty\(me\.key\) \|\| ticks !== _sbmPrefsTicks;/.test(body('_sbmPrefsSync')));
     check('the table is probed once, and its absence turns the feature off',
       has(/sup\.from\('drawer_prefs'\)\.select\('owner'\)\.limit\(1\)/) && /_sbmPrefsOk = !!\(r && !r\.error\)/.test(body('_sbmPrefsSupport')) &&
       /_sbmPrefsOk !== true/.test(body('_sbmPrefsSync')) && /_sbmPrefsOk !== true/.test(body('_sbmPrefsWrite')));
@@ -420,7 +506,7 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(r => 
     check('every request for drawer_prefs goes through window._supabase (the Phone view\'s guard covers it)',
       all === 3 && viaSup === 3 && ['_sbmPrefsSupport', '_sbmPrefsSync', '_sbmPrefsWrite'].every(n => /var sup = window\._supabase/.test(body(n))) &&
       !/rest\/v1\/drawer_prefs/.test(SRC), 'from: ' + all + ', via sup: ' + viaSup);
-    check('a save names the row it is for', /\.upsert\(\{ owner: me\.key, owner_name: me\.name, parts: parts\.slice\(\), updated_at: new Date\(\)\.toISOString\(\) \}, \{ onConflict: 'owner' \}\)/.test(body('_sbmPrefsWrite')));
+    check('a save names the row it is for', /\.upsert\(\{ owner: me\.key, owner_name: me\.name, parts: sent, updated_at: new Date\(\)\.toISOString\(\) \}, \{ onConflict: 'owner' \}\)/.test(body('_sbmPrefsWrite')));
     const note = body('_sbmWhoNote');
     check('"How does it know who I am?" says the parts go with the name, once they do',
       /It is kept with your name as well as on this device/.test(note) && /var kept = _sbmPrefsOk === true;/.test(note) && !/also kept on this device/.test(note));

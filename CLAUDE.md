@@ -1395,18 +1395,25 @@ the anon key -- verify as `postgres`, not as the app.
     hides, and which parts they chose, are theirs alone. The parts FOLLOW
     THE NAME (`drawer_prefs`, `_sbmPrefs*`): giving a name (`sbmWhoSave` ->
     `_sbmPrefsNamed`) brings back the parts kept for it, a tick
-    (`sbmLayerPart` -> `_sbmPrefsTicked`) is kept for it too, and a device
-    named before this existed joins its parts once (`_sbmPrefsFirst`, after
-    the layers probe). `lhc_sbm_parts_of` says whose the device's parts are:
-    nobody's ('') or the same name's are JOINED with the name's (the union,
-    said in the one welcome toast, `_sbmWelcome`); somebody else's -- a
-    phone changing hands -- are kept with THAT name first and left out of
-    the new one (`_sbmPartsJoin`, pure), so one person's parts never follow
-    another person around. A device with no name, and every device until
-    the migration is run (`_sbmPrefsOk`, probed once), works from
-    `lhc_sbm_parts` alone. Not done: a device already joined does not pull
-    a change made on another device until the name is given again, and
-    then it is joined, not replaced -- a part unticked elsewhere comes back.
+    (`sbmLayerPart` -> `_sbmPrefsTicked`) is kept for it too, and the name's
+    parts are read back after the layers probe and when Layers opens
+    (`_sbmPrefsPull`, not twice in 30s). Two marks on the device decide how
+    a read meets the device (`_sbmPartsJoin`, pure, by `mode`):
+    `lhc_sbm_parts_of` says whose the device's parts are, and
+    `lhc_sbm_parts_dirty` names the name they hold a change for that has not
+    been saved (set by a tick, cleared once a write of what the device holds
+    lands, `_sbmPartsClean`). Nobody's ('') -> `join`, the union, said in the
+    one welcome toast (`_sbmWelcome`); the same name's with nothing waiting
+    -> `saved`, the NAME's win, so a part unticked on one phone stays
+    unticked on the others ("as chosen on another device"); the same name's
+    with a change waiting, or a name with no row -> `mine`, the device's win
+    and are written; somebody else's -- a phone changing hands -> `theirs`,
+    the new name's own alone, and what the device held for the old name is
+    kept with THAT name first (`_sbmPrefsNamed`), so one person's parts never
+    follow another person around. A tick made while a read was out counts as
+    waiting (`_sbmPrefsTicks`), so a read that left before it cannot undo it.
+    A device with no name, and every device until the migration is run
+    (`_sbmPrefsOk`, probed once), works from `lhc_sbm_parts` alone.
     Layers also
     changes who sees all of one's drawings on the song (on the version the
     service sings), and says how many drawings are for parts the reader has
