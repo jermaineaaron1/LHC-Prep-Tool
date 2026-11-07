@@ -72,7 +72,11 @@ function fn(name) {
 const escapeHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 let F = {};
 try {
-  const src = ['_sfTitleKey', '_sfTitleStarts', 'highlightMatch', '_homeOrderChipName', '_homeNewest'].map(n => fn(n) || '').join('\n');
+  // What a title's front is stripped of, when the source has it as its own
+  // declaration (from 2026-11-07's review on).
+  const leadAt = lines.findIndex(l => /^\s*var _SF_LEAD = \(function\(\) \{/.test(l));
+  const lead = leadAt < 0 ? '' : block(leadAt) + ';';
+  const src = lead + '\n' + ['_sfTitleKey', '_sfTitleStarts', 'highlightMatch', '_homeOrderChipName', '_homeNewest'].map(n => fn(n) || '').join('\n');
   F = new Function('escapeHtml', src + '\nreturn { key: typeof _sfTitleKey === "function" ? _sfTitleKey : null, starts: typeof _sfTitleStarts === "function" ? _sfTitleStarts : null, hi: highlightMatch, chipName: typeof _homeOrderChipName === "function" ? _homeOrderChipName : null, newest: typeof _homeNewest === "function" ? _homeNewest : null };')(escapeHtml);
 } catch (e) { console.error('could not slice: ' + e.message); }
 const starts = (title, q) => F.starts ? F.starts({ title }, q) : null;
@@ -88,6 +92,19 @@ eq('  case and spacing do not matter', find('  HOW   gr'), ['How Great Is Our Go
 eq('  a leading quote is skipped, on either side', [find('joy'), find('"joy')], [['"Joy to the World"'], ['"Joy to the World"']]);
 eq('  accents are not needed', find('el sh'), ['Él Shaddai']);
 eq('  an empty box finds everything', find('').length, LIB.length);
+// A title in another script is letters too. Skipping "anything but a-z, 0-9"
+// at the front took a Chinese or Tamil title away whole, and typing one then
+// matched every song in the library.
+const WORLD = ['奇异恩典', '主祷文', 'இயேசுவே', '🎄 Christmas Medley', 'Amazing Grace', '“平安夜”'];
+const findW = q => WORLD.filter(t => starts(t, q));
+eq('  a title in Chinese is found by its first characters, and only it', [findW('奇异'), findW('主')], [['奇异恩典'], ['主祷文']]);
+eq('  so is one in Tamil', findW('இயே'), ['இயேசுவே']);
+eq('  and one in quotation marks, the marks skipped and the characters kept', findW('平安'), ['“平安夜”']);
+eq('  an emoji at the front is skipped like a quote', findW('chr'), ['🎄 Christmas Medley']);
+eq('  a box of only punctuation or an emoji: titles that begin with it, not every song',
+  [findW('🎄'), find('('), find('"')], [['🎄 Christmas Medley'], [], ['"Joy to the World"']]);
+const hiZh = F.hi ? F.hi('奇异恩典', '奇异') : '';
+check('  and the suggestion marks those characters', hiZh === '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">奇异</mark>恩典', hiZh);
 const hi = F.hi ? F.hi('"Joy to the World"', 'jo') : '';
 check('the suggestion marks the letters typed, after a leading quote', hi === '&quot;<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">Jo</mark>y to the World&quot;', hi);
 check('  and escapes the title', F.hi && F.hi('<b>Hi</b>', 'x') === '&lt;b&gt;Hi&lt;/b&gt;', F.hi && F.hi('<b>Hi</b>', 'x'));
@@ -103,6 +120,8 @@ console.log('\nfive seconds of how to search, as the page opens');
 const hint = fn('_sfSearchHint') || '';
 check('opening the Songs page shows it', /renderSongbooksList\(\);\r?\n\s*\/\/[^\n]*\r?\n\s*\/\/[^\n]*\r?\n\s*setTimeout\(_sfSearchHint, 350\);/.test(SRC));
 check('  for five seconds', /timer = setTimeout\(end, 5000\);/.test(hint));
+check('  one at a time: a second ends the first, timer and all, before it starts',
+  /if \(_sfHintEnd\) _sfHintEnd\(true\);/.test(hint) && /if \(_sfHintEnd === end\) _sfHintEnd = null;/.test(hint) && /_sfHintEnd = end;/.test(hint));
 check('  gone the moment the box is touched or typed in', /inp\.addEventListener\('focus', end\);/.test(hint) && /inp\.addEventListener\('input', end\);/.test(hint) && /inp\.addEventListener\('pointerdown', end\);/.test(hint));
 check('  not over words already typed, nor a hidden box', /if \(!inp \|\| inp\.value \|\| inp\.offsetParent === null/.test(hint));
 check('  above the filters, whose header puts every child at z-index 1',
@@ -121,7 +140,18 @@ check('  a chip opens its book or order, not the page under it', /e\.stopPropaga
   /window\.WO\.loadOrder\(id\)/.test(chips) && /openStandaloneSongbook\('sb-' \+ id\)/.test(chips));
 check('  and sits above the cover', /\.home-nav-recent \{\r?\n\s*position: relative; z-index: 1;/.test(SRC));
 const recent = fn('renderHomeRecent') || '';
-check('  the three orders edited last', /orders = _homeNewest\(orders, 3\);/.test(recent));
+check('  the three orders edited last, two alike told apart', /orders = _homeTellApart\(_homeNewest\(orders, 3\)\);/.test(recent));
+check('  drawn again once the orders are read, which comes back after Home is drawn',
+  /var _hv = \$\('homeView'\);\r?\n\s*if \(_hv && _hv\.style\.display !== 'none'\) renderHomeNavStats\(\);/.test(fn('loadOrders') || ''));
+let TA = null;
+try { TA = new Function((fn('_homeTellApart') || '') + '\nreturn typeof _homeTellApart === "function" ? _homeTellApart : null;')(); } catch (e) { TA = null; }
+if (TA) {
+  eq('  two services on one date say which is which',
+    TA([{ id: 'a', name: 'Nov 8', type: 'traditional' }, { id: 'b', name: 'Nov 8', type: 'contemporary' }, { id: 'c', name: 'Nov 1', type: 'traditional' }]).map(x => x.name),
+    ['Nov 8 · Traditional', 'Nov 8 · Contemporary', 'Nov 1']);
+} else check('  two services on one date say which is which', false, '_homeTellApart not found');
+check('  a chip keeps its own sizes, over the phone rules for a card\'s icons and words',
+  /\.home-nav-card \.home-recent-chip i \{ font-size: \.62rem;/.test(SRC) && /\.home-nav-card \.home-recent-chip span \{ font-size: inherit;/.test(SRC));
 check('  the songbooks read lightly: the newest three, and the ones opened here by id, three columns',
   /var cols = 'id, name, created_date';/.test(recent) &&
   /\.from\('songbooks'\)\.select\(cols\)\.order\('created_date', \{ ascending: false \}\)\.limit\(3\)/.test(recent) &&
@@ -164,8 +194,9 @@ if (F.newest) {
 if (F.chipName) {
   eq('  an order called "Service - <date>" shows its date; a named one, its name',
     [F.chipName({ title: 'Service - Nov 8', serviceDate: 'Nov 8' }), F.chipName({ title: 'Service - 11 Oct 2026', serviceDate: 'Oct 11' }),
-     F.chipName({ title: 'Carols by Candlelight', serviceDate: 'Dec 20' }), F.chipName({ title: '', serviceDate: 'Dec 27' }), F.chipName({})],
-    ['Nov 8', 'Oct 11', 'Carols by Candlelight', 'Dec 27', 'Service Order']);
+     F.chipName({ title: 'Carols by Candlelight', serviceDate: 'Dec 20' }), F.chipName({ title: '', serviceDate: 'Dec 27' }), F.chipName({}),
+     F.chipName({ title: 'Service of Lessons and Carols', serviceDate: 'Dec 20' }), F.chipName({ title: 'Service - Christmas Eve', serviceDate: 'Dec 24' })],
+    ['Nov 8', 'Oct 11', 'Carols by Candlelight', 'Dec 27', 'Service Order', 'Service of Lessons and Carols', 'Service - Christmas Eve']);
 } else check('  an order called "Service - <date>" shows its date; a named one, its name', false, '_homeOrderChipName not found');
 check('  beside the words only when the names fit there whole', /function _homeRecentFit\(card\)/.test(SRC) && /_homeRecentFit\(card\);/.test(chips) &&
   /\.home-nav-card\.has-recent:not\(\.recent-below\) \{ grid-template-areas: "icon label recent" "icon desc stat"; \}/.test(SRC));
