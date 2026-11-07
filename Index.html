@@ -53533,10 +53533,79 @@ var WO = (function() {
       want = _sbmGuideWant(c.top - r.top, c.bottom - r.top, r.height, _sbmGuideOn);
     }
     _sbmGuideOn = want;
+    // The first time on this device the words are out of sight, the flash
+    // says where they are; the floater waits until it has gone.
+    if (want && _sbmIntroDue()) _sbmIntroShow();
+    if (_sbmIntroUp()) want = false;
     g.classList.toggle('is-on', want);
     g.setAttribute('aria-hidden', want ? 'false' : 'true');
     g.tabIndex = want ? 0 : -1;
   }
+  // ---- the first time: where the words are ----
+  //
+  // From the operator (2026-11-07): the first time someone opens a songbook,
+  // a five-second flash shows them to scroll down for the chords and
+  // lyrics, then the floater takes over. Asked how often: "First time per
+  // device" (lhc_sbm_intro_seen). It shows only when the words are out of
+  // sight below -- the floater's own test -- so a desk that opens with the
+  // words in view never sees it; and never in the desk's Phone view, a copy
+  // of the app whose settings are thrown away.
+  var _sbmIntroT = 0, _sbmIntroDone = false;
+  function _sbmIntroDue() {
+    if (_sbmIntroDone || window.__SBM_PREVIEW) return false;
+    try { if (localStorage.getItem('lhc_sbm_intro_seen')) { _sbmIntroDone = true; return false; } } catch (e) {}
+    return true;
+  }
+  function _sbmIntroUp() { return !!document.getElementById('sbmIntro'); }
+  function _sbmIntroShow() {
+    var modal = document.getElementById('songbookLiveModal');
+    if (!modal || _sbmIntroUp()) return;
+    _sbmIntroDone = true;
+    try { localStorage.setItem('lhc_sbm_intro_seen', String(Date.now())); } catch (e) {}
+    var el = document.createElement('div');
+    el.id = 'sbmIntro'; el.className = 'sbm sbm-intro';
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-live', 'polite'); el.setAttribute('aria-label', 'Where the chords and lyrics are');
+    // Half the screen, and a cartoon (the operator, 2026-11-07): rays
+    // turning behind a wobbling card with thick outlines, bubble letters, and
+    // a phone whose song scrolls up under a white-gloved finger.
+    el.innerHTML = '<div class="sbm-intro__burst" aria-hidden="true"></div>' +
+      '<div class="sbm-intro__card">' +
+        '<div class="sbm-intro__t">Scroll down!</div>' +
+        '<div class="sbm-intro__s">The chords &amp; lyrics are just below</div>' +
+        '<div class="sbm-intro__art" aria-hidden="true">' + _sbmIntroArt() + '<i class="fa-solid fa-hand-pointer sbm-intro__hand"></i></div>' +
+        '<div class="sbm-intro__arrows" aria-hidden="true"><i class="fa-solid fa-chevron-down"></i><i class="fa-solid fa-chevron-down"></i><i class="fa-solid fa-chevron-down"></i></div>' +
+        '<div class="sbm-intro__s2">or tap the yellow button at the bottom</div>' +
+        '<div class="sbm-intro__time" aria-hidden="true"><span></span></div>' +
+        '<button type="button" class="sbm-intro__ok">Got it!</button></div>';
+    el.addEventListener('click', _sbmIntroEnd);
+    modal.appendChild(el);
+    clearTimeout(_sbmIntroT);
+    _sbmIntroT = setTimeout(_sbmIntroEnd, 5000);
+  }
+  // The flash's cartoon: a phone whose song -- chord lines over words --
+  // scrolls up for ever. The lines are drawn twice, one set under the
+  // other, and the pair slides up by one set's height, so the loop has no seam.
+  function _sbmIntroArt() {
+    var set = '', y = 8;
+    for (var i = 0; i < 9; i++) {
+      if (i % 3 === 0) { set += '<rect x="8" y="' + y + '" width="' + (18 + (i * 7) % 22) + '" height="5" rx="2.5" fill="#0d9488"/>'; y += 10; }
+      set += '<rect x="8" y="' + y + '" width="' + (38 + (i * 17) % 28) + '" height="7" rx="3.5" fill="#1a1405"/>'; y += 15;
+    }
+    return '<svg class="sbm-intro__phone" viewBox="0 0 120 200" focusable="false">' +
+      '<defs><clipPath id="sbmIntroScr"><rect x="18" y="28" width="84" height="142" rx="8"/></clipPath></defs>' +
+      '<rect x="8" y="6" width="104" height="188" rx="22" fill="#ffffff" stroke="#1a1405" stroke-width="6"/>' +
+      '<rect x="47" y="14" width="26" height="6" rx="3" fill="#1a1405"/>' +
+      '<g clip-path="url(#sbmIntroScr)"><rect x="18" y="28" width="84" height="142" fill="#fff8d6"/>' +
+        '<g transform="translate(18 28)"><g class="sbm-intro__lines" style="--sbm-set:' + y + 'px">' + set + '<g transform="translate(0 ' + y + ')">' + set + '</g></g></g></g>' +
+      '<rect x="18" y="28" width="84" height="142" rx="8" fill="none" stroke="#1a1405" stroke-width="3.5"/>' +
+      '<circle cx="60" cy="182" r="5" fill="none" stroke="#1a1405" stroke-width="3"/></svg>';
+  }
+  function _sbmIntroEnd() {
+    clearTimeout(_sbmIntroT);
+    var el = document.getElementById('sbmIntro'); if (el) el.remove();
+    _sbmGuideCheck();
+  }
+
   // To the words: the card's top just under the desk's sticky top bar.
   function _sbmGuideGo() {
     var root = document.getElementById('sbmRoot'), card = document.getElementById('sbmWordsCard');
@@ -53672,29 +53741,32 @@ var WO = (function() {
   function sbmMore() {
     var song = _sbmSong();
     var order = _sbmOrderBook();
-    var rows = [['fa-list-ol', 'Song List', 'WO.sbmContents()']];
+    // Every icon in a colour of its own (the operator, 2026-11-07). Links
+    // and Browse came here from the tiles, in the places of Read in full
+    // screen (the Book Mode tile) and Edit choir parts (the Edit tile).
+    var rows = [['fa-list-ol', 'Song List', 'WO.sbmContents()', '#2563eb']];
     if (order) {
       var waiting = _sbmInboxWaiting();
-      rows.push(['fa-inbox', 'Inbox — links shared to this service' + (waiting ? ' (' + waiting + ' waiting)' : ''), 'WO.sbmInbox()']);
-      rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()']);
-      if (song) rows.push(['fa-right-left', 'Move to section\u2026 (Song of Preparation, Dismissal\u2026)', 'WO.sbmMoveToSection()']);
+      rows.push(['fa-inbox', 'Inbox — links shared to this service' + (waiting ? ' (' + waiting + ' waiting)' : ''), 'WO.sbmInbox()', '#0891b2']);
+      rows.push(['fa-plus', 'Add a song', 'WO.sbmAddSong()', '#16a34a']);
+      if (song) rows.push(['fa-right-left', 'Move to section\u2026 (Song of Preparation, Dismissal\u2026)', 'WO.sbmMoveToSection()', '#ea580c']);
     }
-    if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()']);
-    if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()']);
-    if (song && order) rows.push(['fa-clone', 'Copy an arrangement: as this service or an earlier one sang it', 'WO.sbmArrangements()']);
+    if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()', '#ca8a04']);
+    if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()', '#7c3aed']);
+    if (song && order) rows.push(['fa-clone', 'Copy an arrangement: as this service or an earlier one sang it', 'WO.sbmArrangements()', '#0d9488']);
     rows = rows.concat([
-      ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)'],
-      ['fa-book-open', 'Read in full screen', 'WO.sbmCloseSheet();WO.sbOpenFullscreen()'],
-      ['fa-list-music', 'Playlist', 'WO.sbmCloseSheet();WO.sbOpenPlaylist()'],
-      ['fa-file-pdf', 'Save as PDF', 'WO.sbmCloseSheet();WO.sbSavePDF()'],
-      ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()'],
-      ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()'],
-      ['fa-arrows-rotate', 'Reset this song’s layout', 'WO.sbmCloseSheet();WO.sbmReset()'],
-      ['fa-people-group', 'Edit choir parts', 'WO.sbmCloseSheet();WO.sbmEditParts()'],
-      ['fa-align-left', 'Overview edit — the arrangement as text', 'WO.sbmCloseSheet();WO.sbmOverview(null)']
+      ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)', '#0284c7'],
+      ['fa-link', 'Links', 'WO.sbmResources()', '#db2777'],
+      ['fa-circle-play', 'Playlist', 'WO.sbmCloseSheet();WO.sbOpenPlaylist()', '#dc2626'],
+      ['fa-file-pdf', 'Save as PDF', 'WO.sbmCloseSheet();WO.sbSavePDF()', '#b91c1c'],
+      ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()', '#c2410c'],
+      ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()', '#15803d'],
+      ['fa-arrows-rotate', 'Reset this song’s layout', 'WO.sbmCloseSheet();WO.sbmReset()', '#d97706'],
+      ['fa-globe', 'Browse online', 'WO.sbmCloseSheet();WO.sbmBrowse()', '#059669'],
+      ['fa-align-left', 'Overview edit — the arrangement as text', 'WO.sbmCloseSheet();WO.sbmOverview(null)', '#9333ea']
     ]);
     var html = '<div class="sbm-menu">' + rows.map(function(r) {
-      return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '"></i>' + r[1] + '</button>';
+      return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '" style="color:' + r[3] + '"></i>' + r[1] + '</button>';
     }).join('');
     if (song) html += '<button class="sbm-btn sbm-btn--danger" style="margin-top:10px;" onclick="WO.sbmCloseSheet();WO.sbRemoveSong(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-trash"></i>Remove this song from the songbook</button>';
     _sbmSheet('More', html + '</div>');
@@ -55417,21 +55489,14 @@ var WO = (function() {
     html += '<div class="sbm-pair">' +
       '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
       '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
-    var verTile = _sbVerOk === true;
-    html += '<div class="sbm-tile-row sbm-tiles' + (verTile ? ' sbm-tile-row--7' : '') + '">' +
+    // One row (the operator, 2026-11-07): Record, Tracks, YouTube, Book Mode,
+    // Drawings, Edit, and More at the far right. Links, Browse, Versions and
+    // Medley are in More.
+    html += '<div class="sbm-tile-row sbm-tiles sbm-tile-row--7">' +
       '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
-      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()"><i class="fa-solid fa-headphones"></i>Practice</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmResources()"><i class="fa-solid fa-link"></i>Links</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmBrowse()" title="Go looking for this song online, and save what you find for everyone"><i class="fa-solid fa-globe"></i>Browse</button>' +
-      '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
-      (verTile ? '<button class="sbm-tile' + (verHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmVersions()" title="Versions of this song: a key, words and drawings to sing it with"><i class="fa-solid fa-code-branch"></i>Versions</button>' : '') +
-      // Links and Files opened the same sheet, so every book -- a service's or
-      // a standalone one -- has the medley tile in that place.
-      '<button class="sbm-tile' + (mdHere ? ' sbm-tile--gold' : '') + '" onclick="WO.sbmMedley()" title="' + (mdHere ? 'Edit the medley this song is in' : 'Make a medley: songs sung one straight into the next') + '"><i class="fa-solid fa-layer-group"></i>Medley</button>' +
-      '<button class="sbm-tile" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button>' +
-      // The song's videos, next to More and in YouTube's red: one plays at
-      // once, several are listed. A song without one is offered the way to
-      // add one.
+      '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()" title="Practice tracks: the takes recorded for this song"><i class="fa-solid fa-headphones"></i>Tracks</button>' +
+      // The song's videos, in YouTube's red: one plays at once, several are
+      // listed. A song without one is offered the way to add one.
       (nVid ? '<button class="sbm-tile sbm-tile--yt" onclick="WO.sbmVideos()" title="Play this song\'s video' + (nVid === 1 ? '' : 's') + '"><i class="fa-brands fa-youtube"></i>YouTube' +
                 (nVid > 1 ? '<span class="sbm-tile__count">' + nVid + '</span>' : '') + '</button>'
             : '<button class="sbm-tile sbm-tile--yt-none" onclick="WO.sbAddSongLink(\'' + escapeJsArg(song.id) + '\')" title="Add a YouTube video to this song"><i class="fa-brands fa-youtube"></i>YouTube</button>') +
@@ -55440,6 +55505,8 @@ var WO = (function() {
       '<button class="sbm-tile" onclick="WO.sbmBookMode()" title="Read the songbook full screen at this song. Double-click to draw; hold a line to type over it."><i class="fa-solid fa-book-open"></i>Book Mode</button>' +
       // Every drawing kept on the song: whose, which show, who sees yours.
       _sbmDrawingsTile(song) +
+      '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      '<button class="sbm-tile sbm-tile--more" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button>' +
       '</div></div>';
 
     // -- choir parts --
@@ -71561,7 +71628,7 @@ var WO = (function() {
         var _stored = JSON.parse(localStorage.getItem('lhc_sb_fs_page_zooms_' + _oid) || 'null');
         if (_stored && typeof _stored === 'object') _sbFsPageZooms = _stored;
       } catch(e) { _sbFsPageZooms = {}; }
-      _sbFsZoom = (_sbFsPageZooms[_sbFsIdx] !== undefined) ? _sbFsPageZooms[_sbFsIdx] : _sbFsFitZoom;
+      _sbFsZoom = _sbFsZoomAt(_sbFsPageZooms, _sbFsIdx, _sbFsFitZoom);
       _sbFsRenderPage();
       _sbFsInitPinch();
       _sbFsInitAutoHide();
@@ -71584,7 +71651,7 @@ var WO = (function() {
             }
           });
           if (enriched) {
-            _sbFsZoom = (_sbFsPageZooms[_sbFsIdx] !== undefined) ? _sbFsPageZooms[_sbFsIdx] : _sbFsFitZoom;
+            _sbFsZoom = _sbFsZoomAt(_sbFsPageZooms, _sbFsIdx, _sbFsFitZoom);
             _sbFsRenderPage();
           }
         });
@@ -73501,8 +73568,20 @@ var WO = (function() {
       if (_sid) _sbSyncLayoutToSupabase(_sid, { fsZoom: _sbFsZoom });
     } catch(e) {}
   }
+  // The zoom a page opens at (pure): its own, if one was set on it; else the
+  // last one set on a page before it, so a zoom carries on through the pages
+  // after until it is changed on one of them, and that change carries on in
+  // turn (the operator, 2026-11-07); else the fit. Every zoom set is kept
+  // (_sbFsSaveZoom), so the book opens the way it was left.
+  function _sbFsZoomAt(map, idx, fit) {
+    for (var i = idx; i >= 0; i--) {
+      var z = map ? map[i] : undefined;
+      if (typeof z === 'number' && z > 0) return z;
+    }
+    return fit;
+  }
   function _sbFsRestorePageZoom() {
-    _sbFsZoom = (_sbFsPageZooms[_sbFsIdx] !== undefined) ? _sbFsPageZooms[_sbFsIdx] : _sbFsFitZoom;
+    _sbFsZoom = _sbFsZoomAt(_sbFsPageZooms, _sbFsIdx, _sbFsFitZoom);
   }
   function sbFsZoomIn()  { _sbFsZoom = Math.min(3,   Math.round((_sbFsZoom + 0.1) * 100) / 100); _sbFsSaveZoom(); _sbFsRenderPage(); _sbFsShowBar(); }
   function sbFsZoomOut() { _sbFsZoom = Math.max(0.2, Math.round((_sbFsZoom - 0.1) * 100) / 100); _sbFsSaveZoom(); _sbFsRenderPage(); _sbFsShowBar(); }
@@ -73658,7 +73737,8 @@ var WO = (function() {
 
         if (Math.abs(dx) >= threshold) {
           // ── Page turn: fly the current page off screen, then navigate ──
-          // left→right (dx > 0) = next page; right→left (dx < 0) = previous page
+          // Like a book (the operator, 2026-11-07): right to left (dx < 0) is the
+          // next page, left to right (dx > 0) the one before. It was the other way.
           var w = _wrap();
           var offX = dx > 0 ? (vpW + 300) : -(vpW + 300);
           if (w) {
@@ -73668,7 +73748,7 @@ var WO = (function() {
           setTimeout(function() {
             var w2 = _wrap();
             if (w2) w2.style.transition = 'none'; // clear before re-render
-            if (dx > 0) sbFsNext();
+            if (dx < 0) sbFsNext();
             else         sbFsPrev();
           }, 220);
         } else {
@@ -113140,16 +113220,17 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 /* ---- The way to the words: a floater while they are below ---- */
 .sbm-guide {
   position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 40;
-  display: inline-flex; align-items: center; gap: 9px; min-height: 46px; max-width: calc(100% - 32px); padding: 0 20px 0 16px;
+  display: inline-flex; align-items: center; gap: 10px; min-height: 56px; max-width: calc(100% - 24px); padding: 0 24px 0 20px;
   border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
-  background: var(--sbm-gold); color: #1a1405; font: 700 15px/1 var(--sbm-font-ui);
+  /* bright yellow, and 10px taller than it was (the operator, 2026-11-07) */
+  background: #ffd60a; color: #1a1405; font: 800 17px/1 var(--sbm-font-ui);
   box-shadow: 0 10px 28px rgba(4,12,30,0.38), 0 0 0 3px rgba(255,255,255,0.8);
   opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 18px);
   transition: opacity .22s ease, transform .22s ease, visibility 0s linear .22s;
   -webkit-tap-highlight-color: transparent;
 }
 .sbm-guide.is-on { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); transition: opacity .22s ease, transform .22s ease, visibility 0s; }
-.sbm-guide i { font-size: 16px; animation: sbmGuideNudge 1.5s ease-in-out infinite; }
+.sbm-guide i { font-size: 18px; animation: sbmGuideNudge 1.5s ease-in-out infinite; }
 .sbm-guide:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 @keyframes sbmGuideNudge { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
 @media (prefers-reduced-motion: reduce) { .sbm-guide { transition: none; } .sbm-guide i { animation: none; } }
@@ -113160,6 +113241,67 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot .sbm-card { touch-action: manipulation; }
 #sbmRoot .sbm-score .vl-score .vl-chord-hint { display: none; }
 #sbmRoot .vl-chords--edit .vl-chord-text { cursor: inherit; }
+
+/* ---- The first time: a five-second flash to the words (2026-11-07) ----
+   Half the screen and a cartoon: thick outlines, a hard offset shadow, a
+   wobble, rays turning behind, bubble letters. */
+.sbm-intro {
+  position: absolute; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(7, 14, 30, 0.66); overflow: hidden; cursor: pointer; animation: sbmIntroIn .25s ease-out both;
+}
+.sbm-intro__burst {
+  position: absolute; left: 50%; top: 50%; width: 170vmax; height: 170vmax; margin: -85vmax 0 0 -85vmax; pointer-events: none;
+  background: repeating-conic-gradient(rgba(255, 214, 10, 0.30) 0deg 9deg, rgba(255, 214, 10, 0) 9deg 18deg);
+  animation: sbmIntroSpin 14s linear infinite;
+}
+.sbm-intro__card {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px;
+  width: min(560px, 100%); height: 50%; min-height: 340px; max-height: calc(100% - 24px); padding: 18px 18px 16px;
+  border: 5px solid #1a1405; border-radius: 32px; text-align: center; color: #1a1405; font-family: var(--sbm-font-ui);
+  background: #ffd60a; box-shadow: 10px 10px 0 #1a1405; transform: rotate(-1.5deg);
+  animation: sbmIntroPop .5s cubic-bezier(.2, 1.6, .4, 1) both, sbmIntroWobble 2.4s ease-in-out .5s infinite, sbmIntroFlash .9s ease-in-out .5s 3;
+}
+.sbm-intro__t {
+  font: 900 clamp(30px, 9vw, 44px)/1 var(--sbm-font-ui); color: #fff; letter-spacing: 0.01em;
+  text-shadow: -3px -3px 0 #1a1405, 3px -3px 0 #1a1405, -3px 3px 0 #1a1405, 3px 3px 0 #1a1405, 0 -3px 0 #1a1405, 0 3px 0 #1a1405, -3px 0 0 #1a1405, 3px 0 0 #1a1405, 6px 7px 0 #1a1405;
+}
+.sbm-intro__s { font: 800 clamp(15px, 4.4vw, 19px)/1.25 var(--sbm-font-ui); }
+.sbm-intro__s2 { font: 700 13px/1.3 var(--sbm-font-ui); color: #3b2f05; }
+.sbm-intro__art { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+.sbm-intro__phone { height: 100%; max-height: 220px; min-height: 90px; width: auto; transform: rotate(4deg); filter: drop-shadow(5px 5px 0 #1a1405); }
+.sbm-intro__lines { animation: sbmIntroScroll 2.6s linear infinite; }
+.sbm-intro__hand {
+  position: absolute; left: 54%; top: 46%; font-size: clamp(40px, 12vw, 58px); line-height: 1; color: #fff;
+  -webkit-text-stroke: 3px #1a1405; paint-order: stroke fill; filter: drop-shadow(3px 4px 0 #1a1405);
+  animation: sbmIntroSwipe 1.3s ease-in-out infinite;
+}
+.sbm-intro__arrows { display: flex; flex-direction: column; align-items: center; font-size: 22px; line-height: 0.7; }
+.sbm-intro__arrows i { opacity: 0.2; animation: sbmIntroArrow 1s ease-in-out infinite; }
+.sbm-intro__arrows i:nth-child(2) { animation-delay: .15s; }
+.sbm-intro__arrows i:nth-child(3) { animation-delay: .3s; }
+.sbm-intro__time { width: 70%; height: 12px; border: 3px solid #1a1405; border-radius: 99px; background: #fff; overflow: hidden; }
+.sbm-intro__time span { display: block; height: 100%; width: 100%; background: #ff4d6d; transform-origin: left; animation: sbmIntroTime 5s linear forwards; }
+.sbm-intro__ok {
+  min-height: 48px; padding: 0 30px; border: 4px solid #1a1405; border-radius: 999px; background: #fff; color: #1a1405;
+  font: 900 18px/1 var(--sbm-font-ui); box-shadow: 4px 4px 0 #1a1405; cursor: pointer;
+}
+.sbm-intro__ok:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 #1a1405; }
+@keyframes sbmIntroIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sbmIntroPop { 0% { transform: scale(.3) rotate(-14deg); opacity: 0; } 70% { transform: scale(1.06) rotate(2deg); opacity: 1; } 100% { transform: scale(1) rotate(-1.5deg); } }
+@keyframes sbmIntroWobble { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg) scale(1.02); } }
+@keyframes sbmIntroFlash { 0%, 100% { background: #ffd60a; } 50% { background: #fff6a8; } }
+@keyframes sbmIntroSpin { to { transform: rotate(360deg); } }
+@keyframes sbmIntroScroll { from { transform: translateY(0); } to { transform: translateY(calc(-1 * var(--sbm-set))); } }
+@keyframes sbmIntroSwipe { 0% { transform: translate(0, 34px) rotate(-8deg); opacity: 0; } 15% { opacity: 1; } 70% { transform: translate(-6px, -34px) rotate(-14deg); opacity: 1; } 100% { transform: translate(-6px, -40px) rotate(-14deg); opacity: 0; } }
+@keyframes sbmIntroArrow { 0%, 100% { opacity: 0.2; transform: translateY(-2px); } 50% { opacity: 1; transform: translateY(3px); } }
+@keyframes sbmIntroTime { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .sbm-intro, .sbm-intro__burst, .sbm-intro__card, .sbm-intro__lines, .sbm-intro__hand, .sbm-intro__arrows i { animation: none; }
+  .sbm-intro__arrows i { opacity: 1; }
+  .sbm-intro__time span { animation: sbmIntroTime 5s linear forwards; }
+}
+/* the tile row's More, at its far end */
+.sbm-tile--more i { color: var(--sbm-navy-2); }
 .sbm-badge--ver { background: rgba(201,162,39,0.24); }
 .sbm-badge--ver i { color: var(--sbm-gold); }
 .sbm-share__h { margin: 6px 0 2px; }

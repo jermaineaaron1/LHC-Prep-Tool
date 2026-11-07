@@ -55,9 +55,9 @@ function run(label, fnSrc, params, args, extra) {
 
 console.log('A tile on every song, opening the book at it');
 const render = fn('_sbmRender');
-// (Since 2026-11-07 the Drawings tile comes after it.)
-check('the song\'s tiles have Book Mode after YouTube, then Drawings',
-  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n(\s*\/\/[^\n]*\n)*\s*_sbmDrawingsTile\(song\) \+\n\s*'<\/div><\/div>';/.test(render));
+// (Since 2026-11-07 one row: Record, Tracks, YouTube, Book Mode, Drawings, Edit, More.)
+check('the song\'s tiles have Book Mode after YouTube, then Drawings, Edit and More',
+  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n(\s*\/\/[^\n]*\n)*\s*_sbmDrawingsTile\(song\) \+\n\s*'<button class="sbm-tile" data-sbm-edit=[^\n]*\n\s*'<button class="sbm-tile sbm-tile--more" onclick="WO\.sbmMore\(\)"><i class="fa-solid fa-ellipsis"><\/i>More<\/button>' \+\n\s*'<\/div><\/div>';/.test(render));
 check('...and it is on WO', has(/\n    sbmBookMode: sbmBookMode,\n/));
 const open = fn('sbOpenFullscreen');
 const startSrc = (open.match(/if \(typeof startSongId === 'string' && startSongId\) \{[^]*?\n    \}/) || [''])[0];
@@ -66,8 +66,31 @@ if (startSrc) {
   check('the book opens at the song\'s FIRST page', at({ 3: 'a', 4: 'a', 7: 'b', 8: 'b', 9: 'b' }, 'b') === 7 && at({ 12: 'z', 11: 'z' }, 'z') === 11);
   check('...and at the contents when the song has no pages, or none was asked', at({ 3: 'a' }, 'q') === 0);
 } else check('sbOpenFullscreen takes the song to open at', false);
-check('...with the zoom kept for that page, not the first', /_sbFsZoom = \(_sbFsPageZooms\[_sbFsIdx\] !== undefined\) \? _sbFsPageZooms\[_sbFsIdx\] : _sbFsFitZoom;/.test(open));
+// (Since 2026-11-07 a page with no zoom of its own takes the last one set before it.)
+check('...with the zoom for that page, not the first', /_sbFsZoom = _sbFsZoomAt\(_sbFsPageZooms, _sbFsIdx, _sbFsFitZoom\);/.test(open));
 check('sbmBookMode opens it at the song in front', /sbOpenFullscreen\(song \? song\.id : ''\);/.test(fn('sbmBookMode')));
+
+// From the operator (2026-11-07): a zoom set on a page carries on to the
+// pages after it until it is changed on one of them, and every change is
+// kept; and a swipe turns pages like a book -- right to left is the next
+// page, left to right the one before. It was the other way round.
+console.log('\nBook Mode: the zoom carries on, and a swipe turns like a book');
+let zoomAt = null;
+try { zoomAt = new Function(fn('_sbFsZoomAt') + '\nreturn _sbFsZoomAt;')(); } catch (e) { zoomAt = null; }
+if (!zoomAt) check('a page\'s zoom is worked out by a function of its own', false);
+else {
+  const map = { 2: 1.4, 6: 0.9 };
+  check('a page with no zoom of its own takes the last one set before it',
+    zoomAt(map, 2, 0.6) === 1.4 && zoomAt(map, 3, 0.6) === 1.4 && zoomAt(map, 5, 0.6) === 1.4);
+  check('...until a later page sets its own, which carries on in turn', zoomAt(map, 6, 0.6) === 0.9 && zoomAt(map, 9, 0.6) === 0.9);
+  check('...and the pages before any zoom fit the screen', zoomAt(map, 0, 0.6) === 0.6 && zoomAt(map, 1, 0.6) === 0.6);
+  check('...a zoom kept as text (JSON keys) is read, nothing else is', zoomAt({ '1': 1.2 }, 4, 0.6) === 1.2 && zoomAt({ 1: null, 2: 'x' }, 3, 0.6) === 0.6 && zoomAt(null, 3, 0.6) === 0.6);
+}
+check('every way into a page uses it: opening, the cloud\'s zooms, turning a page',
+  (SRC.match(/_sbFsZoom = _sbFsZoomAt\(_sbFsPageZooms, _sbFsIdx, _sbFsFitZoom\);/g) || []).length === 3 &&
+  !/_sbFsPageZooms\[_sbFsIdx\] !== undefined/.test(SRC) && /_sbFsPageZooms\[_sbFsIdx\] = _sbFsZoom;/.test(fn('_sbFsSaveZoom')));
+const pinchSrc = fn('_sbFsInitPinch');
+check('right to left is the next page, left to right the one before', /if \(dx < 0\) sbFsNext\(\);\r?\n\s*else\s+sbFsPrev\(\);/.test(pinchSrc) && !/if \(dx > 0\) sbFsNext\(\);/.test(pinchSrc));
 
 console.log('\nThe book\'s words are the song view\'s');
 check('one source of a song\'s words: the song view, the page view and the book',

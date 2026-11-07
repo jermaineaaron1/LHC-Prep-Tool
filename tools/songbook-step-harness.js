@@ -330,8 +330,9 @@ if (T) {
 console.log('\nThe wiring');
 {
   const has = re => re.test(SRC);
-  check('a song\'s YouTube is a red tile next to More, not a chip in the song\'s header',
-    has(/'<button class="sbm-tile" onclick="WO\.sbmMore\(\)"><i class="fa-solid fa-ellipsis"><\/i>More<\/button>' \+\r?\n(\s*\/\/[^\n]*\r?\n)*\s*\(nVid \? '<button class="sbm-tile sbm-tile--yt" onclick="WO\.sbmVideos\(\)"/) &&
+  // (Since 2026-11-07 it follows Tracks, in the one row of tiles.)
+  check('a song\'s YouTube is a red tile in the row, not a chip in the song\'s header',
+    has(/<\/i>Tracks<\/button>' \+\r?\n(\s*\/\/[^\n]*\r?\n)*\s*\(nVid \? '<button class="sbm-tile sbm-tile--yt" onclick="WO\.sbmVideos\(\)"/) &&
     !has(/sbm-badge sbm-badge--yt sbm-badge--tap/) && has(/sbmVideos: sbmVideos,/) &&
     has(/\.sbm-tile--yt \{ position: relative; color: #fff; background: linear-gradient\(160deg, #ff4136, #d61f1f\);/));
   check('...one video plays at once, several are listed, and none offers the way to add one',
@@ -387,8 +388,9 @@ console.log('\nThe wiring');
     has(/if \(ed\.keys && ed\.useKeys\) _mdsApplyKeys\(ed\.keys\);/) && has(/_mdsKeep\(ed\.songs\);\r?\n\s*\}/));
   check('Use adds a song the book lacks the way Add a song does, or onto a standalone book\'s list',
     has(/e = _woAddSongToSection\(sec, lib\);/) && has(/e\.id = 'sbsong_' \+ lib\.id \+ '_' \+ songOrderSections\.length;/));
-  check('every book has the Medley tile, and nothing hides medleys from a standalone one',
-    has(/so every book -- a service's or\r?\n\s*\/\/ a standalone one -- has the medley tile in that place\./) &&
+  // (Since 2026-11-07 Medley is in More, for every book, not a tile.)
+  check('every book has Medley in More, and nothing hides medleys from a standalone one',
+    has(/if \(song && currentOrderData\) rows\.push\(\['fa-layer-group', _woMedleyOf\(song\.id\) \? 'Edit the medley' : 'Make a medley', 'WO\.sbmMedley\(\)'/) &&
     !has(/_sbStandaloneId \? \[\] : _woMedleys\(\)/) && !has(/if \(!currentOrderData \|\| _sbStandaloneId\) return;\r?\n\s*var md = _woMedleyOf/));
   check('the songbook\'s drag moves a medley as one', has(/var next = _woDropInSeq\(songOrderSections, fromId, toId,/));
   check('the builder\'s Move up and Move down step past a medley as one', has(/var next = _woStepInSeq\(inSec, songId, delta, _woMedleys\(\)\);/));
