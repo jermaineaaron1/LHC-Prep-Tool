@@ -2124,9 +2124,13 @@ the anon key -- verify as `postgres`, not as the app.
     floater is bright yellow (`#ffd60a`) and 10px taller (56px). **The first
     time on a device** (asked: "First time per device", `lhc_sbm_intro_seen`)
     the floater's own test brings up a five-second flash instead
-    (`_sbmIntroShow`, on `#songbookLiveModal`): "The chords and lyrics are
-    below", a hand, falling arrows, a bar emptying over the five seconds, a
-    yellow glow pulsing three times; a tap anywhere or Got it ends it, and
+    (`_sbmIntroShow`, on `#songbookLiveModal`): half the screen tall and a
+    cartoon -- a yellow card with a thick outline and a hard shadow,
+    wobbling, rays turning behind it, "Scroll down!" in bubble letters, a
+    phone whose song scrolls up for ever under a white-gloved finger
+    (`_sbmIntroArt`, the lines drawn twice and slid up one set's height,
+    `--sbm-set`), falling arrows and a bar emptying over the five seconds,
+    the card flashing three times; a tap anywhere or Got it ends it, and
     the floater takes over (`_sbmIntroEnd` -> `_sbmGuideCheck`). It is
     noted as seen when it shows, and never shown in the desk's Phone view.
     Testing in a hidden browser pane: its animations sit at their first

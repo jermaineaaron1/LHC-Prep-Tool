@@ -365,14 +365,28 @@ check('once per device, never in the desk\'s Phone view', /if \(_sbmIntroDone \|
   /localStorage\.getItem\('lhc_sbm_intro_seen'\)/.test(due) && /localStorage\.setItem\('lhc_sbm_intro_seen', String\(Date\.now\(\)\)\);/.test(show) && /_sbmIntroDone = true;/.test(show));
 check('five seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 5000\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
   /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
-check('it says where the words are, and flashes', /The chords and lyrics are below/.test(show) && /Scroll down to reach them/.test(show) &&
-  has(/animation: sbmIntroPop [^;]*, sbmIntroFlash 1\.2s ease-in-out \.4s 3;/) && has(/@keyframes sbmIntroTime \{ from \{ transform: scaleX\(1\); \} to \{ transform: scaleX\(0\); \} \}/));
+check('it says where the words are, and flashes', /Scroll down!/.test(show) && /The chords &amp; lyrics are just below/.test(show) &&
+  has(/sbmIntroWobble 2\.4s ease-in-out \.5s infinite, sbmIntroFlash \.9s ease-in-out \.5s 3;/) && has(/@keyframes sbmIntroTime \{ from \{ transform: scaleX\(1\); \} to \{ transform: scaleX\(0\); \} \}/));
+// Half the screen, and a cartoon (the operator, the same day).
+const introCard = (SRC.match(/\.sbm-intro__card \{[^}]*\}/) || [''])[0];
+check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays behind',
+  /height: 50%;/.test(introCard) && /border: 5px solid #1a1405;/.test(introCard) && /box-shadow: 10px 10px 0 #1a1405;/.test(introCard) &&
+  /<div class="sbm-intro__burst" aria-hidden="true"><\/div>/.test(show) && has(/repeating-conic-gradient\(rgba\(255, 214, 10, 0\.30\)/));
+{
+  let art = null;
+  try { art = new Function(extractFn('_sbmIntroArt') + '\nreturn _sbmIntroArt;')(); } catch (e) { art = null; }
+  const a = art ? art() : '';
+  check('...with a phone whose song scrolls up for ever under a gloved finger: the lines drawn twice, one set\'s height apart',
+    /<svg class="sbm-intro__phone" viewBox="0 0 120 200"/.test(a) && /class="sbm-intro__lines" style="--sbm-set:(\d+)px"/.test(a) &&
+    (() => { const h = a.match(/--sbm-set:(\d+)px/)[1]; return a.indexOf('<g transform="translate(0 ' + h + ')">') > -1; })() &&
+    /<i class="fa-solid fa-hand-pointer sbm-intro__hand"><\/i>/.test(show) && has(/@keyframes sbmIntroScroll \{ from \{ transform: translateY\(0\); \} to \{ transform: translateY\(calc\(-1 \* var\(--sbm-set\)\)\); \} \}/));
+}
 // Run it: the first time it shows, the second it does not.
 {
   let Idue = null;
   try {
     Idue = new Function('localStorage', 'window', 'document', 'setTimeout', 'clearTimeout', '_sbmGuideCheck',
-      extractVar('_sbmIntroT') + '\n' + ['_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
+      extractVar('_sbmIntroT') + '\n' + ['_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroArt', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
   } catch (e) { Idue = null; }
   if (!Idue) check('the flash runs', false);
   else {
