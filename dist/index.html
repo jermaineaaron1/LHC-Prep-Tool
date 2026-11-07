@@ -50268,7 +50268,7 @@ var WO = (function() {
       if (!_sbmMarksOk) return false;
       // ...and whether drawings know whose they are (_sbmLayerKeep).
       return sup.from('song_marks').select('owner, owner_name, part, shared').limit(1).then(
-        function(r2) { _sbmLayersOk = !r2.error; return true; },
+        function(r2) { _sbmLayersOk = !r2.error; if (_sbmLayersOk) _sbmPrefsFirst(); return true; },
         function() { _sbmLayersOk = false; return true; });
     }).catch(function() { _sbmMarksOk = false; return false; });
     return _sbmMarksProbe;
@@ -51096,7 +51096,9 @@ var WO = (function() {
       '<label class="sbm-label" for="sbmWhoName"><i class="fa-solid fa-user"></i>Your name</label>' +
       '<input class="sbm-input" id="sbmWhoName" list="sbmWhoNames" maxlength="40" autocomplete="name" placeholder="Your name" value="' + escapeHtml(name) + '">' +
       '<datalist id="sbmWhoNames"></datalist>' +
-      '<p class="who-note"><i class="fa-solid fa-mobile-screen"></i>Kept on this device only \u2014 nobody signs in. Your drawings carry this name, so the same name on another device finds them.</p>' +
+      '<p class="who-note"><i class="fa-solid fa-mobile-screen"></i>' + (_sbmPrefsOk === true
+        ? 'Kept on this device \u2014 nobody signs in. Your drawings and the parts you choose under Layers carry this name, so the same name on another device brings them back.'
+        : 'Kept on this device only \u2014 nobody signs in. Your drawings carry this name, so the same name on another device finds them.') + '</p>' +
       '<p class="who-note"><i class="fa-solid fa-users"></i>When you finish drawing, you choose who sees it: everyone, only you, or one part of the band.</p>' +
       '<div class="who-foot"><button class="sbm-btn" onclick="WO.sbmCloseSheet()">Cancel</button>' +
         '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmWhoSave(' + (thenDraw ? 'true' : 'false') + ')">' + (thenDraw ? '<i class="fa-solid fa-pen-nib"></i>Start drawing' : 'Save') + '</button></div></div>';
@@ -51145,14 +51147,18 @@ var WO = (function() {
     var was = _sbmMe();
     try { localStorage.setItem('lhc_sbm_me', JSON.stringify({ name: name })); } catch (e) {}
     _sbmCloseSheet();
-    // A name that has drawn here before -- on this device or another -- has its drawings back.
-    if (!was || was.key !== _sbmMeKey(name)) {
-      _sbmBookDrawers().then(function(rows) {
-        var mine = rows.filter(function(m) { return m.owner === _sbmMeKey(name); }), had = mine.length;
-        var as = (mine[0] && mine[0].owner_name) || name;   // as they first wrote it
-        if (had) showToast('Welcome back, ' + as.split(' ')[0] + ': your ' + had + ' drawing' + (had === 1 ? '' : 's') + ' in this songbook ' + (had === 1 ? 'is' : 'are') + ' showing', 'success');
-      });
-    }
+    // A name that has drawn here before -- on this device or another -- has
+    // its drawings back, and the parts it plays or sings with them
+    // (_sbmPrefsNamed). One toast says both: a second would replace the first.
+    var me = _sbmMe(), changed = !was || was.key !== _sbmMeKey(name);
+    var drawn = !changed ? Promise.resolve([]) : _sbmBookDrawers().then(function(rows) { return rows.filter(function(m) { return m.owner === _sbmMeKey(name); }); });
+    Promise.all([drawn, _sbmPrefsNamed(was, me)]).then(function(res) {
+      var mine = res[0] || [], had = mine.length, J = res[1];
+      var as = (mine[0] && mine[0].owner_name) || name;   // as they first wrote it
+      if (J && J.moved) _sbmPartsShown();
+      var text = _sbmWelcome(as.split(' ')[0], had, J);
+      if (text) showToast(text, 'success', (J && J.added.length) ? { duration: 6000 } : undefined);
+    });
     if (was && was.key !== _sbmMeKey(name) && _sbmDraw) { _sbmDraw.undo = []; _sbmDraw.group = null; }
     if (thenDraw && !_sbmDraw) { sbmDraw(true); return; }
     if (_sbmDraw) _sbmDrawBar();
@@ -51235,10 +51241,166 @@ var WO = (function() {
     var a = _sbmMyParts(), i = a.indexOf(p);
     if (i === -1) a.push(p); else a.splice(i, 1);
     try { localStorage.setItem('lhc_sbm_parts', JSON.stringify(a)); } catch (e) {}
+    _sbmPrefsTicked(p, i === -1);
+    _sbmPartsShown();
+  }
+  // The parts changed: the drawings they let through drawn again.
+  function _sbmPartsShown() {
     _sbmMarksPaintAll();
     _sbmPhoneMarks(null);
     var sh = document.getElementById('sbmSheet');
     if (sh && sh.getAttribute('data-sheet') === 'layers') sbmLayers();
+  }
+
+  // ---- the parts follow the name ----
+  //
+  // What a reader plays or sings is kept on the device (lhc_sbm_parts) and,
+  // once they have given a name, with that name too (drawer_prefs,
+  // migrations/2026-11-07_drawer_prefs.sql): giving the name on another
+  // device brings the parts back with the drawings. lhc_sbm_parts_of says
+  // whose the device's parts are -- the name they were last joined with,
+  // '' when they were ticked with no name, or before parts followed names.
+  // A device with no name, and every device until the table exists, works
+  // from the device alone, as before. Like the rest of layers this is about
+  // what is shown, not a lock: every row can be read through the page's key.
+  // Every request goes through window._supabase, so the Phone view's
+  // read-only client (gotcha 33) turns the writes away there.
+  var _sbmPrefsOk = null, _sbmPrefsProbe = null, _sbmPrefsGen = 0, _sbmPrefsBusy = false, _sbmPrefsQueue = {};
+  function _sbmPrefsSupport() {
+    if (_sbmPrefsOk !== null) return Promise.resolve(_sbmPrefsOk);
+    if (_sbmPrefsProbe) return _sbmPrefsProbe;
+    var sup = window._supabase; if (!sup) return Promise.resolve(false);
+    _sbmPrefsProbe = Promise.resolve(sup.from('drawer_prefs').select('owner').limit(1)).then(
+      function(r) { _sbmPrefsOk = !!(r && !r.error); return _sbmPrefsOk; },
+      function() { _sbmPrefsOk = false; return false; });
+    return _sbmPrefsProbe;
+  }
+  function _sbmPartsOf() { try { return String(localStorage.getItem('lhc_sbm_parts_of') || ''); } catch (e) { return ''; } }
+  // A name's saved parts meeting this device's (pure). local: the device's;
+  // of: whose they are; key: the name now; saved: that name's, or null when
+  // it has none; drop: a part just unticked here, which the saved ones must
+  // not tick again. The device's parts are joined with the name's when they
+  // are nobody's or already that name's; somebody else's -- a phone that
+  // changed hands -- are left out, so one person's parts never become
+  // another's. Gives the parts, those that came with the name (added),
+  // whether the device brought any of its own (mixed), whether the device's
+  // parts are not what they were (moved) and whether the name's row is
+  // behind (write).
+  function _sbmPartsJoin(local, of, key, saved, drop) {
+    var rank = {}; _SBM_PARTS.forEach(function(p, i) { rank[p[0]] = i; });
+    var rankOf = function(p) { return Object.prototype.hasOwnProperty.call(rank, p) ? rank[p] : 99; };
+    var order = function(a, b) { return (rankOf(a) - rankOf(b)) || (a < b ? -1 : a > b ? 1 : 0); };
+    var tidy = function(a, skip) {
+      var out = [];
+      (Array.isArray(a) ? a : []).forEach(function(p) { if (typeof p === 'string' && p && p !== skip && out.indexOf(p) === -1) out.push(p); });
+      return out;
+    };
+    var mine = (of && of !== key) ? [] : tidy(local, drop), had = tidy(saved, drop), was = tidy(saved);
+    var added = had.filter(function(p) { return mine.indexOf(p) === -1; }).sort(order);
+    var parts = mine.concat(added).sort(order);
+    var differ = function(a, b) { return a.length !== b.length || a.some(function(p) { return b.indexOf(p) === -1; }); };
+    var write = saved == null ? parts.length > 0 : differ(parts, was);
+    return { parts: parts, added: added, mixed: mine.length > 0, moved: differ(parts, tidy(local)), write: write };
+  }
+  // What to say when a name comes back (pure): '' when nothing did. first:
+  // the name to greet ('' for none); had: their drawings in this book; J: the
+  // join, when parts came with the name.
+  function _sbmWelcome(first, had, J) {
+    var bits = [];
+    if (had) bits.push('your ' + had + ' drawing' + (had === 1 ? '' : 's') + ' in this songbook ' + (had === 1 ? 'is' : 'are') + ' showing');
+    if (J && J.added && J.added.length) {
+      var names = J.parts.map(function(p) { return _sbmPartLabel(p) || p; });
+      var list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+      bits.push(J.mixed ? 'your parts are ' + list + ' now: the ones kept with your name and the ones ticked here' : 'your parts are back (' + list + ')');
+    }
+    if (!bits.length) return '';
+    var text = bits.join(', and ');
+    return first ? 'Welcome back, ' + first + ': ' + text : text.charAt(0).toUpperCase() + text.slice(1);
+  }
+  // A name's parts read and joined with this device's, and the device and
+  // the row each brought up to date. opts.of: whose the device's parts are,
+  // when not as noted; opts.drop: as _sbmPartsJoin; opts.keep: the row only,
+  // the device left as it is. Gives the join, or null when nothing was read
+  // or another name was given while it was being read.
+  function _sbmPrefsSync(me, opts) {
+    opts = opts || {};
+    var sup = window._supabase, gen = _sbmPrefsGen;
+    if (!me || !me.key || !sup || _sbmPrefsOk !== true) return Promise.resolve(null);
+    return Promise.resolve(sup.from('drawer_prefs').select('parts').eq('owner', me.key).limit(1)).then(function(r) {
+      if (!r || r.error) return null;
+      if (!opts.keep && gen !== _sbmPrefsGen) return null;
+      var row = (r.data || [])[0] || null;
+      var J = _sbmPartsJoin(_sbmMyParts(), opts.of != null ? opts.of : _sbmPartsOf(), me.key, row ? row.parts : null, opts.drop);
+      if (!opts.keep) {
+        try { localStorage.setItem('lhc_sbm_parts', JSON.stringify(J.parts)); localStorage.setItem('lhc_sbm_parts_of', me.key); } catch (e) {}
+      }
+      if (J.write) _sbmPrefsWrite(me, J.parts);
+      return J;
+    }, function() { return null; });
+  }
+  // A name's parts saved. One write at a time; a tick while one is on its
+  // way waits, and only the last of each name's goes.
+  function _sbmPrefsWrite(me, parts) {
+    var sup = window._supabase;
+    if (!me || !me.key || !sup || _sbmPrefsOk !== true) return;
+    if (_sbmPrefsBusy) { _sbmPrefsQueue[me.key] = { me: me, parts: parts.slice() }; return; }
+    _sbmPrefsBusy = true;
+    var done = function() {
+      _sbmPrefsBusy = false;
+      var k = Object.keys(_sbmPrefsQueue)[0]; if (!k) return;
+      var next = _sbmPrefsQueue[k]; delete _sbmPrefsQueue[k];
+      _sbmPrefsWrite(next.me, next.parts);
+    };
+    Promise.resolve(sup.from('drawer_prefs').upsert({ owner: me.key, owner_name: me.name, parts: parts.slice(), updated_at: new Date().toISOString() }, { onConflict: 'owner' }))
+      .then(function(r) { if (r && r.error) console.warn('[layers] parts not kept with the name: ' + r.error.message); }, function() {})
+      .then(done, done);
+  }
+  // A part ticked or unticked under Layers, kept with the name too. The first
+  // time this name meets this device's parts they are joined first and the
+  // tick put on top, so parts kept from another device are not written over.
+  function _sbmPrefsTicked(p, on) {
+    var me = _sbmMe();
+    if (!me || _sbmLayersOk !== true || window.__SBM_PREVIEW) return;
+    _sbmPrefsSupport().then(function(ok) {
+      var now = _sbmMe();
+      if (!ok || !now || now.key !== me.key) return;
+      if (_sbmPartsOf() === me.key) { _sbmPrefsWrite(me, _sbmMyParts()); return; }
+      return _sbmPrefsSync(me, { drop: on ? null : p }).then(function(J) {
+        if (J && J.moved) _sbmPartsShown();
+        if (J && J.added.length) showToast(_sbmWelcome('', 0, J), 'success', { duration: 6000 });
+      });
+    }).catch(function() {});
+  }
+  // A name just given on this device: the parts kept with it come back. The
+  // device's own are joined with them when they were nobody's or already
+  // this name's. When they were the name given up -- a phone changing
+  // hands -- they are kept with THAT name first, if they never were, and
+  // left out of this one. Gives the join, or null.
+  function _sbmPrefsNamed(was, me) {
+    if (!me || _sbmLayersOk !== true || window.__SBM_PREVIEW) return Promise.resolve(null);
+    var gen = ++_sbmPrefsGen;
+    return _sbmPrefsSupport().then(function(ok) {
+      if (!ok || gen !== _sbmPrefsGen) return null;
+      var noted = _sbmPartsOf(), swap = !!(was && was.key !== me.key);
+      var of = (swap && !noted) ? was.key : noted;   // ticked under the name given up
+      var first = (swap && of === was.key && noted !== was.key) ? _sbmPrefsSync(was, { keep: true, of: '' }) : Promise.resolve(null);
+      return first.then(function() { return gen === _sbmPrefsGen ? _sbmPrefsSync(me, { of: of }) : null; });
+    }).catch(function() { return null; });
+  }
+  // Once a page, when the layers are found: a name on this device whose parts
+  // have not met its saved ones yet -- ticked before the name was given, or
+  // before parts followed names -- has them joined.
+  function _sbmPrefsFirst() {
+    if (window.__SBM_PREVIEW) return;
+    var me = _sbmMe(); if (!me || _sbmPartsOf() === me.key) return;
+    _sbmPrefsSupport().then(function(ok) {
+      var now = _sbmMe();
+      if (!ok || !now || now.key !== me.key || _sbmPartsOf() === me.key) return;
+      return _sbmPrefsSync(me).then(function(J) {
+        if (J && J.moved) _sbmPartsShown();
+        if (J && J.added.length) showToast(_sbmWelcome('', 0, J), 'success', { duration: 6000 });
+      });
+    }).catch(function() {});
   }
   function _sbmLayersChip() {
     if (_sbmMarksOk !== true || _sbmLayersOk !== true) return '';
@@ -51284,7 +51446,8 @@ var WO = (function() {
         var on = parts.indexOf(p[0]) !== -1;
         return '<button type="button" class="who-part' + (on ? ' is-on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="WO.sbmLayerPart(\'' + p[0] + '\')">' + escapeHtml(p[1]) + '</button>';
       }).join('') + '</div>' +
-      '<p class="lay-hint">Choose what you play or sing to see the drawings meant for it. Drawings for everyone always show.</p>';
+      '<p class="lay-hint">Choose what you play or sing to see the drawings meant for it. Drawings for everyone always show.' +
+        (_sbmPrefsOk === true && me ? ' Kept with your name, so they follow you to another device.' : '') + '</p>';
     if (me) {
       var mineBits = Object.keys(L.me.by).map(function(a) { return L.me.by[a] + ' for ' + _sbmAudienceLabel(a); });
       html += '<div class="ver-head lay-h2"><span>Yours</span></div>' +
@@ -51316,17 +51479,28 @@ var WO = (function() {
     html += '</div>';
     _sbmSheet('Layers — ' + _sbmClip(song.title || 'this song', 30), html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'layers');
+    // Whether the parts go with the name is known once drawer_prefs has been asked.
+    if (_sbmPrefsOk === null && window._supabase) _sbmPrefsSupport().then(function() {
+      var s = document.getElementById('sbmSheet'); if (s && s.getAttribute('data-sheet') === 'layers') sbmLayers();
+    });
   }
   // How the app knows who is drawing, said where it is used: nobody signs
   // in, so it is a name kept on this device -- given the first time someone
-  // here draws -- and the parts chosen above are this device's too.
+  // here draws -- and the parts chosen above go with that name once
+  // drawer_prefs exists (_sbmPrefsOk); before that, or with no name given,
+  // they are this device's alone.
   function _sbmWhoNote() {
+    var kept = _sbmPrefsOk === true;
     return '<details class="lay-how"><summary><i class="fa-solid fa-circle-question"></i>How does it know who I am?</summary>' +
       '<p>Nobody signs in. The first time someone draws on this phone or computer, the app asks their name (offering the names already drawing, then the roster\u2019s) and keeps it on this device. ' +
       'Every drawing made here carries that name, so the same name on another device brings your drawings back there.</p>' +
-      '<p>What you play or sing is what you choose under \u201cDrawings meant for\u201d, also kept on this device: it decides which drawings meant for one part of the band you see. ' +
+      '<p>What you play or sing is what you choose under \u201cDrawings meant for\u201d: it decides which drawings meant for one part of the band you see. ' +
+      (kept ? 'It is kept with your name as well as on this device, so giving the same name on another device brings your parts back too, joined with any ticked there before. Until you give a name, they stay on this device. '
+            : 'It is kept on this device. ') +
       'When you finish drawing, you choose who sees it: everyone, only you, or one part.</p>' +
-      '<p>Lending your phone? Change the name first, or the drawings are made in yours. This is about what each person is shown, not a lock: it is not a password.</p></details>';
+      '<p>Lending your phone? Change the name first, or the drawings are made in yours.' +
+      (kept ? ' Your parts go with your name too: theirs show under their name, and yours come back when you give yours again.' : '') +
+      ' This is about what each person is shown, not a lock: it is not a password.</p></details>';
   }
   function sbmLayerToggle(key) {
     var h = _sbmLayersHidden();

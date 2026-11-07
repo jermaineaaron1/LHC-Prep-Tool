@@ -58,6 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
+| `drawer_prefs` | The parts of the band a drawer plays or sings (Layers > Drawings meant for), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
 lyrics and slides with nothing on them.
@@ -1391,7 +1392,22 @@ the anon key -- verify as `postgres`, not as the app.
     has said, under Layers, that they play or sing (`lhc_sbm_parts`); the
     rows from before layers, which have no owner, stay everybody's
     ("Earlier drawings", hidden as one under the key ''). What a reader
-    hides, and which parts they chose, are theirs alone. Layers also
+    hides, and which parts they chose, are theirs alone. The parts FOLLOW
+    THE NAME (`drawer_prefs`, `_sbmPrefs*`): giving a name (`sbmWhoSave` ->
+    `_sbmPrefsNamed`) brings back the parts kept for it, a tick
+    (`sbmLayerPart` -> `_sbmPrefsTicked`) is kept for it too, and a device
+    named before this existed joins its parts once (`_sbmPrefsFirst`, after
+    the layers probe). `lhc_sbm_parts_of` says whose the device's parts are:
+    nobody's ('') or the same name's are JOINED with the name's (the union,
+    said in the one welcome toast, `_sbmWelcome`); somebody else's -- a
+    phone changing hands -- are kept with THAT name first and left out of
+    the new one (`_sbmPartsJoin`, pure), so one person's parts never follow
+    another person around. A device with no name, and every device until
+    the migration is run (`_sbmPrefsOk`, probed once), works from
+    `lhc_sbm_parts` alone. Not done: a device already joined does not pull
+    a change made on another device until the name is given again, and
+    then it is joined, not replaced -- a part unticked elsewhere comes back.
+    Layers also
     changes who sees all of one's drawings on the song (on the version the
     service sings), and says how many drawings are for parts the reader has
     not chosen. The rubber takes only one's own strokes and the earlier
