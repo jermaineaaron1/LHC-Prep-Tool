@@ -1541,6 +1541,31 @@ const CASES = [
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],
+  // The Enablers directory (enablers-calendar-harness). A duty card's dates
+  // sorted as text ran "Nov 15" before "Nov 8".
+  ['enablers-calendar-harness.js', 'a person\'s duties come in the order the rows happened to be in',
+    s => s.replace('        .sort(function(a, b) { return a.at.t - b.at.t; })', '')],
+  ['enablers-calendar-harness.js', 'the Watchnight ties with that morning\'s service',
+    s => s.replace("t: Date.UTC(y, m, d) + (pm ? 1 : 0) };", "t: Date.UTC(y, m, d) };")],
+  ['enablers-calendar-harness.js', 'a duty rostered to "All Teachers" is nobody\'s',
+    s => s.replace(" || (w.labels || []).indexOf(lv) !== -1;", ';')],
+  // wa.me's redirect turned an emoji outside the BMP into U+FFFD.
+  ['enablers-calendar-harness.js', 'the WhatsApp link goes by wa.me again',
+    s => s.replace("return 'https://api.whatsapp.com/send?' + (p ? 'phone=' + p + '&' : '') + 'text='", "return 'https://wa.me/' + p + '?text='")],
+  ['enablers-calendar-harness.js', 'the duty card signs off with an emoji WhatsApp breaks',
+    s => s.replace("      lines.push('_God bless you!_');", "      lines.push('_Blessings \\uD83D\\uDE4F_');")],
+  // A phone saved must not blank the email beside it.
+  ['enablers-calendar-harness.js', 'saving a phone writes the email too, blank',
+    s => s.replace("        if (patch && Object.prototype.hasOwnProperty.call(patch, f)) { row[f] = String(patch[f] == null ? '' : patch[f]); fields.push(f); }",
+                   "        row[f] = String(patch && patch[f] != null ? patch[f] : ''); fields.push(f);")],
+  ['enablers-calendar-harness.js', 'a refused save is reported as saved',
+    s => s.replace("        var stuck = got && fields.every(function(f) { return String(got[f] == null ? '' : got[f]) === row[f]; });\r\n        if (!stuck) throw new Error('The save did not go through. Please try again.');\r\n", '')
+          .replace("        if (r && r.error) throw new Error(r.error.message || 'The save did not go through.');\r\n", '')],
+  ['enablers-calendar-harness.js', 'a contact is written under the picker\'s spelling, making a second row',
+    s => s.replace('      return hit || clean;', '      return clean;')],
+  ['enablers-calendar-harness.js', 'only a PIC can add a phone or an email again',
+    s => s.replace("          html += '<div class=\"en-ct-group\">' + self._enCtHtml(name, 'phone', phone) + self._enCtHtml(name, 'email', email) + '</div>';",
+                   "          html += '<span>' + (phone || 'No phone saved') + '</span>';")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

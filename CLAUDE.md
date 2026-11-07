@@ -106,6 +106,15 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Context menu with change history
 - WhatsApp sharing per service date
 - CSV export
+- **Worship Enablers** (the Team chip): All Enablers, By Duty, By Individual,
+  Calendar, Duplicates. Anyone -- not only a PIC -- adds a missing phone or
+  email on a card (+ Add) or changes one (the pen, asked first). **Calendar**
+  is a month: the roster's services with their liturgical day and altar
+  colour, and the duties of the name(s) chosen (kept on the device), then
+  the same services as a list, then each name's contacts and calendar link
+  (Add to Google Calendar, Apple / Outlook, copy, send). **Duty card** opens
+  the WhatsApp message to check before sending, a month at a time. See
+  gotcha 68.
 
 ### 3. Worship Orders
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
@@ -211,7 +220,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      a word saying so; the A- / 100% / A+ size buttons are gone, and so is
      the notice under a song sung twice. A gold floater at the foot of the
      screen points to the words while they are out of sight below and goes
-     once you are there (gotcha 68). The choir score reads like a chord sheet: the words and
+     once you are there (gotcha 69). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
      moments, a part's label only where that part takes over, and a purple
      bar joining the parts that sing at the same time (gotcha 59).
@@ -2005,7 +2014,39 @@ the anon key -- verify as `postgres`, not as the app.
     typed on (`.sbm-chnp-card .sbm-marks`) and come back with the redraw.
     `tools/songbook-choir-notepad-harness.js` checks it.
 
-68. **The reading view, as the operator marked it up on 2026-11-07.** On a
+68. **The Enablers directory is self-service, and nobody signs in to it.**
+    From the operator (2026-11-07): anyone may add their own phone and
+    email, reach their own calendar link, and the Calendar tab became a
+    month of services and one's own duties. So a contact is anyone's to add:
+    a card with none shows + Add (`_enCtHtml`, opened by `_enCtOpen`), and
+    changing or removing one somebody saved asks first (`_enAsk`) unless a
+    PIC is signed in -- the app cannot know whose card is whose, the same
+    "visibility, not security" as drawings (gotcha 50). A PIC keeps the
+    card's two fields and Save. Every save goes through `_enContactWrite`,
+    which upserts ONLY the fields it is given (saving a phone must not blank
+    the email), under the row's own spelling of the name (`_enMetaKey`: the
+    picker's "Ada Example" may be the row's "Ada  Example", and writing
+    under the picker's would make a second row nothing reads), and reads the
+    row back -- the old Save reported "saved" whatever the database said.
+    An email saved is where the calendar sync sends each duty's invitation.
+    A person's duties for any month come from the YEAR's rows
+    (`SBQ_ROSTER.getAllForYear`, through `_enRowsForYear`, kept while the
+    modal is open) by `_enDutiesIn`: earliest first by `_enDateOf` ("Nov 15"
+    sorted as text came before "Nov 8"; "Dec 31 PM", the Watchnight, after
+    that morning), a lead/trainee cell for both, a group cell ("All
+    Teachers") for its members. Never from `STATE.rosterEdits`, which holds
+    every month opened this session under keys with no year -- that is how
+    October's duties reached November's card. The month's services are
+    `getServiceDays` named by the saved liturgical cells (`_enLitMonth`), as
+    the roster's own header row names them. **Every roster WhatsApp send goes
+    by `_enWaUrl`** (`api.whatsapp.com/send`), never `wa.me`: wa.me redirects
+    there, and an emoji outside the Basic Multilingual Plane did not survive
+    the trip -- the card's U+1F64F reached the chat as U+FFFD. The card's own
+    words keep to BMP characters as well. The names chosen on Calendar are
+    this device's (`lhc_en_cal_names`); a card's Calendar button replaces
+    them with that person. `tools/enablers-calendar-harness.js` checks it.
+
+69. **The reading view, as the operator marked it up on 2026-11-07.** On a
     phone the words started more than a screen below the controls, and
     singers lost them. Taken away: the notice under a song sung twice
     (gotcha 55) and the A- / 100% / A+ that sized the words (`sbmScale` is
