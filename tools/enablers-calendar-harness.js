@@ -88,7 +88,8 @@ function top(re) {
 const METHODS = ['escapeHtml', '_roleWord', 'calculateEaster', 'getSpecialDays', 'getServiceDays', 'getDefaultDayText',
   '_enablersGroupLabelsFor', '_waPhone', 'getCalendarSubscribeUrl', 'buildDutyCardMessage', 'getDutiesForMember',
   '_enGuideUrl', '_enDateOf', '_enRoleOrder', '_enDutiesIn', '_enLitMonth', '_enMonthGrid', '_enDateLabel', '_enWaUrl',
-  '_enCleanContact', '_enMetaKey', '_enMeta', '_enWaHtml', '_enRowsNow', '_enCardText', '_enContactWrite', '_enCtHtml'];
+  '_enCleanContact', '_enMetaKey', '_enMeta', '_enWaHtml', '_enRowsNow', '_enCardText', '_enContactWrite', '_enCtHtml',
+  '_loadEnablersData', '_saveContactToSupabase', '_bulkSendAll', '_enAllNames', '_enRowsForYear'];
 const PROPS = ['MONTHS_SHORT', 'SEASONS', 'DEFAULT_COLORS', 'ROLES'];
 const missing = [];
 const parts = [];
@@ -104,18 +105,25 @@ const decls = [
 ];
 if (decls.some(d => !d)) { console.error('module helpers not found'); process.exit(1); }
 
-const holder = { sb: null };
+// What the slice reaches for outside RosterEngine, each switchable per test.
+const holder = { sb: null, roster: null, confirms: 0, confirmAnswer: true };
+const fakeDocument = { getElementById: () => null };
 let R = null;
 try {
   const src = decls.join('\n') + '\n' +
     'var STATE = { picMode: false, rosterYear: 2026, rosterMonth: 10 };\n' +
+    'var ROSTER_NAME_OPTIONS = { pianist: ["Ada Example", "Ben Sample"] };\n' +
     'var R = {\n' + parts.join(',\n') + '\n};\n' +
+    'R.__STATE = STATE;\n' +
     'return R;';
   const win = {
     location: { origin: 'https://lhc-prep-tool.vercel.app' },
     LITURGICAL_COLOURS: { Green: { swatch: '#16a34a' }, White: { swatch: '#f8fafc', border: '#cbd5e1' } }
   };
-  R = new Function('window', 'getSupabaseClient', src)(win, function() { return holder.sb; });
+  const roster = { getAllForYear: y => holder.roster ? holder.roster(y) : Promise.resolve([]) };
+  R = new Function('window', 'getSupabaseClient', 'SBQ_ROSTER', 'document', 'confirm', src)(
+    win, function() { return holder.sb; }, roster, fakeDocument,
+    function() { holder.confirms++; return holder.confirmAnswer; });
 } catch (e) {
   console.error('could not build RosterEngine slice: ' + e.message);
 }
@@ -171,7 +179,10 @@ console.log('\nthe month\'s services, as the roster names them');
 const lit = call('_enLitMonth', ROWS, 2026, 10) || [];
 check('November 2026 has its five Sundays', Array.isArray(lit) ? lit.map(x => x.date) : lit, ['Nov 1', 'Nov 8', 'Nov 15', 'Nov 22', 'Nov 29']);
 check('  a saved day and colour are used', lit[1] && [lit[1].day, lit[1].color, lit[1].serviceType], ['22nd Sunday after Pentecost', 'Green', 'Traditional']);
-check('  a cell that is not JSON is shown as the text it is', lit[2] && lit[2].day, 'not json');
+check('  a cell that is not the roster\'s JSON ("__BLANK__", say) gets the roster\'s own name, as the roster shows it',
+  lit[2] && /^3rd Sunday - /.test(lit[2].day), true);
+const litIso = call('_enLitMonth', [{ role_id: 'liturgical', month: 10, year: 2026, service_date: '2026-11-29T08:00:00.000Z', value: '{"day":"1st Sunday of Advent","color":"Purple"}' }], 2026, 10) || [];
+check('  a cell stored under an old ISO date is that Sunday\'s', litIso[4] && [litIso[4].date, litIso[4].day, litIso[4].color], ['Nov 29', '1st Sunday of Advent', 'Purple']);
 check('  a colour without a day keeps the roster\'s fallback name', lit[3] && [lit[3].color, /^4th Sunday - /.test(lit[3].day)], ['White', true]);
 const dec = call('_enLitMonth', [], 2026, 11) || [];
 check('  December has Christmas Eve, Christmas Day and the Watchnight',
@@ -281,6 +292,67 @@ const echo = row => ({ data: [Object.assign({ phone: 'kept', email: 'kept@x.co' 
   try { await R._enContactWrite('Ada Example', { phone: '012-345 6789' }); out = 'saved'; } catch (e) { out = 'refused'; }
   check('  with no database, nothing is reported saved', out, 'refused');
 
+  const tick = () => new Promise(r => setTimeout(r, 5));
+
+  // The year is changed while the first year is still loading, and the first
+  // year's reply lands last. Its rows used to be kept as the new year's.
+  console.log('\nloading the directory');
+  {
+    const pending = {};
+    holder.roster = y => new Promise(res => { pending[y] = res; });
+    holder.sb = { from: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) };
+    if (R) R._renderEnablersTab = () => {};
+    let ran = true;
+    try { R._loadEnablersData(2026); R._loadEnablersData(2027); } catch (e) { ran = 'THREW ' + e.message; }
+    if (pending[2027]) pending[2027]([{ role_id: 'pianist', year: 2027, month: 0, service_date: 'Jan 3', value: 'Ada Example' }]);
+    await tick();
+    if (pending[2026]) pending[2026]([{ role_id: 'pianist', year: 2026, month: 0, service_date: 'Jan 4', value: 'Ada Example' }]);
+    await tick();
+    check('a year\'s rows arriving after the next year\'s are dropped, not kept as the next year\'s',
+      [ran, R && R._enablersYear, R && (R._enablersFreqCache || []).map(r => r.year)], [true, 2027, [2027]]);
+  }
+
+  // A value saved before the checks existed, which they would refuse, must
+  // not stop a PIC saving the other field of the card.
+  console.log('\na PIC\'s card');
+  {
+    const toasts = [];
+    if (R) { R.showToast = (m, t) => toasts.push((t || '') + ':' + m); R._enRefreshCard = () => {}; }
+    if (R) R._enablersMetaCache = { 'Ada Example': { name: 'Ada Example', phone: '012-345 6789 / 03-1234 5678', email: '' } };
+    holder.sb = fakeDb(echo);
+    try { R._saveContactToSupabase('Ada Example', '012-345 6789 / 03-1234 5678', 'ada@example.com', null); } catch (e) {}
+    await tick();
+    const w = holder.sb.calls[0];
+    check('an old phone the checks would refuse does not stop the email being saved', w && [w.row.phone, w.row.email], ['012-345 6789 / 03-1234 5678', 'ada@example.com']);
+    holder.sb = fakeDb(echo);
+    toasts.length = 0;
+    try { R._saveContactToSupabase('Ada Example', 'call me', 'ada@example.com', null); } catch (e) {}
+    await tick();
+    check('  a phone typed in that is not one is still refused', [holder.sb.calls.length, toasts.some(t => /^error:/.test(t))], [0, true]);
+  }
+
+  // Send All opens one WhatsApp window per member. A window opened after a
+  // wait on the network is not the click's, and the browser blocks it.
+  console.log('\nsending every card');
+  {
+    let sent = -1, resolveRows = null;
+    if (R) {
+      R.__STATE.picMode = true;
+      R.showToast = () => {};
+      R.bulkSendDutyCards = list => { sent = list.length; };
+      R._enablersMetaCache = { 'Ada Example': { phone: '012-345 6789' }, 'Ben Sample': { phone: '' } };
+      R._enablersYear = 2025; R._enablersRowsOk = true; R._enablersFreqCache = []; R._enYearData = {}; R._enYearRows = {};
+    }
+    holder.roster = () => new Promise(res => { resolveRows = res; });
+    holder.confirms = 0;
+    try { R._bulkSendAll(); } catch (e) {}
+    if (resolveRows) resolveRows([]);
+    await tick();
+    check('with the month\'s rows not yet read, nothing opens once they arrive: it would be blocked', [holder.confirms, sent], [0, -1]);
+    try { R._bulkSendAll(); } catch (e) {}
+    check('  pressed again, it asks and sends from the click', [holder.confirms, sent], [1, 1]);
+  }
+
   // ---------------------------------------------------------------- wiring
   console.log('\nwhat the screens call');
   const all = method('_renderEnablersAll') || '';
@@ -290,6 +362,28 @@ const echo = row => ({ data: [Object.assign({ phone: 'kept', email: 'kept@x.co' 
   const sends = ['sendDutyCardWhatsApp', 'sendSubscribeLinkWhatsApp', 'openDutyCard'].map(n => method(n) || '');
   truthy('  every roster WhatsApp send goes by _enWaUrl, none by wa.me', sends.every(t => t && t.indexOf('_enWaUrl(') !== -1 && t.indexOf('wa.me') === -1));
   truthy('  the Calendar tab draws the month', /_enMonthGrid\(/.test(method('_enCalFill') || '') && /_enDutiesIn\(/.test(method('_enCalFill') || ''));
+
+  // Every other WhatsApp share in the app had the duty card's fault: a wa.me
+  // link, and some an emoji outside the BMP of the app's own (U+1F3B5 on a
+  // song, U+1F4CB on the planning notes).
+  console.log('\nevery WhatsApp share in the app');
+  const helperAt = lines.findIndex(l => /^window\.lhcWhatsAppUrl = function\(text\) \{/.test(l));
+  let helper = null;
+  if (helperAt >= 0) {
+    try { helper = new Function('window', block(helperAt) + ';\nreturn window.lhcWhatsAppUrl;')({}); } catch (e) { helper = null; }
+  }
+  check('one helper builds the link, straight to api.whatsapp.com', helper ? helper('♫ *Song* 🙏') : null,
+    'https://api.whatsapp.com/send?text=' + encodeURIComponent('♫ *Song* 🙏'));
+  const waText = (raw.match(/https:\/\/wa\.me\/[^'"\s]*\?text=/g) || []).length;
+  check('  no share left that sends its text by wa.me', waText, 0);
+  const own = ['shareSongAction', '_shareSongWhatsAppDirect', '_sharePlaylist', 'shareOccasionNotes', '_sbShareMsg', '_sbSongShareText', '_lbdShareMessage', 'sbShareWhatsApp'];
+  const astral = own.filter(n => {
+    const i = lines.findIndex(l => new RegExp('^\\s*function ' + n + '\\(').test(l));
+    if (i < 0) return true;
+    const t = block(i);
+    return /[\uD800-\uDFFF]/.test(t) || /\\uD8[3-9A-F][0-9A-F]/i.test(t) || /fromCodePoint\(0x1[0-9A-F]{4}\)/i.test(t);
+  });
+  check('  what the app writes into a share keeps to the BMP', astral, []);
 
   const failed = results.filter(r => !r.ok);
   console.log('\n' + (results.length - failed.length) + ' of ' + results.length + ' passed');

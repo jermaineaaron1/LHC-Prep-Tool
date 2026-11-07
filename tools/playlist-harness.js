@@ -124,7 +124,7 @@ check('the page has WhatsApp and the YouTube app in its bar',
 check('...the message: its songs by name, the link that plays them here, and the YouTube app\'s queue',
   has(/lines\.push\('', 'Play them all, one after another: ' \+ window\.lhcPlaylistLink\(_items, name\)\);/) &&
   has(/if \(q\) lines\.push\('', 'Or in the YouTube app: ' \+ q\);/) &&
-  has(/window\.open\('https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(lines\.join\('\\n'\)\), '_blank', 'noopener'\);/));
+  has(/window\.open\(window\.lhcWhatsAppUrl\(lines\.join\('\\n'\)\), '_blank', 'noopener'\);/));
 check('the Songbook\'s player knows the service it plays', has(/window\.openPlaylistPlayer\(items, \{ name: \(currentOrderData && currentOrderData\.title\) \|\| '' \}\);/));
 check('on a phone the bar still fits: smaller buttons, no icon box, Auto as an icon',
   has(/#plPlayerOverlay \.pl-hbtn \{ width: 32px !important; height: 32px !important; \}/) && has(/#plAutoplayLabel \{ display: none; \}/));
