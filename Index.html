@@ -125256,6 +125256,57 @@ window.LHC_Install = (function() {
   </button>
 </nav>
 
+<style id="lhc-phone-fit-css">
+/* ================================================================
+   PHONES AND SAFARI, ROUND TWO (2026-11-07). Found by rendering each
+   screen in WebKit beside Chromium at 360 and 375px wide, with a check
+   for text painted outside its box; see gotcha 71. Late in the page on
+   purpose: these win ties with the rules they adjust.
+   ================================================================ */
+
+/* The Liturgy Book's bar held fourteen buttons in 54px. On a phone the
+   title wrapped and was cut, Share ran off the edge, and Close and the
+   other ten were off the screen, in every browser. Two rows: the name
+   with Close beside it, then the tools in one row that scrolls sideways. */
+@media (max-width: 640px) {
+  #liturgyBookModal .lb2-header { position: relative; flex-wrap: wrap; height: auto; row-gap: 8px; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px; }
+  #liturgyBookModal .lb2-header-brand { flex: 1 1 100%; min-width: 0; gap: 10px; padding-right: 44px; }
+  #liturgyBookModal .lb2-header-brand > div { min-width: 0; }
+  #liturgyBookModal .lb2-header-title { white-space: nowrap; }
+  #liturgyBookModal .lb2-header-order { max-width: 100%; }
+  #liturgyBookModal .lb2-header-toolbar { flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
+  #liturgyBookModal .lb2-header-toolbar::-webkit-scrollbar { display: none; }
+  #liturgyBookModal .lb2-tool-group { flex: 0 0 auto; }
+  #liturgyBookModal .lb2-close-btn { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: 12px; }
+}
+
+/* The Songbook's More: three of its labels are a sentence, and on a
+   phone they ran up to 178px past their buttons. They wrap. */
+.sbm-menu .sbm-btn { white-space: normal; text-align: left; line-height: 1.25; padding-top: 8px; padding-bottom: 8px; }
+.sbm-menu .sbm-btn i { flex-shrink: 0; }
+
+/* An order's three step tabs on a phone: "Songbook" needs about 62px and
+   had 48 beside its number, so it ran out of its tab. */
+@container wosteps (max-width: 420px) {
+  #worshipOrderView .wo-order-btn { padding: 8px 6px; gap: 5px; }
+  #worshipOrderView .wo-step-num { width: 20px; height: 20px; font-size: 0.68rem; }
+  #worshipOrderView .wo-order-btn-short { font-size: 0.74rem; }
+}
+
+/* Pickers given light text for a dark box. Safari draws a <select> in the
+   system's own light grey and ignores the background the page gives it,
+   unless that look is turned off, so their text came out light on light
+   ("2026" in the Enablers bar). Off here, with an arrow drawn in: the same
+   dark box in every browser. */
+#enablersYearFilter, #previewFontSize, #previewFontStyleSelect,
+.sb-ppt-row select, .sb-ppt-song select, .sb-rec-cat-select, .lit-proj-controls-row select {
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5l4.5 4.5 4.5-4.5' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important; background-position: right 8px center !important; background-size: 10px 7px !important;
+  padding-right: 24px !important;
+}
+</style>
+
 <style id="sb-layout-and-chord-reflow-css">
   /* Stable desktop toolbar: editing tools, document actions, then close. */
   @media (min-width:1000px) {
