@@ -55592,6 +55592,8 @@ var WO = (function() {
   function _sbEvSongOpen(song, r, i, parent) {
     var base = r.songId || _sbBaseSongId(song), temp = _sbEvTemp(base, r.songTitle || song.title, r.src);
     var lib = _lbdLibSong(base) || {}, other = base !== _sbBaseSongId(song);
+    // A song with choir parts shows its score too, with the score's drawings.
+    var hasChoir = _sbSongHasChoir({ songId: base });
     var vName = !temp.versionId ? 'Standard' : ((_sbVerOk === true && _sbVerById(base, temp.versionId)) || {}).name || (other ? 'A saved version' : 'A version since deleted');
     var where = r.kind === 'copy' ? 'elsewhere in this service (' + r.title + ')' : r.kind === 'version' ? 'the saved version “' + r.title + '”' : r.title;
     var html = '<div class="sbm-ev">' +
@@ -55599,13 +55601,32 @@ var WO = (function() {
         (r.kind === 'member' ? 'Nothing here changes this service.' : 'Nothing here changes this service until you choose Use here.') + '</span></div>' +
       '<div class="ver-chips"><span class="ver-chip"><i class="fa-solid fa-key" aria-hidden="true"></i>' + escapeHtml(_sbVerKeyText({ songId: base, key: lib.key }, temp.transposeSteps, lib.key)) + '</span>' +
         '<span class="ver-chip"><i class="fa-solid fa-code-branch" aria-hidden="true"></i>' + escapeHtml(vName) + '</span></div>' +
-      '<div class="sbm-card sbm-ev__card"><div class="sbm-lyrics sbm-ev__words">' + _sbBkLyricsHtml(temp) + '</div></div>' +
+      (hasChoir ? '<div class="sbm-ev__tabs" role="tablist" aria-label="What to show">' +
+          '<button type="button" class="sbm-ev__tab is-on" role="tab" aria-selected="true" data-ev-tab="words" onclick="WO.sbEvTab(\'words\')"><i class="fa-solid fa-align-left" aria-hidden="true"></i>Words &amp; chords<span class="sbm-ev__tabn" data-ev-n="words" hidden></span></button>' +
+          '<button type="button" class="sbm-ev__tab" role="tab" aria-selected="false" data-ev-tab="choir" onclick="WO.sbEvTab(\'choir\')"><i class="fa-solid fa-people-group" aria-hidden="true"></i>Choir parts<span class="sbm-ev__tabn" data-ev-n="choir" hidden></span></button></div>' : '') +
+      '<div class="sbm-card sbm-ev__card" data-ev-view="words"><div class="sbm-lyrics sbm-ev__words">' + _sbBkLyricsHtml(temp) + '</div></div>' +
+      (hasChoir ? '<div class="sbm-card sbm-ev__card sbm-ev__card--choir" data-ev-view="choir" hidden><p class="sbm-empty">Reading the choir parts...</p></div>' : '') +
       (r.orderId ? '<div class="sbm-ev__h">Recordings made for ' + escapeHtml(r.title) + '</div><div class="sbm-ev__recs" data-ev-recs="1"><p class="sbm-empty">Reading the recordings…</p></div>' : '') +
       '<div class="sbm-ev__acts"><button class="sbm-btn" onclick="WO.sbEvBack(' + (parent == null ? '' : parent) + ')"><i class="fa-solid fa-arrow-left"></i>Back</button>' +
         (r.kind === 'member' ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbArrCopy(' + i + ')">Use here</button>') + '</div></div>';
     _sbmSheet(r.kind === 'version' ? 'Saved version' : 'Earlier version', html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'earlier-open');
-    _sbEvMountCard(temp);
+    _sbEvMountCards(temp);
+    // The score: the song's choir parts as they are now (they are the song's,
+    // shared by every service), in this version's key, with its drawings.
+    if (hasChoir) {
+      var choirCard = function() { var cc = document.querySelector('#sbmSheet .sbm-ev__card--choir'); return (cc && cc.__sbmSong === temp) ? cc : null; };
+      _sbLinesReady(base).then(function() {
+        var cc = choirCard(); if (!cc) return;
+        var body = _sbChoirBodyHtml(temp);
+        cc.innerHTML = body ? _sbChoirCss(temp) + '<div class="sb-choir">' + _sbChoirHeadHtml(temp, false) +
+            '<p class="sbm-ev__sub">The choir parts as they are now: they are the song\u2019s, shared by every service. The drawings are this version\u2019s.</p>' + body + '</div>'
+          : '<p class="sbm-empty">This song has no choir parts yet.</p>';
+        _sbEvMountOne(cc, temp);
+      }, function() {
+        var cc = choirCard(); if (cc) cc.innerHTML = '<p class="sbm-empty">The choir parts could not be read just now.</p>';
+      });
+    }
     if (r.orderId) {
       var paint = function(list) {
         var box = document.querySelector('#sbmSheet [data-ev-recs]'); if (!box) return;
@@ -55619,23 +55640,61 @@ var WO = (function() {
       _sbEvRecs(base).then(function(list) { return _sbRecOrdersLoad(list).then(function() { paint(list); }); });
     }
   }
-  // The drawings on a song's version, painted onto the sheet's card.
-  function _sbEvMountCard(temp) {
-    var card = document.querySelector('#sbmSheet .sbm-ev__card'); if (!card) return;
+  // The drawings on a song's version, painted onto one card of the sheet:
+  // its words and chords, or its choir score -- each read by the painter
+  // from the anchors it carries (l:<i> stamped here; s:<section>|<n> from
+  // lhcVoiceLines.html, as Book Mode's choir pages carry them). The canvas
+  // is made here, not by _sbmMarkCanvas, so it has no pen.
+  function _sbEvMountOne(card, temp) {
     card.__sbmSong = temp;
     _sbmStampAnchors(card);
     _sbmMarksSupport().then(function(ok) {
       if (!ok || !card.isConnected) return;
-      var cv = document.createElement('canvas'); cv.className = 'sbm-marks'; cv.setAttribute('aria-hidden', 'true');
-      card.appendChild(cv);
-      var paint = function() { if (card.isConnected) _sbmMarksPaint(card); };
-      Promise.resolve(_sbmLoadMarks(temp)).then(paint, function() {});
+      if (!card.querySelector('canvas.sbm-marks')) {
+        var cv = document.createElement('canvas'); cv.className = 'sbm-marks'; cv.setAttribute('aria-hidden', 'true');
+        card.appendChild(cv);
+      }
+      var paint = function() { if (card.isConnected && !card.hidden) _sbmMarksPaint(card); };
+      Promise.resolve(_sbmLoadMarks(temp)).then(function() { paint(); _sbEvViewCounts(temp); }, function() {});
       setTimeout(paint, 80);
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(paint);
-      if (window.ResizeObserver) {
-        var ro = new ResizeObserver(function() { if (!card.isConnected) { ro.disconnect(); return; } paint(); });
+      if (window.ResizeObserver && !card.__evRO) {
+        var ro = card.__evRO = new ResizeObserver(function() { if (!card.isConnected) { ro.disconnect(); return; } paint(); });
         ro.observe(card);
       }
+    });
+  }
+  function _sbEvMountCards(temp) {
+    Array.prototype.forEach.call(document.querySelectorAll('#sbmSheet .sbm-ev__card'), function(card) { _sbEvMountOne(card, temp); });
+  }
+  // A version's drawings by where they sit (pure): on the choir score (a
+  // moment's anchor, s:...) or on the words and chords.
+  function _sbEvViewSplit(marks) {
+    var n = { words: 0, choir: 0 };
+    (marks || []).forEach(function(m) { if (m) n[String(m.anchor || '').indexOf('s:') === 0 ? 'choir' : 'words']++; });
+    return n;
+  }
+  // ...counted on the tabs, so a choir score's drawings are seen to be there.
+  function _sbEvViewCounts(temp) {
+    var n = _sbEvViewSplit(_sbmMarksOf(temp.songId, temp.versionId || ''));
+    Object.keys(n).forEach(function(k) {
+      var el = document.querySelector('#sbmSheet [data-ev-n="' + k + '"]'); if (!el) return;
+      el.textContent = String(n[k]); el.hidden = !n[k];
+      el.title = n[k] + ' drawing' + (n[k] === 1 ? '' : 's');
+    });
+    return n;
+  }
+  // Words & chords, or the choir parts: the card shown is painted again, a
+  // hidden card measuring nothing (gotcha 24).
+  function sbEvTab(which) {
+    var sh = document.getElementById('sbmSheet'); if (!sh) return;
+    Array.prototype.forEach.call(sh.querySelectorAll('[data-ev-tab]'), function(b) {
+      var on = b.getAttribute('data-ev-tab') === which;
+      b.classList.toggle('is-on', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call(sh.querySelectorAll('[data-ev-view]'), function(c) {
+      c.hidden = c.getAttribute('data-ev-view') !== which;
+      if (!c.hidden) setTimeout(function() { if (c.isConnected) _sbmMarksPaint(c); }, 0);
     });
   }
   // One recording in the read-only view: marked with the service it was made for.
@@ -94859,7 +94918,7 @@ var WO = (function() {
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdsMore: mdsMore, mdsFind: mdsFind, mdsUse: mdsUse, mdsKeys: mdsKeys, mdsDelete: mdsDelete, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
-    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmXpSel: sbmXpSel, sbmXpSelUndo: sbmXpSelUndo, sbmXpSelClose: sbmXpSelClose, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbEvOpen: sbEvOpen, sbEvOpenMember: sbEvOpenMember, sbEvBack: sbEvBack, sbEvUseMedley: sbEvUseMedley, sbEvPlay: sbEvPlay, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
+    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmXpSel: sbmXpSel, sbmXpSelUndo: sbmXpSelUndo, sbmXpSelClose: sbmXpSelClose, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbEvOpen: sbEvOpen, sbEvOpenMember: sbEvOpenMember, sbEvBack: sbEvBack, sbEvUseMedley: sbEvUseMedley, sbEvPlay: sbEvPlay, sbEvTab: sbEvTab, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
     sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,
@@ -114987,6 +115046,14 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-ev__rec--none .sbm-ev__from { color: #94a3b8; }
 .sbm-ev__dur { font: 600 12px/1 var(--sbm-font-ui); color: #64748b; }
 .sbm-ev__acts { position: sticky; bottom: 0; display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; padding: 10px 0 2px; background: #fff; }
+.sbm-ev__tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.sbm-ev__tab { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; color: #334155; font: 700 13px/1 var(--sbm-font-ui); cursor: pointer; }
+.sbm-ev__tab.is-on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.sbm-ev__tabn { min-width: 18px; padding: 0 6px; border-radius: 999px; background: #7c3aed; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.sbm-ev__tabn[hidden], .sbm-ev__card[hidden] { display: none; }
+.sbm-ev__card--choir { padding: 0; }
+.sbm-ev__card--choir .sb-choir { padding: 16px 18px 18px; }
+.sbm-ev__sub { margin: 0 0 12px; font: 500 12px/1.4 var(--sbm-font-ui); color: #64748b; }
 .sbm-ev__n { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 6px; border-radius: 50%; background: #0f172a; color: #fff; font: 800 12px/1 var(--sbm-font-ui); }
 .ver-head { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: 700 12px/1.2 var(--sbm-font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--sbm-text-2); }
 .ver-head__n { min-width: 22px; padding: 2px 7px; border-radius: 999px; background: var(--sbm-navy); color: #fff; font-size: 11px; letter-spacing: 0; text-align: center; }

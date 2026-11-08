@@ -2400,8 +2400,14 @@ the anon key -- verify as `postgres`, not as the app.
     `_sbmCardSong` reads first), so the reading view's own painter
     (`_sbmMarksPaint`) draws the drawings of THAT version -- on a canvas made
     by hand, without `_sbmMarkCanvas`'s pointer handlers, so it cannot be
-    drawn on. A choir score's drawings (`s:` anchors) do not show there,
-    only the lyrics'. Under the words, the recordings made for that service,
+    drawn on. A song with choir parts gets a second tab, Choir parts
+    (`sbEvTab`): Book Mode's read-only score (`_sbChoirBodyHtml` +
+    `_sbChoirCss`, in the version's key, once `_sbLinesReady` has the parts)
+    on its own card, whose moments carry the score's `s:` anchors, so the
+    same painter draws the score's drawings there (`_sbEvMountOne` per card;
+    each tab counts its drawings, `_sbEvViewSplit`). The parts are the
+    song's as they are now -- not stored per service -- and the card says
+    so. Under the words, the recordings made for that service,
     each marked (`_sbEvRecRow`), playable by one player (`sbEvPlay`) with
     the three ways back to rest (gotcha 23); closing any sheet stops it. A
     medley opens as its songs (`_sbEvMedleyOpen`), each to open in turn.
