@@ -1549,6 +1549,22 @@ const CASES = [
     s => s.replace('        if (Date.now() < _lcdSkipRevealUntil) return;\r\n', '')],
   ['lcd-rail-parts-harness.js', 'the bridge loses the colour edge that ties its slides to its heading',
     s => s.replace('  .lcd-rail-slide-row[data-part=\"bridge\"]::before    { background: #9573d6; }\r\n', '')],
+  // The rail's title rows in black, and All Slides on the console itself
+  // (2026-11-09). The part badges stay coloured -- the operator was asked
+  // and chose that -- and All Slides stays OUT of the controls row, which
+  // has 27px of its 517 left and would spend 44px of the projection.
+  ['lcd-rail-parts-harness.js', 'the section band goes back to cream',
+    s => s.replace('    background: #13161b;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the song and liturgy name rows go back to cream',
+    s => s.replace('    background: #1b1f26;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the VERSE badge is dragged into the black with them',
+    s => s.replace('.lcd-rail-part[data-part=\"verse\"]     { background: #e0ecfd;',
+                   '.lcd-rail-part[data-part=\"verse\"]     { background: #13161b;')],
+  ['lcd-rail-parts-harness.js', 'All Slides is taken off the console again',
+    s => s.replace('<button class=\"lcd-slide-nav-btn lcd-allslides-btn\" id=\"lcdAllSlidesToolBtn\"', '<button class=\"lcd-slide-nav-btn\" id=\"lcdGone\"')],
+  ['lcd-rail-parts-harness.js', 'All Slides takes Project\'s blue, so the live button has a twin',
+    s => s.replace('background: #1d4ed8; border-color: #1d4ed8; color: #fff;',
+                   'background: #0066ff; border-color: #0066ff; color: #fff;')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick
