@@ -301,7 +301,13 @@ than a bash heredoc, which quietly eats a level of backslashes.
      lyrics card, `sbmType`) does the same in the song view: type straight
      onto the words and chords, Enter saves, Shift+Enter or the bar's New
      line starts a line, Esc puts it back (gotcha 65) -- no Edit window.
-  3. **LCD Projection** -- the slides, drawn from the same data.
+  3. **LCD Projection** -- the slides, drawn from the same data. The rail
+     down the left is chunked: a heading row per song, liturgy item, reading
+     and presentation, and under it a coloured heading wherever a part
+     begins -- a song's own `[Verse 1]` markers, carried down the slides
+     that finish the verse, or a heading the operator types on any slide
+     (the tag on a row; the pen and cross on the heading). Never projected.
+     See gotcha 73.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
   reading taken out stays out (gotcha 48).
@@ -2416,6 +2422,53 @@ the anon key -- verify as `postgres`, not as the app.
     songbook) plus saved versions, counted once a song every five minutes
     (`_sbEvCount`) and drawn into the badge in place, hidden at nought.
     `tools/songbook-earlier-versions-harness.js` checks it.
+
+73. **A slide's PART is carried down, never written -- and a heading is
+    never projected.** From the operator (2026-11-08), on a marked-up
+    screenshot of the LCD rail: the eighteen slides of one song were a flat
+    run of rows with the song's title on every one, and nothing said where
+    Verse 1 ended and the Chorus began. They wrote "Verse 1" and "Chorus" on
+    it by hand and asked for chunks, coloured badges for a song's parts, and
+    headings they could add themselves to liturgy, which has no markers.
+    - `parseLyricsIntoSlides` hangs `[Verse 1]` on the slide the marker
+      opened and leaves the two or three that finish the verse with nothing.
+      `_lcdSlideParts(headers)` (pure) fills that run in and returns the runs
+      the rail chunks by. It is a READING of the slides: writing the label
+      onto each slide would be the obvious fix and is the wrong one, because
+      of the next point.
+    - **A heading lives in `.wo-slide-section-header`, a SIBLING of
+      `.wo-slide-content`, and `selectSlideBox` projects the text of
+      `.wo-slide-content` and nothing else.** That is the whole reason a
+      heading can be added to any slide at all. Put one INSIDE
+      `.wo-slide-content` and "VERSE 1" goes up in front of the
+      congregation. `_lcdWriteSlideHeader` inserts before, always.
+    - `collectOrderItems` already saved `slides[].header` for songs AND for
+      liturgy, and `addSongToServiceSection` already restored a song's. Only
+      the liturgy LOAD never did, so a heading added to liturgy lived until
+      the next load and then quietly vanished. No new column, no migration.
+    - `_lcdPartKind` is a LIST, not a chain of `indexOf`, because order
+      decides the answer: "pre-chorus" contains "chorus".
+      `getSectionTypeClass` asked about chorus first and so could never
+      return `prechorus` -- that class had never once been applied. Fixed
+      there; the same mis-ordered chain is written out three more times
+      (`getSectionType` twice, `getSectionClass`) for the song preview and
+      the Lyrics Editor, and those are left alone as outside this path.
+    - **The rail does not hold its place by itself.** Replacing its markup
+      clamps its scroller to the top, and `_lcdWatchSelectedRow` then reveals
+      the SELECTED row -- the slide on the screen. Measured at 1158px:
+      labelling slide 4.8 sent the rail from 2072 to 214. Anything that edits
+      the schedule from somewhere other than the projecting slide calls
+      `_lcdRailHoldScroll()` FIRST (the position is only right before the
+      change) and the watcher stands down for a window, not for one reveal:
+      one edit brings several rebuilds -- the render, then the save's own
+      120ms refresh. Revealing the labelled row instead was tried and does
+      not work: at 80ms it is still in view, so the reveal is a no-op.
+    - A row under a heading row shows the WORDS, and drops the item title
+      and the icon that the heading row already carries -- the same "said
+      twice" rule as gotcha 11. A row with no part is unchanged. Measured at
+      the operator's 1158px, where the rail is 252px: the words get 111px,
+      which is tight, and is the width the column has.
+    `tools/lcd-rail-parts-harness.js` checks all of it.
 
 ## Quick Commands for Claude Code
 

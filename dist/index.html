@@ -7842,6 +7842,12 @@
                       <i class="fa-solid fa-pen-to-square"></i> Slide Editor
                       <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
                       <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
+                      <!-- Which part of the song or liturgy item this slide
+                           belongs to. Worked out by carrying the nearest
+                           heading above it down (_lcdPartOfBox); shown here
+                           so an operator working from the middle and right
+                           columns need not look back at the list. -->
+                      <span class="lcd-slide-part-badge" id="lcdLyricsEditorPart" style="display:none;"></span>
                       <!-- Preview / Edit. Preview shows #woPreviewScreen, the
                            app's existing preview surface -- it is moved into
                            this panel below rather than duplicated, so every
@@ -40778,6 +40784,13 @@ var WO = (function() {
                   slideBox.setAttribute('data-background', slide.background);
                   updateSlideBgIndicators();
                 }
+                // The part heading. collectOrderItems saves it for a
+                // liturgy slide exactly as it does for a song, but
+                // addLiturgyToSection rebuilds the boxes from plain text and
+                // knows nothing about headings -- so without this line a
+                // heading the operator added lived until the next load and
+                // then quietly vanished.
+                if (slide.header) _lcdWriteSlideHeader(slideBox, slide.header);
                 if (slide.richHtml) {
                   var _litContentEl = slideBox.querySelector('.wo-slide-content');
                   if (_litContentEl) {
@@ -83783,6 +83796,7 @@ var WO = (function() {
       if (_bx) _pos = Array.from(_bx.querySelectorAll('.wo-slide-box')).indexOf(box) + 1;
       slideNumEl.textContent = _pos ? ('Slide ' + _pos) : '';
     }
+    _lcdShowEditorPart(_lcdPartOfBox(box));
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
     _lcdUpdateEditorCanvas(box);
@@ -84011,6 +84025,18 @@ var WO = (function() {
     summaryEl.textContent = nonEmpty + ' Line' + (nonEmpty === 1 ? '' : 's');
   }
 
+  // Which part of the song or liturgy item the editor is showing, beside the
+  // slide number. The rail says it too, but an operator working from the
+  // middle and right columns should not have to look back at the list.
+  function _lcdShowEditorPart(label) {
+    var el = document.getElementById('lcdLyricsEditorPart');
+    if (!el) return;
+    var t = String(label || '').trim();
+    el.textContent = t;
+    el.setAttribute('data-part', t ? _lcdPartKind(t) : '');
+    el.style.display = t ? '' : 'none';
+  }
+
   // ---- Delete the current slide from the Slide Editor -----------------
   function _lcdClearEditor() {
     _lcdActiveSlide = null;
@@ -84022,6 +84048,7 @@ var WO = (function() {
     var openBtn = document.getElementById('lcdOpenInSongOrderBtn');
     if (titleEl) titleEl.textContent = 'No slide selected';
     if (slideNumEl) slideNumEl.textContent = '';
+    _lcdShowEditorPart('');
     if (openBtn) openBtn.style.display = 'none';
     _lcdUpdateEditorCanvas(null);
     _lcdUpdateLyricBanner(null, -1, false);
@@ -85874,8 +85901,201 @@ var WO = (function() {
     }
   }
 
-  function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
-    var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent.trim(); }).filter(Boolean);
+  // ---- Slide parts: which chunk of its item a slide belongs to -----------
+  //
+  // A song's words mark a part once -- "[Verse 1]" -- and the parser hangs
+  // that heading on the slide the marker opened. The two or three slides that
+  // finish the verse carry nothing, so the rail drew eighteen rows with the
+  // same song title on each and nothing to say where the chorus began. The
+  // operator marked a screenshot "Verse 1" and "Chorus" by hand and asked for
+  // exactly this.
+  //
+  // The heading is CARRIED DOWN here and nowhere else: a reading of the
+  // slides, never a write. So nothing new is stored, and -- the fact that
+  // makes adding headings safe at all -- nothing new is projected: the
+  // projection renders .wo-slide-content, and a heading is that element's
+  // SIBLING, so no heading has ever reached the screen in the room.
+  //
+  // Pure: each slide's OWN heading text in, one descriptor per slide out plus
+  // the runs they group into. tools/lcd-rail-parts-harness.js runs it alone.
+  function _lcdSlideParts(headers) {
+    var runs = [], slides = [], cur = null;
+    var list = headers || [];
+    for (var i = 0; i < list.length; i++) {
+      var own = String(list[i] == null ? '' : list[i]).trim();
+      // A heading opens a run, and so does the first slide, which often has
+      // none: a song whose words start before any [marker], or a liturgy item
+      // nobody has labelled. That run is unlabelled, and the rail draws it the
+      // way it drew every row before parts existed.
+      if (own || !cur) { cur = { label: own, start: i, size: 0 }; runs.push(cur); }
+      cur.size++;
+      slides.push({ label: cur.label, own: !!own, start: cur.start, pos: cur.size, run: runs.length - 1 });
+    }
+    for (var k = 0; k < slides.length; k++) slides[k].of = runs[slides[k].run].size;
+    return { slides: slides, runs: runs };
+  }
+
+  // The colour a part is drawn in. Distinct hues, because the whole point of
+  // the badge is to be told apart at a glance in a dim sanctuary: the slide
+  // box's own palette (.wo-slide-section-header) paints verse, chorus and
+  // bridge three shades of one green, which at rail size is one colour.
+  //
+  // A list rather than the chain of indexOf tests in getSectionTypeClass, and
+  // for the same reason that chain was wrong: "pre-chorus" contains "chorus",
+  // so order decides the answer and belongs where it can be read.
+  var _LCD_PART_KINDS = [
+    [/pre[ _-]*chorus/, 'prechorus'],
+    [/chorus|refrain/, 'chorus'],
+    [/verse|stanza/, 'verse'],
+    [/bridge/, 'bridge'],
+    [/intro|instrumental|interlude|vamp|turnaround/, 'intro'],
+    [/ending|outro|coda|tag|final|last time/, 'ending']
+  ];
+  function _lcdPartKind(label) {
+    var h = String(label || '').trim().toLowerCase();
+    if (!h) return '';
+    for (var i = 0; i < _LCD_PART_KINDS.length; i++) {
+      if (_LCD_PART_KINDS[i][0].test(h)) return _LCD_PART_KINDS[i][1];
+    }
+    // Anything the operator typed themselves -- "Kyrie", "Creed", "Post
+    // Communion" -- is a part all the same, and takes the one colour that
+    // means "named by hand".
+    return 'custom';
+  }
+
+  // A slide's own heading, read from the one element every path writes it to.
+  // collectOrderItems reads the same element, so what the rail chunks by is
+  // exactly what gets saved.
+  function _lcdOwnHeader(box) {
+    var h = (box && box.querySelector) ? box.querySelector('.wo-slide-section-header') : null;
+    return h ? h.textContent.trim() : '';
+  }
+
+  // The part a slide belongs to, worked out from the slide itself: its own
+  // heading, else the nearest heading above it inside the same group. For a
+  // caller handed one box and no group list -- the Slide Editor.
+  function _lcdPartOfBox(box) {
+    if (!box || !box.getAttribute) return '';
+    var key = box.getAttribute('data-song-id') ? 'data-song-id'
+            : (box.getAttribute('data-liturgy-id') ? 'data-liturgy-id' : '');
+    var id = key ? box.getAttribute(key) : '';
+    for (var cur = box; cur; cur = cur.previousElementSibling) {
+      if (!cur.classList || !cur.classList.contains('wo-slide-box')) break;
+      if (key && cur.getAttribute(key) !== id) break;
+      var h = _lcdOwnHeader(cur);
+      if (h) return h;
+    }
+    return '';
+  }
+
+  // Write, rename or clear the heading on one slide. It goes to
+  // .wo-slide-section-header, which collectOrderItems already saves for songs
+  // AND for liturgy, so an operator's heading persists by the path that was
+  // already there -- no new column and no migration.
+  function _lcdWriteSlideHeader(box, text) {
+    if (!box || !box.querySelector) return;
+    var el = box.querySelector('.wo-slide-section-header');
+    var t = String(text == null ? '' : text).trim();
+    if (!t) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      var content = box.querySelector('.wo-slide-content');
+      // Before .wo-slide-content, never inside it: inside, the heading would
+      // be read back as a line of the slide and projected.
+      if (content && content.parentNode) content.parentNode.insertBefore(el, content);
+      else box.appendChild(el);
+    }
+    el.className = 'wo-slide-section-header ' + getSectionTypeClass(t);
+    el.textContent = t;
+  }
+
+  function lcdSetSlideHeader(rowId) {
+    var box = _lcdRailRowMap[rowId];
+    if (!box || !box.querySelector) return;
+    var cur = _lcdOwnHeader(box);
+    window.customPrompt(
+      cur ? 'Rename this heading' : 'Add a heading',
+      'A heading names the part this slide starts \u2014 "Verse 1", "Chorus", "Kyrie". '
+        + 'It shows in this list and in the Slide Editor only, and is never projected. '
+        + 'Leave it empty to remove it.',
+      cur
+    ).then(function(v) {
+      if (v === null || v === undefined) return;   // Cancel, which is not "clear"
+      var t = String(v).trim();
+      if (t === cur) return;
+      if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+      _lcdRailHoldScroll();
+      _lcdWriteSlideHeader(box, t);
+      if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
+      showToast(t ? ('Heading set to ' + t) : 'Heading removed', 'success');
+    });
+  }
+
+  function lcdClearSlideHeader(rowId) {
+    var box = _lcdRailRowMap[rowId];
+    if (!box || !box.querySelector) return;
+    if (!_lcdOwnHeader(box)) return;
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    _lcdRailHoldScroll();
+    _lcdWriteSlideHeader(box, '');
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('Heading removed \u2014 the slides stay', 'success');
+  }
+
+  // A heading row for one song or liturgy item. Scripture and presentations
+  // have had one since they were added; songs and liturgy never did, which is
+  // why their title had to be repeated on every slide row. Said once at the
+  // top, the rows below can spend their width on the part and the words.
+  function _lcdBuildItemGroupRow(kind, title, count) {
+    var icon = (kind === 'song') ? 'fa-music' : 'fa-book-bible';
+    return '<div class="lcd-rail-item-group ' + kind + '" title="' + escapeHtml(title).replace(/"/g, '&quot;') + '">' +
+      '<i class="fa-solid ' + icon + '"></i>' +
+      '<span class="lcd-rail-item-group-name">' + escapeHtml(title) + '</span>' +
+      '<span class="lcd-rail-item-group-count" title="' + count + ' slide' + (count === 1 ? '' : 's') + '">' + count + '</span>' +
+    '</div>';
+  }
+
+  // The heading that chunks a group's slides: the part of the song, or one
+  // the operator added. Clicking it selects the first slide under it.
+  function _lcdBuildPartRow(box, part) {
+    var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
+    _lcdRailRowMap[rowId] = box;
+    var tip = part.label + ' \u2014 ' + part.of + ' slide' + (part.of === 1 ? '' : 's');
+    return '<div class="lcd-rail-part" data-part="' + _lcdPartKind(part.label) + '" id="' + rowId +
+        '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')" title="' + escapeHtml(tip).replace(/"/g, '&quot;') + '">' +
+      '<span class="lcd-rail-part-name">' + escapeHtml(part.label) + '</span>' +
+      '<span class="lcd-rail-part-count">' + part.of + '</span>' +
+      '<button class="lcd-rail-part-btn" title="Rename this heading" ' +
+        'onclick="event.stopPropagation(); WO.lcdSetSlideHeader(\'' + rowId + '\')"><i class="fa-solid fa-pen"></i></button>' +
+      '<button class="lcd-rail-part-btn clear" title="Remove this heading. The slides stay." ' +
+        'onclick="event.stopPropagation(); WO.lcdClearSlideHeader(\'' + rowId + '\')"><i class="fa-solid fa-xmark"></i></button>' +
+    '</div>';
+  }
+
+  // Every group that has a heading row of its own -- song, liturgy, scripture
+  // -- builds its slide rows here, so the chunking rule is written once.
+  function _lcdPartedRowsHtml(sIdx, startNum, groupTitle, boxes, iconClass) {
+    var parts = _lcdSlideParts(boxes.map(function(b) { return _lcdOwnHeader(b); }));
+    var html = '';
+    for (var k = 0; k < boxes.length; k++) {
+      var p = parts.slides[k];
+      if (p.label && k === p.start) html += _lcdBuildPartRow(boxes[k], p);
+      html += _lcdBuildRailRow(sIdx, startNum + k + 1, groupTitle, boxes[k], iconClass, p);
+    }
+    return html;
+  }
+
+  function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass, part) {
+    // "Double-click to add content" is editor furniture, not words -- the
+    // same two tests selectSlideBox makes before it projects a slide.
+    var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line'))
+      .filter(function(l) {
+        return !l.classList.contains('wo-slide-empty-hint') &&
+               l.textContent.trim() !== 'Double-click to add content';
+      })
+      .map(function(l) { return l.textContent.trim(); }).filter(Boolean);
     var preview = lines.length ? lines[0] : '';
     var isSelected = slideBoxEl.classList.contains('selected');
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
@@ -85885,6 +86105,18 @@ var WO = (function() {
     // intact (it serialises via textContent), hence the extra replace before
     // this goes into an attribute.
     var titleAttr = escapeHtml(groupTitle).replace(/"/g, '&quot;');
+    // A grouped row sits under a heading row that already names the item, so
+    // the row shows the WORDS -- which is what the operator matches against
+    // the screen. Ungrouped rows (the flat scripture fallback) are unchanged.
+    var _grouped = !!part;
+    var _kind = part ? _lcdPartKind(part.label) : '';
+    var _partAttr = _kind ? ' data-part="' + _kind + '"' : '';
+    if (_grouped) {
+      titleAttr = escapeHtml(
+        groupTitle + (part.label ? '  \u00b7  ' + part.label + ' (' + part.pos + ' of ' + part.of + ')' : '') +
+        (preview ? '  \u00b7  ' + preview : '')
+      ).replace(/"/g, '&quot;');
+    }
     // Flag only the slide that actually carries the changed lyric, and only
     // until the operator has opened it (acknowledgement is per-version, so a
     // later edit to the same slide brings the badge back).
@@ -85906,12 +86138,28 @@ var WO = (function() {
         _flag = '<span class="lcd-lyric-flag ' + _c.source + '" title="' + escapeHtml(_tip).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>';
       }
     }
-    return '<div class="lcd-rail-slide-row' + _changedCls + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
-      '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
-      '<div class="lcd-rail-slide-body">' +
-        '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + _flag + escapeHtml(groupTitle) + '</div>' +
-        (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
-      '</div>' +
+    // Two lines of the words, not one: with the title off the row there is
+    // the room, and a single ellipsised line often reached nothing
+    // distinctive -- ten slides of one song all read "I, the Lord of...".
+    var _words = lines.slice(0, 2).join('   /   ');
+    var _body = _grouped
+      ? ('<div class="lcd-rail-item-title lcd-rail-words">' + _flag +
+           (_words ? escapeHtml(_words) : '<span class="lcd-rail-blank">(blank slide)</span>') + '</div>')
+      : ('<div class="lcd-rail-item-title">' + _flag + escapeHtml(groupTitle) + '</div>' +
+         (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : ''));
+    return '<div class="lcd-rail-slide-row' + _changedCls + (isSelected ? ' selected' : '') +
+        '"' + _partAttr +
+        ' id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
+      '<div class="lcd-rail-slide-num' + (_grouped ? ' bare' : '') + '" title="' + titleAttr + '">' +
+        // The icon only while the row stands alone. Under a heading row that
+        // already carries one, it was the same mark twice -- and at the
+        // operator's 1158px it cost a sixth of the width left for the words.
+        (_grouped ? '' : '<i class="fa-solid ' + iconClass + '"></i> ') +
+        (sIdx + 1) + '.' + slideNum + '</div>' +
+      '<div class="lcd-rail-slide-body" title="' + titleAttr + '">' + _body + '</div>' +
+      '<button class="lcd-rail-slide-tag" draggable="false" onclick="event.stopPropagation(); WO.lcdSetSlideHeader(\'' + rowId + '\')" title="' +
+        (part && part.own ? 'Rename the heading on this slide' : 'Add a heading above this slide') +
+        '"><i class="fa-solid fa-tag"></i></button>' +
       '<button class="lcd-rail-slide-del" draggable="false" onclick="event.stopPropagation(); WO._lcdDeleteRailRow(\'' + rowId + '\')" title="Delete this slide"><i class="fa-solid fa-trash"></i></button>' +
     '</div>';
   }
@@ -86400,10 +86648,15 @@ var WO = (function() {
           var song = songOrderSections.find(function(s) { return s.id === songId; });
           var groupTitle = song ? song.title : 'Song';
           i++;
+          var _songBoxes = [];
           while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-song-id') === songId) {
-            slideCounter++;
-            rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, groupTitle, children[i], 'fa-music');
+            _songBoxes.push(children[i]);
             i++;
+          }
+          if (_songBoxes.length) {
+            rowsHtml += _lcdBuildItemGroupRow('song', groupTitle, _songBoxes.length);
+            rowsHtml += _lcdPartedRowsHtml(sIdx, slideCounter, groupTitle, _songBoxes, 'fa-music');
+            slideCounter += _songBoxes.length;
           }
           if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
           continue;
@@ -86417,10 +86670,15 @@ var WO = (function() {
           var infoEl = el.querySelector('.wo-liturgy-banner-info');
           var litTitle = litItem ? litItem.title : (infoEl ? infoEl.textContent.trim() : 'Liturgy');
           i++;
+          var _litBoxes = [];
           while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-liturgy-id') === liturgyId) {
-            slideCounter++;
-            rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, litTitle, children[i], 'fa-book-bible');
+            _litBoxes.push(children[i]);
             i++;
+          }
+          if (_litBoxes.length) {
+            rowsHtml += _lcdBuildItemGroupRow('liturgy', litTitle, _litBoxes.length);
+            rowsHtml += _lcdPartedRowsHtml(sIdx, slideCounter, litTitle, _litBoxes, 'fa-book-bible');
+            slideCounter += _litBoxes.length;
           }
           if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
           continue;
@@ -86441,13 +86699,9 @@ var WO = (function() {
             var _scrSub = el.getAttribute('data-sub-label') || '';
             var _scrBoxes = children[i].querySelectorAll('.wo-slide-box');
             rowsHtml += _lcdBuildScriptureGroupRow(sectionId, _scrSub, scriptTitle, _scrBoxes.length);
-            Array.prototype.forEach.call(
-              _scrBoxes,
-              function(sb) {
-                slideCounter++;
-                rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, scriptTitle, sb, 'fa-book-bible');
-              }
-            );
+            rowsHtml += _lcdPartedRowsHtml(sIdx, slideCounter, scriptTitle,
+              Array.prototype.slice.call(_scrBoxes), 'fa-book-bible');
+            slideCounter += _scrBoxes.length;
             i++;
             if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
             continue;
@@ -90575,6 +90829,36 @@ var WO = (function() {
     })();
   }
 
+  var _lcdSkipRevealUntil = 0;
+
+  // Hold the rail where it is across an edit made somewhere other than the
+  // projecting slide -- labelling a slide, say. CALL IT BEFORE THE CHANGE.
+  //
+  // Two things move the rail, and both had to be answered. Replacing the
+  // rail's markup clamps its scroller to the top; and the watcher below then
+  // reveals the SELECTED row, which is the slide on the screen. In a
+  // 110-slide service that threw the operator back to the start every time
+  // they named a part.
+  //
+  // Measured at 1158px, labelling slide 4.8: the scroller went 2072 -> 214 at
+  // about 250ms. Revealing the labelled row afterwards was tried first and
+  // does not work -- at 80ms the row is still in view, so the reveal is a
+  // no-op, and by the time it is not, the clamp has already happened. The
+  // position itself is what has to be put back, after each of the rebuilds
+  // one edit brings: the render, then the save's own 120ms refresh.
+  function _lcdRailHoldScroll() {
+    var rail = document.getElementById('lcdCompactRail');
+    if (!rail) return;
+    var sc = _scrollParentOf(rail);
+    if (!sc) return;
+    var top = sc.scrollTop;
+    if (!top) return;
+    _lcdSkipRevealUntil = Date.now() + 1200;
+    [0, 60, 150, 320, 700, 1100].forEach(function(ms) {
+      setTimeout(function() { if (Math.abs(sc.scrollTop - top) > 1) sc.scrollTop = top; }, ms);
+    });
+  }
+
   function _lcdWatchSelectedRow() {
     var rail = document.getElementById('lcdCompactRail');
     if (!rail || rail._lcdSelWatch) return;
@@ -90591,6 +90875,10 @@ var WO = (function() {
     new MutationObserver(function() {
       clearTimeout(pending);
       pending = setTimeout(function() {
+        // An edit made away from the projecting slide should leave the
+        // operator looking at what they just edited, not snap them back to
+        // the slide on the screen.
+        if (Date.now() < _lcdSkipRevealUntil) return;
         var row = rail.querySelector('.lcd-rail-slide-row.selected');
         if (row) _lcdRevealRow(row);
       }, 60);
@@ -90751,10 +91039,17 @@ var WO = (function() {
   function getSectionTypeClass(header) {
     if (!header) return '';
     var h = header.toLowerCase();
+    // Pre-chorus BEFORE chorus. "Pre-Chorus" contains "chorus", so with the
+    // chorus test first this chain could never reach the pre-chorus one, and
+    // .wo-slide-section-header.prechorus had never once been applied.
+    // The same chain, with the same ordering, is also written out in
+    // getSectionType (twice) and getSectionClass for the song preview and
+    // the Lyrics Editor; those are not in this change's path and are left as
+    // they are rather than touched blind.
+    if (h.indexOf('pre-chorus') >= 0 || h.indexOf('prechorus') >= 0 || h.indexOf('pre chorus') >= 0) return 'prechorus';
     if (h.indexOf('verse') >= 0) return 'verse';
     if (h.indexOf('chorus') >= 0) return 'chorus';
     if (h.indexOf('bridge') >= 0) return 'bridge';
-    if (h.indexOf('pre-chorus') >= 0 || h.indexOf('prechorus') >= 0) return 'prechorus';
     if (h.indexOf('ending') >= 0 || h.indexOf('outro') >= 0) return 'ending';
     return 'other';
   }
@@ -94684,6 +94979,8 @@ var WO = (function() {
     lcdToggleSectionCollapse: lcdToggleSectionCollapse,
     lcdDeleteSection: _lcdDeleteSection,
     lcdRenameSection: _lcdRenameSection,
+    lcdSetSlideHeader: lcdSetSlideHeader,
+    lcdClearSlideHeader: lcdClearSlideHeader,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -105886,6 +106183,146 @@ function filterLiturgyItems() {
   /* ---- Rail header row for a filled scripture reading --------------------
      A filled slot loses its placeholder, so without this the rail showed bare
      passage rows and the operator could not tell First Reading from Gospel. */
+  /* ---- Slide parts in the rail -----------------------------------------
+     A song's words mark a part once -- "[Verse 1]" -- and the slides that
+     finish the verse carry nothing, so the rail used to be one flat run of
+     rows with the song's title repeated on each. _lcdSlideParts carries the
+     label down (a reading of the slides, never a write) and the rail draws a
+     heading wherever a part begins. Liturgy has no markers of its own, so
+     the operator adds its headings by hand with the tag button.
+
+     None of this is ever projected: a heading lives in
+     .wo-slide-section-header, a SIBLING of .wo-slide-content, and
+     .wo-slide-content is all the projection renders.
+
+     Six hues, plus one for anything hand-named, and they are deliberately
+     far apart. The slide box's own palette paints verse, chorus and bridge
+     three shades of one green, which at rail size is a single colour. */
+  .lcd-rail-item-group {
+    display: flex; align-items: center; gap: 7px;
+    margin: 10px 0 2px; padding: 6px 9px;
+    border-radius: 8px 8px 4px 4px;
+    background: linear-gradient(135deg, rgba(193,153,63,0.18), rgba(193,153,63,0.08));
+    border: 1px solid rgba(193,153,63,0.42);
+    font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 700;
+    color: var(--lcd-ink, #1f2933);
+  }
+  .lcd-rail-item-group:first-child { margin-top: 0; }
+  .lcd-rail-item-group > i { font-size: 0.7rem; flex: 0 0 auto; color: var(--lcd-gold-600, #a67c20); }
+  .lcd-rail-item-group.liturgy > i { color: #0b7644; }
+  .lcd-rail-item-group-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lcd-rail-item-group-count {
+    flex: 0 0 auto; font-size: 0.64rem; font-weight: 700;
+    background: rgba(0,0,0,0.07); border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 999px; padding: 0 7px; line-height: 17px; color: var(--lcd-ink-soft, #4b5563);
+  }
+
+  .lcd-rail-part {
+    display: flex; align-items: center; gap: 7px;
+    margin: 8px 0 2px; padding: 4px 7px 4px 9px;
+    border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.10);
+    border-left: 4px solid #9ca3af;
+    background: #efe7d6; color: #3f3a2e;
+    font-family: 'Poppins', sans-serif; font-size: 0.66rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    cursor: pointer;
+  }
+  .lcd-rail-item-group + .lcd-rail-part { margin-top: 2px; }
+  .lcd-rail-part:hover { filter: brightness(0.97); }
+  .lcd-rail-part-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lcd-rail-part-count {
+    flex: 0 0 auto; font-size: 0.62rem; font-weight: 800;
+    background: rgba(255,255,255,0.72); border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 999px; padding: 0 6px; line-height: 15px;
+  }
+  .lcd-rail-part-btn {
+    flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
+    color: inherit; opacity: 0.35; padding: 2px 4px; border-radius: 4px;
+    font-size: 0.66rem; line-height: 1;
+    transition: opacity var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-rail-part:hover .lcd-rail-part-btn { opacity: 0.85; }
+  .lcd-rail-part-btn:hover { opacity: 1; background: rgba(0,0,0,0.08); }
+  .lcd-rail-part-btn.clear:hover { background: #fee2e2; color: #b91c1c; }
+  .lcd-rail-part-btn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; opacity: 1; }
+  /* A phone or tablet has no hover, so the two actions have to be there. */
+  @media (hover: none) { .lcd-rail-part-btn { opacity: 0.8; } }
+
+  /* The palette. One line per part so the pairing is readable at a glance;
+     the same colour paints the heading and the edge on its slides. */
+  .lcd-rail-part[data-part="verse"]     { background: #e0ecfd; border-left-color: #5b8dd9; color: #1b3f7a; }
+  .lcd-rail-part[data-part="chorus"]    { background: #fbeccd; border-left-color: #c1993f; color: #7d5410; }
+  .lcd-rail-part[data-part="prechorus"] { background: #ffe8d2; border-left-color: #f08a3c; color: #8a3c0c; }
+  .lcd-rail-part[data-part="bridge"]    { background: #ece2fb; border-left-color: #9573d6; color: #4c2a8f; }
+  .lcd-rail-part[data-part="intro"]     { background: #e5e9ef; border-left-color: #8b97a8; color: #31414f; }
+  .lcd-rail-part[data-part="ending"]    { background: #fde0e0; border-left-color: #dd7272; color: #8f1f2e; }
+  .lcd-rail-part[data-part="custom"]    { background: #d9f3e4; border-left-color: #3fa96d; color: #0b6137; }
+
+  /* The slides belonging to a part carry its colour as a thin edge, so a run
+     still reads as one block once its heading has scrolled out of sight.
+     A ::before bar rather than border-left or an inset shadow: the row's
+     border is already the selection ring and its box-shadow is already the
+     drag-drop indicator. */
+  .lcd-rail-slide-row[data-part] { position: relative; padding-left: 17px; }
+  .lcd-rail-slide-row[data-part]::before {
+    content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px;
+    width: 3px; border-radius: 2px; background: #c3b79c;
+  }
+  .lcd-rail-slide-row[data-part="verse"]::before     { background: #5b8dd9; }
+  .lcd-rail-slide-row[data-part="chorus"]::before    { background: #c1993f; }
+  .lcd-rail-slide-row[data-part="prechorus"]::before { background: #f08a3c; }
+  .lcd-rail-slide-row[data-part="bridge"]::before    { background: #9573d6; }
+  .lcd-rail-slide-row[data-part="intro"]::before     { background: #8b97a8; }
+  .lcd-rail-slide-row[data-part="ending"]::before    { background: #dd7272; }
+  .lcd-rail-slide-row[data-part="custom"]::before    { background: #3fa96d; }
+
+  /* With the item named on its heading row, the slide row shows the words.
+     Two lines of them -- one ellipsised line reached nothing distinctive on
+     a song whose every slide opens "I, the Lord of...". The ivory block
+     above sets this element to nowrap with no clamp, hence the two classes
+     here to beat it. */
+  .lcd-rail-item-title.lcd-rail-words {
+    white-space: normal;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 14.5px; font-weight: 600; line-height: 1.3;
+  }
+  .lcd-rail-blank { font-style: italic; opacity: 0.55; font-weight: 500; }
+  /* No icon to make room for, and "4.10" is as wide as the number ever gets.
+     Measured at 1158px, where the rail is 252px: this and the icon together
+     give the words about a quarter more room. */
+  .lcd-rail-slide-num.bare { min-width: 26px; }
+
+  /* Add or rename this slide's heading. Sits beside the delete button and
+     behaves like it: quiet until the row is hovered, always there on a touch
+     screen, which has no hover to reveal it with. */
+  .lcd-rail-slide-tag {
+    flex-shrink: 0; align-self: center; background: transparent; border: none;
+    color: #b9ad95; cursor: pointer; padding: 5px 6px; border-radius: 5px;
+    font-size: 0.72rem; opacity: 0.3;
+    transition: opacity var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-rail-slide-row:hover .lcd-rail-slide-tag { opacity: 1; }
+  .lcd-rail-slide-tag:hover { color: var(--lcd-gold-600, #a67c20); background: rgba(193,153,63,0.18); }
+  .lcd-rail-slide-tag:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; opacity: 1; }
+  @media (hover: none) { .lcd-rail-slide-tag { opacity: 0.7; } }
+
+  /* The same part, named in the Slide Editor's title bar. */
+  .lcd-slide-part-badge {
+    flex-shrink: 0; border-radius: 999px; padding: 2px 9px;
+    font-family: 'Poppins', sans-serif; font-size: 0.6rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    background: #efe7d6; color: #3f3a2e; border: 1px solid rgba(0,0,0,0.12);
+  }
+  .lcd-slide-part-badge[data-part="verse"]     { background: #e0ecfd; color: #1b3f7a; border-color: #5b8dd9; }
+  .lcd-slide-part-badge[data-part="chorus"]    { background: #fbeccd; color: #7d5410; border-color: #c1993f; }
+  .lcd-slide-part-badge[data-part="prechorus"] { background: #ffe8d2; color: #8a3c0c; border-color: #f08a3c; }
+  .lcd-slide-part-badge[data-part="bridge"]    { background: #ece2fb; color: #4c2a8f; border-color: #9573d6; }
+  .lcd-slide-part-badge[data-part="intro"]     { background: #e5e9ef; color: #31414f; border-color: #8b97a8; }
+  .lcd-slide-part-badge[data-part="ending"]    { background: #fde0e0; color: #8f1f2e; border-color: #dd7272; }
+  .lcd-slide-part-badge[data-part="custom"]    { background: #d9f3e4; color: #0b6137; border-color: #3fa96d; }
+
   .lcd-rail-scr-group {
     display: flex; align-items: center; gap: 7px;
     margin: 8px 0 3px; padding: 6px 9px;

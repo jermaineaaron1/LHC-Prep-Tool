@@ -1518,6 +1518,37 @@ const CASES = [
     s => s.replace('          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n        _sbEvMountOne(cc, temp);\r\n', '          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n')],
   ['songbook-earlier-versions-harness.js', 'an earlier service\'s medleys are lost',
     s => s.replace('m.songs.length > 1 && m.songs.indexOf(x.id) !== -1', 'false')],
+  // Slide parts in the LCD rail (2026-11-08): a song marks a part once and
+  // the rail carries it down the slides that finish it; a heading the
+  // operator adds is a SIBLING of .wo-slide-content, which is the only
+  // reason it never reaches the congregation's screen.
+  ['lcd-rail-parts-harness.js', 'every slide starts a part of its own, so nothing is carried down',
+    s => s.replace('if (own || !cur) { cur = { label: own, start: i, size: 0 }; runs.push(cur); }',
+                   '{ cur = { label: own, start: i, size: 0 }; runs.push(cur); }')],
+  ['lcd-rail-parts-harness.js', 'the heading goes INSIDE the slide content, and onto the wall',
+    s => s.replace('if (content && content.parentNode) content.parentNode.insertBefore(el, content);',
+                   'if (content) content.appendChild(el);')],
+  ['lcd-rail-parts-harness.js', 'an empty heading leaves an empty element behind',
+    s => s.replace('if (!t) { if (el) el.remove(); return; }', 'if (!t) return;')],
+  ['lcd-rail-parts-harness.js', 'a song goes back to one flat run of rows with no heading row',
+    s => s.replace('            rowsHtml += _lcdBuildItemGroupRow(\'song\', groupTitle, _songBoxes.length);\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the rows show the item title again instead of the words',
+    s => s.replace('var _words = lines.slice(0, 2).join(\'   /   \');', 'var _words = \'\';')],
+  ['lcd-rail-parts-harness.js', 'a liturgy heading is dropped on the next load',
+    s => s.replace('                if (slide.header) _lcdWriteSlideHeader(slideBox, slide.header);\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'Cancel on the heading prompt clears the heading instead',
+    s => s.replace('      if (v === null || v === undefined) return;   // Cancel, which is not \"clear\"', '')],
+  ['lcd-rail-parts-harness.js', 'pre-chorus is swallowed by chorus again',
+    s => s.replace('if (h.indexOf(\'pre-chorus\') >= 0 || h.indexOf(\'prechorus\') >= 0 || h.indexOf(\'pre chorus\') >= 0) return \'prechorus\';',
+                   'if (h.indexOf(\'zzz\') >= 0) return \'prechorus\';')],
+  ['lcd-rail-parts-harness.js', 'labelling a slide snaps the rail back to the projecting slide',
+    s => s.replace('      _lcdRailHoldScroll();\r\n      _lcdWriteSlideHeader(box, t);', '      _lcdWriteSlideHeader(box, t);')],
+  ['lcd-rail-parts-harness.js', 'the held position is put back once, so a later rebuild still moves it',
+    s => s.replace('[0, 60, 150, 320, 700, 1100].forEach', '[0].forEach')],
+  ['lcd-rail-parts-harness.js', 'the watcher is held off for one reveal instead of a window',
+    s => s.replace('        if (Date.now() < _lcdSkipRevealUntil) return;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the bridge loses the colour edge that ties its slides to its heading',
+    s => s.replace('  .lcd-rail-slide-row[data-part=\"bridge\"]::before    { background: #9573d6; }\r\n', '')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick
