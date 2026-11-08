@@ -1534,7 +1534,7 @@ the anon key -- verify as `postgres`, not as the app.
     or `{ id }` for a saved one. A read that lands after the window has
     closed does not reopen it. In the window a past service's liturgist
     sits beside its name and the line under it (date, day, kind, counts) is
-    10px larger and bold. `tools/builder-load-liturgy-harness.js` checks it.
+    5px larger and bold. `tools/builder-load-liturgy-harness.js` checks it.
     **Filed by year in the Liturgy Library** (the operator, 2026-11-08). A
     liturgy saved for an occasion and a year gets that year's folder under
     the occasion -- a `liturgy_occ_folders` row named "2026", the folders
