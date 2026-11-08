@@ -70,7 +70,7 @@ function check(label, ok, detail) {
 console.log('\nWhat was taken away');
 check('no notice under the song\'s title', !has(/_sbmTwiceRibbon/) && !has(/class="sbm-twice/) &&
   has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ '<\/div>';/));
-check('Copy an arrangement is still under More', has(/if \(song && order\) rows\.push\(\['fa-clone', 'Copy an arrangement/));
+check('Earlier versions (once Copy an arrangement) is still under More', has(/if \(song && order\) rows\.push\(\['fa-clock-rotate-left', 'Earlier versions/));
 check('no A- / 100% / A+: the toolbar is Share, Undo, (Redo,) Refresh',
   !has(/WO\.sbmScale\(/) && !has(/id="sbmPct"/) && !has(/function sbmScale\(/) && !has(/sbm-toolbar__(pct|rule)/) &&
   has(/onclick="WO\.sbRefresh\(\)"><i class="fa-solid fa-rotate"><\/i>Refresh<\/button><\/div>';/) &&

@@ -1503,6 +1503,19 @@ const CASES = [
     s => s.replace('    if (owner && m.shared === false) return !!(privOn && privOn[owner]);\r\n', '')],
   ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
     s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
+  // Earlier versions (2026-11-08): every take says which service it was
+  // made for, another service's marked; the read-only view paints the
+  // drawings of the version it shows, never the copy in front.
+  ['songbook-earlier-versions-harness.js', 'a take recorded in the songbook notes no service',
+    s => s.replace('      if (forOrder) ins.order_id = forOrder;\r\n      return sb.from(\'song_recordings\').insert(ins).select();', '      return sb.from(\'song_recordings\').insert(ins).select();')],
+  ['songbook-earlier-versions-harness.js', 'a cut forgets the service its recording was made for',
+    s => s.replace('var forOrder = (C.rec && C.rec.order_id) ? String(C.rec.order_id) : _sbRecOrderNow();', 'var forOrder = _sbRecOrderNow();')],
+  ['songbook-earlier-versions-harness.js', 'another service\'s take passes for this one\'s',
+    s => s.replace('if (hereId && o === String(hereId)) return', 'if (hereId) return')],
+  ['songbook-earlier-versions-harness.js', 'the read-only view paints the drawings of the copy in front',
+    s => s.replace('    if (card && card.__sbmSong) return card.__sbmSong;\r\n', '')],
+  ['songbook-earlier-versions-harness.js', 'an earlier service\'s medleys are lost',
+    s => s.replace('m.songs.length > 1 && m.songs.indexOf(x.id) !== -1', 'false')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick

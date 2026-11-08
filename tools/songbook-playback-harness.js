@@ -55,7 +55,9 @@ check('...on a phone\'s score lines, the mark and the count; the count filled on
 console.log('\nA take\'s timeline');
 check('each take in the list has one, as long as the take',
   has(/var len = \(au && au\.duration && isFinite\(au\.duration\)\) \? au\.duration : \(Number\(t\.duration_sec\) \|\| 0\);/) &&
-  has(/<input type="range" class="vl-pop-range" min="0" max="' \+ len\.toFixed\(2\) \+ '"/) && has(/'<\/div>' \+ seek \+ '<\/div>' \+/));
+  has(/<input type="range" class="vl-pop-range" min="0" max="' \+ len\.toFixed\(2\) \+ '"/) &&
+  // (Since 2026-11-08 the service a take was made for sits between its line and its timeline.)
+  has(/'<\/div>' \+(\r?\n\s*\(from && from\.text \? '<div class="vl-pop-from">' \+ esc\(from\.text\) \+ '<\/div>' : ''\) \+)? seek \+ '<\/div>' \+/));
 check('...dragged, the take playing moves there; let go on another, it starts there',
   has(/el\.addEventListener\('input', function\(e\) \{\r?\n\s*var r = rangeOf\(e\); if \(!r\) return;\r?\n\s*R\._seeking = true;/) &&
   has(/R\.play\(R\._list\.root, r\.getAttribute\('data-rec-id'\), r\.getAttribute\('data-rec-path'\), v\);/) &&
