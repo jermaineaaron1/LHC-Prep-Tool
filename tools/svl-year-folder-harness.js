@@ -109,8 +109,8 @@ function newState(extra) {
 (async () => {
   // ------------------------------------------------------------ 1. the card
   console.log('\n1. The load window: the line under a name, and the liturgist');
-  check('the date / day / kind line is 2px bigger and bold (it was 10px; on 2026-11-08 the operator asked for 5px less, then 3px less again)',
-    has(/\.svl-card__meta \{ margin-top: 6px; font-size: calc\(0\.74rem \+ 2px\); font-weight: 700;/));
+  check('the date / day / kind line is 2px bigger (it was 10px; on 2026-11-08 the operator asked for 5px less, then 3px less again), only its date bold',
+    has(/\.svl-card__meta \{ margin-top: 6px; font-size: calc\(0\.74rem \+ 2px\); font-weight: 400;/) && has(/\.svl-card__date \{ font-weight: 700;/));
   const card = fn('_svlCardHtml');
   check('the liturgist sits beside the order\'s name, not in that line',
     /\(x\.liturgist \? '<span class="svl-card__lit">/.test(card) && !/'Liturgist: ' \+ x\.liturgist/.test(card));
@@ -247,7 +247,7 @@ function newState(extra) {
   check('a year folder\'s card counts its liturgies beside its files', /var whole = _occSvlInYear\(occId, f\.name\)\.length;/.test(fn('renderOccFolderBar')) &&
     /\(whole \? ' · ' \+ whole \+ ' liturg' \+ \(whole === 1 \? 'y' : 'ies'\) : ''\)/.test(fn('renderOccFolderBar')));
   check('a liturgy opens to its outline, read only when opened', /sb\.from\('service_liturgies'\)\.select\('data'\)\.eq\('id', id\)/.test(fn('toggleOccSvl')) &&
-    /W\.svlOutline\(d\)/.test(fn('renderOccSvl')) && /onclick="LiturgyModule\.toggleOccSvl\(this\.dataset\.id\)"/.test(fn('renderOccSvl')));
+    /W\.svlOutlineHtml\(d, 'lit-svl-outline', 'LiturgyModule\.occSvlItem', 'data-id="' \+ escapeHtml\(r\.id\) \+ '"', ''\)/.test(fn('renderOccSvl')) && /onclick="LiturgyModule\.toggleOccSvl\(this\.dataset\.id\)"/.test(fn('renderOccSvl')));
   check('the pieces are reachable: the folder from the builder, the outline from the library',
     has(/    ensureOccYearFolder: ensureOccYearFolder,\r?\n    toggleOccSvl: toggleOccSvl,/) && has(/    svlOutline: _svlOutline, svlCounts: _svlCounts,/));
 

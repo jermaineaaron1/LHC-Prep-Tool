@@ -1659,6 +1659,14 @@ const CASES = [
     s => s.replace("    _occFoldersGone[folderId] = true;\r\n", '')],
   ['svl-year-folder-harness.js', 'removing one folder deletes every folder',
     s => s.replace(".delete().in('id', gone)", ".delete().neq('id', 'x')")],
+  // Reading a part's words in the load window (2026-11-08): one part open
+  // at a time, a reading's verse numbers raised, the words escaped.
+  ['svl-item-text-harness.js', 'a second part opens beside the first instead of in its place',
+    s => s.replace("    ol.querySelectorAll('.svl-tx').forEach(function(b) { b.hidden = true; b.innerHTML = ''; });\r\n", '')],
+  ['svl-item-text-harness.js', 'a reading\'s verse numbers are left as [10]',
+    s => s.replace("texts = _svlItemTexts(it); verses = it.itemType === 'scripture';", "texts = _svlItemTexts(it); verses = false;")],
+  ['svl-item-text-harness.js', 'a part\'s words go into the page unescaped',
+    s => s.replace(".join('') : _lbdEsc(ln.text);", ".join('') : ln.text;")],
   ['svl-year-folder-harness.js', 'a year folder lists every year\'s liturgies',
     s => s.replace("return f ? _occSvlSorted(_occSvlInYear(occId, f.name)) : [];", "return _occSvlSorted(_occSvlRows[occId]);")],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
