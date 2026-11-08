@@ -220,11 +220,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      section that already sings the song, or an open LCD schedule, refuses), each song's links hidden for this service or removed,
      **medleys** (gotchas 42-44; a standalone songbook has them too), and
      **versions** of a song -- a key, words and drawings a later service can
-     sing it with, listed as "Saved versions", and "Make this the song's main
-     version", which writes the service's way into the song library and
-     keeps what it replaced under "Earlier main versions", each restorable
+     sing it with, saved from the Versions sheet's "Save as a version", and
+     "Save as the main song", which writes the service's way into the song
+     library and keeps what it replaced as an earlier main song, restorable
      there or from the song's History in the song library -- and Share ›
-     This song, a link that opens the book at that song (gotcha 46).
+     This song, a link that opens the book at that song (gotchas 46, 72).
      Drawings are everyone's unless their drawer says otherwise; the
      **Drawings** tile (after Book Mode) lists every drawing kept on the
      song -- yours, everyone's, each group's and other people's private
@@ -283,12 +283,17 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
      its own, and **Own drawings** is in the Drawings window while the
-     copies share their drawings (gotcha 55). **Earlier versions** (a badge
-     under the song's title, and More; it was Copy an arrangement) opens how
-     the song was sung before -- this service's other copies, earlier
-     services with their drawings and recordings, saved versions, medleys --
-     each read-only (Open) or onto this copy (Use here); and every take says
-     which service it was made for, another service's marked (gotcha 72).
+     copies share their drawings (gotcha 55). **Versions** (the "Past
+     versions" badge under the song's title, and More; it was Earlier
+     versions and Versions of this song, two sheets) is one sheet: This
+     service with Save as a version / Save as the main song, then Past
+     versions newest first -- the main song, this service's other copies,
+     earlier services with their drawings and recordings, saved versions,
+     earlier main songs -- each a row to open read-only and a Use button,
+     then the medleys, with Save this medley. A song new to a service that
+     was sung before pulses its badge, and a finger shows where to tap
+     (once a device); every take says which service it was made for,
+     another service's marked (gotcha 72).
      **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
@@ -2404,8 +2409,50 @@ the anon key -- verify as `postgres`, not as the app.
     this service's). Tracks (`_sbmPaintPractice`) and a line's takes
     (`lhcVoiceRec.paintList`, through `R.fromLabel`) show it;
     `_sbRecFromNow` answers null while the songbook is shut.
-    **Earlier versions** (`sbmArrangements` / `_sbArrRender`; once Copy an
-    arrangement): the song's other copies in this service, its copies in
+    **One Versions sheet** (the operator, 2026-11-08: "make it more clearer
+    how we can save a version ... and how to load", "less words", "not too
+    many words and buttons"). `sbmVersions` / `_sbVerRender`; `sbmArrangements`
+    (once Copy an arrangement, then Earlier versions) opens the same sheet,
+    and `_sbArrRender` is gone. On top, **This service**: what it sings now
+    (key, version, drawings), "Changes here stay here unless you save them",
+    and two big buttons -- **Save as a version** (`sbVerSaveAsk`: one
+    `customPrompt` for the name, the service's title offered, then
+    `_sbVerSaveAs`) and **Save as the main song** (`sbVerMakeMain`), which
+    reads "Same as the main song" instead when the service's way already is
+    (`_sbVerMainOf` against the library song); Update it appears only when
+    the copy has drifted from the version it chose. Then **Past versions**,
+    one list (`_sbVerOrder`, pure): the main song first, this service's
+    other copies, then everything else newest first -- earlier services,
+    saved versions, earlier main songs (kind `kept`, the oldest called
+    Original). A row opens it read-only (`sbEvOpen`); its one button is
+    Use (`sbArrCopy`: `main` -> `sbVerUse('')`, `version`/`kept` ->
+    `sbVerUse(vid)`); the one being sung says Singing now. Rename and
+    Delete (a version) and Make it the main song again (a kept one) are in
+    the read-only view, not the list (`sbVerRename` is `sbVerRenameAsk`, a
+    prompt). Then **Medleys**: Save this medley (`sbVerSaveMedley`,
+    `_mdsKeep`) when the song is in one, and the medleys it was sung in.
+    A saved medley keeps each song's VERSION as well as its key
+    (`_mdsRowOf` writes `versionId`); `mdsUse` collects them and Save medley
+    puts each song on its version (`_mdsApplyVersions`) before its key.
+    More has one row for all of it ("Versions: use a past version, or save
+    this one").
+    **Recall hints.** A copy is NEW to its service (`_sbEvFresh`) while it
+    is on no version, in the song's own key and has no words of its own --
+    words the same as `masterLyrics` are none, and formatting alone
+    (`richLyrics`) is not a way of its own, since the Songbook writes it by
+    itself. A new copy of a song with past versions pulses its badge
+    (`is-pulsing`, `data-ev-fresh`, set by `_sbEvBadge` and kept by
+    `_sbEvCount`), and the first time on a device (`_SBM_COACH_ONCE.recall`)
+    a finger taps the badge with "Sung before -- tap to use a past version"
+    (`_sbmCoachRecall`, asked again every 1.5s for a while by
+    `_sbmCoachRecallSoon` while something else is up). The first time the
+    sheet opens with past rows (`recallPick`), a finger points at the newest
+    one's Use: "Newest first. Tap Use to sing it that way"
+    (`_sbmCoachRecallPick`). Both are drawn by `_sbmCoachTapHtml` /
+    `_sbmCoachTapPlace`, let every tap through, and go by themselves; More >
+    Show the tips again plays the badge hint after the drawing hint
+    (`_sbmReplayRecall`).
+    What the sheet reads: the song's other copies in this service, its copies in
     earlier services (`_sbArrEarlier`, standalone songbooks left out as
     before, each row with its `orderId`, `entryId` and the medleys of that
     order containing it), its saved versions (`_sbVers`, not the kept main
@@ -2414,7 +2461,7 @@ the anon key -- verify as `postgres`, not as the app.
     (`_sbEvMedleys`), and saved medleys holding it (`_sbEvSavedMedleys`).
     Each card counts the drawings on its version (`_sbmMarksOf`, so the
     reader's layers apply) and, for an earlier service, the recordings made
-    for it; each has **Open** and **Use here**. Use here is `sbArrCopy` --
+    for it; each row opens (**Open**) and has **Use**. Use is `sbArrCopy` --
     key, words, version, page marks, one step with Undo -- or, for a saved
     version, `sbVerUse`; for a medley, `sbEvUseMedley` opens the medley
     editor and runs its own Use (`mdsUse`) on a row made from the medley, so
@@ -2440,7 +2487,8 @@ the anon key -- verify as `postgres`, not as the app.
     songbook only, like More's entry): earlier services (never this one or a
     songbook) plus saved versions, counted once a song every five minutes
     (`_sbEvCount`) and drawn into the badge in place, hidden at nought.
-    `tools/songbook-earlier-versions-harness.js` checks it.
+    `tools/songbook-earlier-versions-harness.js` checks it, the Versions
+    sheet and the recall hints too.
 
 73. **A slide's PART is carried down, never written -- and a heading is
     never projected.** From the operator (2026-11-08), on a marked-up

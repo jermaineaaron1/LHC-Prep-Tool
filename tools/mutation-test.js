@@ -1518,6 +1518,25 @@ const CASES = [
     s => s.replace('          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n        _sbEvMountOne(cc, temp);\r\n', '          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n')],
   ['songbook-earlier-versions-harness.js', 'an earlier service\'s medleys are lost',
     s => s.replace('m.songs.length > 1 && m.songs.indexOf(x.id) !== -1', 'false')],
+  // One Versions sheet (2026-11-08): past versions newest first, a song new
+  // to a service that was sung before pulses its badge and is pointed out,
+  // and a medley kept keeps each song's version.
+  ['songbook-earlier-versions-harness.js', 'past versions are listed oldest first',
+    s => s.replace('return tb.localeCompare(ta) || (a.k - b.k);', 'return ta.localeCompare(tb) || (a.k - b.k);')],
+  ['songbook-earlier-versions-harness.js', 'the badge of a song sung before no longer pulses',
+    s => s.replace("el.classList.toggle('is-pulsing', !!n && el.getAttribute('data-ev-fresh') === '1');", "el.classList.toggle('is-pulsing', false);")],
+  ['songbook-earlier-versions-harness.js', 'a copy with the main song\'s words is taken for one with words of its own',
+    s => s.replace('return !own || own === t(song.masterLyrics);', 'return !own;')],
+  ['songbook-earlier-versions-harness.js', 'a song sung before is never pointed out',
+    s => s.replace('if (n && s1 && _sbBaseSongId(s1) === base && _sbEvFresh(s1)) _sbmCoachRecallSoon(s1);', '')],
+  ['songbook-earlier-versions-harness.js', 'Use on the main song does nothing',
+    s => s.replace("    if (r.kind === 'main') { _sbmCloseSheet(); sbVerUse(''); return; }\r\n", '')],
+  ['songbook-earlier-versions-harness.js', 'a saved medley forgets the version each song was sung on',
+    s => s.replace("transposeSteps: parseInt(stepsOf ? stepsOf(e) : e.transposeSteps, 10) || 0, versionId: e.versionId || '' };", "transposeSteps: parseInt(stepsOf ? stepsOf(e) : e.transposeSteps, 10) || 0 };")],
+  ['songbook-earlier-versions-harness.js', 'a medley used again comes back on Standard',
+    s => s.replace('    if (ed.vers && ed.useKeys) _mdsApplyVersions(ed.vers);\r\n', '')],
+  ['songbook-coach-harness.js', 'Show the tips again leaves out the past-versions hint',
+    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); _sbmReplayRecall(); return; }', 'if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); return; }')],
   // Slide parts in the LCD rail (2026-11-08): a song marks a part once and
   // the rail carries it down the slides that finish it; a heading the
   // operator adds is a SIBLING of .wo-slide-content, which is the only
@@ -1637,9 +1656,9 @@ const CASES = [
     s => s.replace('if (song && song.id !== _sbmGuideSong) { _sbmGuideSong = song.id; _sbmGuideFresh = Date.now(); }', '')],
   // The tips again (2026-11-08): replayed from More, the hint after the card.
   ['songbook-coach-harness.js', 'Show the tips again plays the card and stops',
-    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); return; }', 'if (_sbmCoachDrawAt()) { return; }')],
+    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); _sbmReplayRecall(); return; }', 'if (_sbmCoachDrawAt()) { return; }')],
   ['songbook-coach-harness.js', 'the drawing hint shows again every time the app is opened',
-    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen_v2' };", 'var _SBM_COACH_ONCE = {};')],
+    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen_v2', recall: 'lhc_sbm_recall_hint_v1', recallPick: 'lhc_sbm_recall_pick_v1' };", "var _SBM_COACH_ONCE = { recall: 'lhc_sbm_recall_hint_v1', recallPick: 'lhc_sbm_recall_pick_v1' };")],
   ['songbook-coach-harness.js', 'the drawing hint waits two minutes again',
     s => s.replace('var _SBM_DRAW_HINT_AFTER = 10000;', 'var _SBM_DRAW_HINT_AFTER = 120000;')],
   ['songbook-coach-harness.js', 'the drawing hint shows with the words out of sight',

@@ -186,7 +186,7 @@ check('...the Drawings window says a copy shares its drawings, and offers Own dr
   has(/var same = _sbmOtherCopies\(song\)\.filter\(function\(x\) \{ return \(x\.versionId \|\| ''\) === \(song\.versionId \|\| ''\); \}\);/) &&
   has(/onclick="WO\.sbmCloseSheet\(\);WO\.sbmOwnVersion\(\)"/) && has(/html \+= _sbmSharedDrawingsNote\(song\) \+ _sbmWhoNote\(\);/));
 // (2026-11-08: Copy an arrangement became Earlier versions: tools/songbook-earlier-versions-harness.js.)
-check('Earlier versions is in More for any song of a service', has(/if \(song && order\) rows\.push\(\['fa-clock-rotate-left', 'Earlier versions: how this service or an earlier one sang it/));
+check('Versions (once Earlier versions, once Copy an arrangement) is in More for any song of a service', has(/if \(song && \(order \|\| _sbVerOk === true\)\) rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/));
 check('copying is one step with Undo, saved like a version chosen',
   has(/var before = _sbArrSnap\(song\);\r?\n\s*_sbArrApply\(song, r\.src\);\r?\n\s*_sbVerSaved\(\);/) &&
   has(/_sbArrRestore\(song, before\);\r?\n\s*_sbVerSaved\(\);/));

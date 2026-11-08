@@ -122,7 +122,7 @@ check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\
 // 2026-11-08: every device given both once more (fresh keys), and More >
 // Show the tips again plays them whenever asked.
 check('fresh keys, so every device sees the card and the drawing hint once more', has(/_sbmSeenHere\('lhc_sbm_intro_seen_v2'\)/) &&
-  has(/var _SBM_COACH_ONCE = \{ draw: 'lhc_sbm_draw_hint_seen_v2' \};/) && !has(/'lhc_sbm_intro_seen'\)/) && !has(/draw: 'lhc_sbm_draw_hint_seen' \}/));
+  has(/var _SBM_COACH_ONCE = \{ draw: 'lhc_sbm_draw_hint_seen_v2',/) && !has(/'lhc_sbm_intro_seen'\)/) && !has(/draw: 'lhc_sbm_draw_hint_seen' \}/));
 {
   const rp = fn('sbmReplayTips');
   check('Show the tips again is in More whenever a song is in front', has(/if \(song\) rows\.push\(\['fa-lightbulb', 'Show the tips again: where the words are, and how to draw', 'WO\.sbmCloseSheet\(\);WO\.sbmReplayTips\(\)'/) &&
@@ -131,14 +131,14 @@ check('fresh keys, so every device sees the card and the drawing hint once more'
     /root\.scrollTop = 0;/.test(rp) && /\r?\n\s*_sbmIntroShow\(\);\r?\n\s*\}\r?$/.test(rp) && /if \(_sbmDraw\) sbmDraw\(false\);/.test(rp));
   check('...then, once the card has gone, brings the words up and plays the drawing hint on them',
     /var then = _sbmReplayThen; _sbmReplayThen = null;\r?\n\s*if \(then\) then\(\);/.test(fn('_sbmIntroEnd')) &&
-    /_sbmGuideGo\(\);/.test(rp) && /if \(_sbmCoachDrawAt\(\)\) \{ _sbmCoachDraw\(true\); return; \}/.test(rp) && /if \(\+\+tries === 6\) _sbmGuideGo\(true\);\r?\n\s*if \(tries < 12\) setTimeout\(hint, 250\);/.test(rp) && /var smooth = !instant && /.test(fn('_sbmGuideGo')));
+    /_sbmGuideGo\(\);/.test(rp) && /if \(_sbmCoachDrawAt\(\)\) \{ _sbmCoachDraw\(true\); _sbmReplayRecall\(\); return; \}/.test(rp) && /if \(\+\+tries === 6\) _sbmGuideGo\(true\);\r?\n\s*if \(tries < 12\) setTimeout\(hint, 250\);/.test(rp) && /var smooth = !instant && /.test(fn('_sbmGuideGo')));
   check('...the drawing hint played on request even where it has been seen', /if \(\(!force && !_sbmCoachDue\('draw'\)\) \|\| !_sbmCoachDrawAt\(\)\) return;/.test(fn('_sbmCoachDraw')));
   let R = null;
   try {
     extractFn('sbmReplayTips');
-    R = env => new Function('document', 'setTimeout', '_sbmBookOpen', '_sbmSong', '_sbmCloseSheet', '_sbmCoachClose', '_sbmDraw', 'sbmDraw', '_sbmGuideGo', '_sbmCoachDrawAt', '_sbmCoachDraw', '_sbmIntroShow', '_sbmMarksOk', 'clearTimeout', '_sbmIntroT', '_sbmGuideCheck',
+    R = env => new Function('document', 'setTimeout', '_sbmBookOpen', '_sbmSong', '_sbmCloseSheet', '_sbmCoachClose', '_sbmDraw', 'sbmDraw', '_sbmGuideGo', '_sbmCoachDrawAt', '_sbmCoachDraw', '_sbmIntroShow', '_sbmMarksOk', 'clearTimeout', '_sbmIntroT', '_sbmGuideCheck', '_sbmReplayRecall',
       extractVar('_sbmReplayThen') + '\n' + extractFn('sbmReplayTips') + '\n' + extractFn('_sbmIntroEnd') + '\nreturn { replay: sbmReplayTips, end: _sbmIntroEnd };')(
-      env.document, env.setTimeout, () => true, () => ({ id: 's1' }), () => {}, () => {}, null, () => {}, env.go, env.at, env.draw, env.show, true, () => {}, 0, () => {});
+      env.document, env.setTimeout, () => true, () => ({ id: 's1' }), () => {}, () => {}, null, () => {}, env.go, env.at, env.draw, env.show, true, () => {}, 0, () => {}, () => {});
   } catch (e) { R = null; }
   if (!R) check('the replay runs', false);
   else {
