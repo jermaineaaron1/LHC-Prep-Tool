@@ -1,8 +1,116 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-11-05 by Claude Code_
+_Last updated: 2026-11-08 by Claude Code_
 
 ---
+
+## 2026-11-08 — LCD rail: the slides are chunked by part, and any slide can be given a heading (branch `feat/lcd-rail-parts`)
+
+From the operator, on a marked-up screenshot of the rail: the eighteen slides
+of one song were a flat run of rows with the song's title on every one and the
+first line of lyric underneath, with nothing to say where Verse 1 ended and
+the Chorus began. They had written "Verse 1" and "Chorus" on it by hand, boxed
+the rows each covered, and asked for three things — chunks rather than one
+list, coloured badges for a song's parts, and headings they could add
+themselves to liturgy, which has no markers of its own.
+
+### What the rail does now
+
+A heading row per song and per liturgy item (scripture and presentations
+already had one), and under it a coloured heading wherever a part begins —
+with the part's colour repeated as a thin edge on every slide that belongs to
+it, so a run still reads as one block once its heading has scrolled away.
+
+The parts of a song come from its own `[Verse 1]` markers. Those were already
+in the data — the operator's own song, "Here I am Lord", carries six of them
+— and nothing had ever shown them.
+
+Liturgy gets its headings by hand: a tag button on every row, a pen and a
+cross on every heading. The same button works on a song slide, which is how a
+verse gets split ("Last Time" over its final three slides).
+
+### Three facts this rests on, two of them load-bearing
+
+- **The part is CARRIED DOWN, never written.** `parseLyricsIntoSlides` hangs
+  "[Verse 1]" on the slide the marker opened and leaves the slides that finish
+  the verse with nothing. `_lcdSlideParts` (pure) fills the run in. Writing
+  the label onto each slide instead would have been the obvious fix and is the
+  wrong one, because of the next point. Verified against the live order: after
+  labelling, the save payload still carried headers on six of eighteen song
+  slides, exactly the six the markers put there.
+- **A heading is never projected, and that is what makes adding one safe at
+  all.** `selectSlideBox` projects the text of `.wo-slide-content`; a heading
+  lives in `.wo-slide-section-header`, that element's SIBLING.
+  `_lcdWriteSlideHeader` inserts before, never inside. Measured on the live
+  order with a heading added: the projected text did not contain it.
+- **`slides[].header` already round-tripped for songs, and half of it already
+  did for liturgy.** `collectOrderItems` saved it for both; only the liturgy
+  LOAD never put it back, so a heading added to liturgy lived until the next
+  load and then quietly vanished. One line. No new column, no migration.
+
+### Two bugs found on the way
+
+- **`getSectionTypeClass` could never return `prechorus`.** It asked about
+  "chorus" first, and "pre-chorus" contains "chorus", so that class had never
+  once been applied. The same mis-ordered chain is written out three more
+  times (`getSectionType` twice, `getSectionClass`) for the song preview and
+  the Lyrics Editor; those are **not** fixed — they are outside this path and
+  touching three more views for a colour was not worth the blast radius.
+- **The rail does not hold its place.** Replacing its markup clamps its
+  scroller to the top, and `_lcdWatchSelectedRow` then reveals the SELECTED
+  row, which is the slide on the screen. Measured at 1158px: labelling slide
+  4.8 sent the rail from 2072 to 214, twice over. In a 110-slide service that
+  would throw the operator back to the start every time they named a part.
+  `_lcdRailHoldScroll()` is called BEFORE the change (the only moment the
+  position is right) and puts it back after each of the rebuilds one edit
+  brings — the render, then the save's own 120ms refresh.
+
+  Two cuts of this were tried and measured before the third worked. Revealing
+  the labelled row after the rebuild: at 80ms the row is still in view, so the
+  reveal is a no-op, and by the time it is not, the clamp has happened. Then a
+  one-shot "skip the next reveal" flag: spent on the first rebuild, and the
+  second snapped the rail back anyway. Both are written up in the source, so
+  the next person does not try them again.
+
+### What the row shows now, and what that cost
+
+With the item named on its heading row, a slide row shows the WORDS — two
+lines of them — instead of the item title repeated down the list, and drops
+the per-row icon the heading row already carries.
+
+Measured at the operator's own 1158px, where the rail column is 252px: the
+words get 111px, about twenty characters a line. That is tight, and it is the
+width the column has; dropping the icon and the width kept for a number never
+wider than "4.10" bought six of those pixels back. At 1536px it is
+comfortable. Nothing overflows the rail at either width (checked by
+measurement, not by eye).
+
+### How this was verified
+
+The same read-only recipe as the last LCD change, with one addition. The
+server (`roserver.js`, in the session scratchpad) now also has:
+
+- **`/frame?w=&h=`** — the app in a same-origin iframe at a chosen size,
+  because `resize_window` is a no-op on a maximised Chrome window. Real
+  viewport, real media queries, and measurable from the parent.
+- **`?injecthdr=<sourceId>:<slideIdx>:<text>`** — rewrites ONE `order_items`
+  row on the way IN, so a restore path can be proved end to end **with no
+  write at all**. That is how the liturgy heading was shown to come back on
+  load: the app read an order whose `slides[1].header` was set, and drew the
+  heading row with its three slides under it.
+
+Writes stayed refused throughout, and that was checked by side effect rather
+than by trusting the guard: after everything above, a direct read of the
+production row showed `slides[1].header` still `""`. The only console errors
+in the whole session were the guard's own "The phone view only reads".
+
+Also green: `python tools/check-inline-scripts.py --check Index.html`,
+`npm run check` (425 caught, 0 missed, 0 stale — 11 of those cases are new
+and each was shown to fail on a broken copy), and the new harness against
+pre-change source with `--expect-broken` (4 passed, 33 failed).
+
+---
+
 
 ## 2026-11-05 — LCD Projection: the console stops rearranging itself, and the projection becomes the main view (branch `feature/lcd-projection-stage`)
 
