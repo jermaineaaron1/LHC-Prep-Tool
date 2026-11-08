@@ -7833,6 +7833,24 @@
                     <div class="lcd-slide-nav">
                       <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
                       <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
+                      <!-- All Slides, asked for on the console itself
+                           (2026-11-09): it was reachable only from the Slide
+                           Editor's own header and from a section's "..."
+                           menu, both of which you have to be looking at
+                           already. Same handler as the other two, so there is
+                           one way in and three doors to it.
+
+                           HERE and not in the controls row above, which was
+                           the first cut: measured at 1536 that row is one
+                           line of 44px with 490 of its 517px already spent,
+                           and a seventh labelled button made it two lines --
+                           44px taken straight out of a 291px projection, on
+                           the panel that was made the main view two changes
+                           ago. This row has the width, it is under the
+                           projection where the operator is looking, and
+                           "+ Add Slide" beside it is the same kind of
+                           action. -->
+                      <button class="lcd-slide-nav-btn lcd-allslides-btn" id="lcdAllSlidesToolBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
                       <button class="lcd-slide-nav-btn wide" onclick="WO.lcdAddSlideAfterCurrent()" title="Add a slide to this song or liturgy item"><i class="fa-solid fa-plus"></i> Add Slide</button>
                     </div>
                     <div class="lcd-program-status" id="lcdProjectorStatus"><i class="fa-solid fa-display"></i> <span id="lcdProjectorStatusText">No projector window</span></div>
@@ -104709,6 +104727,18 @@ function filterLiturgyItems() {
   /* Unify the mismatched gradient buttons into one cohesive glass set in the LCD toolbar */
   .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: var(--lcd-navy-700); color: var(--lcd-ivory-200); border: 1px solid var(--lcd-navy-line); padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: border-color var(--lcd-motion-fast) ease, color var(--lcd-motion-fast) ease; }
   .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  /* All Slides: blue, as asked, and a DEEPER flat blue than Project's
+     bright gradient. Project is the one control on this panel that puts
+     something in front of the congregation and it should not have a twin;
+     quieter is also what a tool should look like beside a live action.
+     Slightly tighter than its neighbours so the row still holds four
+     controls at the operator's 1158px, where this column is 355px. */
+  .lcd-slide-nav-btn.lcd-allslides-btn {
+    background: #1d4ed8; border-color: #1d4ed8; color: #fff;
+    padding: 0 11px; font-size: 0.74rem; min-width: 0;
+  }
+  .lcd-slide-nav-btn.lcd-allslides-btn:hover { background: #1e3a8a; border-color: #1e3a8a; }
+  .lcd-slide-nav-btn.lcd-allslides-btn:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
   .lcd-controls-row .wo-barrier-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
   .lcd-controls-row .wo-blank-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
   .lcd-controls-row .wo-live-present-btn { padding: 0 var(--lcd-space-5); height: var(--lcd-btn-h-primary); border-radius: var(--lcd-radius-md); font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow); }
@@ -106550,6 +106580,79 @@ function filterLiturgyItems() {
   .lcd-slide-part-badge[data-part="intro"]     { background: #e5e9ef; color: #31414f; border-color: #8b97a8; }
   .lcd-slide-part-badge[data-part="ending"]    { background: #fde0e0; color: #8f1f2e; border-color: #dd7272; }
   .lcd-slide-part-badge[data-part="custom"]    { background: #d9f3e4; color: #0b6137; border-color: #3fa96d; }
+
+  /* ---- The rail's title rows, in black --------------------------------
+     From the operator (2026-11-09), marked on a screenshot: the rows that
+     carry a TITLE -- the section, and the song, liturgy, reading or
+     presentation inside it -- read as black boxes with white text. The eye
+     then lands on the shape of the service first, and the slides are the
+     quiet thing between the bands.
+
+     The VERSE / CHORUS badges are deliberately NOT in this: they are the one
+     thing on this rail that is colour-coded on purpose, and the operator
+     confirmed they stay. The section band is the darker of the two so the
+     hierarchy still reads at a glance.
+
+     Scoped by #lcdCompactRail, an id, so these win over the ivory pass above
+     and over the later blocks without depending on source order -- every
+     one of these selectors is set in at least one other place. */
+  #lcdCompactRail .lcd-rail-section-header {
+    background: #13161b;
+    border-bottom-color: rgba(255,255,255,0.12);
+    color: #fff;
+  }
+  #lcdCompactRail .lcd-rail-section-title { color: #fff; }
+  #lcdCompactRail .lcd-rail-section-count {
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(217,180,106,0.5);
+    color: #d9b46a;
+  }
+  #lcdCompactRail .lcd-rail-collapse { color: rgba(255,255,255,0.68); }
+  #lcdCompactRail .lcd-rail-collapse:hover { color: #d9b46a; background: rgba(255,255,255,0.10); }
+  #lcdCompactRail .lcd-rail-menu-btn {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.22);
+    color: rgba(255,255,255,0.8);
+  }
+  #lcdCompactRail .lcd-rail-menu-btn:hover {
+    background: rgba(255,255,255,0.16);
+    border-color: #d9b46a;
+    color: #fff;
+  }
+
+  /* The item inside the section: a shade lighter than its section band. */
+  #lcdCompactRail .lcd-rail-item-group,
+  #lcdCompactRail .lcd-rail-scr-group,
+  #lcdCompactRail .lcd-rail-ppt-group {
+    background: #1b1f26;
+    border: 1px solid rgba(255,255,255,0.13);
+    color: #f6f3ec;
+  }
+  /* The icon keeps saying which kind of thing this is, brightened for black. */
+  #lcdCompactRail .lcd-rail-item-group > i { color: #d9b46a; }
+  #lcdCompactRail .lcd-rail-item-group.liturgy > i,
+  #lcdCompactRail .lcd-rail-scr-group > i { color: #4ade80; }
+  #lcdCompactRail .lcd-rail-ppt-group > i { color: #fb923c; }
+  #lcdCompactRail .lcd-rail-scr-group-name,
+  #lcdCompactRail .lcd-rail-ppt-group-name { color: #f6f3ec; }
+  #lcdCompactRail .lcd-rail-scr-group-ref { color: rgba(246,243,236,0.72); }
+  #lcdCompactRail .lcd-rail-item-group-count,
+  #lcdCompactRail .lcd-rail-scr-group-count,
+  #lcdCompactRail .lcd-rail-ppt-group-count {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.22);
+    color: #f6f3ec;
+  }
+  #lcdCompactRail .lcd-rail-scr-group-del,
+  #lcdCompactRail .lcd-rail-ppt-group-del {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.22);
+    color: rgba(255,255,255,0.75);
+  }
+  #lcdCompactRail .lcd-rail-scr-group-del:hover,
+  #lcdCompactRail .lcd-rail-ppt-group-del:hover {
+    background: #7f1d1d; border-color: #b91c1c; color: #fff;
+  }
 
   .lcd-rail-scr-group {
     display: flex; align-items: center; gap: 7px;

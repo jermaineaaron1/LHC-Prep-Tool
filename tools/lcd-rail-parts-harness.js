@@ -279,6 +279,60 @@ check('the tag and the heading buttons are there on a touch screen, which has no
   has(/@media \(hover: none\) \{ \.lcd-rail-slide-tag \{ opacity: 0\.7; \} \}/) &&
   has(/@media \(hover: none\) \{ \.lcd-rail-part-btn \{ opacity: 0\.8; \} \}/));
 
+// ---------------------------------------------------------------------------
+// The title rows in black (2026-11-09, on a marked-up screenshot)
+// ---------------------------------------------------------------------------
+console.log('\nThe rows that carry a title are black; the part badges are not');
+
+// Scoped by the rail's id, because every one of these is also set by a
+// class-only rule somewhere else in the sheet and source order would decide it.
+['lcd-rail-section-header', 'lcd-rail-item-group', 'lcd-rail-scr-group', 'lcd-rail-ppt-group']
+  .forEach(c => {
+    check('  .' + c + ' is black, and wins without depending on source order',
+      has(new RegExp('#lcdCompactRail[^{]*\\.' + c + '[^{]*\\{[^}]*background: #(13161b|1b1f26)')),
+      'no #lcdCompactRail-scoped background for .' + c);
+  });
+check('the section band is the darker of the two, so the hierarchy still reads',
+  has(/#lcdCompactRail \.lcd-rail-section-header \{[^}]*background: #13161b/) &&
+  has(/background: #1b1f26/));
+check('white text on it, and the title too',
+  has(/#lcdCompactRail \.lcd-rail-section-header \{[^}]*color: #fff/) &&
+  has(/#lcdCompactRail \.lcd-rail-section-title \{ color: #fff; \}/));
+check('the count, the chevron and the "..." are legible on black',
+  has(/#lcdCompactRail \.lcd-rail-section-count \{[^}]*color: #d9b46a/) &&
+  has(/#lcdCompactRail \.lcd-rail-collapse \{ color: rgba\(255,255,255/) &&
+  has(/#lcdCompactRail \.lcd-rail-menu-btn \{[^}]*color: rgba\(255,255,255/));
+check('each kind keeps the icon that says what it is',
+  has(/#lcdCompactRail \.lcd-rail-item-group > i \{ color: #d9b46a; \}/) &&
+  has(/#lcdCompactRail \.lcd-rail-item-group\.liturgy > i,[^]*?color: #4ade80;/) &&
+  has(/#lcdCompactRail \.lcd-rail-ppt-group > i \{ color: #fb923c; \}/));
+// The point of the whole exercise one change ago. The operator was asked and
+// chose to keep these coloured.
+check('the VERSE / CHORUS badges are NOT dragged into the black',
+  !has(/#lcdCompactRail[^{]*\.lcd-rail-part[^-][^{]*\{[^}]*background: #1[3b]/) &&
+  has(/\.lcd-rail-part\[data-part="verse"\][^\n]*background: #e0ecfd/));
+
+// ---------------------------------------------------------------------------
+// All Slides on the console itself
+// ---------------------------------------------------------------------------
+console.log('\nAll Slides is reachable from the console, without costing the projection');
+check('the button exists and uses the handler the other two doors use',
+  has(/id="lcdAllSlidesToolBtn" onclick="WO\.lcdOpenSectionAllSlides\(\)"/));
+// Measured at 1536: the controls row is one line of 44px with 490 of its
+// 517px already spent, so a seventh labelled button there took 44px out of a
+// 291px projection -- the panel made the main view two changes ago.
+check('...and it is NOT in the controls row, which has no width to give',
+  !has(/lcd-controls-row[^]{0,2000}id="lcdAllSlidesToolBtn"/) &&
+  has(/<div class="lcd-slide-nav">[^]*?id="lcdAllSlidesToolBtn"/));
+check('it is blue, as asked',
+  has(/\.lcd-slide-nav-btn\.lcd-allslides-btn \{[^}]*background: #1d4ed8/));
+check('...a different blue from Project, which is the one button that goes live',
+  has(/\.wo-live-present-btn \{ background: linear-gradient\(135deg, #0066ff/) &&
+  !has(/\.lcd-allslides-btn \{[^}]*#0066ff/));
+check('Add Slide still holds the right-hand end of that row',
+  has(/\.lcd-slide-nav-btn\.wide \{ margin-left: auto; \}/) &&
+  /chevron-right[^]*?lcdAllSlidesToolBtn[^]*?lcd-slide-nav-btn wide/.test(SRC));
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {
   if (failed > 0) { console.log('(--expect-broken: failures were expected, and there were some)'); process.exit(0); }

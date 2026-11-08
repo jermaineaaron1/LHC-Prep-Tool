@@ -1,8 +1,82 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-11-08 by Claude Code_
+_Last updated: 2026-11-09 by Claude Code_
 
 ---
+
+## 2026-11-09 — LCD rail: the title rows in black, and All Slides on the console (branch `feat/lcd-rail-ui`)
+
+Two changes marked on screenshots, a day after the rail was chunked by part.
+
+### The rows that carry a title are black
+
+The section band and the song / liturgy / reading / presentation inside it.
+The eye lands on the shape of the service first and the slides are the quiet
+thing between the bands. Contrast measured on the live page: 18.1:1 on the
+section band, 14.9:1 on the item band, 9.2:1 for the gold count badge — all
+past AAA.
+
+**The VERSE / CHORUS badges are deliberately not in it.** The circles on the
+screenshot covered a part badge in one place and clearly excluded one in
+another, and the two readings lead to different work — black everywhere would
+have undone the colour-coding shipped the day before — so the operator was
+asked and chose "section + item names". Worth repeating the rule: ask when the
+readings diverge, decide when they do not.
+
+All of it is scoped by `#lcdCompactRail`, an id. Every one of those selectors
+is also set by a class-only rule elsewhere in the sheet (the navy base pass,
+the ivory correction pass, the phone pass), so anything class-only here would
+be decided by source order.
+
+A presentation heading row could not be seen on any order to hand, so its
+styling was proved by building the exact markup `_lcdBuildPptGroupRow` emits,
+attaching it to the live rail, reading the computed style back and removing it
+— DOM only, nothing written.
+
+### All Slides, and where it could NOT go
+
+Asked for "here too" with an arrow at the console's controls row. It is not
+there, and the measurement is why:
+
+| | controls row at 1536 |
+|---|---|
+| room | 517px |
+| already spent | 490px (six controls + five gaps) |
+| a seventh labelled button | 602px needed — wraps |
+| cost of wrapping | row 44px -> 88px, projection 291px -> 247px |
+
+Even an icon-only button needs 526px. That row is full. And the 44px comes
+straight out of the panel the same operator asked to be the main view two
+changes earlier, so paying it to add a convenience door is the wrong trade.
+
+It sits under the projection instead, beside "+ Add Slide": the same
+neighbourhood the arrow pointed at, the same kind of action, and that row has
+355px of width for 322px of buttons at the operator's 1158px — one line at
+both widths, no height added anywhere. Same `lcdOpenSectionAllSlides` handler
+as the Slide Editor's button and the section menu's item: one way in, three
+doors to it.
+
+**Blue, as asked, but `#1d4ed8` and flat — not Project's `#0066ff` gradient
+with its gold glow.** Project is the one control on that panel that puts
+something in front of the congregation; it should not have a twin, and a tool
+should read quieter than a live action anyway.
+
+### A note on verifying against live data
+
+Partway through, the orders list showed "Service - Nov 8 — edited 4 min ago",
+which wanted explaining before anything else continued. It was not this
+session: a write aimed from the page at an id that cannot exist came back
+"REFUSED: The phone view only reads", and the row's `last_edited` was
+identical before and after (`16:07:31.308`, unchanged). The operator had that
+very order open in the live app to take the screenshots.
+
+Two things follow. Reading the guard's source is not proof — aim a harmless
+write at a row that cannot exist and read the timestamp back. And the live
+data moves while these checks run, so a timestamp that surprises you is worth
+a minute, not a shrug.
+
+---
+
 
 ## 2026-11-08 — LCD rail: the slides are chunked by part, and any slide can be given a heading (branch `feat/lcd-rail-parts`)
 

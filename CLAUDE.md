@@ -2535,6 +2535,26 @@ the anon key -- verify as `postgres`, not as the app.
       twice" rule as gotcha 11. A row with no part is unchanged. Measured at
       the operator's 1158px, where the rail is 252px: the words get 111px,
       which is tight, and is the width the column has.
+    - **The rows that carry a TITLE are black with white text** (the
+      operator, 2026-11-09): the section band (`#13161b`, keeping its gold
+      left edge) and, a shade lighter, the song / liturgy / reading /
+      presentation it holds (`#1b1f26`), each keeping the icon that says
+      which kind it is. The VERSE / CHORUS badges are NOT in this — asked
+      directly, the operator chose to keep them coloured, and they are the
+      one thing on this rail that is colour-coded on purpose. All of it is
+      scoped by `#lcdCompactRail`, an id, because every one of those
+      selectors is also set by a class-only rule elsewhere in the sheet and
+      source order would otherwise decide it.
+    - **All Slides is on the console, UNDER the projection, not in the
+      controls row.** Asked for "here too" on a screenshot of that toolbar;
+      measured at 1536, the controls row is one line of 44px with 490 of its
+      517px already spent, so a seventh labelled button made it two lines —
+      44px taken out of a 291px projection, on the panel the same operator
+      asked to be the main view two changes before. It sits beside
+      "+ Add Slide" instead, which has the width and is the same kind of
+      action, in a deeper blue than Project: Project is the one control on
+      that panel that puts something in front of the congregation and must
+      not have a twin.
     `tools/lcd-rail-parts-harness.js` checks all of it.
 
 ## Quick Commands for Claude Code
