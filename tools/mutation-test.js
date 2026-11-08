@@ -1514,6 +1514,8 @@ const CASES = [
     s => s.replace('if (hereId && o === String(hereId)) return', 'if (hereId) return')],
   ['songbook-earlier-versions-harness.js', 'the read-only view paints the drawings of the copy in front',
     s => s.replace('    if (card && card.__sbmSong) return card.__sbmSong;\r\n', '')],
+  ['songbook-earlier-versions-harness.js', 'the preview leaves the choir score\'s drawings off',
+    s => s.replace('          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n        _sbEvMountOne(cc, temp);\r\n', '          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n')],
   ['songbook-earlier-versions-harness.js', 'an earlier service\'s medleys are lost',
     s => s.replace('m.songs.length > 1 && m.songs.indexOf(x.id) !== -1', 'false')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A

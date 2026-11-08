@@ -18,7 +18,8 @@
 //     to Open (read-only, with drawings and that service's recordings) and to
 //     Use here;
 //   * the read-only card paints the drawings of the version it shows, never
-//     this copy's, and cannot be drawn on;
+//     this copy's, and cannot be drawn on -- on the words and chords, and on
+//     the choir score too (its own tab), each tab counting its drawings;
 //   * the badge under the song's title counts earlier services and saved
 //     versions, never this service or a standalone songbook.
 //
@@ -231,12 +232,33 @@ function fakeSup(tables, log) {
     const temp = { id: '__sbev__', versionId: 'v1' };
     check('a read-only card paints the song it shows, never the copy in front', !!C && C({ __sbmSong: temp, getAttribute: () => '' }) === temp && C({ getAttribute: () => 'a' }).id === 'a' && C({ getAttribute: () => '' }).id === 'front');
   }
-  const mount = fn('_sbEvMountCard');
+  const mount = fn('_sbEvMountOne');
   check('its drawings come from the reading view\'s own painter, on a canvas that cannot be drawn on',
     /card\.__sbmSong = temp;/.test(mount) && /_sbmStampAnchors\(card\);/.test(mount) && /_sbmMarksPaint\(card\)/.test(mount) &&
     /document\.createElement\('canvas'\); cv\.className = 'sbm-marks';/.test(mount) && !/_sbmMarkCanvas/.test(mount) && !/addEventListener\('pointer/.test(mount) &&
     has(/\.sbm-ev__card canvas\.sbm-marks \{ position: absolute; left: 0; top: 0; pointer-events: none; \}/));
   const open = fn('_sbEvSongOpen');
+  check('every card of the sheet is mounted the same way: the words, and the choir score',
+    /document\.querySelectorAll\('#sbmSheet \.sbm-ev__card'\), function\(card\) \{ _sbEvMountOne\(card, temp\); \}/.test(fn('_sbEvMountCards')) &&
+    /_sbEvMountCards\(temp\);/.test(open) && !/_sbEvMountCard\(/.test(SRC));
+  check('a song with choir parts gets a Choir parts tab beside Words & chords, the score card hidden until chosen',
+    /var hasChoir = _sbSongHasChoir\(\{ songId: base \}\);/.test(open) && /data-ev-tab="choir" onclick="WO\.sbEvTab\(\\'choir\\'\)"/.test(open) &&
+    /'<div class="sbm-card sbm-ev__card sbm-ev__card--choir" data-ev-view="choir" hidden>/.test(open) && /data-ev-view="words"/.test(open));
+  check('...the score is Book Mode\'s read-only one, in the version\'s key, once the parts are read, and gets the version\'s drawings',
+    /_sbLinesReady\(base\)\.then\(function\(\) \{\r?\n\s*var cc = choirCard\(\); if \(!cc\) return;\r?\n\s*var body = _sbChoirBodyHtml\(temp\);/.test(open) &&
+    /_sbChoirCss\(temp\) \+ '<div class="sb-choir">' \+ _sbChoirHeadHtml\(temp, false\)/.test(open) && /\r?\n\s*_sbEvMountOne\(cc, temp\);\r?\n\s*\}, function\(\) \{/.test(open) &&
+    /The choir parts as they are now: they are the song/.test(open));
+  {
+    let Sp = null;
+    try { Sp = new Function(extractFn('_sbEvViewSplit') + '\nreturn _sbEvViewSplit;')(); } catch (e) { Sp = null; }
+    const n = Sp ? Sp([{ anchor: 's:Verse 1|3/c:2' }, { anchor: 'l:4/w:2' }, { anchor: 's:CHORUS#2|1>l:2@g7' }, { anchor: 'l:1' }, { anchor: 's:Bridge|2/w:men:1' }, null]) : null;
+    check('each tab counts the drawings on it: a moment of the score, or the words and chords', !!n && n.choir === 3 && n.words === 2, JSON.stringify(n));
+  }
+  check('...counted from what this reader is shown of the version', /var n = _sbEvViewSplit\(_sbmMarksOf\(temp\.songId, temp\.versionId \|\| ''\)\);/.test(fn('_sbEvViewCounts')) &&
+    /Promise\.resolve\(_sbmLoadMarks\(temp\)\)\.then\(function\(\) \{ paint\(\); _sbEvViewCounts\(temp\); \}/.test(mount));
+  check('choosing a tab shows its card and paints it again (a hidden card measures nothing)',
+    /c\.hidden = c\.getAttribute\('data-ev-view'\) !== which;\r?\n\s*if \(!c\.hidden\) setTimeout\(function\(\) \{ if \(c\.isConnected\) _sbmMarksPaint\(c\); \}, 0\);/.test(fn('sbEvTab')) &&
+    has(/sbEvTab: sbEvTab,/) && has(/\.sbm-ev__tabn\[hidden\], \.sbm-ev__card\[hidden\] \{ display: none; \}/));
   check('it says it is read-only and that nothing changes until Use here', /<b>Read only\.<\/b>/.test(open) && /Nothing here changes this service until you choose Use here\./.test(open));
   check('its words and chords in its key, with the recordings made for its service',
     /_sbBkLyricsHtml\(temp\)/.test(open) && /var mine = \(list \|\| \[\]\)\.filter\(function\(x\) \{ return String\(x\.order_id \|\| ''\) === String\(r\.orderId\); \}\);/.test(open) &&
