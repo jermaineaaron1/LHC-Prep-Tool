@@ -70,7 +70,7 @@ function check(label, ok, detail) {
 console.log('\nWhat was taken away');
 check('no notice under the song\'s title', !has(/_sbmTwiceRibbon/) && !has(/class="sbm-twice/) &&
   has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ '<\/div>';/));
-check('Earlier versions (once Copy an arrangement) is still under More', has(/if \(song && order\) rows\.push\(\['fa-clock-rotate-left', 'Earlier versions/));
+check('Versions (once Earlier versions and Copy an arrangement) is still under More', has(/rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/));
 check('no A- / 100% / A+: the toolbar is Share, Undo, (Redo,) Refresh',
   !has(/WO\.sbmScale\(/) && !has(/id="sbmPct"/) && !has(/function sbmScale\(/) && !has(/sbm-toolbar__(pct|rule)/) &&
   has(/onclick="WO\.sbRefresh\(\)"><i class="fa-solid fa-rotate"><\/i>Refresh<\/button><\/div>';/) &&
@@ -347,7 +347,7 @@ check('More has Links and Browse, where Read in full screen and Edit choir parts
   /\['fa-link', 'Links', 'WO\.sbmResources\(\)'/.test(more) &&
   /\['fa-globe', 'Browse online', 'WO\.sbmCloseSheet\(\);WO\.sbmBrowse\(\)'/.test(more) &&
   !/'Read in full screen'/.test(more) && !/'Edit choir parts'/.test(more));
-check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Versions of this song'/.test(more));
+check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Versions: use a past version, or save this one'/.test(more));
 const rowsIn = (more.match(/\['fa-[a-z-]+', [^\]]*\]/g) || []);
 check('every icon in More has a colour of its own', rowsIn.length >= 16 && rowsIn.every(r => /, '#[0-9a-f]{6}'\]$/.test(r)) &&
   /<i class="fa-solid ' \+ r\[0\] \+ '" style="color:' \+ r\[3\] \+ '"><\/i>/.test(more), rowsIn.filter(r => !/'#[0-9a-f]{6}'\]$/.test(r)).join(' | '));

@@ -259,7 +259,7 @@ function fakeSup(tables, log) {
   check('choosing a tab shows its card and paints it again (a hidden card measures nothing)',
     /c\.hidden = c\.getAttribute\('data-ev-view'\) !== which;\r?\n\s*if \(!c\.hidden\) setTimeout\(function\(\) \{ if \(c\.isConnected\) _sbmMarksPaint\(c\); \}, 0\);/.test(fn('sbEvTab')) &&
     has(/sbEvTab: sbEvTab,/) && has(/\.sbm-ev__tabn\[hidden\], \.sbm-ev__card\[hidden\] \{ display: none; \}/));
-  check('it says it is read-only and that nothing changes until Use here', /<b>Read only\.<\/b>/.test(open) && /Nothing here changes this service until you choose Use here\./.test(open));
+  check('it says, in a line, that it is read-only and Use here sings it', /<b>Read only\.<\/b> ' \+\r?\n\s*\(r\.kind === 'member' \|\| r\.on \? 'Nothing here changes this service\.' : 'Use here to sing it this way\.'\)/.test(open));
   check('its words and chords in its key, with the recordings made for its service',
     /_sbBkLyricsHtml\(temp\)/.test(open) && /var mine = \(list \|\| \[\]\)\.filter\(function\(x\) \{ return String\(x\.order_id \|\| ''\) === String\(r\.orderId\); \}\);/.test(open) &&
     /Recordings made for ' \+ escapeHtml\(r\.title\)/.test(open));
@@ -276,7 +276,8 @@ function fakeSup(tables, log) {
   const copy = fn('sbArrCopy');
   check('an arrangement is used in one step with Undo, a saved version the way Versions chooses one',
     /var before = _sbArrSnap\(song\);\r?\n\s*_sbArrApply\(song, r\.src\);\r?\n\s*_sbVerSaved\(\);/.test(copy) &&
-    /if \(r\.kind === 'version'\) \{ _sbmCloseSheet\(\); sbVerUse\(r\.vid\); return; \}/.test(copy) && /if \(!song \|\| !r \|\| r\.kind === 'medley' \|\| r\.kind === 'member'\) return;/.test(copy));
+    /if \(r\.kind === 'version' \|\| r\.kind === 'kept'\) \{ _sbmCloseSheet\(\); sbVerUse\(r\.vid\); return; \}/.test(copy) &&
+    /if \(r\.kind === 'main'\) \{ _sbmCloseSheet\(\); sbVerUse\(''\); return; \}/.test(copy) && /if \(!song \|\| !r \|\| r\.kind === 'medley' \|\| r\.kind === 'member'\) return;/.test(copy));
   const useM = fn('sbEvUseMedley');
   check('a medley is made again through the medley editor\'s own Use, each song with its key',
     /openMedleyEditor\(song\.id\);/.test(useM) && /transposeSteps: s\.src\.steps/.test(useM) && /mdsUse\(row\.id\);/.test(useM));
@@ -284,19 +285,24 @@ function fakeSup(tables, log) {
   // ------------------------------------------------- 5. Where it is reached
   console.log('\n5. Where it is reached');
   check('a badge under the song\'s title, in a service\'s songbook', has(/if \(_sbmOrderBook\(\)\) badges \+= _sbEvBadge\(song\);/));
-  check('...and More, where Copy an arrangement was', has(/rows\.push\(\['fa-clock-rotate-left', 'Earlier versions: how this service or an earlier one sang it, with drawings, recordings and medleys', 'WO\.sbmArrangements\(\)'/) && !has(/'Copy an arrangement: as this service or an earlier one sang it'/));
+  check('...and More: one Versions entry, where Versions and Earlier versions were', has(/rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/) &&
+    !has(/'Copy an arrangement: as this service or an earlier one sang it'/) && !has(/'Versions of this song'/) && /function sbmArrangements\(\) \{ sbmVersions\(\); \}/.test(SRC));
   {
     let B = null;
     try {
-      extractVar('_sbEvN'); extractFn('_sbEvBadge'); extractFn('_sbEvCount');
+      extractVar('_sbEvN'); extractFn('_sbEvBadge'); extractFn('_sbEvCount'); extractFn('_sbEvFresh');
       B = env => new Function('window', 'document', 'currentOrderData', '_sbVerSupport', '_sbVerLoad', '_sbVers', '_sbVerIsKept', '_sbBaseSongId', 'escapeHtml',
-        extractVar('_sbEvN') + '\n' + extractFn('_sbEvBadge') + '\n' + extractFn('_sbEvCount') + '\nreturn { badge: _sbEvBadge, n: _sbEvN };')(
-        env.window, env.document, env.order, () => Promise.resolve(true), () => Promise.resolve(), env.vers, v => v.made_from === 'library', s => s.songId, s => String(s));
+        '_sbVerSteps', '_sbmCoachDue', '_sbmCoachRecallSoon', '_sbmSong',
+        extractVar('_sbEvN') + '\n' + extractFn('_sbEvBadge') + '\n' + extractFn('_sbEvCount') + '\n' + extractFn('_sbEvFresh') + '\nreturn { badge: _sbEvBadge, n: _sbEvN };')(
+        env.window, env.document, env.order, () => Promise.resolve(true), () => Promise.resolve(), env.vers, v => v.made_from === 'library', s => s.songId, s => String(s),
+        s => s.transposeSteps || 0, () => true, s => { env.recall.push(s.songId); }, () => env.front);
     } catch (e) { B = null; }
     if (!B) check('the badge is counted by functions of its own', false);
     else {
-      const el = { hidden: true, attrs: { 'data-sbm-ev': 'song_x' }, getAttribute(k) { return this.attrs[k]; }, n: { textContent: '0' }, querySelector() { return this.n; } };
-      const env = { order: { id: 'order_now' }, vers: { song_x: [{ id: 'v1' }, { id: 'v2', made_from: 'library' }] },
+      const cls = {};
+      const el = { hidden: true, attrs: { 'data-sbm-ev': 'song_x', 'data-ev-fresh': '1' }, getAttribute(k) { return this.attrs[k]; }, n: { textContent: '0' }, querySelector() { return this.n; },
+        classList: { toggle(c, v) { cls[c] = !!v; } } };
+      const env = { order: { id: 'order_now' }, vers: { song_x: [{ id: 'v1' }, { id: 'v2', made_from: 'library' }] }, recall: [], front: { songId: 'song_x' },
         document: { querySelectorAll: () => [el] },
         window: { _supabase: fakeSup({ order_items: [
           { order_id: 'order_now', source_id: 'song_x', item_type: 'song' }, { order_id: 'order_a', source_id: 'song_x', item_type: 'song' },
@@ -304,22 +310,79 @@ function fakeSup(tables, log) {
           { order_id: 'standalone_sb1', source_id: 'song_x', item_type: 'song' }, { order_id: 'order_c', source_id: 'song_y', item_type: 'song' }] }) } };
       const b = B(env);
       const html = b.badge({ songId: 'song_x' });
-      check('it waits hidden until it is counted', /data-sbm-ev="song_x" hidden/.test(html) && /onclick="WO\.sbmArrangements\(\)"/.test(html));
+      check('it waits hidden until it is counted, says Past versions, and opens Versions', /data-sbm-ev="song_x" data-ev-fresh="1" hidden/.test(html) &&
+        /onclick="WO\.sbmVersions\(\)"/.test(html) && />Past versions<span class="sbm-badge__n">/.test(html));
       await flush();
       check('it counts the earlier services once each, never this one or a songbook, and the saved versions (not the kept main ones)',
         b.n.song_x.n === 3 && el.hidden === false && el.n.textContent === '3', JSON.stringify(b.n));
+      check('a song new to this service that was sung before: the badge pulses, and the recall hint is asked for',
+        cls['is-pulsing'] === true && env.recall.join() === 'song_x', JSON.stringify({ cls, recall: env.recall }));
+      check('...only when the hint is due', /if \(n && fresh && _sbmCoachDue\('recall'\)\) _sbmCoachRecallSoon\(song\);/.test(fn('_sbEvBadge')));
+      {
+        let F = null;
+        try { F = new Function('_sbVerSteps', extractFn('_sbEvFresh') + '\nreturn _sbEvFresh;')(s => s.transposeSteps || 0); } catch (e) { F = null; }
+        const v = F ? [F({ id: 'a' }), F({ id: 'a', customLyrics: 'G\r\nWords', masterLyrics: 'G\nWords ' }), F({ id: 'a', richLyrics: '<b>x</b>' }),
+          F({ id: 'a', versionId: 'v1' }), F({ id: 'a', transposeSteps: 2 }), F({ id: 'a', customLyrics: 'Other words', masterLyrics: 'Words' }), F(null)] : [];
+        check('...new to the service: a copy as added, or with the main song\'s words, or only formatting; never on a version, in another key or with words of its own',
+          v.join() === 'true,true,true,false,false,false,false', v.join());
+      }
     }
   }
-  const render = fn('_sbArrRender');
-  check('the sheet says first that nothing a service does changes the song in the Songs page, and what every service shares',
-    /<b>Nothing a service does to a song changes it in the Songs page\.<\/b>/.test(render) && /the choir parts, the drawings on a version \(Standard too\) and the recordings/.test(render));
-  check('...then this service\'s other copies, the earlier services, the saved versions and the medleys, each to Open and to Use here',
-    /section\('Earlier services', D\.earlier, nH, songCard,/.test(render) && /section\('Saved versions', versions,/.test(render) && /section\('Medleys it was sung in', D\.medleys,/.test(render) &&
-    /onclick="WO\.sbEvOpen\(' \+ i \+ '\)"><i class="fa-solid fa-eye"><\/i>Open<\/button>/.test(render) && />Use here<\/button>/.test(render));
+  // ------------------------------------------------- 6. One Versions sheet (2026-11-08)
+  console.log('\n6. One Versions sheet: use a past version, or save this one');
+  const render = fn('_sbVerRender');
+  check('Versions and Earlier versions are one sheet', /function sbmArrangements\(\) \{ sbmVersions\(\); \}/.test(SRC) && !/function _sbArrRender\(/.test(SRC) &&
+    /_sbVerRender\(song\);/.test(fn('sbEvBack')));
+  check('This service: what it sings now, a short line that changes stay here, and two big buttons -- Save as a version, Save as the main song',
+    /<div class="vr-now__h">This service<span class="vr-now__s">Changes here stay here unless you save them<\/span>/.test(render) &&
+    /onclick="WO\.sbVerSaveAsk\(\)"><i class="fa-solid fa-floppy-disk"><\/i>Save as a version<\/button>/.test(render) &&
+    /onclick="WO\.sbVerMakeMain\(\)"><i class="fa-solid fa-crown"><\/i>Save as the main song<\/button>/.test(render) && /Same as the main song/.test(render));
+  check('...and, when it has changed since a version was chosen, Update it', /onclick="WO\.sbVerUpdate\(\)"><i class="fa-solid fa-rotate"><\/i>Update it<\/button>/.test(render));
+  check('Save as a version asks for a name once, then saves this service\'s way',
+    /window\.customPrompt\('Save as a version', 'A name the team will know it by', def\)/.test(fn('sbVerSaveAsk')) && /if \(name\) _sbVerSaveAs\(song, name\)\.catch/.test(fn('sbVerSaveAsk')));
+  check('Past versions: one list, newest first; a row opens it read-only, one Use button sings it',
+    /<span>Past versions<\/span><span class="ver-head__n">' \+ \(nP - 1\) \+ '<\/span><span class="vr-head__s">Newest first<\/span>/.test(render) &&
+    /onclick="WO\.sbEvOpen\(' \+ i \+ '\)"/.test(render) && /class="sbm-btn sbm-btn--primary vr-row__use" onclick="event\.stopPropagation\(\);WO\.' \+ \(r\.kind === 'medley' \? 'sbEvUseMedley' : 'sbArrCopy'\) \+ '\(' \+ i \+ '\)">Use<\/button>/.test(render) &&
+    /'<span class="vr-row__now">Singing now<\/span>'/.test(render));
+  {
+    let O = null;
+    try { O = new Function(extractFn('_sbVerOrder') + '\nreturn _sbVerOrder;')(); } catch (e) { O = null; }
+    const rows = O ? O([{ kind: 'version', title: 'v-old', at: '2026-09-01' }, { kind: 'earlier', title: 'svc-new', at: '2026-11-01' }, { kind: 'main', title: 'Main song', at: '' },
+      { kind: 'copy', title: 'here' }, { kind: 'kept', title: 'Original', at: '2026-08-01' }, { kind: 'version', title: 'v-new', at: '2026-11-05' }]) : [];
+    check('...in order: the main song, this service\'s other copies, then newest first', rows.map(r => r.title).join() === 'Main song,here,v-new,svc-new,v-old,Original', rows.map(r => r.title).join());
+  }
+  check('...rename, delete and making it the main song again are in the read-only view, not the list',
+    /onclick="WO\.sbVerRenameAsk\(/.test(fn('_sbEvSongOpen')) && /onclick="WO\.sbVerDelete\(/.test(fn('_sbEvSongOpen')) && /Make it the main song again/.test(fn('_sbEvSongOpen')) &&
+    !/sbVerDelete|sbVerRename/.test(render) && /function sbVerRename\(vid\) \{ sbVerRenameAsk\(vid\); \}/.test(SRC));
+  check('Medleys: Save this medley, and the medleys it was sung in, each to Use',
+    /onclick="WO\.sbVerSaveMedley\(\)"><i class="fa-solid fa-floppy-disk"><\/i>Save this medley<\/button>/.test(render) && /_mdsKeep\(md\.medley\.songs\)\.then/.test(fn('sbVerSaveMedley')));
+  {
+    let RW = null;
+    try { RW = new Function('_mdsKey', extractFn('_mdsRowOf') + '\nreturn _mdsRowOf;')(ids => ids.join('>')); } catch (e) { RW = null; }
+    const row = RW ? RW([{ songId: 'a', title: 'A', transposeSteps: 2, versionId: 'v9' }, { songId: 'b', title: 'B', transposeSteps: 0 }], null, { id: 'o1', name: 'Svc' }) : null;
+    check('...a saved medley keeps each song\'s key and the version it sings', !!row && row.songs[0].versionId === 'v9' && row.songs[1].versionId === '' && row.songs[0].transposeSteps === 2, JSON.stringify(row && row.songs));
+  }
+  check('...and brings each song back on that version, then in its key',
+    /if \(x\.saved\.versionId\) vers\[e\.id\] = x\.saved\.versionId;/.test(fn('mdsUse')) &&
+    /if \(ed\.vers && ed\.useKeys\) _mdsApplyVersions\(ed\.vers\);\r?\n\s*if \(ed\.keys && ed\.useKeys\) _mdsApplyKeys\(ed\.keys\);/.test(fn('mdEdSave')) &&
+    /_sbVerSetWords\(s, v\); s\.versionId = v\.id;/.test(fn('_mdsApplyVersions')) && /transposeSteps: s\.src\.steps, versionId: s\.src\.versionId \|\| ''/.test(fn('sbEvUseMedley')));
+  console.log('\n7. The recall hints');
+  check('kept once on a device: the finger on the badge, and the finger on the newest Use',
+    has(/var _SBM_COACH_ONCE = \{ draw: 'lhc_sbm_draw_hint_seen_v2', recall: 'lhc_sbm_recall_hint_v1', recallPick: 'lhc_sbm_recall_pick_v1' \};/));
+  check('the badge hint: a finger tapping the badge, a ring, "Sung before -- tap to use a past version"; every tap goes through',
+    /_sbmCoachTapHtml\('<b>Sung before<\/b>/.test(fn('_sbmCoachRecall')) && /var B = _sbmRecallBadge\(\); if \(!B\) return false;/.test(fn('_sbmCoachRecall')) &&
+    /document\.addEventListener\('pointerdown', L\.__off, true\);/.test(fn('_sbmCoachRecall')) && /fa-hand-pointer sbm-hint__finger/.test(fn('_sbmCoachTapHtml')));
+  check('...asked again for a while when something else is on the screen', /if \(\+\+tries < 15\) _sbmRecallT = setTimeout\(go, 1500\);/.test(fn('_sbmCoachRecallSoon')) &&
+    /if \(!_sbmCoachDue\('recall'\) \|\| _sbmSong\(\) !== song \|\| !_sbEvFresh\(song\)\) return;/.test(fn('_sbmCoachRecallSoon')));
+  check('the sheet\'s hint: a finger on the newest past version\'s Use, "Newest first. Tap Use to sing it that way"',
+    /sh\.querySelector\('\.vr-row:not\(\.vr-row--main\):not\(\.is-on\) \.vr-row__use'\)/.test(fn('_sbmCoachRecallPick')) && /Newest first\.<\/b> Tap Use to sing it that way/.test(fn('_sbmCoachRecallPick')) &&
+    /if \(nP > 1\) setTimeout\(function\(\) \{ _sbmCoachRecallPick\(false\); \}, 350\);/.test(render));
+  check('Show the tips again plays the badge hint too', /_sbmCoachDraw\(true\); _sbmReplayRecall\(\); return;/.test(SRC) && /setTimeout\(function\(\) \{ _sbmCoachRecall\(true\); \}, 350\);/.test(fn('_sbmReplayRecall')));
+  check('the badge pulses (a ring that breathes) while the song is new to this service', has(/\.sbm-badge--ev\.is-pulsing \{ animation: sbmEvPulse 1\.6s ease-in-out infinite; \}/));
   check('...with the drawings on each one\'s version and the recordings made for each service counted',
     /var drawN = function\(vid\) \{ return _sbmMarksOk === true \? _sbmMarksOf\(base, vid \|\| ''\)\.length : 0; \};/.test(render) &&
     /recs\.filter\(function\(x\) \{ return String\(x\.order_id \|\| ''\) === String\(orderId\); \}\)\.length/.test(render));
-  check('every new handler is reachable from the page', ['sbEvOpen', 'sbEvOpenMember', 'sbEvBack', 'sbEvUseMedley', 'sbEvPlay'].every(n => new RegExp(n + ': ' + n + ',').test(SRC)));
+  check('every new handler is reachable from the page', ['sbEvOpen', 'sbEvOpenMember', 'sbEvBack', 'sbEvUseMedley', 'sbEvPlay', 'sbVerSaveAsk', 'sbVerRenameAsk', 'sbVerSaveMedley'].every(n => new RegExp(n + ': ' + n + ',').test(SRC)));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
