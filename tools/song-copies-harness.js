@@ -186,7 +186,7 @@ check('...the Drawings window says a copy shares its drawings, and offers Own dr
   has(/var same = _sbmOtherCopies\(song\)\.filter\(function\(x\) \{ return \(x\.versionId \|\| ''\) === \(song\.versionId \|\| ''\); \}\);/) &&
   has(/onclick="WO\.sbmCloseSheet\(\);WO\.sbmOwnVersion\(\)"/) && has(/html \+= _sbmSharedDrawingsNote\(song\) \+ _sbmWhoNote\(\);/));
 // (2026-11-08: Copy an arrangement became Earlier versions: tools/songbook-earlier-versions-harness.js.)
-check('Versions (once Earlier versions, once Copy an arrangement) is in More for any song of a service', has(/if \(song && \(order \|\| _sbVerOk === true\)\) rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/));
+check('Versions (once Earlier versions, once Copy an arrangement) is in More for any song of a service', has(/if \(song && \(order \|\| _sbVerOk === true\)\) rows\.push\(\['fa-code-branch', 'Save \/ Load Versions', 'WO\.sbmVersions\(\)'/));
 check('copying is one step with Undo, saved like a version chosen',
   has(/var before = _sbArrSnap\(song\);\r?\n\s*_sbArrApply\(song, r\.src\);\r?\n\s*_sbVerSaved\(\);/) &&
   has(/_sbArrRestore\(song, before\);\r?\n\s*_sbVerSaved\(\);/));
@@ -194,7 +194,8 @@ check('...a version is copied only while it still exists',
   has(/song\.versionId = \(src\.versionId && _sbVerById\(base, src\.versionId\)\) \? src\.versionId : '';/));
 check('Own drawings saves the copy as a version, through the same save as Versions',
   has(/return _sbVerSaveAs\(song, name\)\.catch\(function\(\) \{\}\);/) &&
-  has(/_sbVerSaveAs\(song, name\)\.then\(null, function\(\) \{ if \(btn\) btn\.disabled = false; \}\);/) &&
+  has(/_sbVerSaveNamed\(song, name\)\.then\(function\(\) \{ if \(btn\) btn\.disabled = false; \}, function\(\) \{ if \(btn\) btn\.disabled = false; \}\);/) &&
+  has(/if \(!x\) return _sbVerSaveAs\(song, name\);/) &&
   has(/return sup\.from\('song_versions'\)\.insert\(row\)\.select\(\)\.then/) && has(/\s+return v;\r?\n\s*\}\);\r?\n\s*\}\)\.catch\(function\(err\) \{\r?\n[^\n]*\r?\n\s*throw err;/));
 
 const earlierSrc = extract('function _sbArrEarlier(');

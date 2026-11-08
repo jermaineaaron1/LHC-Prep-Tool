@@ -70,7 +70,7 @@ function check(label, ok, detail) {
 console.log('\nWhat was taken away');
 check('no notice under the song\'s title', !has(/_sbmTwiceRibbon/) && !has(/class="sbm-twice/) &&
   has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ '<\/div>';/));
-check('Versions (once Earlier versions and Copy an arrangement) is still under More', has(/rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/));
+check('Versions (once Earlier versions and Copy an arrangement) is still under More', has(/rows\.push\(\['fa-code-branch', 'Save \/ Load Versions', 'WO\.sbmVersions\(\)'/));
 check('no A- / 100% / A+: the toolbar is Share, Undo, (Redo,) Refresh',
   !has(/WO\.sbmScale\(/) && !has(/id="sbmPct"/) && !has(/function sbmScale\(/) && !has(/sbm-toolbar__(pct|rule)/) &&
   has(/onclick="WO\.sbRefresh\(\)"><i class="fa-solid fa-rotate"><\/i>Refresh<\/button><\/div>';/) &&
@@ -334,20 +334,20 @@ check('the Draw chip says so', has(/a ring, an arrow, a breath mark\. Or double-
 // device (asked: "First time per device"), a five-second flash to the words.
 console.log('\nOne row of tiles, More at its end');
 const rnd = fn('_sbmRender');
-const tileRow = (rnd.match(/html \+= '<div class="sbm-tile-row sbm-tiles sbm-tile-row--7">'[^]*?'<\/div><\/div>';/) || [''])[0];
-const order = ['WO.sbmRecord()', 'WO.sbmPractice()', 'WO.sbmVideos()', 'WO.sbmBookMode()', '_sbmDrawingsTile(song)', 'WO.sbmEdit()', 'WO.sbmMore()'];
+const tileRow = (rnd.match(/html \+= '<div class="sbm-tile-row sbm-tiles sbm-tile-row--' \+ \(vTile \? '8' : '7'\) \+ '">'[^]*?'<\/div><\/div>';/) || [''])[0];
+const order = ['WO.sbmRecord()', 'WO.sbmPractice()', 'WO.sbmVideos()', 'WO.sbmBookMode()', '_sbmDrawingsTile(song)', 'WO.sbmEdit()', 'vTile +', 'WO.sbmMore()'];
 const at = order.map(k => tileRow.indexOf(k));
-check('Record, Tracks, YouTube, Book Mode, Drawings, Edit, More -- in that order, in one row',
+check('Record, Tracks, YouTube, Book Mode, Drawings, Edit, Save / Load Versions (2026-11-09), More -- in that order, in one row',
   !!tileRow && at.every((p, i) => p > -1 && (i === 0 || p > at[i - 1])), JSON.stringify(at));
 check('...Practice is called Tracks', /<\/i>Tracks<\/button>/.test(tileRow) && !/<\/i>Practice<\/button>/.test(tileRow));
-check('...and Links, Browse, Versions and Medley are not tiles any more',
-  !/WO\.sbmResources\(\)|WO\.sbmBrowse\(\)|WO\.sbmVersions\(\)|WO\.sbmMedley\(\)/.test(tileRow) && !/var verTile/.test(rnd));
+check('...and Links, Browse and Medley are not tiles any more',
+  !/WO\.sbmResources\(\)|WO\.sbmBrowse\(\)|WO\.sbmMedley\(\)/.test(tileRow) && !/var verTile/.test(rnd));
 const more = fn('sbmMore');
 check('More has Links and Browse, where Read in full screen and Edit choir parts were',
   /\['fa-link', 'Links', 'WO\.sbmResources\(\)'/.test(more) &&
   /\['fa-globe', 'Browse online', 'WO\.sbmCloseSheet\(\);WO\.sbmBrowse\(\)'/.test(more) &&
   !/'Read in full screen'/.test(more) && !/'Edit choir parts'/.test(more));
-check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Versions: use a past version, or save this one'/.test(more));
+check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Save \/ Load Versions'/.test(more));
 const rowsIn = (more.match(/\['fa-[a-z-]+', [^\]]*\]/g) || []);
 check('every icon in More has a colour of its own', rowsIn.length >= 16 && rowsIn.every(r => /, '#[0-9a-f]{6}'\]$/.test(r)) &&
   /<i class="fa-solid ' \+ r\[0\] \+ '" style="color:' \+ r\[3\] \+ '"><\/i>/.test(more), rowsIn.filter(r => !/'#[0-9a-f]{6}'\]$/.test(r)).join(' | '));

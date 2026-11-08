@@ -50305,6 +50305,7 @@ var WO = (function() {
   function closeSongbook() {
     _sbmCoachClose();
     _sbmGuideSong = null;   // opened again, the floater is armed again
+    var vw = document.getElementById('sbVerWarn'); if (vw && vw.__done) vw.__done(false);
     if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
     if (typeof _sbmPhoneClose === 'function') _sbmPhoneClose();
     // The recordings panel's song goes with the book, or the next book's
@@ -54784,7 +54785,7 @@ var WO = (function() {
       if (song) rows.push(['fa-right-left', 'Move to section\u2026 (Song of Preparation, Dismissal\u2026)', 'WO.sbmMoveToSection()', '#ea580c']);
     }
     if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()', '#ca8a04']);
-    if (song && (order || _sbVerOk === true)) rows.push(['fa-code-branch', 'Versions: use a past version, or save this one', 'WO.sbmVersions()', '#7c3aed']);
+    if (song && (order || _sbVerOk === true)) rows.push(['fa-code-branch', 'Save / Load Versions', 'WO.sbmVersions()', '#7c3aed']);
     if (song) rows.push(['fa-lightbulb', 'Show the tips again: where the words are, and how to draw', 'WO.sbmCloseSheet();WO.sbmReplayTips()', '#f59e0b']);
     rows = rows.concat([
       ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)', '#0284c7'],
@@ -56813,9 +56814,12 @@ var WO = (function() {
       '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
       '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
     // One row (the operator, 2026-11-07): Record, Tracks, YouTube, Book Mode,
-    // Drawings, Edit, and More at the far right. Links, Browse, Versions and
-    // Medley are in More.
-    html += '<div class="sbm-tile-row sbm-tiles sbm-tile-row--7">' +
+    // Drawings, Edit, and More at the far right. Links, Browse and Medley are
+    // in More. Save / Load Versions came out of More (2026-11-09), in purple,
+    // before More, wherever More offers it.
+    var vTile = (_sbmOrderBook() || _sbVerOk === true)
+      ? '<button class="sbm-tile sbm-tile--ver" onclick="WO.sbmVersions()" title="Save this service’s way as a version, or load a past one"><i class="fa-solid fa-code-branch"></i>Save / Load Versions</button>' : '';
+    html += '<div class="sbm-tile-row sbm-tiles sbm-tile-row--' + (vTile ? '8' : '7') + '">' +
       '<button class="sbm-tile sbm-tile--danger" onclick="WO.sbmRecord()"><i class="fa-solid fa-microphone"></i>Record</button>' +
       '<button class="sbm-tile sbm-tile--teal" onclick="WO.sbmPractice()" title="Practice tracks: the takes recorded for this song"><i class="fa-solid fa-headphones"></i>Tracks</button>' +
       // The song's videos, in YouTube's red: one plays at once, several are
@@ -56829,6 +56833,7 @@ var WO = (function() {
       // Every drawing kept on the song: whose, which show, who sees yours.
       _sbmDrawingsTile(song) +
       '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      vTile +
       '<button class="sbm-tile sbm-tile--more" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button>' +
       '</div></div>';
 
@@ -59476,7 +59481,106 @@ var WO = (function() {
       : Promise.resolve(window.prompt('Name this version', def));
     ask.then(function(name) {
       name = String(name || '').trim().slice(0, 60);
-      if (name) _sbVerSaveAs(song, name).catch(function() {});
+      if (name) _sbVerSaveNamed(song, name).catch(function() {});
+    });
+  }
+  // A name already saved is REPLACED, never saved twice (the operator,
+  // 2026-11-09: two saves called "Service - Nov 8" sat side by side looking
+  // the same). The versions are read again first -- another device may have
+  // saved one -- and a warning toast asks before anything is written.
+  // Resolves the version saved or replaced, or null when not.
+  function _sbVerNameKey(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function _sbVerSameName(list, name, cur) {
+    var k = _sbVerNameKey(name);
+    var hits = (list || []).filter(function(v) { return v && !_sbVerIsKept(v) && _sbVerNameKey(v.name) === k; });
+    if (!k || !hits.length) return null;
+    // The one this copy sings, if it is one of them; else the newest.
+    return hits.filter(function(v) { return v.id === cur; })[0] ||
+      hits.slice().sort(function(a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); })[0];
+  }
+  function _sbVerSaveNamed(song, name) {
+    var base = _sbBaseSongId(song);
+    var check = function() {
+      var x = _sbVerOk === true ? _sbVerSameName(_sbVers[base], name, song.versionId || '') : null;
+      if (!x) return _sbVerSaveAs(song, name);
+      var others = ((_sbVerUse[base] || {})[x.id] || []).filter(function(id) { return !(currentOrderData && id === currentOrderData.id); }).length;
+      return _sbVerWarnToast({
+        title: '“' + x.name + '” is already saved',
+        msg: 'Replace it with this service’s key, words and drawings?' +
+          (others ? ' ' + others + ' other service' + (others === 1 ? ' sings' : 's sing') + ' it and will see the new drawings.' : ''),
+        ok: 'Replace'
+      }).then(function(ok) { return ok ? _sbVerReplace(song, x) : null; });
+    };
+    return _sbVerLoad(base).then(check, check);
+  }
+  // The question as a toast: amber, from the foot of the screen, Cancel or
+  // Replace. Esc cancels; it waits for an answer. Resolves true or false.
+  function _sbVerWarnToast(o) {
+    return new Promise(function(resolve) {
+      var was = document.getElementById('sbVerWarn'); if (was && was.__done) was.__done(false);
+      var el = document.createElement('div');
+      el.id = 'sbVerWarn'; el.className = 'sbm sbm-vwarn';
+      el.setAttribute('role', 'alertdialog'); el.setAttribute('aria-labelledby', 'sbVerWarnT');
+      el.innerHTML = '<div class="sbm-vwarn__icon" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation"></i></div>' +
+        '<div class="sbm-vwarn__body"><div class="sbm-vwarn__t" id="sbVerWarnT">' + escapeHtml(o.title) + '</div>' +
+          '<div class="sbm-vwarn__m">' + escapeHtml(o.msg) + '</div>' +
+          '<div class="sbm-vwarn__acts"><button type="button" class="sbm-btn" data-vwarn="0">Cancel</button>' +
+            '<button type="button" class="sbm-btn sbm-vwarn__ok" data-vwarn="1"><i class="fa-solid fa-arrows-rotate"></i>' + escapeHtml(o.ok || 'Replace') + '</button></div></div>';
+      var key = function(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); done(false); } };
+      var done = function(v) {
+        if (el.__gone) return;
+        el.__gone = true;
+        document.removeEventListener('keydown', key, true);
+        el.classList.add('is-out');
+        setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+        resolve(!!v);
+      };
+      el.__done = done;
+      el.addEventListener('click', function(e) { var b = e.target.closest && e.target.closest('[data-vwarn]'); if (b) done(b.getAttribute('data-vwarn') === '1'); });
+      document.addEventListener('keydown', key, true);
+      document.body.appendChild(el);
+      var c = el.querySelector('[data-vwarn="0"]'); if (c) c.focus();
+    });
+  }
+  // Version x written over with this copy's way: its key and words, and the
+  // drawings this copy shows (when it sings another version, x's drawings
+  // become a copy of those; when it sings x, they are x's already). Same id,
+  // so every service on x stays on it. Read back before it is reported.
+  function _sbVerReplace(song, x) {
+    var sup = window._supabase;
+    if (!sup) { showToast('Could not replace the version: not connected to the database', 'error'); return Promise.reject(new Error('not connected')); }
+    var base = _sbBaseSongId(song), from = song.versionId || '', w = _sbVerWordsOf(song);
+    var patch = { transpose_steps: _sbVerSteps(song), lyrics: w.lyrics, rich_lyrics: w.rich,
+                  made_from: (currentOrderData && currentOrderData.id) || x.made_from || null, updated_at: new Date().toISOString() };
+    var oldIds = from === x.id ? [] : _sbVerMarks(_sbmMarks[base], x.id).map(function(m) { return m.id; }).filter(Boolean);
+    var added = [];
+    return sup.from('song_versions').update(patch).eq('id', x.id).select().then(function(r) {
+      if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'the database did not keep it');
+      Object.assign(x, r.data[0]);
+      if (from === x.id) return null;
+      var copies = _sbVerMarks(_sbmMarks[base], from).map(function(m) {
+        var c = { song_id: base, anchor: m.anchor, tool: m.tool, colour: m.colour, width: m.width, points: m.points, version_id: x.id };
+        if (_sbmLayersOk === true) { c.owner = m.owner || null; c.owner_name = m.owner_name || null; c.part = m.part || null; c.shared = m.shared !== false; }
+        return c;
+      });
+      // The new drawings go in first; the old ones go only once they are in.
+      return (copies.length ? sup.from('song_marks').insert(copies).select() : Promise.resolve({ data: [] })).then(function(r2) {
+        if (r2 && r2.error) throw new Error('its drawings could not be copied (' + r2.error.message + ')');
+        added = (r2 && r2.data) || [];
+        return oldIds.length ? sup.from('song_marks').delete().in('id', oldIds) : { error: null };
+      }).then(function(r3) {
+        if (r3 && r3.error) throw new Error('its old drawings could not be taken off (' + r3.error.message + ')');
+        _sbmMarks[base] = (_sbmMarks[base] || []).filter(function(m) { return oldIds.indexOf(m.id) === -1; }).concat(added);
+      });
+    }).then(function() {
+      song.versionId = x.id;
+      _sbVerSaved();
+      _sbVerReshow(song);
+      showToast('Replaced “' + x.name + '” with this service’s way', 'success');
+      return x;
+    }).catch(function(err) {
+      showToast('Could not replace “' + x.name + '”: ' + (err && err.message || 'no answer'), 'error');
+      throw err;
     });
   }
   // Renamed through the same small question.
@@ -59556,7 +59660,7 @@ var WO = (function() {
     var name = String((inp && inp.value) || '').trim().slice(0, 60);
     if (!name) { showToast('Give the version a name first', 'info'); if (inp) inp.focus(); return; }
     if (btn) btn.disabled = true;
-    _sbVerSaveAs(song, name).then(null, function() { if (btn) btn.disabled = false; });
+    _sbVerSaveNamed(song, name).then(function() { if (btn) btn.disabled = false; }, function() { if (btn) btn.disabled = false; });
   }
   // This copy's way of the song saved as a new version called name, with a
   // copy of the drawings on the version it sang (that one stays exactly as
@@ -115589,7 +115693,35 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 
 /* ---- Versions of a song ---- */
 .sbm-tile-row--7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-@media (max-width: 359px) { .sbm-tile-row--7 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.sbm-tile-row--8 { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+@media (max-width: 359px) { .sbm-tile-row--7, .sbm-tile-row--8 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Save / Load Versions, out of More (2026-11-09): purple, its label on
+   two lines wherever it does not fit on one. */
+.sbm-tile--ver { color: #fff; background: linear-gradient(160deg, #8b5cf6, #6d28d9); border-color: transparent; box-shadow: 0 4px 12px rgba(109, 40, 217, 0.28);
+  white-space: normal; text-align: center; line-height: 1.1; }
+.sbm-tile--ver:hover { background: linear-gradient(160deg, #7c3aed, #5b21b6); }
+/* The read-only preview of a version: 10px wider than a sheet (2026-11-09). */
+@media (min-width: 821px) { #sbmSheet[data-sheet="earlier-open"] .sbm-sheet { width: min(470px, 92vw); } }
+/* Saving over a version of the same name: asked first, by a warning toast. */
+.sbm-vwarn {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 10003;
+  width: min(440px, calc(100vw - 24px)); box-sizing: border-box; display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px 14px 12px; border-radius: 16px; background: #fffbeb; border: 1px solid #fcd34d; border-left: 6px solid #f59e0b;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.30); transform: translateX(-50%); animation: sbmVwarnIn .28s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+.sbm-vwarn.is-out { animation: sbmVwarnOut .2s ease-in forwards; }
+.sbm-vwarn__icon { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #f59e0b; color: #fff; font-size: 17px; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22); }
+.sbm-vwarn__body { flex: 1 1 auto; min-width: 0; }
+.sbm-vwarn__t { font: 800 15px/1.25 var(--sbm-font-ui); color: #78350f; overflow-wrap: anywhere; }
+.sbm-vwarn__m { margin-top: 3px; font: 500 13px/1.4 var(--sbm-font-ui); color: #92400e; }
+.sbm-vwarn__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.sbm-vwarn__acts .sbm-btn { min-height: 40px; padding: 0 16px; }
+.sbm-vwarn__ok { background: #d97706; border-color: #d97706; color: #fff; }
+.sbm-vwarn__ok:hover { background: #b45309; border-color: #b45309; }
+@keyframes sbmVwarnIn { from { opacity: 0; transform: translate(-50%, 24px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes sbmVwarnOut { to { opacity: 0; transform: translate(-50%, 16px); } }
+@media (prefers-reduced-motion: reduce) { .sbm-vwarn, .sbm-vwarn.is-out { animation: none; } }
 /* Measured 2026-11-07, the same in every browser: at 10px on one line,
    "Book Mode" (54px) was wider than its tile on every phone up to 430px,
    and "YouTube" and "Drawings" up to 390-412px (tiles 37-47px inside), so
@@ -115597,7 +115729,12 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
    tile gives up its side padding, and the size follows the screen down to
    8.5px -- still one row, as the reading view was laid out. */
 @media (min-width: 360px) and (max-width: 600px) {
-  #sbmRoot:not(.sbm--wide) .sbm-tile-row--7 .sbm-tile { padding-left: 0; padding-right: 0; white-space: normal; text-align: center; line-height: 1.05; font-size: clamp(8.5px, 2.45vw, 10px); }
+  #sbmRoot:not(.sbm--wide) :is(.sbm-tile-row--7, .sbm-tile-row--8) .sbm-tile { padding-left: 0; padding-right: 0; white-space: normal; text-align: center; line-height: 1.05; font-size: clamp(8.5px, 2.45vw, 10px); }
+  /* Eight in a row (Save / Load Versions, 2026-11-09): measured at 375px,
+     "Drawings" and "YouTube" ran 1-4px past their tiles, so the row closes
+     up and the words follow the screen a little further down. */
+  #sbmRoot:not(.sbm--wide) .sbm-tile-row--8 { gap: 2px; }
+  #sbmRoot:not(.sbm--wide) .sbm-tile-row--8 .sbm-tile { font-size: clamp(7.5px, 2.2vw, 10px); }
 }
 
 /* ---- The key's two steps, blue and big enough to find (2026-11-07) ---- */

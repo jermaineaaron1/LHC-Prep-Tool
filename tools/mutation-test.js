@@ -1521,6 +1521,20 @@ const CASES = [
   // One Versions sheet (2026-11-08): past versions newest first, a song new
   // to a service that was sung before pulses its badge and is pointed out,
   // and a medley kept keeps each song's version.
+  // Save / Load Versions (2026-11-09): a tile of its own, and a name saved
+  // twice replaces the first, asked first.
+  ['songbook-earlier-versions-harness.js', 'Save / Load Versions is back inside More only',
+    s => s.replace("      vTile +\r\n      '<button class=\"sbm-tile sbm-tile--more\"", "      '<button class=\"sbm-tile sbm-tile--more\"")],
+  ['songbook-earlier-versions-harness.js', 'a name saved again is saved twice',
+    s => s.replace('      if (!x) return _sbVerSaveAs(song, name);\r\n', '      return _sbVerSaveAs(song, name);\r\n')],
+  ['songbook-earlier-versions-harness.js', 'a version is replaced without asking',
+    s => s.replace("}).then(function(ok) { return ok ? _sbVerReplace(song, x) : null; });", "}).then(function() { return _sbVerReplace(song, x); });")],
+  ['songbook-earlier-versions-harness.js', 'names differing only in case are taken for two',
+    s => s.replace("function _sbVerNameKey(s) { return String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().toLowerCase(); }", "function _sbVerNameKey(s) { return String(s == null ? '' : s); }")],
+  ['songbook-earlier-versions-harness.js', 'a replace takes the old drawings off before the new ones are in',
+    s => s.replace("        return oldIds.length ? sup.from('song_marks').delete().in('id', oldIds) : { error: null };\r\n", "        return { error: null };\r\n")],
+  ['songbook-earlier-versions-harness.js', 'the preview is the width of any sheet again',
+    s => s.replace('#sbmSheet[data-sheet="earlier-open"] .sbm-sheet { width: min(470px, 92vw); }', '#sbmSheet[data-sheet="earlier-open"] .sbm-sheet { width: min(460px, 92vw); }')],
   ['songbook-earlier-versions-harness.js', 'past versions are listed oldest first',
     s => s.replace('return tb.localeCompare(ta) || (a.k - b.k);', 'return ta.localeCompare(tb) || (a.k - b.k);')],
   ['songbook-earlier-versions-harness.js', 'the badge of a song sung before no longer pulses',
