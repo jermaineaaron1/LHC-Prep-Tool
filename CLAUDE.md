@@ -1540,7 +1540,19 @@ the anon key -- verify as `postgres`, not as the app.
     or `{ id }` for a saved one. A read that lands after the window has
     closed does not reopen it. In the window a past service's liturgist
     sits beside its name and the line under it (date, day, kind, counts) is
-    2px larger and bold. `tools/builder-load-liturgy-harness.js` checks it.
+    2px larger, only its date bold (a saved liturgy's date is its year).
+    `tools/builder-load-liturgy-harness.js` checks it. A preview's PARTS are
+    buttons (`_svlOutlineHtml`, the outline's `ref`: 'i:<n>' into the
+    liturgy's items, 's:<n>' into its songs): a click shows the part's words
+    under its section, in place and one at a time (`_svlItemToggle`), set as
+    the Export sets them (`_svlItemHtml` over `_lbdExportParas`: who speaks,
+    the people's lines bold, verse numbers raised; a song's words from the
+    song library, chords out). The part kept open (`_svlTx`) survives a
+    redraw, a preview opened keeps the window's scroll (`_svlDrawList(true)`),
+    and the window is taller than the builder's other sheets
+    (`lbd-sheet--svl`; `_lbdSheet` gives a sheet its kind's class). The
+    Liturgy Library's outline of a saved liturgy uses the same
+    (`LiturgyModule.occSvlItem`). `tools/svl-item-text-harness.js` checks it.
     **Filed by year in the Liturgy Library** (the operator, 2026-11-08). A
     liturgy saved for an occasion and a year gets that year's folder under
     the occasion -- a `liturgy_occ_folders` row named "2026", the folders

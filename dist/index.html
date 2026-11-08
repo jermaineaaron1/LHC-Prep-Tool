@@ -78780,11 +78780,83 @@ var WO = (function() {
     return (data.sectionLayout || []).map(function(sec, i) {
       return {
         title: _woStripNum(sec.title || ('Section ' + (i + 1))),
+        // ref: where the part is in the liturgy ('i:' its items, 's:' its
+        // songs), so a click can show its words (_svlItemHtml).
         items: items.filter(function(it) { return it.sectionId === sec.id; }).map(function(it) {
-          return { kind: it.itemType === 'scripture' ? 'reading' : (it.itemType === 'liturgy' ? 'liturgy' : 'text'), title: it.title || (it.content && it.content.reference) || 'Untitled' };
-        }).concat(songs.filter(function(s) { return (s.sections || []).indexOf(sec.id) !== -1; }).map(function(s) { return { kind: 'song', title: s.title || 'Song' }; }))
+          return { kind: it.itemType === 'scripture' ? 'reading' : (it.itemType === 'liturgy' ? 'liturgy' : 'text'), title: it.title || (it.content && it.content.reference) || 'Untitled', ref: 'i:' + items.indexOf(it) };
+        }).concat(songs.filter(function(s) { return (s.sections || []).indexOf(sec.id) !== -1; }).map(function(s) { return { kind: 'song', title: s.title || 'Song', ref: 's:' + songs.indexOf(s) }; }))
       };
     });
+  }
+  // A part's words, slide by slide (pure): a liturgy's or a reading's slides,
+  // else the text a text part holds.
+  function _svlItemTexts(it) {
+    it = it || {};
+    var sl = (Array.isArray(it.slides) ? it.slides : []).map(function(x) { return String((x && x.content) || ''); }).filter(function(t) { return t.trim(); });
+    if (sl.length) return sl;
+    var c = it.content;
+    if (typeof c === 'string') return c.trim() ? [c] : [];
+    if (c && typeof c.text === 'string' && c.text.trim()) return [c.text];
+    return [];
+  }
+  // What a part of a saved liturgy or a past service says, to read before
+  // loading it (the operator's team, 2026-11-08): its words as the Export
+  // sets them -- who speaks, the people's lines bold, a reading's verse
+  // numbers raised -- and a song's words from the song library, chords out.
+  function _svlItemHtml(d, ref) {
+    d = d || {};
+    var m = /^([is]):(\d+)$/.exec(String(ref || '')), texts = [], song = false, verses = false;
+    if (m && m[1] === 'i') {
+      var it = (d.items || [])[+m[2]] || {};
+      texts = _svlItemTexts(it); verses = it.itemType === 'scripture';
+    } else if (m) {
+      var sg = (d.songs || [])[+m[2]] || {}, lib = _lbdLibSong(sg.songId);
+      song = true;
+      if (lib && lib.lyrics) texts = [lib.lyrics];
+    }
+    var paras = texts.length ? _lbdExportParas(texts, { song: song }) : [];
+    if (!paras.length) return '<div class="svl-tx-none">' + (song ? 'This song’s words are not in the song library.' : 'No words were kept for this part.') + '</div>';
+    return paras.map(function(p) {
+      return '<div class="svl-tx-p">' + (p.label ? '<div class="svl-tx-lbl">' + _lbdEsc(p.label) + '</div>' : '') + p.lines.map(function(ln) {
+        var t = verses ? _lbdVerseRuns(ln.text).map(function(r) { return r.sup ? '<sup>' + _lbdEsc(r.t) + '</sup>' : _lbdEsc(r.t); }).join('') : _lbdEsc(ln.text);
+        return '<div class="svl-tx-ln' + (ln.people ? ' is-people' : '') + '">' + (ln.who ? '<strong class="svl-tx-who">' + _lbdEsc(ln.who) + ':</strong> ' : '') + t + '</div>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  // The outline, each part a button that shows its words under its section.
+  // cls: the list's class; onclick: the handler's name; idAttr: the data-
+  // attribute saying whose outline it is (escaped by the caller); openRef:
+  // the part shown open, if any.
+  function _svlOutlineHtml(d, cls, onclick, idAttr, openRef) {
+    var icons = { song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' };
+    return '<ol class="' + cls + '">' + _svlOutline(d).map(function(sec) {
+      var open = openRef && sec.items.some(function(it) { return it.ref === openRef; });
+      return '<li><b>' + _lbdEsc(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(it) {
+        var on = it.ref === openRef;
+        return '<button type="button" class="svl-oi' + (on ? ' is-on' : '') + '" data-r="' + it.ref + '" ' + idAttr + ' aria-expanded="' + on + '" title="Show its words" onclick="' + onclick + '(this)">' +
+          '<i class="fa-solid ' + icons[it.kind] + '" aria-hidden="true"></i>' + _lbdEsc(it.title) + '</button>';
+      }).join('') + '</span>' : '') +
+        '<div class="svl-tx"' + (open ? '' : ' hidden') + '>' + (open ? _svlItemHtml(d, openRef) : '') + '</div></li>';
+    }).join('') + '</ol>';
+  }
+  // A click on a part: its words open under its section, in place (no
+  // redraw, so the window keeps its place), one part at a time per outline;
+  // a second click closes them. Answers whether it is open now.
+  function _svlItemToggle(btn, d) {
+    var li = btn && btn.closest ? btn.closest('li') : null, ol = li && li.closest('ol'), box = li && li.querySelector('.svl-tx');
+    if (!box || !ol) return false;
+    var on = btn.classList.contains('is-on');
+    ol.querySelectorAll('.svl-oi.is-on').forEach(function(b) { b.classList.remove('is-on'); b.setAttribute('aria-expanded', 'false'); });
+    ol.querySelectorAll('.svl-tx').forEach(function(b) { b.hidden = true; b.innerHTML = ''; });
+    if (on) return false;
+    box.innerHTML = _svlItemHtml(d, btn.getAttribute('data-r'));
+    box.hidden = false; btn.classList.add('is-on'); btn.setAttribute('aria-expanded', 'true');
+    return true;
+  }
+  function lbdSvlItem(btn) {
+    var key = btn.getAttribute('data-k'), x = _svlFind(key);
+    if (!x) return;
+    _svlTx = _svlItemToggle(btn, x.kind === 'saved' ? x.data : _lldData[x.id]) ? key + '|' + btn.getAttribute('data-r') : '';
   }
   function _svlCounts(data) {
     data = data || {};
@@ -78924,7 +78996,7 @@ var WO = (function() {
   function _svlFind(key) { return _svlSources(_svlRows, _lldOrders).filter(function(x) { return x.key === key; })[0] || null; }
 
   // ---- the sheets ----
-  var _svlSel = '', _svlOpen = '', _svlUse = '', _svlKind = 'all', _svlYear = 0, _svlQ = '', _svlNoTable = false;
+  var _svlSel = '', _svlOpen = '', _svlUse = '', _svlKind = 'all', _svlYear = 0, _svlQ = '', _svlNoTable = false, _svlTx = '';
   // The whole liturgies to load: saved ones and past services, filtered by
   // where they come from, the service (occasion) and the year.
   function lbdServiceLiturgies(occasion, kind) {
@@ -78950,8 +79022,11 @@ var WO = (function() {
     var isFrom = !!(from && (saved ? from.id === x.id : from.fromOrder === x.id));
     var d = saved ? x.data : _lldData[x.id], c = d ? _svlCounts(d) : null;
     var when = saved && x.row && x.row.updated_at ? new Date(x.row.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    var meta = saved ? [_svlOccLabel(x.occasion), x.year ? String(x.year) : '', _svlTypeName(x.type)]
-                     : [x.date, x.day || _svlOccLabel(x.occasion), _svlTypeName(x.type)];
+    // The date leads, bold; the rest is plain (the operator, 2026-11-08). A
+    // saved liturgy's date is the year it is for.
+    var lead = saved ? (x.year ? String(x.year) : '') : (x.date || '');
+    var meta = saved ? [_svlOccLabel(x.occasion), _svlTypeName(x.type)]
+                     : [x.day || _svlOccLabel(x.occasion), _svlTypeName(x.type)];
     if (c) meta = meta.concat([c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs']);
     if (when) meta.push('saved ' + when);
     var q = [x.title, x.liturgist, x.day, x.date, _svlOccLabel(x.occasion), x.year].join(' ').toLowerCase();
@@ -78962,7 +79037,7 @@ var WO = (function() {
         (isFrom ? '<span class="svl-pill">This order came from it</span>' : '') + '</div>' +
         '<div class="svl-card__acts"><button type="button" class="lbd-btn" onclick="WO.lbdSvlToggle(\'' + escapeJsArg(x.key) + '\')">' + (open ? 'Hide' : 'Preview') + '</button>' +
         (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(x.key) + '\')"><i class="fa-solid fa-file-import"></i> Load it</button>' : '') + '</div></div>' +
-      '<div class="svl-card__meta">' + _lbdEsc(meta.filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="svl-card__meta">' + (lead ? '<b class="svl-card__date">' + _lbdEsc(lead) + '</b>' + (meta.filter(Boolean).length ? ' · ' : '') : '') + _lbdEsc(meta.filter(Boolean).join(' · ')) + '</div>' +
       (same ? '' : '<div class="svl-card__warn">Made for a ' + _lbdEsc(_svlTypeName(x.type).toLowerCase()) + ' service; open a ' + _lbdEsc(_svlTypeName(x.type).toLowerCase()) + ' order to use it.</div>');
     if (use) {
       var n = c ? c.songs : 0;
@@ -78973,17 +79048,17 @@ var WO = (function() {
         '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlUse(\'' + escapeJsArg(x.key) + '\')"><i class="fa-solid fa-check"></i> Load into this service</button></div></div>';
     }
     if (open) {
-      out += d ? '<ol class="svl-outline">' + _svlOutline(d).map(function(sec) {
-          return '<li><b>' + _lbdEsc(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(it) {
-            return '<i class="fa-solid ' + ({ song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' })[it.kind] + '" aria-hidden="true"></i>' + _lbdEsc(it.title);
-          }).join('') + '</span>' : '') + '</li>';
-        }).join('') + '</ol>'
+      out += d ? '<p class="svl-oi-hint"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Tap a part to read its words.</p>' +
+          _svlOutlineHtml(d, 'svl-outline', 'WO.lbdSvlItem', 'data-k="' + _lbdEsc(x.key) + '"', _svlTx.indexOf(x.key + '|') === 0 ? _svlTx.slice(x.key.length + 1) : '')
         : '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Reading that service…</p>';
     }
     return out + '</div>';
   }
-  function _svlDrawList() {
+  // keep: stay where the window was scrolled to (a preview opened or closed,
+  // a service read); a filter starts again at the top.
+  function _svlDrawList(keep) {
     if (!currentOrderData) return;
+    var b0 = keep ? document.querySelector('#lbdSheet .lbd-sheet-body') : null, top = b0 ? b0.scrollTop : 0;
     var all = _svlSources(_svlRows, _lldOrders), type = _svlOrderType();
     var here = _svlFilter(all, { kind: _svlKind, occ: _svlSel, year: _svlYear });
     var forCount = _svlFilter(all, { kind: _svlKind, year: _svlYear });
@@ -79012,6 +79087,7 @@ var WO = (function() {
       '<div class="lbd-sheet-foot"><span></span><button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSaveSheet()"><i class="fa-solid fa-floppy-disk"></i> Save this liturgy…</button></div>';
     _lbdSheet('<i class="fa-solid fa-layer-group"></i> Load a whole liturgy', html, { kind: 'svl' });
     if (_svlQ) lbdSvlFind(_svlQ);
+    if (top) { var b1 = document.querySelector('#lbdSheet .lbd-sheet-body'); if (b1) b1.scrollTop = top; }
   }
   function lbdSvlFilter(field, value) {
     if (field === 'kind') _svlKind = value || 'all';
@@ -79035,11 +79111,11 @@ var WO = (function() {
     var x = _svlFind(key);
     if (!x || x.kind !== 'order' || _lldData[x.id]) return;
     // Drawn again only while the list is still up: not over a sheet opened since.
-    _lldOrderData(x.id).then(function() { if ((_svlOpen === key || _svlUse === key) && document.querySelector('.svl-filters')) _svlDrawList(); },
+    _lldOrderData(x.id).then(function() { if ((_svlOpen === key || _svlUse === key) && document.querySelector('.svl-filters')) _svlDrawList(true); },
       function(err) { showToast('That service could not be read just now: ' + (err && err.message || 'no answer'), 'error'); });
   }
-  function lbdSvlToggle(key) { _svlOpen = _svlOpen === key ? '' : key; _svlDrawList(); if (_svlOpen) _svlNeedData(key); }
-  function lbdSvlAsk(key) { _svlUse = key || ''; _svlDrawList(); if (_svlUse) _svlNeedData(key); }
+  function lbdSvlToggle(key) { _svlOpen = _svlOpen === key ? '' : key; _svlTx = ''; _svlDrawList(true); if (_svlOpen) _svlNeedData(key); }
+  function lbdSvlAsk(key) { _svlUse = key || ''; _svlDrawList(true); if (_svlUse) _svlNeedData(key); }
 
   // Using one: the order's sections and liturgy replaced, as one undoable change.
   function lbdSvlUse(key) {
@@ -80953,7 +81029,8 @@ var WO = (function() {
       el.addEventListener('paste', _lbdSheetPaste);
     }
     _lbdSheetState = state;
-    el.innerHTML = '<div class="lbd-sheet" role="dialog" aria-modal="true">' +
+    // A sheet may be shaped by its kind (lbd-sheet--svl, the taller load window).
+    el.innerHTML = '<div class="lbd-sheet' + (state && /^[a-z-]+$/.test(state.kind || '') ? ' lbd-sheet--' + state.kind : '') + '" role="dialog" aria-modal="true">' +
       '<div class="lbd-sheet-head"><div class="lbd-sheet-title">' + titleHtml + '</div>' + (headHtml || '') +
         '<button type="button" class="lbd-icon" data-sact="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
       '<div class="lbd-sheet-body">' + bodyHtml + '</div></div>';
@@ -94893,7 +94970,7 @@ var WO = (function() {
     redo: function() { return _lbdIsActive() ? lbdRedo() : woRedo(); },
     lbdRender: lbdRender,
     lbdFillReadings: lbdFillReadings,
-    svlOutline: _svlOutline, svlCounts: _svlCounts,
+    svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
     lbdSvlSaveSheet: lbdSvlSaveSheet, lbdSvlName: lbdSvlName, lbdSvlSave: lbdSvlSave,
     zoomEditor: zoomEditor,
@@ -99666,16 +99743,17 @@ var LiturgyModule = (function() {
             '<span>' + escapeHtml(meta.filter(Boolean).join(' · ')) + '</span>' +
           '</button>';
         if (open) {
-          out += d && W.svlOutline
-            ? '<ol class="lit-svl-outline">' + W.svlOutline(d).map(function(sec) {
-                return '<li><b>' + escapeHtml(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(it) {
-                  return '<i class="fa-solid ' + ({ song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' })[it.kind] + '" aria-hidden="true"></i>' + escapeHtml(it.title);
-                }).join('') + '</span>' : '') + '</li>';
-              }).join('') + '</ol>'
+          out += d && W.svlOutlineHtml
+            ? W.svlOutlineHtml(d, 'lit-svl-outline', 'LiturgyModule.occSvlItem', 'data-id="' + escapeHtml(r.id) + '"', '')
             : '<p class="lit-svl-wait"><i class="fa-solid fa-spinner fa-spin"></i> Reading it…</p>';
         }
         return out + '</div>';
       }).join('') + '</div>';
+  }
+  // A part of a saved liturgy's outline: its words, under its section.
+  function occSvlItem(btn) {
+    var id = btn && btn.getAttribute('data-id');
+    if (id && window.WO && WO.svlItemToggle) WO.svlItemToggle(btn, _occSvlData[id]);
   }
   function toggleOccSvl(id) {
     _occSvlOpen = _occSvlOpen === id ? '' : id;
@@ -103889,6 +103967,7 @@ var LiturgyModule = (function() {
     selectOccFolder: selectOccFolder,
     ensureOccYearFolder: ensureOccYearFolder,
     toggleOccSvl: toggleOccSvl,
+    occSvlItem: occSvlItem,
     promptCreateOccFolder: promptCreateOccFolder,
     deleteOccFolder: deleteOccFolder,
     dropItemIntoFolder: dropItemIntoFolder,
@@ -113358,7 +113437,8 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .svl-card__top { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .svl-card__t { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 700; font-size: 0.92rem; color: #111827; overflow-wrap: anywhere; }
 .svl-card__acts { display: flex; gap: 6px; flex-wrap: wrap; }
-.svl-card__meta { margin-top: 6px; font-size: calc(0.74rem + 2px); font-weight: 700; line-height: 1.35; color: #374151; }
+.svl-card__meta { margin-top: 6px; font-size: calc(0.74rem + 2px); font-weight: 400; line-height: 1.35; color: #374151; }
+.svl-card__date { font-weight: 700; color: #111827; }
 .svl-card__lit { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: #0b7644; }
 .svl-card__lit i { font-size: 0.8em; }
 .svl-card__lit b { font-weight: 700; }
@@ -113370,6 +113450,21 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .svl-check input { width: 18px; height: 18px; }
 .svl-use__foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .svl-outline { margin: 10px 0 0; padding: 0 0 0 20px; font-size: 0.8rem; color: #374151; }
+.svl-oi-hint { margin: 10px 0 0; font-size: 0.74rem; color: #6b7280; }
+.svl-oi-hint i { margin-right: 4px; color: #22a957; }
+.svl-oi { display: inline-flex; align-items: baseline; gap: 0; min-height: 28px; margin: 0 0 0 -6px; padding: 3px 6px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.svl-oi:hover { background: #f0fdf4; color: #14532d; }
+.svl-oi.is-on { background: #dcfce7; color: #14532d; font-weight: 600; }
+.svl-oi:focus-visible { outline: 2px solid #22a957; outline-offset: 1px; }
+.svl-tx { margin: 6px 0 8px; padding: 10px 12px; border-left: 3px solid #22a957; border-radius: 0 8px 8px 0; background: #f8faf9; font-family: Georgia, 'Times New Roman', serif; font-size: 0.9rem; line-height: 1.5; color: #1f2933; max-height: 50vh; overflow-y: auto; }
+.svl-tx[hidden] { display: none; }
+.svl-tx-p + .svl-tx-p { margin-top: 10px; }
+.svl-tx-lbl { margin-bottom: 2px; font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; }
+.svl-tx-ln.is-people { font-weight: 700; }
+.svl-tx-who { display: inline-block; min-width: 1.8em; font-weight: 700; color: #14532d; }
+.svl-tx sup { font-size: 0.65em; color: #6b7280; }
+.svl-tx-none { font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #6b7280; }
+.lbd-sheet.lbd-sheet--svl { max-height: min(94vh, 1000px); }
 .svl-outline li { margin: 4px 0; }
 .svl-outline li b { display: block; color: #111827; }
 .svl-outline li span { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #4b5563; }
@@ -113395,6 +113490,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 @media (max-width: 600px) {
   .lbd-sheet-backdrop { align-items: flex-end; padding: 0; }
   .lbd-sheet { width: 100%; max-height: 90vh; border-radius: 18px 18px 0 0; }
+  .lbd-sheet.lbd-sheet--svl { max-height: 96vh; }
   .lbd-imp-row { flex-wrap: wrap; }
 }
 
