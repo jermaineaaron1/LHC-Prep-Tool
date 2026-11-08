@@ -246,9 +246,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
      as the song needs (gotcha 53). The song's tiles are one row -- Record,
-     Tracks, YouTube, Book Mode, Drawings, Edit, and More at its end; Links,
-     Browse online, Versions and Medley are in More, every icon there in a
-     colour of its own (gotcha 69). A song's videos are the red YouTube tile
+     Tracks, YouTube, Book Mode, Drawings, Edit, a purple Save / Load
+     Versions, and More at its end; Links, Browse online and Medley are in
+     More, every icon there in a colour of its own (gotchas 69, 72). A song's videos are the red YouTube tile
      (`sbmVideos`: one plays at once, several are listed; a song with none is
      offered Add a link), not a chip in its header. A green
      WhatsApp button -- first of the desk top bar's buttons, before the
@@ -283,14 +283,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
      its own, and **Own drawings** is in the Drawings window while the
-     copies share their drawings (gotcha 55). **Versions** (the "Past
-     versions" badge under the song's title, and More; it was Earlier
-     versions and Versions of this song, two sheets) is one sheet: This
+     copies share their drawings (gotcha 55). **Versions** (the purple
+     Save / Load Versions tile, the "Past versions" badge under the song's
+     title, and More; it was Earlier versions and Versions of this song,
+     two sheets) is one sheet: This
      service with Save as a version / Save as the main song, then Past
      versions newest first -- the main song, this service's other copies,
      earlier services with their drawings and recordings, saved versions,
      earlier main songs -- each a row to open read-only and a Use button,
-     then the medleys, with Save this medley. A song new to a service that
+     then the medleys, with Save this medley. A name saved again replaces
+     the version of that name, after a warning toast. A song new to a service that
      was sung before pulses its badge, and a finger shows where to tap
      (once a device); every take says which service it was made for,
      another service's marked (gotcha 72).
@@ -2417,7 +2419,7 @@ the anon key -- verify as `postgres`, not as the app.
     (key, version, drawings), "Changes here stay here unless you save them",
     and two big buttons -- **Save as a version** (`sbVerSaveAsk`: one
     `customPrompt` for the name, the service's title offered, then
-    `_sbVerSaveAs`) and **Save as the main song** (`sbVerMakeMain`), which
+    `_sbVerSaveNamed`) and **Save as the main song** (`sbVerMakeMain`), which
     reads "Same as the main song" instead when the service's way already is
     (`_sbVerMainOf` against the library song); Update it appears only when
     the copy has drifted from the version it chose. Then **Past versions**,
@@ -2434,8 +2436,35 @@ the anon key -- verify as `postgres`, not as the app.
     A saved medley keeps each song's VERSION as well as its key
     (`_mdsRowOf` writes `versionId`); `mdsUse` collects them and Save medley
     puts each song on its version (`_mdsApplyVersions`) before its key.
-    More has one row for all of it ("Versions: use a past version, or save
-    this one").
+    It opens from a purple **Save / Load Versions** tile between Edit and
+    More (`vTile` in `_sbmRender`, `.sbm-tile--ver`; 2026-11-09, the
+    operator: "for easier access"), offered wherever More offers it
+    (`_sbmOrderBook() || _sbVerOk === true`), and from More's row of the
+    same name. Eight tiles on a phone measured 1-4px too narrow for
+    "Drawings" and "YouTube" at 375px, so an eight-tile row closes its gap
+    to 2px and sets its labels at `clamp(7.5px, 2.2vw, 10px)` between 360
+    and 600px; under 360px it is two rows of four, as before. The read-only
+    preview (`data-sheet="earlier-open"`) is 470px on a desk, 10px wider
+    than any other sheet.
+    **A name saved twice REPLACES** (the operator, 2026-11-09). Two saves
+    called "Service - Nov 8" of Unto Thee O Lord sat side by side looking
+    the same, and were: the first had been sung since it was saved, so the
+    16 drawings made after it went onto it, and the second copied them.
+    `_sbVerSaveNamed` (both saves, `sbVerSaveAsk` and `sbVerCreate`) reads
+    the versions again (`_sbVerLoad`) and looks for the name
+    (`_sbVerSameName`, pure: case and spacing ignored, an earlier main song
+    never counts, the one this copy sings first, else the newest). None ->
+    `_sbVerSaveAs`. One -> a warning toast (`_sbVerWarnToast`: amber, from
+    the foot of the screen, z-index 10003 over the sheet; "<name> is already
+    saved", "Replace it with this service's key, words and drawings?", how
+    many OTHER services sing it; Cancel has the focus, Esc cancels,
+    `closeSongbook` cancels one left open), and Replace runs
+    `_sbVerReplace`: the row written over in place -- same id, so every
+    service on it stays on it -- with this copy's key and words, read back;
+    when the copy sings another version, that version's drawings are copied
+    onto it FIRST and its own old ones (by the ids this device knew) taken
+    off after. When the copy sings it already, its drawings are its own and
+    only the key and words are written. Rename does not check names.
     **Recall hints.** A copy is NEW to its service (`_sbEvFresh`) while it
     is on no version, in the song's own key and has no words of its own --
     words the same as `masterLyrics` are none, and formatting alone
@@ -2488,7 +2517,7 @@ the anon key -- verify as `postgres`, not as the app.
     songbook) plus saved versions, counted once a song every five minutes
     (`_sbEvCount`) and drawn into the badge in place, hidden at nought.
     `tools/songbook-earlier-versions-harness.js` checks it, the Versions
-    sheet and the recall hints too.
+    sheet, the recall hints, the tile and the replace too.
 
 73. **A slide's PART is carried down, never written -- and a heading is
     never projected.** From the operator (2026-11-08), on a marked-up

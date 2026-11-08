@@ -285,7 +285,7 @@ function fakeSup(tables, log) {
   // ------------------------------------------------- 5. Where it is reached
   console.log('\n5. Where it is reached');
   check('a badge under the song\'s title, in a service\'s songbook', has(/if \(_sbmOrderBook\(\)\) badges \+= _sbEvBadge\(song\);/));
-  check('...and More: one Versions entry, where Versions and Earlier versions were', has(/rows\.push\(\['fa-code-branch', 'Versions: use a past version, or save this one', 'WO\.sbmVersions\(\)'/) &&
+  check('...and More: one Versions entry, where Versions and Earlier versions were', has(/rows\.push\(\['fa-code-branch', 'Save \/ Load Versions', 'WO\.sbmVersions\(\)'/) &&
     !has(/'Copy an arrangement: as this service or an earlier one sang it'/) && !has(/'Versions of this song'/) && /function sbmArrangements\(\) \{ sbmVersions\(\); \}/.test(SRC));
   {
     let B = null;
@@ -339,7 +339,7 @@ function fakeSup(tables, log) {
     /onclick="WO\.sbVerMakeMain\(\)"><i class="fa-solid fa-crown"><\/i>Save as the main song<\/button>/.test(render) && /Same as the main song/.test(render));
   check('...and, when it has changed since a version was chosen, Update it', /onclick="WO\.sbVerUpdate\(\)"><i class="fa-solid fa-rotate"><\/i>Update it<\/button>/.test(render));
   check('Save as a version asks for a name once, then saves this service\'s way',
-    /window\.customPrompt\('Save as a version', 'A name the team will know it by', def\)/.test(fn('sbVerSaveAsk')) && /if \(name\) _sbVerSaveAs\(song, name\)\.catch/.test(fn('sbVerSaveAsk')));
+    /window\.customPrompt\('Save as a version', 'A name the team will know it by', def\)/.test(fn('sbVerSaveAsk')) && /if \(name\) _sbVerSaveNamed\(song, name\)\.catch/.test(fn('sbVerSaveAsk')));
   check('Past versions: one list, newest first; a row opens it read-only, one Use button sings it',
     /<span>Past versions<\/span><span class="ver-head__n">' \+ \(nP - 1\) \+ '<\/span><span class="vr-head__s">Newest first<\/span>/.test(render) &&
     /onclick="WO\.sbEvOpen\(' \+ i \+ '\)"/.test(render) && /class="sbm-btn sbm-btn--primary vr-row__use" onclick="event\.stopPropagation\(\);WO\.' \+ \(r\.kind === 'medley' \? 'sbEvUseMedley' : 'sbArrCopy'\) \+ '\(' \+ i \+ '\)">Use<\/button>/.test(render) &&
@@ -383,6 +383,100 @@ function fakeSup(tables, log) {
     /var drawN = function\(vid\) \{ return _sbmMarksOk === true \? _sbmMarksOf\(base, vid \|\| ''\)\.length : 0; \};/.test(render) &&
     /recs\.filter\(function\(x\) \{ return String\(x\.order_id \|\| ''\) === String\(orderId\); \}\)\.length/.test(render));
   check('every new handler is reachable from the page', ['sbEvOpen', 'sbEvOpenMember', 'sbEvBack', 'sbEvUseMedley', 'sbEvPlay', 'sbVerSaveAsk', 'sbVerRenameAsk', 'sbVerSaveMedley'].every(n => new RegExp(n + ': ' + n + ',').test(SRC)));
+
+  // ------------------------------------- 8. Save / Load Versions (2026-11-09)
+  console.log('\n8. Save / Load Versions: a purple tile, and a name saved twice replaces');
+  {
+    const rnd = fn('_sbmRender');
+    check('a purple Save / Load Versions tile between Edit and More, wherever More offers Versions',
+      /var vTile = \(_sbmOrderBook\(\) \|\| _sbVerOk === true\)/.test(rnd) &&
+      /'<button class="sbm-tile sbm-tile--ver" onclick="WO\.sbmVersions\(\)"[^>]*><i class="fa-solid fa-code-branch"><\/i>Save \/ Load Versions<\/button>'/.test(rnd) &&
+      /onclick="WO\.sbmEdit\(\)">[^\n]*\r?\n\s*vTile \+\r?\n\s*'<button class="sbm-tile sbm-tile--more"/.test(rnd) &&
+      /sbm-tile-row--' \+ \(vTile \? '8' : '7'\) \+ '">'/.test(rnd));
+    check('...purple, eight to a row, its label free to wrap',
+      has(/\.sbm-tile--ver \{ color: #fff; background: linear-gradient\(160deg, #8b5cf6, #6d28d9\);/) && has(/\.sbm-tile-row--8 \{ grid-template-columns: repeat\(8, minmax\(0, 1fr\)\); \}/) &&
+      has(/#sbmRoot:not\(\.sbm--wide\) :is\(\.sbm-tile-row--7, \.sbm-tile-row--8\) \.sbm-tile \{/));
+    check('the read-only preview is 10px wider than a sheet (470 against 460)',
+      has(/@media \(min-width: 821px\) \{ #sbmSheet\[data-sheet="earlier-open"\] \.sbm-sheet \{ width: min\(470px, 92vw\); \} \}/) && has(/width: min\(460px, 92vw\);/));
+
+    let S = null;
+    try { S = new Function('_sbVerIsKept', extractFn('_sbVerNameKey') + '\n' + extractFn('_sbVerSameName') + '\nreturn _sbVerSameName;')(v => v.made_from === 'library'); } catch (e) { S = null; }
+    const list = [{ id: 'a', name: 'Service - Nov 8', created_at: '2026-11-08T16:46:05Z' }, { id: 'b', name: 'service -  nov 8 ', created_at: '2026-11-08T16:57:02Z' },
+      { id: 'k', name: 'Service - Nov 8', made_from: 'library', created_at: '2026-11-09T00:00:00Z' }, { id: 'c', name: 'Youth Sunday', created_at: '2026-10-01T00:00:00Z' }];
+    const got = S ? [S(list, 'SERVICE - NOV 8', ''), S(list, 'Service - Nov 8', 'a'), S(list, 'Easter', ''), S(list, '  ', ''), S(null, 'x', '')].map(v => v ? v.id : '-').join() : '';
+    check('a name is the same name whatever its case and spacing; an earlier main song never counts; the one this copy sings first, else the newest',
+      got === 'b,a,-,-,-', got);
+
+    let N = null, calls = [];
+    const mk = env => new Function('_sbBaseSongId', '_sbVerOk', '_sbVers', '_sbVerUse', 'currentOrderData', '_sbVerLoad', '_sbVerSaveAs', '_sbVerWarnToast', '_sbVerReplace', '_sbVerIsKept',
+      extractFn('_sbVerNameKey') + '\n' + extractFn('_sbVerSameName') + '\n' + extractFn('_sbVerSaveNamed') + '\nreturn _sbVerSaveNamed;')(
+      s => s.songId, true, env.vers, env.use, { id: 'o_now' }, () => Promise.resolve(), (s, n) => { calls.push('new:' + n); return Promise.resolve({ id: 'new' }); },
+      o => { calls.push('ask:' + o.title + '|' + o.msg + '|' + o.ok); return Promise.resolve(env.answer); }, (s, x) => { calls.push('replace:' + x.id); return Promise.resolve(x); }, v => v.made_from === 'library');
+    try { N = mk; extractFn('_sbVerSaveNamed'); } catch (e) { N = null; }
+    if (N) {
+      const env = { vers: { s1: list.slice(0, 2) }, use: { s1: { b: ['o_now', 'o_old', 'o_old2'] } }, answer: false };
+      const song = { songId: 's1', versionId: '' };
+      calls = []; await N(env)(song, 'Fresh name');
+      const fresh = calls.join(' / ');
+      calls = []; const r1 = await N(env)(song, 'Service - Nov 8');
+      const cancelled = calls.join(' / ');
+      env.answer = true; calls = []; await N(env)(song, 'Service - Nov 8');
+      const replaced = calls.join(' / ');
+      check('a new name is saved as a new version, asked nothing', fresh === 'new:Fresh name', fresh);
+      check('a name already saved asks first, in a few words, saying how many other services sing it', /^ask:.service - {2}nov 8 . is already saved\|Replace it with this service.s key, words and drawings\? 2 other services sing it and will see the new drawings\.\|Replace$/.test(cancelled), cancelled);
+      check('...Cancel writes nothing', r1 === null && !/new:|replace:/.test(cancelled));
+      check('...Replace writes over that version, never a second one', /\/ replace:b$/.test(replaced) && !/new:/.test(replaced), replaced);
+    } else check('_sbVerSaveNamed exists', false);
+    check('both ways to save go through it, after reading the versions again', /if \(name\) _sbVerSaveNamed\(song, name\)\.catch/.test(fn('sbVerSaveAsk')) &&
+      /_sbVerSaveNamed\(song, name\)\.then\(/.test(fn('sbVerCreate')) && /return _sbVerLoad\(base\)\.then\(check, check\);/.test(fn('_sbVerSaveNamed')));
+
+    // _sbVerReplace against a stand-in database.
+    const fakeSup = log => {
+      const q = (t, op, arg) => {
+        const st = { t, op, arg, filters: [] };
+        const p = {
+          eq(k, v) { st.filters.push(k + '=' + v); return p; }, in(k, v) { st.filters.push(k + ' in ' + v.join(',')); return p; },
+          select() { st.select = true; return p; },
+          then(f, g) {
+            log.push(st.t + '.' + st.op + (st.filters.length ? '[' + st.filters.join(';') + ']' : ''));
+            let data = [];
+            if (st.op === 'update') data = [Object.assign({ id: 'x1', name: 'Service - Nov 8' }, st.arg)];
+            if (st.op === 'insert') data = st.arg.map((m, i) => Object.assign({ id: 'n' + i }, m));
+            return Promise.resolve({ data, error: null }).then(f, g);
+          }
+        };
+        return p;
+      };
+      return { from(t) { return { update(a) { return q(t, 'update', a); }, insert(a) { return q(t, 'insert', a); }, delete() { return q(t, 'delete'); } }; } };
+    };
+    const RP = (env) => new Function('window', 'currentOrderData', '_sbBaseSongId', '_sbVerWordsOf', '_sbVerSteps', '_sbVerMarks', '_sbmMarks', '_sbmLayersOk', '_sbVerSaved', '_sbVerReshow', 'showToast',
+      extractFn('_sbVerReplace') + '\nreturn _sbVerReplace;')(
+      { _supabase: fakeSup(env.log) }, { id: 'o_now' }, s => s.songId, () => ({ lyrics: 'G\nWords', rich: null }), s => s.transposeSteps || 0,
+      (ms, v) => (ms || []).filter(m => (m.version_id || '') === (v || '')), env.marks, true, () => env.log.push('saved'), () => {}, (m, k) => env.log.push('toast:' + k + ':' + m));
+    {
+      let ok = true, e1 = null, e2 = null;
+      try {
+        e1 = { log: [], marks: { s1: [{ id: 'm1', version_id: '', anchor: 'l:1', points: [] }, { id: 'm2', version_id: '', anchor: 'l:2', points: [] }, { id: 'old1', version_id: 'x1', anchor: 'l:3', points: [] }] } };
+        const song = { songId: 's1', versionId: '', transposeSteps: 3 };
+        const x = { id: 'x1', name: 'Service - Nov 8' };
+        await RP(e1)(song, x);
+        check('replacing from another version: the row written over (same id), the drawings shown now copied onto it, then its old ones taken off',
+          e1.log.slice(0, 3).join(' / ') === 'song_versions.update[id=x1] / song_marks.insert / song_marks.delete[id in old1]' && song.versionId === 'x1' && x.transpose_steps === 3 &&
+          e1.marks.s1.filter(m => m.version_id === 'x1').map(m => m.id).join() === 'n0,n1' && e1.log.indexOf('saved') > -1, e1.log.join(' / '));
+        e2 = { log: [], marks: { s1: [{ id: 'k1', version_id: 'x1', anchor: 'l:1', points: [] }] } };
+        const song2 = { songId: 's1', versionId: 'x1', transposeSteps: 1 };
+        await RP(e2)(song2, { id: 'x1', name: 'Service - Nov 8' });
+        check('replacing the version this copy sings: only its key and words are written; its drawings are its own already',
+          e2.log.filter(l => /^song_/.test(l)).join(' / ') === 'song_versions.update[id=x1]' && e2.marks.s1.length === 1 && /toast:success:Replaced/.test(e2.log.join('|')), e2.log.join(' / '));
+      } catch (e) { ok = false; check('_sbVerReplace runs', false, e.message); }
+    }
+    const toast = fn('_sbVerWarnToast');
+    check('the warning is a toast: amber, from the foot of the screen, over the sheet; Cancel or Replace, Esc cancels, Cancel has the focus',
+      /el\.id = 'sbVerWarn'; el\.className = 'sbm sbm-vwarn';/.test(toast) && /fa-triangle-exclamation/.test(toast) && /data-vwarn="0">Cancel<\/button>/.test(toast) &&
+      /if \(e\.key === 'Escape'\) \{ e\.stopPropagation\(\); e\.preventDefault\(\); done\(false\); \}/.test(toast) && /var c = el\.querySelector\('\[data-vwarn="0"\]'\); if \(c\) c\.focus\(\);/.test(toast) &&
+      has(/\.sbm-vwarn \{\r?\n\s*position: fixed; left: 50%; bottom: calc\(18px \+ env\(safe-area-inset-bottom, 0px\)\); z-index: 10003;/) && has(/border-left: 6px solid #f59e0b;/));
+    check('...and goes, unanswered, with the book', /var vw = document\.getElementById\('sbVerWarn'\); if \(vw && vw\.__done\) vw\.__done\(false\);/.test(fn('closeSongbook')));
+  }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
