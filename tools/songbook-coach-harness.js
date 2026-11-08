@@ -2,18 +2,19 @@
 // Harness for the Songbook's coach marks (2026-11-07). From the operator,
 // for phones and desks alike:
 //
-//   1. the scroll-down flash, "only at the initial opening of a songbook when
-//      the app is first opened" -- once each time the app is opened, held in
-//      memory -- and on a desk too, whenever the words are not yet up the
-//      screen;
+//   1. the scroll-down flash, on a desk too whenever the words are not yet up
+//      the screen. 2026-11-08: "only the first time the songbook is
+//      accessed" -- once on each device -- and 2.5 seconds;
 //   2. when the recordings sheet opens, four seconds pointing at what kind of
 //      take it is (whole song, an instrument, a voice part; a section has its
 //      own mic in the song) and at Record;
 //   3. when a take is stopped, arrows to Tracks, where it plays back;
-//   4. after two minutes in a songbook, how to draw a remark (double-tap the
-//      words) and that its drawer chooses who sees it, Everyone by default.
+//   4. ten seconds into a songbook (it was two minutes), how to draw a remark:
+//      no card (2026-11-08) -- a finger double-tapping a word of the song, a
+//      ring drawing itself round it, arrows up to the Draw chip.
 //
-// Each shows once each time the app is opened, never in the desk's Phone view.
+// 2 and 3 show once each time the app is opened; 1 and 4 once on each
+// device; none in the desk's Phone view.
 //
 // USAGE
 //   node tools/songbook-coach-harness.js
@@ -60,7 +61,7 @@ function check(label, ok, detail) {
 }
 
 // --------------------------------------------------------------- 1. the flash
-console.log('\n1. The scroll-down flash: the first songbook each time the app is opened');
+console.log('\n1. The scroll-down flash: the first songbook on the device');
 let want = null;
 try { want = new Function(extractFn('_sbmIntroWant') + '\nreturn _sbmIntroWant;')(); } catch (e) { want = null; }
 if (!want) check('whether the flash is wanted is a function of its own', false);
@@ -75,16 +76,21 @@ const gc = fn('_sbmGuideCheck');
 check('it shows when wanted, the floater comes after it, and waits while it is up',
   /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) &&
   /_sbmGuideOn = want;\r?\n\s*\/\/[^\n]*\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
-check('held in memory only: once each time the app is opened', /return !_sbmIntroDone && !window\.__SBM_PREVIEW;/.test(fn('_sbmIntroDue')) && !has(/lhc_sbm_intro_seen/));
+check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroDue')) &&
+  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroShow')));
+check('two and a half seconds, the bar that counts them down too', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(fn('_sbmIntroShow')) &&
+  has(/\.sbm-intro__time span \{[^}]*animation: sbmIntroTime 2\.5s linear forwards; \}/) && !has(/sbmIntroTime 5s/));
 
 // ------------------------------------------------------------ the coach layer
 console.log('\nThe coach layer');
 let C = null;
 try {
-  C = function(win, doc, timers) {
-    const body = extractVar('_sbmCoachSeen') + '\n' + ['_sbmCoachDue', '_sbmCoachOpen', '_sbmCoachClose', '_sbmCoachPlace', '_sbmCoachFrame'].map(extractFn).join('\n') +
+  C = function(win, doc, timers, ls) {
+    const body = extractVar('_sbmCoachSeen') + '\n' + extractVar('_SBM_COACH_ONCE') + '\n' +
+      ['_sbmSeenHere', '_sbmSeenMark', '_sbmCoachDue', '_sbmCoachOpen', '_sbmCoachClose', '_sbmCoachPlace', '_sbmCoachFrame'].map(extractFn).join('\n') +
       '\nreturn { due: _sbmCoachDue, open: _sbmCoachOpen, close: _sbmCoachClose, frame: _sbmCoachFrame, seen: _sbmCoachSeen };';
-    return new Function('window', 'document', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', body)(win, doc, timers.st, timers.ct, timers.si, timers.ci);
+    const store = ls || { getItem: () => null, setItem: () => {} };
+    return new Function('window', 'document', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'localStorage', body)(win, doc, timers.st, timers.ct, timers.si, timers.ci, store);
   };
 } catch (e) { C = null; }
 if (!C) check('the coach layer exists', false);
@@ -105,12 +111,23 @@ else {
   check('closing by name leaves another one alone', (api.close('record'), layer === made[1]) && (api.close('tracks'), layer === null));
   const phone = C({ __SBM_PREVIEW: true, addEventListener() {} }, doc, T);
   check('never in the desk\'s Phone view', phone.due('record') === false && phone.due('draw') === false);
+  const kept = {}, LS = { getItem: k => (k in kept ? kept[k] : null), setItem: (k, v) => { kept[k] = String(v); } };
+  const day1 = C(win, doc, T, LS);
+  check('the drawing hint is due on a device that has never seen it', day1.due('draw') === true);
+  day1.open('draw', 7000); day1.close('draw');
+  const day2 = C(win, doc, T, LS);
+  check('...and never again there, the app opened again; the others are due again',
+    !!kept.lhc_sbm_draw_hint_seen && day2.due('draw') === false && day2.due('record') === true && day2.due('tracks') === true, JSON.stringify(kept));
+  const priv = C(win, doc, T, { getItem: () => { throw new Error('no storage'); }, setItem: () => { throw new Error('no storage'); } });
+  check('a browser that keeps nothing: still once while the app stays open', priv.due('draw') === true && (priv.open('draw', 7000), priv.due('draw') === false));
+  priv.close('draw');
   const node = { style: {} };
   api.frame(node, { left: 26, top: 599, width: 323, height: 40 }, 6);
   check('a ring is drawn round its target, a little outside it', node.style.left === '20px' && node.style.top === '593px' && node.style.width === '335px' && node.style.height === '52px', JSON.stringify(node.style));
   const op = fn('_sbmCoachOpen'), cl = fn('_sbmCoachClose');
   check('it follows what it points at, and goes by itself', /el\.__iv = setInterval\(_sbmCoachPlace, 200\);/.test(op) && /el\.__t = setTimeout\(function\(\) \{ _sbmCoachClose\(key\); \}, ms\);/.test(op) &&
-    /clearTimeout\(el\.__t\); clearInterval\(el\.__iv\); el\.remove\(\);/.test(cl));
+    /clearTimeout\(el\.__t\); clearInterval\(el\.__iv\); el\.remove\(\);/.test(cl) &&
+    /if \(el\.__off\) document\.removeEventListener\('pointerdown', el\.__off, true\);/.test(cl));
   }
   check('it sits over the recordings sheet (z-index 3750)', has(/\.sbm-coach \{ position: fixed; inset: 0; z-index: 3800; pointer-events: none;/) && has(/id="sbRecSheet" style="display:none;position:fixed;inset:0;z-index:3750;/));
 }
@@ -142,52 +159,68 @@ check('the ring opens Tracks, the sheet closed first', /_sbmCoachClose\(\);\r?\n
 check('Tracks is brought into sight first, above the sheet and under a desk\'s sticky bar', /if \(tr\.top < minTop \|\| tr\.bottom > room - 140\) root\.scrollTop \+= tr\.top - want;/.test(tr));
 
 // ------------------------------------------------------------ 4. drawing
-console.log('\n4. Two minutes in a songbook: drawing a remark');
+console.log('\n4. Ten seconds into a songbook: how to draw, on the words themselves');
 let K = null;
 try {
   K = function(env) {
-    const body = extractVar('_sbmCoachSeen') + '\n' + extractVar('_sbmCoachClock') + '\n' + ['_sbmCoachDue', '_sbmCoachTick'].map(extractFn).join('\n') +
+    const body = extractVar('_sbmCoachSeen') + '\n' + extractVar('_SBM_COACH_ONCE') + '\n' + extractVar('_sbmCoachClock') + '\n' + extractVar('_SBM_DRAW_HINT_AFTER') + '\n' +
+      ['_sbmSeenHere', '_sbmSeenMark', '_sbmCoachDue', '_sbmCoachTick'].map(extractFn).join('\n') +
       '\nreturn { tick: _sbmCoachTick, clock: _sbmCoachClock, seen: _sbmCoachSeen };';
     const names = Object.keys(env);
     return new Function(...names, body)(...names.map(k => env[k]));
   };
 } catch (e) { K = null; }
-if (!K) check('the two minutes are kept by a function of its own', false);
+if (!K) check('the ten seconds are kept by a function of its own', false);
 else {
-  let now = 1000000; const S = { open: true, active: true, busy: false, shown: 0, hidden: false };
+  let now = 1000000; const S = { open: true, active: true, busy: false, shown: 0, hidden: false, at: { word: {} } };
   const env = { Date: { now: () => now }, document: { get hidden() { return S.hidden; } }, window: {}, clearInterval: () => {},
-    _sbmBookOpen: () => S.open, _sbmActive: () => S.active, _sbmCoachBusy: () => S.busy, _sbmMarksOk: true, _sbmCoachDraw: () => { S.shown++; } };
+    localStorage: { getItem: () => null, setItem: () => {} },
+    _sbmBookOpen: () => S.open, _sbmActive: () => S.active, _sbmCoachBusy: () => S.busy, _sbmMarksOk: true,
+    _sbmCoachDrawAt: () => S.at, _sbmCoachDraw: () => { S.shown++; } };
   let k = null; try { k = K(env); } catch (e) { k = null; }
-  if (!k) check('the two minutes are kept by a function of its own', false); else {
+  if (!k) check('the ten seconds are kept by a function of its own', false); else {
   k.clock.last = now;
   const run = (n, step) => { for (let i = 0; i < n; i++) { now += step; k.tick(); } };
-  run(23, 5000);
-  check('under two minutes open: nothing yet', S.shown === 0 && k.clock.ms === 115000, k.clock.ms);
-  S.hidden = true; run(10, 5000); S.hidden = false;
-  check('time in another tab does not count', S.shown === 0 && k.clock.ms === 115000);
-  S.open = false; run(10, 5000); S.open = true;
-  check('...nor time with the songbook closed', S.shown === 0 && k.clock.ms === 115000);
+  run(9, 1000);
+  check('under ten seconds open: nothing yet', S.shown === 0 && k.clock.ms === 9000, k.clock.ms);
+  S.hidden = true; run(10, 1000); S.hidden = false;
+  check('time in another tab does not count', S.shown === 0 && k.clock.ms === 9000);
+  S.open = false; run(10, 1000); S.open = true;
+  check('...nor time with the songbook closed', S.shown === 0 && k.clock.ms === 9000);
   now += 3600000; k.tick();
-  check('a long gap counts as one tick at most', k.clock.ms === 121000 && S.shown === 1, k.clock.ms + ' / ' + S.shown);
+  check('a long gap counts as two seconds at most; at ten seconds it shows', k.clock.ms === 11000 && S.shown === 1, k.clock.ms + ' / ' + S.shown);
   const k2 = K(Object.assign({}, env, { _sbmCoachDraw: () => { S.shown2 = (S.shown2 || 0) + 1; } }));
-  S.busy = true; k2.clock.last = now; for (let i = 0; i < 30; i++) { now += 5000; k2.tick(); }
-  check('at two minutes, while the reader is busy (drawing, a sheet, recording): it waits', !S.shown2);
-  S.busy = false; now += 5000; k2.tick();
-  check('...and shows when they are not', S.shown2 === 1);
+  S.busy = true; k2.clock.last = now; for (let i = 0; i < 30; i++) { now += 1000; k2.tick(); }
+  check('at ten seconds, while the reader is busy (drawing, a sheet, recording, the flash): it waits', !S.shown2);
+  S.busy = false; S.at = null; for (let i = 0; i < 5; i++) { now += 1000; k2.tick(); }
+  check('...and while the song\'s words are out of sight', !S.shown2);
+  S.at = { word: {} }; now += 1000; k2.tick();
+  check('...and shows once they are in sight and the reader is free', S.shown2 === 1);
+  const k3 = K(Object.assign({}, env, { _sbmMarksOk: null, _sbmCoachDraw: () => { S.shown3 = 1; } }));
+  k3.clock.last = now; for (let i = 0; i < 20; i++) { now += 1000; k3.tick(); }
+  check('not before drawing is known to be there (no Draw chip yet)', !S.shown3);
   }
 }
 const draw = fn('_sbmCoachDraw');
-check('the clock starts with the book', /\/\/ The two minutes before the drawing coach mark start with the book\.\r?\n\s*_sbmCoachClockStart\(\);/.test(fn('_sbmGuideUpdate')) &&
-  /_sbmCoachClock\.t = setInterval\(_sbmCoachTick, 5000\);/.test(fn('_sbmCoachClockStart')));
+check('the clock starts with the book, ticking each second, ten of them', /\/\/ The ten seconds before the drawing hint start with the book\.\r?\n\s*_sbmCoachClockStart\(\);/.test(fn('_sbmGuideUpdate')) &&
+  /_sbmCoachClock\.t = setInterval\(_sbmCoachTick, 1000\);/.test(fn('_sbmCoachClockStart')) && /var _SBM_DRAW_HINT_AFTER = 10000;/.test(SRC));
 check('busy means drawing, typing, Book Mode, recording, a sheet, Tracks, the flash or another coach mark',
   /_sbmDraw \|\| _sbNp \|\| _sbBkOpen\(\) \|\| _sbRecording \|\| \(rs && rs\.style\.display !== 'none'\)/.test(fn('_sbmCoachBusy')) &&
   /document\.getElementById\('sbmSheet'\) \|\| document\.getElementById\('sbmPrac'\) \|\| document\.getElementById\('sbmIntro'\)/.test(fn('_sbmCoachBusy')));
-check('it says: double-tap the chords & lyrics to draw a remark', /<b>Double-tap<\/b> anywhere on the chords &amp; lyrics to draw a remark/.test(draw));
-check('...then who sees it, Everyone the default', /When you finish, choose who sees it:/.test(draw) &&
-  /<span class="sbm-coach__chip is-on"><i class="fa-solid fa-earth-asia"><\/i>Everyone<small>\(default\)<\/small><\/span>/.test(draw) &&
-  /Only me/.test(draw) && /A group/.test(draw) && has(/'<button type="button" class="who-part' \+ \(c\[0\] === 'all' \? ' is-on' : ''\) \+ '"/));
-check('Try it now goes to the words with the pen out; a tap anywhere closes it; nine seconds', /var L = _sbmCoachOpen\('draw', 9000\);/.test(draw) &&
-  /if \(act && act\.getAttribute\('data-act'\) === 'try'\) sbmLayersDraw\(\);/.test(draw) && /_sbmCoachClose\('draw'\);/.test(draw));
+check('no card: the yellow card, its chips and buttons are gone', !/sbm-coach__card/.test(draw) && !/data-act=/.test(draw) && !has(/\.sbm-coach__card--draw/) && !has(/function _sbmCoachArt/));
+check('a finger on a word of the song, double-tapping, ripples under it, a ring drawing itself round the word',
+  /fa-hand-pointer sbm-hint__finger/.test(draw) && /sbm-hint__ripple sbm-hint__ripple--2/.test(draw) && /<svg class="sbm-hint__ring"/.test(draw) &&
+  has(/@keyframes sbmHintTap \{/) && has(/\.sbm-hint__ring ellipse \{ stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing/));
+check('it says what to do, under the finger: double-tap the words to draw', /<b>Double-tap<\/b> the words to draw/.test(draw));
+check('...and points up at the Draw chip when it is in sight: a ring round it, arrows, "or tap Draw"',
+  /_sbmCoachFrame\(parts\[0\], c, 5\);/.test(draw) && /sbm-coach__arrows sbm-hint__arrows/.test(draw) && /or tap <b>Draw<\/b>/.test(draw) &&
+  /var chip = card\.querySelector\('\.sbm-chip--draw'\)/.test(fn('_sbmCoachDrawAt')));
+check('it points at a lyric line or a line of the choir score wholly on the screen, clear of the floater',
+  /card\.querySelectorAll\('\.wo-lyrics-lyric-line, \.vl-words'\)/.test(fn('_sbmCoachDrawAt')) && /r\.top < top \+ 8 \|\| r\.bottom > bottom - 90/.test(fn('_sbmCoachDrawAt')));
+check('every tap goes through it -- a double-tap draws -- and takes it away; drawing takes it away; seven seconds',
+  /var L = _sbmCoachOpen\('draw', 7000\);/.test(draw) && /document\.addEventListener\('pointerdown', L\.__off, true\);/.test(draw) &&
+  /if \(_sbmDraw \|\| !_sbmBookOpen\(\)\) \{ _sbmCoachClose\('draw'\); return; \}/.test(draw) && has(/\.sbm-coach \{ position: fixed; inset: 0; z-index: 3800; pointer-events: none;/));
+check('it follows the words while they scroll, and hides while they are out of sight', /L\.classList\.toggle\('is-away', !A\);/.test(draw) && has(/\.sbm-coach--hint\.is-away > \* \{ visibility: hidden; \}/));
 check('closing the songbook takes any coach mark with it', /function closeSongbook\(\) \{\r?\n\s*_sbmCoachClose\(\);/.test(SRC));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

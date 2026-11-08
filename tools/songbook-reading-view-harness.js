@@ -357,17 +357,17 @@ console.log('\nThe floater, bright yellow and larger');
 const guideCss = (SRC.match(/\.sbm-guide \{[^}]*\}/) || [''])[0];
 check('bright yellow, 56px tall (10px more), its words larger', /background: #ffd60a;/.test(guideCss) && /min-height: 56px;/.test(guideCss) && /font: 800 17px\/1/.test(guideCss));
 
-console.log('\nThe first time: a five-second flash to the words');
+console.log('\nThe first time: a flash to the words, 2.5 seconds');
 const gc = fn('_sbmGuideCheck'), show = fn('_sbmIntroShow'), due = fn('_sbmIntroDue'), end = fn('_sbmIntroEnd');
 // (Since the second ask it shows whenever the words are not yet up the screen,
 // a desk too, and the floater comes after it: tools/songbook-coach-harness.js.)
 check('it comes at the first opening, the floater after it, and waits while it is up',
   /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) && /if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
-// (Second ask: "only at the initial opening of a songbook when the app is
-// first opened" -- once each time the app is opened, held in memory.)
-check('once each time the app is opened, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW;/.test(due) &&
-  !/lhc_sbm_intro_seen/.test(SRC) && /_sbmIntroDone = true;/.test(show));
-check('five seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 5000\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
+// (Third ask, 2026-11-08: "only the first time the songbook is accessed" --
+// once on the device -- and 2.5 seconds instead of 5.)
+check('once on the device, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen'\);/.test(due) &&
+  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen'\);/.test(show));
+check('two and a half seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
   /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
 check('it says where the words are, and flashes', /Scroll down!/.test(show) && /The chords &amp; lyrics are just below/.test(show) &&
   has(/sbmIntroWobble 2\.4s ease-in-out \.5s infinite, sbmIntroFlash \.9s ease-in-out \.5s 3;/) && has(/@keyframes sbmIntroTime \{ from \{ transform: scaleX\(1\); \} to \{ transform: scaleX\(0\); \} \}/));
@@ -390,7 +390,7 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
   let Idue = null;
   try {
     Idue = new Function('localStorage', 'window', 'document', 'setTimeout', 'clearTimeout', '_sbmGuideCheck',
-      extractVar('_sbmIntroT') + '\n' + ['_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroArt', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
+      extractVar('_sbmIntroT') + '\n' + ['_sbmSeenHere', '_sbmSeenMark', '_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroArt', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
   } catch (e) { Idue = null; }
   if (!Idue) check('the flash runs', false);
   else {
@@ -402,10 +402,17 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
     const api = Idue(ls, {}, doc, () => 1, () => {}, () => {});
     const first = api.due();
     api.show();
-    check('the first time it shows, and is not written to the device', first === true && added.length === 1 && Object.keys(store).length === 0);
+    check('the first time it shows, and the device remembers it', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen);
     check('...and not again while the app stays open', api.due() === false);
     const api2 = Idue(ls, {}, doc, () => 1, () => {}, () => {});
-    check('...but again the next time the app is opened', api2.due() === true);
+    check('...nor the next time the app is opened: phones reopen it all day', api2.due() === false);
+    const none = { getItem: () => { throw new Error('no storage'); }, setItem: () => { throw new Error('no storage'); } };
+    let el2 = null;
+    const doc2 = { getElementById: id => id === 'songbookLiveModal' ? { appendChild: e => { el2 = e; } } : (id === 'sbmIntro' ? el2 : null),
+      createElement: () => ({ setAttribute() {}, addEventListener() {}, remove() { el2 = null; } }) };
+    const p1 = Idue(none, {}, doc2, () => 1, () => {}, () => {});
+    const pf = p1.due(); p1.show();
+    check('a browser that keeps nothing: once while the app stays open', pf === true && p1.due() === false);
     const api3 = Idue({ getItem: () => null, setItem: () => {} }, { __SBM_PREVIEW: true }, doc, () => 1, () => {}, () => {});
     check('...nor in the desk\'s Phone view', api3.due() === false);
   }

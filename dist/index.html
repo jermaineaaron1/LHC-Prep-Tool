@@ -54004,7 +54004,7 @@ var WO = (function() {
   function _sbmGuideUpdate() {
     var modal = document.getElementById('songbookLiveModal'), root = document.getElementById('sbmRoot');
     if (!modal || !root) return;
-    // The two minutes before the drawing coach mark start with the book.
+    // The ten seconds before the drawing hint start with the book.
     _sbmCoachClockStart();
     if (!root.__sbmGuide) {
       root.__sbmGuide = true;
@@ -54048,16 +54048,23 @@ var WO = (function() {
   // ---- the first time: where the words are ----
   //
   // From the operator (2026-11-07): the first time someone opens a songbook,
-  // a five-second flash shows them to scroll down for the chords and
-  // lyrics, then the floater takes over. First it was once per device; then
-  // the operator: "only at the initial opening of a songbook when the app is
-  // first opened" -- so once each time the app is opened, held in memory
-  // and nowhere else. It shows only when the words are out of sight below --
-  // the floater's own test -- so a desk that opens with the words in view
-  // never sees it; and never in the desk's Phone view.
+  // a flash shows them to scroll down for the chords and lyrics, then the
+  // floater takes over. It was once per device, then once each time the app
+  // was opened -- and phones reopen the app all day, so singers met it again
+  // and again. 2026-11-08: "only the first time the songbook is accessed",
+  // and two and a half seconds, not five. So once on each device
+  // (lhc_sbm_intro_seen, the key it had before, so a device that saw it then
+  // does not see it again), and once a page where the browser keeps nothing.
+  // It shows only when the words are out of sight below -- the floater's own
+  // test -- so a desk that opens with the words in view never sees it; and
+  // never in the desk's Phone view.
+  // Seen on this device before? A browser that keeps nothing -- a private
+  // window -- answers no, and the page's own memory stands in.
+  function _sbmSeenHere(key) { try { return !!localStorage.getItem(key); } catch (e) { return false; } }
+  function _sbmSeenMark(key) { try { localStorage.setItem(key, new Date().toISOString()); } catch (e) {} }
   var _sbmIntroT = 0, _sbmIntroDone = false;
   function _sbmIntroDue() {
-    return !_sbmIntroDone && !window.__SBM_PREVIEW;
+    return !_sbmIntroDone && !window.__SBM_PREVIEW && !_sbmSeenHere('lhc_sbm_intro_seen');
   }
   // Whether the flash is wanted (pure): the words not all in sight, and
   // not yet up the screen.
@@ -54071,6 +54078,7 @@ var WO = (function() {
     var modal = document.getElementById('songbookLiveModal');
     if (!modal || _sbmIntroUp()) return;
     _sbmIntroDone = true;
+    _sbmSeenMark('lhc_sbm_intro_seen');
     var el = document.createElement('div');
     el.id = 'sbmIntro'; el.className = 'sbm sbm-intro';
     el.setAttribute('role', 'dialog'); el.setAttribute('aria-live', 'polite'); el.setAttribute('aria-label', 'Where the chords and lyrics are');
@@ -54089,7 +54097,7 @@ var WO = (function() {
     el.addEventListener('click', _sbmIntroEnd);
     modal.appendChild(el);
     clearTimeout(_sbmIntroT);
-    _sbmIntroT = setTimeout(_sbmIntroEnd, 5000);
+    _sbmIntroT = setTimeout(_sbmIntroEnd, 2500);
   }
   // The flash's cartoon: a phone whose song -- chord lines over words --
   // scrolls up for ever. The lines are drawn twice, one set under the
@@ -54120,17 +54128,21 @@ var WO = (function() {
   // From the operator (2026-11-07), for phones and desks alike: when the
   // recordings sheet opens, four seconds pointing at what to choose and at
   // Record; when a take is stopped, arrows to Tracks to play it back; and
-  // after two minutes in a songbook, how to draw a remark and that its
-  // drawer chooses who sees it, Everyone first. Each shows once each time the
-  // app is opened, like the first flash (_sbmIntroDue), and never in the
-  // desk's Phone view. A coach mark is a layer over everything -- the
-  // recordings sheet is z-index 3750 -- that lets every tap through except
-  // on its own buttons, and goes by itself.
+  // ten seconds into a songbook, a finger on the words showing how to draw a
+  // remark (2026-11-08). The first two show once each time the app is
+  // opened; the drawing hint once on each device (_SBM_COACH_ONCE), like the
+  // first flash; none in the desk's Phone view. A coach mark is a layer over
+  // everything -- the recordings sheet is z-index 3750 -- that lets every
+  // tap through except on its own buttons, and goes by itself.
   var _sbmCoachSeen = {};
-  function _sbmCoachDue(key) { return !_sbmCoachSeen[key] && !window.__SBM_PREVIEW; }
+  var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen' };
+  function _sbmCoachDue(key) {
+    return !_sbmCoachSeen[key] && !window.__SBM_PREVIEW && !(_SBM_COACH_ONCE[key] && _sbmSeenHere(_SBM_COACH_ONCE[key]));
+  }
   function _sbmCoachOpen(key, ms) {
     _sbmCoachClose();
     _sbmCoachSeen[key] = true;
+    if (_SBM_COACH_ONCE[key]) _sbmSeenMark(_SBM_COACH_ONCE[key]);
     var el = document.createElement('div');
     el.id = 'sbmCoach'; el.className = 'sbm sbm-coach sbm-coach--' + key; el.setAttribute('data-coach', key);
     el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
@@ -54149,6 +54161,7 @@ var WO = (function() {
   function _sbmCoachClose(key) {
     var el = document.getElementById('sbmCoach'); if (!el) return;
     if (key && el.getAttribute('data-coach') !== key) return;
+    if (el.__off) document.removeEventListener('pointerdown', el.__off, true);
     clearTimeout(el.__t); clearInterval(el.__iv); el.remove();
   }
   function _sbmCoachPlace() { var el = document.getElementById('sbmCoach'); if (el && el.__place) el.__place(); }
@@ -54228,12 +54241,19 @@ var WO = (function() {
     L.__place();
   }
 
-  // 4. Two minutes in a songbook: drawing a remark, and who sees it.
+  // 4. Ten seconds into a songbook: how to draw a remark. The operator,
+  // 2026-11-08: ten seconds after the songbook opens (it was two minutes),
+  // and no card -- a finger double-tapping a word of the song itself, a ring
+  // drawing itself round that word, and arrows up to the Draw chip. Once on
+  // each device (lhc_sbm_draw_hint_seen, through _SBM_COACH_ONCE). Only the
+  // time the songbook is open and in front counts, and it waits while the
+  // reader is busy or the words are out of sight.
   var _sbmCoachClock = { t: 0, ms: 0, last: 0 };
+  var _SBM_DRAW_HINT_AFTER = 10000;
   function _sbmCoachClockStart() {
     if (_sbmCoachClock.t || !_sbmCoachDue('draw')) return;
     _sbmCoachClock.last = Date.now();
-    _sbmCoachClock.t = setInterval(_sbmCoachTick, 5000);
+    _sbmCoachClock.t = setInterval(_sbmCoachTick, 1000);
   }
   // Something else is on the screen, or the reader is at work: wait.
   function _sbmCoachBusy() {
@@ -54248,48 +54268,104 @@ var WO = (function() {
     _sbmCoachClock.last = now;
     // Only the time the songbook is open and in front counts.
     if (document.hidden || !_sbmBookOpen() || !_sbmActive()) return;
-    _sbmCoachClock.ms += Math.min(dt, 6000);
-    if (_sbmCoachClock.ms < 120000 || _sbmCoachBusy() || _sbmMarksOk === false) return;
+    _sbmCoachClock.ms += Math.min(dt, 2000);
+    if (_sbmCoachClock.ms < _SBM_DRAW_HINT_AFTER || _sbmCoachBusy() || _sbmMarksOk !== true || !_sbmCoachDrawAt()) return;
     clearInterval(_sbmCoachClock.t); _sbmCoachClock.t = 0;
     _sbmCoachDraw();
   }
-  function _sbmCoachDraw() {
-    var modal = document.getElementById('songbookLiveModal');
-    if (!modal || !_sbmCoachDue('draw')) return;
-    var L = _sbmCoachOpen('draw', 9000);
-    // On the songbook's own layer, like the first flash, and closed by a tap.
-    modal.appendChild(L);
-    L.classList.add('sbm-coach--modal');
-    L.innerHTML = '<div class="sbm-coach__card sbm-coach__card--draw">' +
-        '<div class="sbm-coach__t">Draw on the song!</div>' +
-        '<div class="sbm-coach__art" aria-hidden="true">' + _sbmCoachArt() + '<span class="sbm-coach__ripple"></span><span class="sbm-coach__ripple sbm-coach__ripple--2"></span>' +
-          '<i class="fa-solid fa-hand-pointer sbm-coach__hand sbm-coach__hand--tap"></i></div>' +
-        '<div class="sbm-coach__s"><b>Double-tap</b> anywhere on the chords &amp; lyrics to draw a remark</div>' +
-        '<div class="sbm-coach__s2">When you finish, choose who sees it:</div>' +
-        '<div class="sbm-coach__chips"><span class="sbm-coach__chip is-on"><i class="fa-solid fa-earth-asia"></i>Everyone<small>(default)</small></span>' +
-          '<span class="sbm-coach__chip"><i class="fa-solid fa-lock"></i>Only me</span><span class="sbm-coach__chip"><i class="fa-solid fa-user-group"></i>A group</span></div>' +
-        '<div class="sbm-coach__time"><span style="animation-duration:9s"></span></div>' +
-        '<div class="sbm-coach__btns"><button type="button" class="sbm-coach__btn sbm-coach__btn--go" data-act="try">Try it now</button>' +
-          '<button type="button" class="sbm-coach__btn" data-act="ok">Got it</button></div></div>';
-    L.addEventListener('click', function(e) {
-      var act = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
-      _sbmCoachClose('draw');
-      if (act && act.getAttribute('data-act') === 'try') sbmLayersDraw();
-    });
-  }
-  // The drawing card's cartoon: a song's lines, a word ringed in red as a
-  // gloved finger double-taps beside it.
-  function _sbmCoachArt() {
-    var rows = '', y = 10;
-    for (var i = 0; i < 4; i++) {
-      rows += '<rect x="14" y="' + y + '" width="' + (26 + (i * 11) % 30) + '" height="6" rx="3" fill="#0d9488"/>';
-      y += 11;
-      rows += '<rect x="14" y="' + y + '" width="' + (120 + (i * 37) % 70) + '" height="8" rx="4" fill="#1a1405"/>';
-      y += 18;
+  // Where the hint points, or null while the song's words are out of sight:
+  // a word of the first line of the song wholly on the screen -- a lyric line
+  // or a line of the choir score, clear of the floater at the foot -- and the
+  // Draw chip, when it is in sight too.
+  function _sbmCoachDrawAt() {
+    var root = document.getElementById('sbmRoot'), card = document.getElementById('sbmWordsCard');
+    if (!root || !card) return null;
+    var rr = root.getBoundingClientRect(), vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    var top = Math.max(rr.top, 0), bottom = Math.min(rr.bottom, vh || rr.bottom);
+    var lines = card.querySelectorAll('.wo-lyrics-lyric-line, .vl-words'), word = null;
+    for (var i = 0; i < lines.length && !word; i++) {
+      var r = lines[i].getBoundingClientRect();
+      if (!(r.height > 0) || r.top < top + 8 || r.bottom > bottom - 90) continue;
+      word = _sbmCoachWordBox(lines[i]);
     }
-    return '<svg class="sbm-coach__paper" viewBox="0 0 240 130" focusable="false">' +
-      '<rect x="4" y="4" width="232" height="122" rx="14" fill="#fffbea" stroke="#1a1405" stroke-width="5"/>' + rows +
-      '<ellipse class="sbm-coach__scribble" cx="96" cy="72" rx="44" ry="15" fill="none" stroke="#e11d48" stroke-width="5" stroke-linecap="round" pathLength="100" transform="rotate(-4 96 72)"/></svg>';
+    if (!word) return null;
+    var chip = card.querySelector('.sbm-chip--draw'), c = chip ? chip.getBoundingClientRect() : null;
+    if (c && (!(c.height > 0) || c.top < top || c.bottom > bottom)) c = null;
+    var cb = card.getBoundingClientRect();
+    return { word: word, chip: c ? { left: c.left, top: c.top, width: c.width, height: c.height, bottom: c.bottom } : null,
+      card: { left: cb.left, right: cb.right } };
+  }
+  // The box of a line's first word of three letters or more (else its first
+  // word); chords riding inside a phone's choir words are passed over.
+  function _sbmCoachWordBox(line) {
+    var walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, null), n, words = [];
+    while ((n = walk.nextNode()) && words.length < 6) {
+      var host = n.parentNode;
+      if (host && host.closest && host.closest('.vl-w__c')) continue;
+      var re = /\S+/g, m;
+      while ((m = re.exec(n.nodeValue)) && words.length < 6) words.push({ node: n, at: m.index, text: m[0] });
+    }
+    var w = words.filter(function(x) { return /[^\s\d.,;:!?'"()\[\]~-]{3,}/.test(x.text); })[0] || words[0];
+    if (!w) return null;
+    try {
+      var rg = document.createRange();
+      rg.setStart(w.node, w.at); rg.setEnd(w.node, w.at + w.text.length);
+      var b = rg.getBoundingClientRect();
+      return b.width > 0 ? { left: b.left, top: b.top, width: b.width, height: b.height } : null;
+    } catch (e) { return null; }
+  }
+  function _sbmCoachDraw() {
+    if (!_sbmCoachDue('draw') || !_sbmCoachDrawAt()) return;
+    var L = _sbmCoachOpen('draw', 7000);
+    L.classList.add('sbm-coach--hint');
+    L.innerHTML =
+      '<svg class="sbm-hint__ring" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
+        '<ellipse cx="50" cy="20" rx="47" ry="17" pathLength="100" fill="none" stroke="#e11d48" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>' +
+      '<span class="sbm-hint__ripple" aria-hidden="true"></span><span class="sbm-hint__ripple sbm-hint__ripple--2" aria-hidden="true"></span>' +
+      '<i class="fa-solid fa-hand-pointer sbm-hint__finger" aria-hidden="true"></i>' +
+      '<div class="sbm-hint__tag" data-tag="words"><b>Double-tap</b> the words to draw</div>' +
+      '<div class="sbm-coach__ring sbm-hint__chipring" aria-hidden="true"></div>' +
+      '<div class="sbm-coach__arrows sbm-hint__arrows" aria-hidden="true"><i class="fa-solid fa-chevron-up"></i><i class="fa-solid fa-chevron-up"></i><i class="fa-solid fa-chevron-up"></i></div>' +
+      '<div class="sbm-hint__tag sbm-hint__tag--chip" data-tag="chip">or tap <b>Draw</b></div>';
+    var q = function(s) { return L.querySelector(s); };
+    L.__place = function() {
+      if (_sbmDraw || !_sbmBookOpen()) { _sbmCoachClose('draw'); return; }
+      var A = _sbmCoachDrawAt(), vw = window.innerWidth || 0;
+      L.classList.toggle('is-away', !A);
+      if (!A) return;
+      // The words that go with the finger and arrows stay over the song's card,
+      // never out over the song list beside it.
+      var lo = Math.max(8, A.card.left + 6), hi = Math.min(vw - 8, A.card.right - 6);
+      var within = function(x, w) { return Math.round(Math.max(lo, Math.min(hi - w, x))); };
+      var w = A.word, cx = w.left + w.width / 2, cy = w.top + w.height / 2;
+      var ring = q('.sbm-hint__ring');
+      ring.style.left = Math.round(w.left - 10) + 'px'; ring.style.top = Math.round(w.top - 7) + 'px';
+      ring.style.width = Math.round(w.width + 20) + 'px'; ring.style.height = Math.round(w.height + 14) + 'px';
+      // The finger's tip on the middle of the word, the ripples under it.
+      var f = q('.sbm-hint__finger');
+      f.style.left = Math.round(cx - 12) + 'px'; f.style.top = Math.round(cy - 3) + 'px';
+      Array.prototype.forEach.call(L.querySelectorAll('.sbm-hint__ripple'), function(r) {
+        r.style.left = Math.round(cx - 15) + 'px'; r.style.top = Math.round(cy - 15) + 'px';
+      });
+      // What to do, under the finger, kept on the screen.
+      var tag = q('[data-tag="words"]'), tw = tag.offsetWidth || 220;
+      tag.style.left = within(cx - tw / 2 + 16, tw) + 'px';
+      tag.style.top = Math.round(w.top + w.height + 44) + 'px';
+      // The Draw chip, when it is in sight: a ring round it, arrows up to it.
+      var on = !!A.chip, parts = [q('.sbm-hint__chipring'), q('.sbm-hint__arrows'), q('[data-tag="chip"]')];
+      parts.forEach(function(p) { p.style.display = on ? '' : 'none'; });
+      if (!on) return;
+      var c = A.chip;
+      _sbmCoachFrame(parts[0], c, 5);
+      parts[1].style.left = Math.round(c.left + c.width / 2 - 18) + 'px'; parts[1].style.top = Math.round(c.bottom + 10) + 'px';
+      var ctw = parts[2].offsetWidth || 110;
+      parts[2].style.left = within(c.left + c.width / 2 + 24, ctw) + 'px';
+      parts[2].style.top = Math.round(c.bottom + 18) + 'px';
+    };
+    L.__place();
+    // A touch or a click goes on through -- a double-tap draws -- and takes the hint away.
+    L.__off = function() { _sbmCoachClose('draw'); };
+    document.addEventListener('pointerdown', L.__off, true);
   }
 
   // To the words: the card's top just under the desk's sticky top bar.
@@ -114352,7 +114428,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot .sbm-score .vl-score .vl-chord-hint { display: none; }
 #sbmRoot .vl-chords--edit .vl-chord-text { cursor: inherit; }
 
-/* ---- The first time: a five-second flash to the words (2026-11-07) ----
+/* ---- The first time: a flash to the words, 2.5 seconds (2026-11-07, -08) ----
    Half the screen and a cartoon: thick outlines, a hard offset shadow, a
    wobble, rays turning behind, bubble letters. */
 .sbm-intro {
@@ -114390,7 +114466,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-intro__arrows i:nth-child(2) { animation-delay: .15s; }
 .sbm-intro__arrows i:nth-child(3) { animation-delay: .3s; }
 .sbm-intro__time { width: 70%; height: 12px; border: 3px solid #1a1405; border-radius: 99px; background: #fff; overflow: hidden; }
-.sbm-intro__time span { display: block; height: 100%; width: 100%; background: #ff4d6d; transform-origin: left; animation: sbmIntroTime 5s linear forwards; }
+.sbm-intro__time span { display: block; height: 100%; width: 100%; background: #ff4d6d; transform-origin: left; animation: sbmIntroTime 2.5s linear forwards; }
 .sbm-intro__ok {
   min-height: 48px; padding: 0 30px; border: 4px solid #1a1405; border-radius: 999px; background: #fff; color: #1a1405;
   font: 900 18px/1 var(--sbm-font-ui); box-shadow: 4px 4px 0 #1a1405; cursor: pointer;
@@ -114408,28 +114484,24 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 @media (prefers-reduced-motion: reduce) {
   .sbm-intro, .sbm-intro__burst, .sbm-intro__card, .sbm-intro__lines, .sbm-intro__hand, .sbm-intro__arrows i { animation: none; }
   .sbm-intro__arrows i { opacity: 1; }
-  .sbm-intro__time span { animation: sbmIntroTime 5s linear forwards; }
+  .sbm-intro__time span { animation: sbmIntroTime 2.5s linear forwards; }
 }
 
-/* ---- Coach marks (2026-11-07): the recordings sheet, Tracks, drawing ----
+/* ---- Coach marks (2026-11-07): the recordings sheet, Tracks ----
    The same cartoon as the first flash: yellow, thick outlines, hard shadows. */
 .sbm-coach { position: fixed; inset: 0; z-index: 3800; pointer-events: none; font-family: var(--sbm-font-ui); color: #1a1405; }
-.sbm-coach--modal { position: absolute; z-index: 46; pointer-events: auto; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(7, 14, 30, 0.6); cursor: pointer; animation: sbmIntroIn .25s ease-out both; }
 .sbm-coach__card {
   position: absolute; left: 50%; width: min(400px, calc(100% - 24px)); transform: translateX(-50%); padding: 14px 16px 12px;
   border: 4px solid #1a1405; border-radius: 22px; background: #ffd60a; box-shadow: 7px 7px 0 #1a1405; text-align: left;
   animation: sbmCoachPop .45s cubic-bezier(.2, 1.6, .4, 1) both;
 }
 .sbm-coach__card--small { width: auto; max-width: 260px; left: auto; transform: none; text-align: center; padding: 10px 16px 10px; animation-name: sbmCoachPopPlain; }
-.sbm-coach__card--draw { position: relative; left: auto; transform: rotate(-1deg); width: min(480px, 100%); text-align: center; padding: 16px 18px 14px; cursor: default; animation: sbmIntroPop .5s cubic-bezier(.2, 1.6, .4, 1) both, sbmIntroWobble 2.6s ease-in-out .5s infinite; }
 .sbm-coach__t { font: 900 24px/1.05 var(--sbm-font-ui); color: #fff; margin-bottom: 8px;
   text-shadow: -2px -2px 0 #1a1405, 2px -2px 0 #1a1405, -2px 2px 0 #1a1405, 2px 2px 0 #1a1405, 0 -2px 0 #1a1405, 0 2px 0 #1a1405, -2px 0 0 #1a1405, 2px 0 0 #1a1405, 4px 5px 0 #1a1405; }
-.sbm-coach__card--draw .sbm-coach__t { font-size: clamp(26px, 8vw, 36px); text-align: center; }
 .sbm-coach__row { display: flex; align-items: flex-start; gap: 10px; margin: 6px 0; font: 700 15px/1.3 var(--sbm-font-ui); }
 .sbm-coach__n { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; border: 3px solid #1a1405; background: #fff; color: #1a1405; font: 900 14px/1 var(--sbm-font-ui); }
 .sbm-coach__hint { margin-top: 6px; font: 600 12.5px/1.35 var(--sbm-font-ui); color: #3b2f05; }
 .sbm-coach__s { font: 800 16px/1.3 var(--sbm-font-ui); }
-.sbm-coach__s2 { margin-top: 10px; font: 700 13.5px/1.3 var(--sbm-font-ui); color: #3b2f05; }
 .sbm-coach__time { height: 9px; margin: 10px 4px 2px; border: 3px solid #1a1405; border-radius: 99px; background: #fff; overflow: hidden; }
 .sbm-coach__time span { display: block; height: 100%; width: 100%; background: #ff4d6d; transform-origin: left; animation: sbmIntroTime 4s linear forwards; }
 .sbm-coach__ring {
@@ -114448,32 +114520,40 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-coach__arrows i { animation: sbmCoachUp 0.9s ease-in-out infinite; }
 .sbm-coach__arrows i:nth-child(2) { animation-delay: .12s; }
 .sbm-coach__arrows i:nth-child(3) { animation-delay: .24s; }
-.sbm-coach__art { position: relative; margin: 6px auto 10px; width: min(300px, 90%); }
-.sbm-coach__paper { display: block; width: 100%; height: auto; filter: drop-shadow(4px 4px 0 #1a1405); }
-.sbm-coach__scribble { stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmCoachScribble 2.6s ease-in-out infinite; }
-.sbm-coach__hand--tap { position: absolute; left: 66%; top: 44%; font-size: 40px; animation: sbmCoachDouble 2.6s ease-in-out infinite; }
-.sbm-coach__ripple { position: absolute; left: calc(66% - 6px); top: calc(44% - 8px); width: 26px; height: 26px; border: 3px solid #1a1405; border-radius: 50%; opacity: 0; animation: sbmCoachRipple 2.6s ease-out infinite; }
-.sbm-coach__ripple--2 { animation-delay: .3s; }
-.sbm-coach__chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
-.sbm-coach__chip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 3px solid #1a1405; border-radius: 999px; background: #fff; font: 800 13px/1 var(--sbm-font-ui); }
-.sbm-coach__chip small { font-weight: 700; font-size: 11px; opacity: 0.8; }
-.sbm-coach__chip.is-on { background: #0d9488; color: #fff; box-shadow: 3px 3px 0 #1a1405; }
-.sbm-coach__btns { display: flex; justify-content: center; gap: 10px; margin-top: 12px; }
-.sbm-coach__btn { min-height: 44px; padding: 0 20px; border: 4px solid #1a1405; border-radius: 999px; background: #fff; color: #1a1405; font: 900 16px/1 var(--sbm-font-ui); box-shadow: 4px 4px 0 #1a1405; cursor: pointer; }
-.sbm-coach__btn--go { background: #7c3aed; color: #fff; }
-.sbm-coach__btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 #1a1405; }
 @keyframes sbmCoachPop { 0% { transform: translateX(-50%) scale(.4); opacity: 0; } 70% { transform: translateX(-50%) scale(1.05); opacity: 1; } 100% { transform: translateX(-50%) scale(1); } }
 @keyframes sbmCoachPopPlain { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes sbmCoachRing { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
 @keyframes sbmCoachPress { 0%, 100% { transform: translate(0, 0) scale(1); } 45% { transform: translate(-4px, -6px) scale(1.05); } 60% { transform: translate(0, 2px) scale(.9); } }
 @keyframes sbmCoachUp { 0%, 100% { transform: translateY(4px); opacity: .35; } 50% { transform: translateY(-4px); opacity: 1; } }
-@keyframes sbmCoachScribble { 0%, 35% { stroke-dashoffset: 100; } 75%, 100% { stroke-dashoffset: 0; } }
-@keyframes sbmCoachDouble { 0% { transform: translate(14px, 18px); } 15% { transform: translate(0, 0) scale(1); } 20% { transform: scale(.85); } 25% { transform: scale(1); } 30% { transform: scale(.85); } 35% { transform: scale(1); } 75% { transform: translate(-46px, 6px); } 100% { transform: translate(14px, 18px); } }
-@keyframes sbmCoachRipple { 0%, 17% { opacity: 0; transform: scale(.4); } 20% { opacity: 1; transform: scale(.6); } 40% { opacity: 0; transform: scale(1.8); } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .sbm-coach--modal, .sbm-coach__card, .sbm-coach__ring, .sbm-coach__hand, .sbm-coach__arrows i, .sbm-coach__ripple { animation: none; }
-  .sbm-coach__scribble { animation: none; stroke-dashoffset: 0; }
+  .sbm-coach__card, .sbm-coach__ring, .sbm-coach__hand, .sbm-coach__arrows i { animation: none; }
   .sbm-coach__time span { animation: sbmIntroTime 4s linear forwards; }
+}
+/* ---- The drawing hint (2026-11-08): on the words themselves, no card ----
+   A finger double-taps a word of the song, a red ring draws itself round
+   it, and purple arrows point up at the Draw chip. Every tap goes through. */
+.sbm-hint__ring { position: fixed; overflow: visible; pointer-events: none; }
+.sbm-hint__ring ellipse { stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing 2.4s ease-in-out infinite; }
+.sbm-hint__finger {
+  position: fixed; font-size: 40px; line-height: 1; color: #fff; -webkit-text-stroke: 3px #1a1405; paint-order: stroke fill;
+  filter: drop-shadow(3px 4px 0 rgba(26, 20, 5, 0.85)); transform-origin: 30% 8%; animation: sbmHintTap 2.4s ease-in-out infinite;
+}
+.sbm-hint__ripple { position: fixed; width: 30px; height: 30px; box-sizing: border-box; border: 3px solid #7c3aed; border-radius: 50%; opacity: 0; animation: sbmHintRipple 2.4s ease-out infinite; }
+.sbm-hint__ripple--2 { animation-delay: .29s; }
+.sbm-hint__tag {
+  position: fixed; padding: 7px 13px; border-radius: 999px; background: #1f2937; color: #fff; white-space: nowrap;
+  font: 700 14px/1.2 var(--sbm-font-ui); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28); animation: sbmCoachPopPlain .4s ease-out both;
+}
+.sbm-hint__tag b { color: #fde047; font-weight: 900; }
+.sbm-hint__chipring { border-color: #7c3aed; box-shadow: 0 0 0 3px #1a1405, 0 0 0 9px rgba(124, 58, 237, 0.30); }
+.sbm-hint__arrows { color: #a78bfa; }
+.sbm-coach--hint.is-away > * { visibility: hidden; }
+@keyframes sbmHintTap { 0% { transform: translate(18px, 26px); opacity: 0; } 12% { transform: translate(0, 0) scale(1); opacity: 1; } 18% { transform: scale(.82); } 24% { transform: scale(1); } 30% { transform: scale(.82); } 36% { transform: scale(1); } 88% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes sbmHintRipple { 0%, 16% { opacity: 0; transform: scale(.3); } 19% { opacity: .9; transform: scale(.5); } 40% { opacity: 0; transform: scale(2); } 100% { opacity: 0; } }
+@keyframes sbmHintRing { 0%, 38% { stroke-dashoffset: 100; opacity: 1; } 70%, 92% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .sbm-hint__finger, .sbm-hint__ripple, .sbm-hint__tag { animation: none; }
+  .sbm-hint__ring ellipse { animation: none; stroke-dashoffset: 0; }
 }
 /* the tile row's More, at its far end */
 .sbm-tile--more i { color: var(--sbm-navy-2); }

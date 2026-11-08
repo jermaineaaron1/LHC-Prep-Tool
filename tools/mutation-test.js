@@ -1567,15 +1567,28 @@ const CASES = [
   ['songbook-book-mode-harness.js', 'a zoom stays on the page it was set on',
     s => s.replace('    for (var i = idx; i >= 0; i--) {\r\n      var z = map ? map[i] : undefined;', '    for (var i = idx; i >= idx; i--) {\r\n      var z = map ? map[i] : undefined;')],
   ['songbook-reading-view-harness.js', 'the first-time flash shows every time',
-    s => s.replace("    _sbmIntroDone = true;\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
+    s => s.replace("    _sbmIntroDone = true;\r\n    _sbmSeenMark('lhc_sbm_intro_seen');\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
+  // 2026-11-08: the flash once on the device, not once each time the app
+  // is opened -- phones reopen the app all day, and singers met it again
+  // and again.
+  ['songbook-reading-view-harness.js', 'the first-time flash comes back each time the app is opened',
+    s => s.replace("    _sbmSeenMark('lhc_sbm_intro_seen');\r\n", '')],
   // The coach marks (the same day): the recordings sheet's, and the two
   // minutes before the drawing one, counted only while the book is in front.
   ['songbook-coach-harness.js', 'the recordings sheet opens with no coach mark',
     s => s.replace('    setTimeout(_sbmCoachRecord, 80);\r\n', '')],
-  ['songbook-coach-harness.js', 'time in another tab counts toward the two minutes',
+  ['songbook-coach-harness.js', 'time in another tab counts toward the ten seconds',
     s => s.replace('    if (document.hidden || !_sbmBookOpen() || !_sbmActive()) return;\r\n    _sbmCoachClock.ms', '    _sbmCoachClock.ms')],
   ['songbook-coach-harness.js', 'a coach mark shows twice while the app stays open',
     s => s.replace('    _sbmCoachSeen[key] = true;\r\n', '')],
+  // The drawing hint (2026-11-08): ten seconds in, once on the device, and
+  // only with the song's words in sight to point at.
+  ['songbook-coach-harness.js', 'the drawing hint shows again every time the app is opened',
+    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen' };", 'var _SBM_COACH_ONCE = {};')],
+  ['songbook-coach-harness.js', 'the drawing hint waits two minutes again',
+    s => s.replace('var _SBM_DRAW_HINT_AFTER = 10000;', 'var _SBM_DRAW_HINT_AFTER = 120000;')],
+  ['songbook-coach-harness.js', 'the drawing hint shows with the words out of sight',
+    s => s.replace(" || _sbmMarksOk !== true || !_sbmCoachDrawAt()) return;", ' || _sbmMarksOk !== true) return;')],
   // Loading a whole liturgy from a past service (2026-11-08): never a
   // songbook's pseudo-order, never that day's sermon slides, and only into
   // an order of the kind it was made for.
