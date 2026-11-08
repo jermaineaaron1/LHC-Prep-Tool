@@ -1598,6 +1598,17 @@ const CASES = [
     s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
   ['builder-load-liturgy-harness.js', 'a contemporary liturgy loads into a traditional order',
     s => s.replace("    if (x.type !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }\r\n", '')],
+  // A saved liturgy's year folder in the Liturgy Library (2026-11-08): never
+  // a second folder for a year that has one, a folder removed is deleted and
+  // nothing else is, and a year folder lists only its year's liturgies.
+  ['svl-year-folder-harness.js', 'a year that has its folder is given a twin',
+    s => s.replace("var rows = r.data || [], hit = rows.filter(same)[0];", "var rows = r.data || [], hit = null;")],
+  ['svl-year-folder-harness.js', 'a folder removed here is never deleted',
+    s => s.replace("    _occFoldersGone[folderId] = true;\r\n", '')],
+  ['svl-year-folder-harness.js', 'removing one folder deletes every folder',
+    s => s.replace(".delete().in('id', gone)", ".delete().neq('id', 'x')")],
+  ['svl-year-folder-harness.js', 'a year folder lists every year\'s liturgies',
+    s => s.replace("return f ? _occSvlSorted(_occSvlInYear(occId, f.name)) : [];", "return _occSvlSorted(_occSvlRows[occId]);")],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],

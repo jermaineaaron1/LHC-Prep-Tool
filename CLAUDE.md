@@ -54,6 +54,7 @@ The ones worth knowing; there are around 29 in all.
 | `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard. `owner`, `owner_name`, `part`, `shared` (`migrations/2026-11-01_song_marks_layers.sql`) say whose it is and whether others see it; see gotcha 50 |
 | `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. `made_from = 'library'` marks an EARLIER MAIN VERSION: the library song as it was before it was replaced, restorable. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
+| `liturgy_occ_folders` | The Liturgy Library's YEAR folders, per occasion (`occasion_id`, `name` -- "2026"); a library item names one in `occasionFolderId`. A save from the Liturgy page deletes only folders removed on that device. See gotcha 51 |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
@@ -155,6 +156,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      also loads the whole liturgy of a PAST SERVICE, an earlier liturgist's
      order, and **Templates** loads a whole liturgy for a service (Good
      Friday, Traditional, Contemporary...) and a year of choice (gotcha 51).
+     A liturgy saved for a year is filed in the Liturgy Library: the
+     occasion gets that year's folder if it has none, and its page lists
+     the whole liturgies kept for it, a year folder those of its year.
      Add Item's Liturgy opens a menu: the library, what suits
      this section, or your own written as liturgy (kept in the Liturgy Book's
      liturgy style); Text is a plain slide for this service only. Add to
@@ -1528,8 +1532,29 @@ the anon key -- verify as `postgres`, not as the app.
     and readings only when asked. The order then notes `serviceLiturgy =
     { fromOrder }` for a past service (no Save over: there is no saved row)
     or `{ id }` for a saved one. A read that lands after the window has
-    closed does not reopen it. `tools/builder-load-liturgy-harness.js`
-    checks it.
+    closed does not reopen it. In the window a past service's liturgist
+    sits beside its name and the line under it (date, day, kind, counts) is
+    10px larger and bold. `tools/builder-load-liturgy-harness.js` checks it.
+    **Filed by year in the Liturgy Library** (the operator, 2026-11-08). A
+    liturgy saved for an occasion and a year gets that year's folder under
+    the occasion -- a `liturgy_occ_folders` row named "2026", the folders
+    the occasion's page shows as Add Year cards -- made if there is none
+    (`LiturgyModule.ensureOccYearFolder`, read from the database, written as
+    one row and read back, called by `_svlYearFolder` after the liturgy is
+    read back; a folder that cannot be made never fails the save), and the
+    toast says where. The occasion's page lists its whole liturgies
+    (`#litOccSvlStrip`, `renderOccSvl` from `renderOccasionItems`, read by
+    `_occSvlLoad` on opening and on Sync): all of them under All, a year
+    folder's under that folder (by its NAME, `_occSvlInYear`), each opening
+    to its outline (`WO.svlOutline`), read only when opened; a folder card
+    counts them beside its files. To USE one, an order loads it from the
+    builder. The Liturgy page's `saveOccFolders` used to delete every row it
+    did not hold, so a device that loaded at nine wiped a year folder made
+    since on another device or by the builder (Good Friday once lost all of
+    its year folders, `tools/refile-occasion-years.js`), and removing the
+    last folder a device held emptied the table. It now deletes only the
+    folders removed on that device (`_occFoldersGone`, set by
+    `deleteOccFolder`). `tools/svl-year-folder-harness.js` checks it.
 
 52. **A line's takes are a badge and a list, on every line with words.**
     A line with none -- left empty, or a dash (`lhcVoiceLines._hasWords`) --

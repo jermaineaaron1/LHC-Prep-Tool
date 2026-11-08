@@ -9121,6 +9121,8 @@
                   </button>
                 </div>
                 <!-- Content-type filter chips (independent of Category; see selectContentType) -->
+                <!-- Whole liturgies saved for this occasion (renderOccSvl) -->
+                <div id="litOccSvlStrip" class="lit-occ-links-strip lit-occ-svl-strip"></div>
                 <div id="litOccContentTypeFilterRow" class="lit-occ-content-filter-row"></div>
                 <div id="litOccLinksStrip" class="lit-occ-links-strip"></div>
                 <!-- 566 — two-panel layout: cards left, preview right -->
@@ -78749,12 +78751,14 @@ var WO = (function() {
     var d = saved ? x.data : _lldData[x.id], c = d ? _svlCounts(d) : null;
     var when = saved && x.row && x.row.updated_at ? new Date(x.row.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     var meta = saved ? [_svlOccLabel(x.occasion), x.year ? String(x.year) : '', _svlTypeName(x.type)]
-                     : [x.date, x.day || _svlOccLabel(x.occasion), _svlTypeName(x.type), x.liturgist ? 'Liturgist: ' + x.liturgist : ''];
+                     : [x.date, x.day || _svlOccLabel(x.occasion), _svlTypeName(x.type)];
     if (c) meta = meta.concat([c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs']);
     if (when) meta.push('saved ' + when);
     var q = [x.title, x.liturgist, x.day, x.date, _svlOccLabel(x.occasion), x.year].join(' ').toLowerCase();
     var out = '<div class="svl-card svl-card--' + x.kind + (isFrom ? ' is-from' : '') + '" data-q="' + _lbdEsc(q) + '">' +
       '<div class="svl-card__top"><div class="svl-card__t"><span class="svl-kindpill">' + (saved ? 'Saved liturgy' : 'Past service') + '</span>' + _lbdEsc(x.title) +
+        // Who wrote it, beside its name: the first thing the team looks for.
+        (x.liturgist ? '<span class="svl-card__lit"><i class="fa-solid fa-user-pen" aria-hidden="true"></i>Liturgist: <b>' + _lbdEsc(x.liturgist) + '</b></span>' : '') +
         (isFrom ? '<span class="svl-pill">This order came from it</span>' : '') + '</div>' +
         '<div class="svl-card__acts"><button type="button" class="lbd-btn" onclick="WO.lbdSvlToggle(\'' + escapeJsArg(x.key) + '\')">' + (open ? 'Hide' : 'Preview') + '</button>' +
         (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(x.key) + '\')"><i class="fa-solid fa-file-import"></i> Load it</button>' : '') + '</div></div>' +
@@ -78902,6 +78906,7 @@ var WO = (function() {
         '<label class="lbd-field"><span>Year</span><input class="lbd-input" id="svlYear" type="number" min="2000" max="2100" value="' + year + '" oninput="WO.lbdSvlName()"></label>' +
         '<label class="lbd-field"><span>Name</span><input class="lbd-input" id="svlTitle" maxlength="80" data-autofocus value="' + _lbdEsc(_svlOccLabel(occ) + ' ' + year) + '"></label>' +
         '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> Its sections, liturgy, readings, songs and notes, as this order has them now.</p>' +
+        '<p class="lbd-hint"><i class="fa-solid fa-folder-open"></i> <span id="svlWhere">' + _lbdEsc(_svlWhere(occ, year)) + '</span></p>' +
         '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies(null, \'all\')">Load instead…</button><span class="svl-foot-gap"></span>' +
           (from && from.id ? '<button type="button" class="lbd-btn" onclick="WO.lbdSvlSave(true)"><i class="fa-solid fa-floppy-disk"></i> Save over “' + _lbdEsc(_woClipText(from.title || 'the original', 28)) + '”</button>' : '') +
           '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSave(false)"><i class="fa-solid fa-copy"></i> ' + (from && from.id ? 'Save as a new copy' : 'Save') + '</button></div>';
@@ -78914,6 +78919,23 @@ var WO = (function() {
     if (!t || !o || !y) return;
     var auto = _svlOccasions().some(function(x) { return t.value === '' || t.value.indexOf(x.label + ' ') === 0; });
     if (auto) t.value = _svlOccLabel(o.value) + ' ' + (y.value || '');
+    var w = document.getElementById('svlWhere');
+    if (w) w.textContent = _svlWhere(o.value, parseInt(y.value, 10));
+  }
+  // Where the Liturgy Library will file it: the occasion's folder for the year.
+  function _svlWhere(occ, year) {
+    return year ? 'Filed in the Liturgy Library under ' + _svlOccLabel(occ) + ' › ' + year + ' (the folder is made if it is not there yet).'
+                : 'Give it a year to file it in the Liturgy Library under that year’s folder.';
+  }
+  // The Liturgy Library files a service's things by year: a folder per year
+  // under each occasion (liturgy_occ_folders). A liturgy saved for a year gets
+  // that year's folder, made if it is missing, so the library has a place that
+  // matches it (the operator, 2026-11-08). Answers the folder, or null when it
+  // could not be made -- the liturgy is saved either way.
+  function _svlYearFolder(occ, year) {
+    var L = (typeof LiturgyModule !== 'undefined') ? LiturgyModule : null;
+    if (!L || typeof L.ensureOccYearFolder !== 'function' || !occ || !year) return Promise.resolve(null);
+    return L.ensureOccYearFolder(occ, year).catch(function(e) { console.warn('Year folder not made:', e && e.message); return null; });
   }
   function lbdSvlSave(over) {
     var sup = window._supabase, o = currentOrderData; if (!sup || !o) return;
@@ -78939,7 +78961,10 @@ var WO = (function() {
           autoSaveOrder();
           _svlRows = null;
           _lbdCloseSheet();
-          showToast((over ? 'Saved over “' : 'Saved “') + saved.title + '” for ' + _svlOccLabel(saved.occasion_id) + '. A later year can start from it.', 'success');
+          return _svlYearFolder(saved.occasion_id, saved.year).then(function(f) {
+            showToast((over ? 'Saved over “' : 'Saved “') + saved.title + '” for ' + _svlOccLabel(saved.occasion_id) +
+              (f ? ', in the Liturgy Library’s ' + f.name + ' folder' + (f.created ? ' (made for it)' : '') : '') + '. A later year can start from it.', 'success');
+          });
         });
       }).catch(function(err) { showToast('Could not save the liturgy: ' + (err && err.message || 'no answer'), 'error'); });
     };
@@ -94386,6 +94411,7 @@ var WO = (function() {
     redo: function() { return _lbdIsActive() ? lbdRedo() : woRedo(); },
     lbdRender: lbdRender,
     lbdFillReadings: lbdFillReadings,
+    svlOutline: _svlOutline, svlCounts: _svlCounts,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
     lbdSvlSaveSheet: lbdSvlSaveSheet, lbdSvlName: lbdSvlName, lbdSvlSave: lbdSvlSave,
     zoomEditor: zoomEditor,
@@ -98861,6 +98887,12 @@ var LiturgyModule = (function() {
   /* ===== OCCASION YEAR / FOLDER SYSTEM (434) ===== */
 
   var _occFoldersLoaded = false; // Guard: never save before load completes
+  // Folders removed on THIS device, waiting to be deleted. A save deletes
+  // these and nothing else: it used to delete every row it did not hold, so a
+  // device that loaded at nine wiped a year folder made since on another
+  // device -- or by the Liturgy Builder, which files a saved liturgy under
+  // its year (2026-11-08). Good Friday lost all its year folders once.
+  var _occFoldersGone = {};
 
   // Returns a promise so a caller can draw once the names are in. The
   // grouped library needs that: it was only ever called on entering a
@@ -98915,29 +98947,21 @@ var LiturgyModule = (function() {
           rows.push({ id: f.id, occasion_id: occId, name: f.name, sort_order: i });
         });
       });
-      // Upsert known rows, then delete any rows NOT in current set
-      // This avoids the wipe-on-empty race condition
-      var knownIds = rows.map(function(r) { return r.id; });
+      // Upsert the rows this device holds, then delete only the ones it
+      // removed (_occFoldersGone) -- never "everything I do not hold".
+      var gone = Object.keys(_occFoldersGone);
       var savePromise = rows.length
         ? sb.from('liturgy_occ_folders').upsert(rows, { onConflict: 'id' })
         : Promise.resolve({ error: null });
       savePromise.then(function(ur) {
         if (ur.error) { console.warn('occFolders upsert failed:', ur.error.message); return; }
-        // Delete rows that are no longer in occFolders
-        if (knownIds.length) {
-          return sb.from('liturgy_occ_folders').delete().not('id', 'in', '(' + knownIds.map(function(id) { return '"' + id + '"'; }).join(',') + ')')
-            .then(function(dr) {
-              if (dr.error) console.warn('occFolders stale-delete failed:', dr.error.message);
-              else console.log('occFolders saved to Supabase:', rows.length, 'rows');
-            });
-        } else {
-          // Truly empty — delete everything only when we know load succeeded and user cleared all folders
-          return sb.from('liturgy_occ_folders').delete().neq('id', 'x')
-            .then(function(dr) {
-              if (dr.error) console.warn('occFolders clear failed:', dr.error.message);
-              else console.log('occFolders cleared in Supabase (all folders removed)');
-            });
-        }
+        if (!gone.length) { console.log('occFolders saved to Supabase:', rows.length, 'rows'); return; }
+        return sb.from('liturgy_occ_folders').delete().in('id', gone)
+          .then(function(dr) {
+            if (dr.error) { console.warn('occFolders delete failed:', dr.error.message); return; }
+            gone.forEach(function(id) { delete _occFoldersGone[id]; });
+            console.log('occFolders saved to Supabase:', rows.length, 'rows,', gone.length, 'removed');
+          });
       })
       .catch(function(e) { console.warn('occFolders Supabase save failed:', e); });
     }, 500);
@@ -98971,6 +98995,7 @@ var LiturgyModule = (function() {
     '</button>';
     html += folders.map(function(f) {
       var count = liturgyItems.filter(function(i) { return i.occasionId === occId && i.occasionFolderId === f.id; }).length;
+      var whole = _occSvlInYear(occId, f.name).length;
       return '<div class="lit-occ-folder-card' + (_currentOccFolder === f.id ? ' active' : '') + '" ' +
         'onclick="LiturgyModule.selectOccFolder(\'' + f.id + '\')" ' +
         'ondragover="event.preventDefault();this.classList.add(\'drag-over\')" ' +
@@ -98978,7 +99003,8 @@ var LiturgyModule = (function() {
         'ondrop="event.preventDefault();this.classList.remove(\'drag-over\');LiturgyModule.dropItemIntoFolder(event,\'' + f.id + '\')">' +
         '<div class="lit-occ-folder-card-icon"><i class="fa-solid fa-folder-open"></i></div>' +
         '<div class="lit-occ-folder-card-name">' + escapeHtml(f.name) + '</div>' +
-        '<div class="lit-occ-folder-card-count">' + count + ' file' + (count !== 1 ? 's' : '') + '</div>' +
+        '<div class="lit-occ-folder-card-count">' + count + ' file' + (count !== 1 ? 's' : '') +
+          (whole ? ' · ' + whole + ' liturg' + (whole === 1 ? 'y' : 'ies') : '') + '</div>' +
         '<span class="lit-occ-folder-card-del" onclick="event.stopPropagation();LiturgyModule.deleteOccFolder(\'' + occId + '\',\'' + f.id + '\')"><i class="fa-solid fa-times"></i></span>' +
       '</div>';
     }).join('');
@@ -99042,6 +99068,7 @@ var LiturgyModule = (function() {
     var folder = (occFolders[occId] || []).find(function(f) { return f.id === folderId; });
     var name = folder ? folder.name : 'this folder';
     occFolders[occId] = occFolders[occId].filter(function(f) { return f.id !== folderId; });
+    _occFoldersGone[folderId] = true;
     saveOccFolders();
     if (_currentOccFolder === folderId) _currentOccFolder = null;
     renderOccFolderBar(occId);
@@ -99061,6 +99088,120 @@ var LiturgyModule = (function() {
       var folder = folders.find(function(f) { return f.id === folderId; });
       showToast('Moved to "' + (folder ? folder.name : 'folder') + '"', 'success');
     }
+  }
+
+  // A year folder for an occasion, made if there is none of that name. The
+  // Liturgy Builder calls it when a whole liturgy is saved for an occasion
+  // and a year, so the library has that year's folder to match (2026-11-08).
+  // Read from the database, not from what this device holds: the Liturgy page
+  // may never have been opened here. Written as ONE row and read back; the
+  // folder then joins what this device holds, so its own saves keep it.
+  function ensureOccYearFolder(occId, year) {
+    var sb = SBQ_LITURGY._sb(), name = String(year == null ? '' : year).trim();
+    if (!sb) return Promise.reject(new Error('no database'));
+    if (!occId || !name) return Promise.reject(new Error('no occasion or year'));
+    var same = function(f) { return String(f.name == null ? '' : f.name).trim() === name; };
+    return sb.from('liturgy_occ_folders').select('id,name').eq('occasion_id', occId).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var rows = r.data || [], hit = rows.filter(same)[0];
+      if (hit) return { id: hit.id, name: String(hit.name).trim(), created: false };
+      // One made on this device whose save is still waiting keeps its id.
+      var mine = (occFolders[occId] || []).filter(same)[0];
+      var row = { id: mine ? mine.id : 'occ-fold-' + Date.now(), occasion_id: occId, name: name, sort_order: rows.length };
+      return sb.from('liturgy_occ_folders').upsert([row], { onConflict: 'id' }).then(function(w) {
+        if (w.error) throw new Error(w.error.message);
+        return sb.from('liturgy_occ_folders').select('id').eq('id', row.id);
+      }).then(function(r2) {
+        if (r2.error || !(r2.data || []).length) throw new Error('the folder did not come back from the database');
+        return { id: row.id, name: name, created: true };
+      });
+    }).then(function(f) {
+      if (_occFoldersLoaded) {
+        var list = occFolders[occId] || (occFolders[occId] = []);
+        if (!list.some(function(x) { return x.id === f.id; })) list.push({ id: f.id, name: f.name });
+      }
+      delete _occSvlRows[occId];
+      if (_currentOccasion === occId) { renderOccFolderBar(occId); _occSvlLoad(occId); }
+      return f;
+    });
+  }
+
+  // ---- Whole liturgies kept for this occasion -------------------------
+  //
+  // service_liturgies, saved from the Liturgy Builder's Save / Load (gotcha
+  // 51), listed with the occasion's things: all of them under All, a year
+  // folder's under that folder. Read here to look at; an order loads one from
+  // the builder (Templates, or Save / Load).
+  var _occSvlRows = {}, _occSvlData = {}, _occSvlOpen = '';
+  function _occSvlLoad(occId) {
+    var sb = SBQ_LITURGY._sb();
+    if (!sb || !occId) return Promise.resolve();
+    return sb.from('service_liturgies').select('id,title,year,order_type,updated_at').eq('occasion_id', occId).then(function(r) {
+      _occSvlRows[occId] = r.error ? [] : (r.data || []);
+      if (_currentOccasion === occId) { renderOccSvl(); renderOccFolderBar(occId); }
+    }, function() { _occSvlRows[occId] = []; });
+  }
+  function _occSvlInYear(occId, year) {
+    var y = String(year == null ? '' : year).trim();
+    return (_occSvlRows[occId] || []).filter(function(r) { return String(r.year) === y; });
+  }
+  // Newest year first, then the one saved last (pure).
+  function _occSvlSorted(rows) {
+    return (rows || []).slice().sort(function(a, b) {
+      return ((b.year || 0) - (a.year || 0)) || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+  }
+  function _occSvlShown(occId) {
+    if (!_currentOccFolder) return _occSvlSorted(_occSvlRows[occId]);
+    var f = getOccFoldersForOccasion(occId).filter(function(x) { return x.id === _currentOccFolder; })[0];
+    return f ? _occSvlSorted(_occSvlInYear(occId, f.name)) : [];
+  }
+  function renderOccSvl() {
+    var host = document.getElementById('litOccSvlStrip');
+    if (!host) return;
+    var rows = _currentOccasion ? _occSvlShown(_currentOccasion) : [];
+    if (!rows.length) { host.innerHTML = ''; return; }
+    var W = window.WO || {};
+    host.innerHTML =
+      '<div class="lit-links-head lit-svl-head">' +
+        '<i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>' +
+        '<span>Whole liturgies</span>' +
+        '<small>' + rows.length + ' saved · load one into an order from the Liturgy Builder</small>' +
+      '</div>' +
+      '<div class="lit-svl-list">' + rows.map(function(r) {
+        var open = _occSvlOpen === r.id, d = _occSvlData[r.id];
+        var when = r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+        var c = d && W.svlCounts ? W.svlCounts(d) : null;
+        var meta = [r.order_type === 'contemporary' ? 'Contemporary' : (r.order_type === 'special' ? 'Special' : 'Traditional'),
+                    r.year ? String(r.year) : '', when ? 'saved ' + when : '']
+          .concat(c ? [c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs'] : []);
+        var out = '<div class="lit-svl-row' + (open ? ' is-open' : '') + '">' +
+          '<button type="button" class="lit-svl-main" data-id="' + escapeHtml(r.id) + '" aria-expanded="' + open + '" onclick="LiturgyModule.toggleOccSvl(this.dataset.id)">' +
+            '<i class="fa-solid fa-chevron-' + (open ? 'down' : 'right') + '" aria-hidden="true"></i>' +
+            '<b>' + escapeHtml(r.title || 'Saved liturgy') + '</b>' +
+            '<span>' + escapeHtml(meta.filter(Boolean).join(' · ')) + '</span>' +
+          '</button>';
+        if (open) {
+          out += d && W.svlOutline
+            ? '<ol class="lit-svl-outline">' + W.svlOutline(d).map(function(sec) {
+                return '<li><b>' + escapeHtml(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(it) {
+                  return '<i class="fa-solid ' + ({ song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' })[it.kind] + '" aria-hidden="true"></i>' + escapeHtml(it.title);
+                }).join('') + '</span>' : '') + '</li>';
+              }).join('') + '</ol>'
+            : '<p class="lit-svl-wait"><i class="fa-solid fa-spinner fa-spin"></i> Reading it…</p>';
+        }
+        return out + '</div>';
+      }).join('') + '</div>';
+  }
+  function toggleOccSvl(id) {
+    _occSvlOpen = _occSvlOpen === id ? '' : id;
+    renderOccSvl();
+    var sb = SBQ_LITURGY._sb();
+    if (!_occSvlOpen || _occSvlData[id] || !sb) return;
+    sb.from('service_liturgies').select('data').eq('id', id).then(function(r) {
+      _occSvlData[id] = (!r.error && r.data && r.data[0] && r.data[0].data) || { sectionLayout: [] };
+      if (_occSvlOpen === id) renderOccSvl();
+    }, function() {});
   }
 
   /* ===== END OCCASION FOLDER SYSTEM ===== */
@@ -100531,8 +100672,10 @@ var LiturgyModule = (function() {
     if (descEl) descEl.textContent = occ.desc;
     // Reset folder state — default to "All" so items appear immediately
     _currentOccFolder = null;
+    _occSvlOpen = '';
     loadOccFolders();
     renderOccFolderBar(occasionId); // auto-seeds current year if none exists
+    _occSvlLoad(occasionId);
     // Reset to first tab
     var prepTab = document.getElementById('litOccTabPrepare');
     if (prepTab) prepTab.style.display = _hasPreparationGuide(occasionId) ? '' : 'none';
@@ -100705,6 +100848,7 @@ var LiturgyModule = (function() {
   }
 
   function renderOccasionItems(searchQuery) {
+    renderOccSvl();
     var grid = document.getElementById('litOccItemsGrid');
     if (!grid) return;
     var occ = _currentOccasion ? getOccasionById(_currentOccasion) : null;
@@ -103082,6 +103226,7 @@ var LiturgyModule = (function() {
     syncFromBackend();
     syncOccasionDataFromSupabase();
     loadOccFolders();
+    if (_currentOccasion) _occSvlLoad(_currentOccasion);
     setTimeout(function() {
       if (_currentOccasion) {
         renderOccasionItems('');
@@ -103258,6 +103403,8 @@ var LiturgyModule = (function() {
     toggleLibraryGrouping: toggleLibraryGrouping,
     // Occasion year/folder system (434)
     selectOccFolder: selectOccFolder,
+    ensureOccYearFolder: ensureOccYearFolder,
+    toggleOccSvl: toggleOccSvl,
     promptCreateOccFolder: promptCreateOccFolder,
     deleteOccFolder: deleteOccFolder,
     dropItemIntoFolder: dropItemIntoFolder,
@@ -110605,6 +110752,23 @@ function filterLiturgyItems() {
   .lit-link-row:hover { background: rgba(24,142,68,0.10); }
   .lit-link-row i { color: var(--brand, #188e44); font-size: 0.66rem; flex-shrink: 0; }
   .lit-link-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lit-svl-list { display: flex; flex-direction: column; gap: 4px; }
+  .lit-svl-row { border-radius: 10px; background: #fff; border: 1px solid rgba(24,142,68,0.16); }
+  .lit-svl-row.is-open { border-color: rgba(24,142,68,0.45); }
+  .lit-svl-main {
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; width: 100%;
+    padding: 9px 12px; border: 0; background: none; cursor: pointer; text-align: left;
+    font-family: 'Poppins', sans-serif; color: var(--ink, #1f2933);
+  }
+  .lit-svl-main i { color: var(--brand, #188e44); font-size: 0.7rem; width: 10px; }
+  .lit-svl-main b { font-size: 0.86rem; }
+  .lit-svl-main span { font-size: 0.74rem; color: #64748b; }
+  .lit-svl-outline { margin: 0; padding: 0 14px 12px 34px; font-size: 0.78rem; color: #374151; }
+  .lit-svl-outline li { margin: 4px 0; }
+  .lit-svl-outline li b { display: block; color: #111827; }
+  .lit-svl-outline li span { display: flex; flex-wrap: wrap; gap: 3px 12px; color: #4b5563; }
+  .lit-svl-outline li span i { margin-right: 4px; color: #9ca3af; font-size: 0.68rem; }
+  .lit-svl-wait { margin: 0; padding: 0 14px 12px 34px; font-size: 0.78rem; color: #64748b; }
 
   @media (max-width: 768px) {
     .lit-links-paste { flex-wrap: wrap; }
@@ -112570,7 +112734,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .svl-card__top { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .svl-card__t { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-weight: 700; font-size: 0.92rem; color: #111827; overflow-wrap: anywhere; }
 .svl-card__acts { display: flex; gap: 6px; flex-wrap: wrap; }
-.svl-card__meta { margin-top: 4px; font-size: 0.74rem; color: #6b7280; }
+.svl-card__meta { margin-top: 6px; font-size: calc(0.74rem + 10px); font-weight: 700; line-height: 1.35; color: #374151; }
+.svl-card__lit { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: #0b7644; }
+.svl-card__lit i { font-size: 0.8em; }
+.svl-card__lit b { font-weight: 700; }
 .svl-card__warn { margin-top: 6px; font-size: 0.74rem; color: #92400e; }
 .svl-pill { padding: 1px 8px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .svl-use { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; font-size: 0.8rem; color: #78350f; }

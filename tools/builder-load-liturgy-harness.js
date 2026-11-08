@@ -149,7 +149,8 @@ check('the window: where from, the service, the year, and a search by name, date
   /\[\['all', 'All'\], \['saved', 'Saved liturgies'\], \['order', 'Past services'\]\]/.test(fn('_svlDrawList')) &&
   /onchange="WO\.lbdSvlFilter\(\\'occ\\', this\.value\)"/.test(fn('_svlDrawList')) && /onchange="WO\.lbdSvlFilter\(\\'year\\', this\.value\)"/.test(fn('_svlDrawList')) &&
   /oninput="WO\.lbdSvlFind\(this\.value\)"/.test(fn('_svlDrawList')) && /card\.hidden = !ok;/.test(fn('lbdSvlFind')));
-check('a past service says its date, day, kind and liturgist', /: \[x\.date, x\.day \|\| _svlOccLabel\(x\.occasion\), _svlTypeName\(x\.type\), x\.liturgist \? 'Liturgist: ' \+ x\.liturgist : ''\];/.test(fn('_svlCardHtml')));
+check('a past service says its date, day and kind, and its liturgist beside its name', /: \[x\.date, x\.day \|\| _svlOccLabel\(x\.occasion\), _svlTypeName\(x\.type\)\];/.test(fn('_svlCardHtml')) &&
+  /\(x\.liturgist \? '<span class="svl-card__lit">[^\n]*Liturgist: <b>' \+ _lbdEsc\(x\.liturgist\) \+ '<\/b><\/span>' : ''\)/.test(fn('_svlCardHtml')));
 check('a late read never reopens the window over something else', /&& document\.querySelector\('\.svl-filters'\)\) _svlDrawList\(\);/.test(fn('_svlNeedData')));
 check('without the saved-liturgies table, the past services are still listed', /if \(err && err\.message === 'setup'\) \{ _svlNoTable = true; _svlRows = \[\]; return \[\]; \}/.test(fn('lbdServiceLiturgies')));
 
