@@ -185,7 +185,8 @@ check('no notice on the song\'s card any more', has(/\(mdHere \? _sbmMedleyRibbo
 check('...the Drawings window says a copy shares its drawings, and offers Own drawings',
   has(/var same = _sbmOtherCopies\(song\)\.filter\(function\(x\) \{ return \(x\.versionId \|\| ''\) === \(song\.versionId \|\| ''\); \}\);/) &&
   has(/onclick="WO\.sbmCloseSheet\(\);WO\.sbmOwnVersion\(\)"/) && has(/html \+= _sbmSharedDrawingsNote\(song\) \+ _sbmWhoNote\(\);/));
-check('Copy an arrangement is in More for any song of a service', has(/if \(song && order\) rows\.push\(\['fa-clone', 'Copy an arrangement/));
+// (2026-11-08: Copy an arrangement became Earlier versions: tools/songbook-earlier-versions-harness.js.)
+check('Earlier versions is in More for any song of a service', has(/if \(song && order\) rows\.push\(\['fa-clock-rotate-left', 'Earlier versions: how this service or an earlier one sang it/));
 check('copying is one step with Undo, saved like a version chosen',
   has(/var before = _sbArrSnap\(song\);\r?\n\s*_sbArrApply\(song, r\.src\);\r?\n\s*_sbVerSaved\(\);/) &&
   has(/_sbArrRestore\(song, before\);\r?\n\s*_sbVerSaved\(\);/));

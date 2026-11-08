@@ -50,7 +50,7 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3, up to 30), each named in `display_style.recInstrumentNames` (by slot: Piano, Guitar...). Written by TWO recorders -- see gotcha 21 |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3, up to 30), each named in `display_style.recInstrumentNames` (by slot: Piano, Guitar...). Written by TWO recorders -- see gotcha 21. `order_id` is the service (or songbook) a take was made for, written by every recorder since 2026-11-08: plain text, NO foreign key, so deleting a service leaves its takes (gotcha 72) |
 | `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard. `owner`, `owner_name`, `part`, `shared` (`migrations/2026-11-01_song_marks_layers.sql`) say whose it is and whether others see it; see gotcha 50 |
 | `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. `made_from = 'library'` marks an EARLIER MAIN VERSION: the library song as it was before it was replaced, restorable. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
@@ -278,9 +278,13 @@ than a bash heredoc, which quietly eats a level of backslashes.
      z-index 10060: the take, its part, time and length, Keep it or a red
      Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
-     its own: **Copy an arrangement** is under More (from the other copy, or
-     from an earlier service), and **Own drawings** in the Drawings window
-     while the copies share their drawings (gotcha 55).
+     its own, and **Own drawings** is in the Drawings window while the
+     copies share their drawings (gotcha 55). **Earlier versions** (a badge
+     under the song's title, and More; it was Copy an arrangement) opens how
+     the song was sung before -- this service's other copies, earlier
+     services with their drawings and recordings, saved versions, medleys --
+     each read-only (Open) or onto this copy (Use here); and every take says
+     which service it was made for, another service's marked (gotcha 72).
      **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
@@ -1664,9 +1668,10 @@ the anon key -- verify as `postgres`, not as the app.
     2026-11-07), and **Own drawings**
     (`sbmOwnVersion`) saves the copy as a version named for its section and
     service through the Versions sheet's own save (`_sbVerSaveAs`), copying
-    the drawings it shows, so what is drawn after stays on it. **Copy an
-    arrangement** (`sbmArrangements`, also in More) lists the other copies in
-    this service and the song's copies in earlier services (`_sbArrEarlier`,
+    the drawings it shows, so what is drawn after stays on it. **Earlier
+    versions** (`sbmArrangements`; Copy an arrangement until gotcha 72)
+    lists the other copies in this service and the song's copies in earlier
+    services (`_sbArrEarlier`,
     newest first, standalone songbooks left out) and puts one's key, words,
     version (if it still exists) and page marks on this copy, with Undo
     (`sbArrCopy`). The playlist plays a video once however many copies carry
@@ -2307,6 +2312,64 @@ the anon key -- verify as `postgres`, not as the app.
     Still open, by choice: `:has()` (13 rules) and `@container` (8) are
     dropped by Chromium before 105 and Safari before 16; what they style
     falls back to the plain layout.
+
+72. **Earlier versions: how a song was sung before, and which service each
+    take was made for.** From the operator (2026-11-08): singers asked
+    whether what a service does to a song overwrites the song in the Songs
+    page. It does not: a service's key, words and chords and the version it
+    sings are its copy's own, and only Make this the song's main version
+    (gotcha 46) writes the song. What IS shared by every service: the choir
+    parts (`song_voice_lines`), the drawings on a version (Standard too) and
+    the recordings. The sheet says exactly that, first.
+    **Every take says which service it was made for.** `song_recordings.order_id`
+    (plain text, no foreign key -- checked: PostgREST finds no relation, and
+    `deleteOrder` leaves takes alone, so a deleted service's takes stay and
+    say "a service since deleted"). The Record sheet always wrote it; now the
+    line and section recorder does through `lhcVoiceRec.orderId` (a hook set
+    by `_sbRecHooks`, from `_sbmLoadRecs` and `_sbmInstHooks`), answering
+    `_sbRecOrderNow` -- the order or standalone songbook in front, ONLY while
+    the songbook is open, so a take recorded from the song library's Choir
+    parts tab is nobody's service. A cut (`sbmCutSave`) keeps the service of
+    the recording it was cut from. `_sbRecFrom(rec, hereId, names)` (pure)
+    says what a take shows: `here` (teal, "Made for this service" / "in this
+    songbook"), `other` (amber background and bar, "Made for <service> · not
+    this service", by name once `_sbRecOrdersLoad` has read it, each id
+    once, a failed read retried) or `none` (grey, "Earlier take · the service
+    was not noted" -- the takes from before 2026-11-08, never passed off as
+    this service's). Tracks (`_sbmPaintPractice`) and a line's takes
+    (`lhcVoiceRec.paintList`, through `R.fromLabel`) show it;
+    `_sbRecFromNow` answers null while the songbook is shut.
+    **Earlier versions** (`sbmArrangements` / `_sbArrRender`; once Copy an
+    arrangement): the song's other copies in this service, its copies in
+    earlier services (`_sbArrEarlier`, standalone songbooks left out as
+    before, each row with its `orderId`, `entryId` and the medleys of that
+    order containing it), its saved versions (`_sbVers`, not the kept main
+    ones) and the medleys it was sung in -- an earlier service's, rebuilt
+    from `template.medleys` entry ids, which ARE `order_items` ids
+    (`_sbEvMedleys`), and saved medleys holding it (`_sbEvSavedMedleys`).
+    Each card counts the drawings on its version (`_sbmMarksOf`, so the
+    reader's layers apply) and, for an earlier service, the recordings made
+    for it; each has **Open** and **Use here**. Use here is `sbArrCopy` --
+    key, words, version, page marks, one step with Undo -- or, for a saved
+    version, `sbVerUse`; for a medley, `sbEvUseMedley` opens the medley
+    editor and runs its own Use (`mdsUse`) on a row made from the medley, so
+    the songs the book lacks are added and Save medley puts each in its key.
+    **Open** is read-only (`_sbEvSongOpen`): the words and chords in its key
+    (`_sbBkLyricsHtml` of a stand-in song, `_sbEvTemp`, id `__sbev__`), on a
+    card of the sheet that carries that stand-in (`card.__sbmSong`, which
+    `_sbmCardSong` reads first), so the reading view's own painter
+    (`_sbmMarksPaint`) draws the drawings of THAT version -- on a canvas made
+    by hand, without `_sbmMarkCanvas`'s pointer handlers, so it cannot be
+    drawn on. A choir score's drawings (`s:` anchors) do not show there,
+    only the lyrics'. Under the words, the recordings made for that service,
+    each marked (`_sbEvRecRow`), playable by one player (`sbEvPlay`) with
+    the three ways back to rest (gotcha 23); closing any sheet stops it. A
+    medley opens as its songs (`_sbEvMedleyOpen`), each to open in turn.
+    **The badge** under the song's title (`_sbEvBadge`, in a service's
+    songbook only, like More's entry): earlier services (never this one or a
+    songbook) plus saved versions, counted once a song every five minutes
+    (`_sbEvCount`) and drawn into the badge in place, hidden at nought.
+    `tools/songbook-earlier-versions-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 
