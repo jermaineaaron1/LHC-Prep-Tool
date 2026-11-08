@@ -50273,6 +50273,7 @@ var WO = (function() {
 
   function closeSongbook() {
     _sbmCoachClose();
+    _sbmGuideSong = null;   // opened again, the floater is armed again
     if (typeof _sbmDrawEnd === 'function' && _sbmDraw) _sbmDrawEnd();
     if (typeof _sbmPhoneClose === 'function') _sbmPhoneClose();
     // The recordings panel's song goes with the book, or the next book's
@@ -54063,6 +54064,13 @@ var WO = (function() {
   // sight below, takes you there, and goes once you have arrived; it comes
   // back only when you scroll up away from them again.
   var _sbmGuideOn = false, _sbmGuideGoing = 0;
+  // The song the floater was last armed for, and when a song was opened
+  // (2026-11-08): a song just opened whose words are not yet up the screen
+  // gets the floater -- on a desk too, where the words often start halfway
+  // down and the floater otherwise keeps what it was. That used to come only
+  // after the first flash, which since #409 shows once on a device, so on a
+  // desk the floater stopped appearing after a reload.
+  var _sbmGuideSong = null, _sbmGuideFresh = 0;
   // Whether to point the way (pure): top and bottom are where the words
   // themselves start and end -- the lyrics, or the score, not the card's
   // heading -- measured from the top of the scroller; h is the scroller's
@@ -54102,6 +54110,8 @@ var WO = (function() {
     }
     var song = _sbmSong();
     if (song) g.innerHTML = '<i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span>' + escapeHtml(_sbmGuideLabel(song)) + '</span>';
+    // The book opened, or another song chosen: armed afresh.
+    if (song && song.id !== _sbmGuideSong) { _sbmGuideSong = song.id; _sbmGuideFresh = Date.now(); }
     _sbmGuideCheck();
     // Fonts and the chord fit move the card once more after the first paint.
     setTimeout(_sbmGuideCheck, 450);
@@ -54114,6 +54124,11 @@ var WO = (function() {
       var r = root.getBoundingClientRect(), c = words.getBoundingClientRect();
       var wt = c.top - r.top, wb = c.bottom - r.top;
       want = _sbmGuideWant(wt, wb, r.height, _sbmGuideOn);
+      // A song just opened, its words not yet up the screen: the floater. The
+      // first moments after a render may measure a page still settling, so it
+      // is asked for a second and a half before it lapses.
+      if (_sbmGuideFresh && Date.now() - _sbmGuideFresh > 1500) _sbmGuideFresh = 0;
+      if (_sbmGuideFresh && r.height > 0 && _sbmIntroWant(wt, wb, r.height)) { want = true; _sbmGuideFresh = 0; }
       // The first opening each time the app is opened, the flash says where
       // the words are whenever they are not yet up the screen -- on a desk
       // too, where a few lines may show (the operator: "both for mobile and
