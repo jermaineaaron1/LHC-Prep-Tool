@@ -76755,22 +76755,14 @@ var WO = (function() {
     }
     var dd = '<i class="fa-solid fa-chevron-down lbw-dd" aria-hidden="true"></i>';
     return '<div class="lbw-ribbon" role="toolbar" aria-label="Insert">' +
-      '<button type="button" class="lbw-add" data-act="add-item" aria-haspopup="menu" title="Add anything to the section you are in">' +
+      // Song, Liturgy, Reading, Prayer, Text, Section, Slide and Note are in
+      // Add Item, not a row of buttons beside it (the operator, 2026-11-08).
+      '<button type="button" class="lbw-add" data-act="add-item" aria-haspopup="menu" title="Add to the section you are in: a song, liturgy, a reading, a prayer, a text slide, a slide break, a note or a new section">' +
         '<i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Item</span></button>' +
-      '<div class="lbw-rgroup" role="group" aria-label="Insert">' +
-        b('ins-song', 'fa-solid fa-music', 'Song', 'Insert a song from the library, after the one you are on') +
-        b('ins-liturgy', 'fa-solid fa-person-praying', 'Liturgy' + dd, 'Liturgy from the library (invocations, confessions, creeds), what suits this section, or your own written as liturgy', ' aria-haspopup="menu"') +
-        b('ins-reading', 'fa-solid fa-book-bible', 'Reading', 'Insert a scripture reading') +
-        b('ins-prayer', 'fa-solid fa-hands-praying', 'Prayer', 'Insert a prayer from the library') +
-        b('ins-text', 'fa-solid fa-font', 'Text', 'A plain slide of your own words, for this service only: a welcome, an announcement, a title') +
-        b('ins-section', 'fa-solid fa-heading', 'Section', 'Insert a new section after this one') +
-        b('ins-break', 'fa-solid fa-scissors', 'Slide', 'Start a new slide at the cursor (Ctrl+Enter)') +
-        b('ins-note', 'fa-regular fa-comment', 'Note', 'A note for the liturgist on this section, never projected') +
-      '</div>' +
       '<div class="lbw-rgroup" role="group" aria-label="Bring in">' +
         b('menu-import', 'fa-solid fa-file-import', 'Import' + dd, 'Bring in a Word document, pasted text, or this date’s readings', ' aria-haspopup="menu"') +
-        b('menu-templates', 'fa-regular fa-calendar-days', 'Templates' + dd, 'Sections from a service template', ' aria-haspopup="menu"') +
-        b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load one saved in another year', ' aria-haspopup="menu"') +
+        b('menu-templates', 'fa-regular fa-calendar-days', 'Templates' + dd, 'A whole liturgy for a service and a year -- a saved one or a past service -- or sections from a template', ' aria-haspopup="menu"') +
+        b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load a whole liturgy: a saved one, or an earlier liturgist’s past service', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup" role="group" aria-label="Share">' +
         b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: a link to the order of service, or every word of it', ' aria-haspopup="menu"') +
@@ -78010,7 +78002,8 @@ var WO = (function() {
     if (!sec) { lbdAddSection(0); return; }
     if (_lbdPhone()) { _lbdOpenInsertSheet(sec); return; }
     _lbdSetCur(sec);
-    _lbdOpenMenu(anchor, 'Add to ' + _lbdSecTitle(sec), _lbdInsertItems(sec, true));
+    // The cursor stays in the words while it is open, for its Slide break.
+    _lbdOpenMenu(anchor, 'Add to ' + _lbdSecTitle(sec), _lbdInsertItems(sec, true), { keepFocus: true });
   }
 
   // A phone's Add: big tiles, and the section it goes into.
@@ -78032,8 +78025,9 @@ var WO = (function() {
 
   function _lbdInsertKind(k, secId) {
     if (k === 'library') { _lbdSetCur(secId, ''); _lbdShowLib('lib', ''); return; }
-    if (k === 'templates') { _lbdSetCur(secId, ''); _lbdShowLib('tpl', ''); return; }
-    if (k === 'svl') { lbdServiceLiturgies(); return; }
+    // A phone's Templates is the whole liturgy for a service and year too.
+    if (k === 'templates') { lbdServiceLiturgies(null, 'all'); return; }
+    if (k === 'svl') { lbdServiceLiturgies(null, 'all'); return; }
     if (k === 'import') { _lbdOpenImportSheet(); return; }
     if (k === 'roster') { lbdFillReadings(); return; }
     _lbdInsert(k, secId);
@@ -78046,24 +78040,45 @@ var WO = (function() {
     ]);
   }
 
+  // Templates: a WHOLE liturgy for a service and a year -- a saved one or a
+  // past service's -- replacing this order's, rather than one section at a
+  // time (the operator's team, 2026-11-08). The sections one at a time are
+  // still here, under "One section from a template".
   function _lbdOpenTplMenu(anchor) {
     var cur = _lbdCurTplKey(), tpl = orderStructures[cur] || [];
     var missing = tpl.filter(function(s, i) { return _lbdSecIndex('wo-section-' + i) < 0; }).length;
-    var items = [{ label: missing ? 'Add back ' + missing + ' missing section' + (missing === 1 ? '' : 's') : 'Every template section is in this order',
-      icon: 'fa-solid fa-rotate-left', disabled: !missing, run: lbdAddMissingTemplateSections }, '-'];
+    var occ = _svlGuess();
+    var items = [
+      { label: 'A whole liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
+      { label: 'A whole liturgy: choose the service and year…', icon: 'fa-solid fa-layer-group', run: function() { lbdServiceLiturgies('*', 'all'); } },
+      { label: 'By service', icon: 'fa-regular fa-calendar-days', sub: _svlOccasions().map(function(o) {
+        return { label: o.label + '…', icon: 'fa-regular fa-calendar', run: function() { lbdServiceLiturgies(o.id, 'all'); } };
+      }) },
+      '-',
+      { label: missing ? 'Add back ' + missing + ' missing section' + (missing === 1 ? '' : 's') : 'Every template section is in this order',
+        icon: 'fa-solid fa-rotate-left', disabled: !missing, run: lbdAddMissingTemplateSections }
+    ];
+    var one = [];
     [cur].concat(Object.keys(orderStructures).filter(function(k) { return k !== cur; })).forEach(function(k) {
-      items.push({ label: (_LBD_TPL_NAMES[k] || k) + '…', icon: 'fa-regular fa-file-lines', sub: (orderStructures[k] || []).map(function(s, i) {
+      one.push({ label: (_LBD_TPL_NAMES[k] || k) + '…', icon: 'fa-regular fa-file-lines', sub: (orderStructures[k] || []).map(function(s, i) {
         var have = k === cur && _lbdSecIndex('wo-section-' + i) >= 0;
         return { label: (i + 1) + '. ' + _woStripNum(s.title), icon: have ? 'fa-solid fa-check' : 'fa-solid fa-plus', disabled: have,
                  run: function() { lbdAddTemplateSection(k, i); } };
       }) });
     });
-    items.push('-', { label: 'Open the Templates panel', icon: 'fa-solid fa-table-columns', run: function() { _lbdShowLib('tpl', ''); } });
+    items.push({ label: 'One section from a template', icon: 'fa-regular fa-file-lines', sub: one },
+      { label: 'Open the Templates panel', icon: 'fa-solid fa-table-columns', run: function() { _lbdShowLib('tpl', ''); } });
     _lbdOpenMenu(anchor, 'Templates', items);
   }
 
   function _lbdOpenLitMenu(anchor) {
     var sec = _lbdTargetSec();
+    var sug = _lbdSuggested(sec);
+    var picks = _lbdLitAll().filter(function(x) { return x && sug[x.id]; });
+    _lbdOpenMenu(anchor, sec ? (picks.length ? 'Suggested for ' : 'Liturgy for ') + _lbdSecTitle(sec) : 'Liturgy', _lbdLitMenuItems(sec));
+  }
+  // The Liturgy menu's items: the library, your own, and what suits the section.
+  function _lbdLitMenuItems(sec) {
     var sug = _lbdSuggested(sec);
     var picks = _lbdLitAll().filter(function(x) { return x && sug[x.id]; });
     var items = [
@@ -78078,7 +78093,7 @@ var WO = (function() {
                      run: function() { _lbdLibInsert('liturgy', x.id, sec); } });
       });
     }
-    _lbdOpenMenu(anchor, sec ? (picks.length ? 'Suggested for ' : 'Liturgy for ') + _lbdSecTitle(sec) : 'Liturgy', items);
+    return items;
   }
 
   // ── Service liturgies: a whole liturgy kept for its occasion ───────────
@@ -78194,98 +78209,291 @@ var WO = (function() {
     };
   }
 
-  // ---- the sheets ----
-  var _svlSel = '', _svlOpen = '', _svlUse = '';
-  function lbdServiceLiturgies(occasion) {
-    if (!currentOrderData) return;
-    _svlSel = occasion === '*' ? '' : (occasion || _svlSel || _svlGuess());
-    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Load a saved liturgy', '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Looking for saved liturgies…</p>', { kind: 'svl' });
-    _svlLoad().then(_svlDrawList, function(err) {
-      _lbdCloseSheet();
-      if (err && err.message === 'setup') _svlSetupMsg();
-      else showToast('The saved liturgies could not be read just now: ' + (err && err.message || 'no answer'), 'error');
+  // ---- past services: an earlier liturgist's liturgy, to start from ----
+  //
+  // From the operator's team (2026-11-08): load a past order made by an
+  // earlier liturgist -- similar, never quite the same, a part added here,
+  // one taken out there -- and reuse it whole. Every service's order is
+  // listed beside the saved liturgies (never a songbook's pseudo-order, nor
+  // this order), with its date, year, kind, liturgical day and liturgist --
+  // the last two the roster's own cells for that date (roles 'liturgical'
+  // and 'liturgist'). Loading one is the same step as a saved liturgy
+  // (_svlApply): its sections and liturgy replace this order's, one Undo.
+  var _lldOrders = null, _lldData = {};
+  var _LLD_MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  // "Nov 15", "15 Nov 2026", "Dec 31 PM" -> { key: 'Nov 15', month, day } (pure).
+  function _lldMonthDay(str) {
+    var t = String(str || ''), mon = '', day = 0;
+    var m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/i);
+    if (m) { mon = m[1]; day = parseInt(m[2], 10); }
+    else {
+      m = t.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i);
+      if (m) { mon = m[2]; day = parseInt(m[1], 10); }
+    }
+    if (!mon || !(day >= 1 && day <= 31)) return null;
+    mon = mon.charAt(0).toUpperCase() + mon.slice(1, 3).toLowerCase();
+    return { key: mon + ' ' + day, month: _LLD_MON[mon.toLowerCase()], day: day };
+  }
+  // The roster's cells for those years, by 'year|Mon D' (pure): who led the
+  // liturgy, and the day's name ({"day": ...} as the roster writes it).
+  function _lldRosterMap(rows) {
+    var map = {};
+    (rows || []).forEach(function(r) {
+      var md = r ? _lldMonthDay(r.service_date) : null, v = r ? r.value : '';
+      if (!md || !r.year || !v || v === '__BLANK__') return;
+      var e = map[r.year + '|' + md.key] = map[r.year + '|' + md.key] || {};
+      if (r.role_id === 'liturgist') e.liturgist = String(v).trim();
+      else if (r.role_id === 'liturgical') {
+        var d = '';
+        try { var j = JSON.parse(v); d = (j && typeof j === 'object') ? (j.day || '') : String(v); } catch (x) { d = String(v); }
+        if (d) e.day = d;
+      }
+    });
+    return map;
+  }
+  // One past order as the list shows it (pure): its year from its title
+  // ("Service - 15 Nov 2026"), else from when it was made; its liturgical
+  // day and liturgist from the roster's cells for its date; and the occasion
+  // that day is, as a saved liturgy is filed.
+  function _lldOrderMeta(o, roster) {
+    o = o || {};
+    var title = o.title || 'Untitled order', md = _lldMonthDay(o.service_date) || _lldMonthDay(title);
+    var ym = String(title).match(/\b(20\d{2})\b/), year = ym ? parseInt(ym[1], 10) : 0;
+    if (!year) { var dt = new Date(o.created_date || o.last_edited || ''); year = isNaN(dt.getTime()) ? 0 : dt.getFullYear(); }
+    var r = (roster || {})[year + '|' + (md ? md.key : '')] || {}, type = o.type || 'traditional';
+    var occ = String(o.occasion || '');
+    var day = r.day || ((/[a-z]{4,}/i.test(occ) && !_lldMonthDay(occ)) ? occ : '');
+    return { kind: 'order', key: 'o:' + o.id, id: o.id, title: title, type: type, year: year,
+      date: md ? md.key + (year ? ' ' + year : '') : '', at: (year && md) ? Date.UTC(year, md.month, md.day) : 0,
+      day: day, liturgist: r.liturgist || '', occasion: _svlOccasionFor(day, type) };
+  }
+  function _lldLoadOrders() {
+    var sup = window._supabase; if (!sup) return Promise.resolve([]);
+    return sup.from('orders').select('id,title,type,service_date,occasion,created_date,last_edited').order('last_edited', { ascending: false }).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var rows = (r.data || []).filter(function(o) { return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id); });
+      var years = {};
+      rows.forEach(function(o) { var y = _lldOrderMeta(o, null).year; if (y) years[y] = true; });
+      var ys = Object.keys(years).map(Number);
+      // Two roles over a few years is a few hundred rows, under the 1,000 a read returns.
+      var roster = ys.length ? sup.from('roster').select('role_id,value,service_date,year').in('role_id', ['liturgist', 'liturgical']).in('year', ys)
+        .then(function(r2) { return r2.error ? [] : (r2.data || []); }, function() { return []; }) : Promise.resolve([]);
+      return roster.then(function(rr) {
+        var map = _lldRosterMap(rr);
+        _lldOrders = rows.map(function(o) { return _lldOrderMeta(o, map); });
+        return _lldOrders;
+      });
     });
   }
-  function _svlDrawList() {
-    var rows = _svlRows || [], type = _svlOrderType();
-    var occs = _svlOccasions(), sel = _svlSel;
-    var here = rows.filter(function(r) { return !sel || r.occasion_id === sel; });
-    var opts = '<option value="">All occasions</option>' + occs.map(function(o) {
-      var n = rows.filter(function(r) { return r.occasion_id === o.id; }).length;
-      return '<option value="' + _lbdEsc(o.id) + '"' + (o.id === sel ? ' selected' : '') + '>' + _lbdEsc(o.label) + (n ? ' (' + n + ')' : '') + '</option>';
-    }).join('');
-    var from = currentOrderData && currentOrderData.template && currentOrderData.template.serviceLiturgy;
-    var cards = here.map(function(r) {
-      var c = _svlCounts(r.data), same = (r.order_type || 'traditional') === type, open = _svlOpen === r.id, use = _svlUse === r.id;
-      var when = r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-      var out = '<div class="svl-card' + (from && from.id === r.id ? ' is-from' : '') + '">' +
-        '<div class="svl-card__top"><div class="svl-card__t">' + _lbdEsc(r.title || _svlOccLabel(r.occasion_id)) +
-          (from && from.id === r.id ? '<span class="svl-pill">This order came from it</span>' : '') + '</div>' +
-          '<div class="svl-card__acts"><button type="button" class="lbd-btn" onclick="WO.lbdSvlToggle(\'' + escapeJsArg(r.id) + '\')">' + (open ? 'Hide' : 'Preview') + '</button>' +
-          (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-file-import"></i> Load it</button>' : '') + '</div></div>' +
-        '<div class="svl-card__meta">' + _lbdEsc([_svlOccLabel(r.occasion_id), r.year ? String(r.year) : '', (r.order_type || 'traditional') === 'contemporary' ? 'Contemporary' : (r.order_type === 'special' ? 'Special' : 'Traditional'),
-          c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs', when ? 'saved ' + when : ''].filter(Boolean).join(' · ')) + '</div>' +
-        (same ? '' : '<div class="svl-card__warn">Made for a ' + _lbdEsc(r.order_type || 'traditional') + ' service; open a ' + _lbdEsc(r.order_type || 'traditional') + ' order to use it.</div>');
-      if (use) {
-        out += '<div class="svl-use"><p>This replaces this order’s sections and liturgy with “' + _lbdEsc(r.title) + '”. Undo brings them back.</p>' +
-          '<label class="svl-check"><input type="checkbox" id="svlSongs"> Bring its ' + c.songs + ' song' + (c.songs === 1 ? '' : 's') + ' too</label>' +
-          '<label class="svl-check"><input type="checkbox" id="svlReadings"> Bring its readings (otherwise this date’s come from the roster)</label>' +
-          '<div class="svl-use__foot"><button type="button" class="lbd-btn" onclick="WO.lbdSvlAsk(\'\')">Cancel</button>' +
-          '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlUse(\'' + escapeJsArg(r.id) + '\')"><i class="fa-solid fa-check"></i> Load into this service</button></div></div>';
-      }
-      if (open) {
-        out += '<ol class="svl-outline">' + _svlOutline(r.data).map(function(sec) {
-          return '<li><b>' + _lbdEsc(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(x) {
-            return '<i class="fa-solid ' + ({ song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' })[x.kind] + '" aria-hidden="true"></i>' + _lbdEsc(x.title);
-          }).join('') + '</span>' : '') + '</li>';
-        }).join('') + '</ol>';
-      }
-      return out + '</div>';
-    }).join('');
-    var html = '<label class="lbd-field"><span>Occasion</span><select class="lbd-select" onchange="WO.lbdServiceLiturgies(this.value || \'*\')">' + opts + '</select></label>' +
-      (cards || '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> ' + (sel ? 'No liturgy saved for ' + _lbdEsc(_svlOccLabel(sel)) + ' yet. ' : 'No liturgies saved yet. ') +
-        'Shape this one, then save it for its occasion and a later year can start from it.</p>') +
-      '<div class="lbd-sheet-foot"><span></span><button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSaveSheet()"><i class="fa-solid fa-floppy-disk"></i> Save this liturgy…</button></div>';
-    _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Load a saved liturgy', html, { kind: 'svl' });
+  // What a past order's liturgy is, in a saved liturgy's shape (pure): its
+  // sections (its type's template when it kept no layout of its own), its
+  // liturgy, text and readings -- not its sermon slides, videos or notes
+  // pages, which belonged to that day -- its songs and its service notes.
+  function _lldSnapshotFromOrder(order, items) {
+    order = order || {};
+    var tpl = order.template || {};
+    var lay = (Array.isArray(tpl.sectionLayout) && tpl.sectionLayout.length) ? tpl.sectionLayout
+      : (orderStructures[order.type || 'traditional'] || orderStructures.traditional || []).map(function(sx, i) {
+          return { id: 'wo-section-' + i, title: sx.title, serviceSectionId: sx.serviceSectionId || '' };
+        });
+    var keep = (items || []).filter(function(it) { return it && /^(liturgy|content|scripture)$/.test(it.itemType || ''); });
+    var songs = (items || []).filter(function(it) { return it && it.itemType === 'song' && it.sourceId; }).map(function(it) {
+      var c = it.customizations || {};
+      return { itemType: 'song', songId: it.sourceId, title: it.title || '', transposeSteps: c.transposeSteps || 0, liturgistNotes: c.liturgistNotes || '',
+        serviceSections: (Array.isArray(c.serviceSections) && c.serviceSections.length) ? c.serviceSections : (it.sectionId ? [it.sectionId] : []) };
+    });
+    return _svlSnapshotOf({ allItems: keep, sectionLayout: lay, clearedSections: tpl.clearedSections, template: tpl },
+                          songs, function(sg) { return sg.serviceSections; });
   }
-  function lbdSvlToggle(id) { _svlOpen = _svlOpen === id ? '' : id; _svlDrawList(); }
-  function lbdSvlAsk(id) { _svlUse = id || ''; _svlDrawList(); }
+  function _lldOrderData(id) {
+    if (_lldData[id]) return Promise.resolve(_lldData[id]);
+    return SBQ.loadOrder(id).then(function(res) {
+      var d = _lldSnapshotFromOrder((res && res.order) || {}, (res && res.items) || []);
+      _lldData[id] = d;
+      return d;
+    });
+  }
+  // The saved liturgies and the past services as one list, newest year
+  // first, a year's saved ones before its services (pure over the rows).
+  function _svlSources(saved, orders) {
+    return (saved || []).map(function(r) {
+      return { kind: 'saved', key: 's:' + r.id, id: r.id, title: r.title || _svlOccLabel(r.occasion_id), type: r.order_type || 'traditional',
+        year: parseInt(r.year, 10) || 0, occasion: r.occasion_id || '', at: r.updated_at ? new Date(r.updated_at).getTime() : 0, data: r.data || {}, row: r };
+    }).concat(orders || []).sort(function(a, b) {
+      return (b.year - a.year) || (a.kind === b.kind ? 0 : (a.kind === 'saved' ? -1 : 1)) || ((b.at || 0) - (a.at || 0));
+    });
+  }
+  // Which of them the filters let through (pure).
+  function _svlFilter(list, f) {
+    f = f || {};
+    return (list || []).filter(function(x) {
+      if (f.kind && f.kind !== 'all' && x.kind !== f.kind) return false;
+      if (f.occ && x.occasion !== f.occ) return false;
+      if (f.year && x.year !== f.year) return false;
+      return true;
+    });
+  }
+  function _svlFind(key) { return _svlSources(_svlRows, _lldOrders).filter(function(x) { return x.key === key; })[0] || null; }
+
+  // ---- the sheets ----
+  var _svlSel = '', _svlOpen = '', _svlUse = '', _svlKind = 'all', _svlYear = 0, _svlQ = '', _svlNoTable = false;
+  // The whole liturgies to load: saved ones and past services, filtered by
+  // where they come from, the service (occasion) and the year.
+  function lbdServiceLiturgies(occasion, kind) {
+    if (!currentOrderData) return;
+    _svlSel = occasion === '*' ? '' : (occasion || _svlSel || _svlGuess());
+    if (kind) _svlKind = kind;
+    _svlOpen = ''; _svlUse = ''; _svlYear = 0; _svlQ = '';
+    _lbdSheet('<i class="fa-solid fa-layer-group"></i> Load a whole liturgy', '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Looking for saved liturgies and past services…</p>', { kind: 'svl' });
+    _svlNoTable = false;
+    var saved = _svlLoad().catch(function(err) {
+      if (err && err.message === 'setup') { _svlNoTable = true; _svlRows = []; return []; }
+      throw err;
+    });
+    var past = _lldLoadOrders().catch(function() { _lldOrders = []; return []; });
+    Promise.all([saved, past]).then(_svlDrawList, function(err) {
+      _lbdCloseSheet();
+      showToast('The saved liturgies could not be read just now: ' + (err && err.message || 'no answer'), 'error');
+    });
+  }
+  function _svlTypeName(t) { return t === 'contemporary' ? 'Contemporary' : (t === 'special' ? 'Special' : 'Traditional'); }
+  function _svlCardHtml(x, type, from) {
+    var same = x.type === type, open = _svlOpen === x.key, use = _svlUse === x.key, saved = x.kind === 'saved';
+    var isFrom = !!(from && (saved ? from.id === x.id : from.fromOrder === x.id));
+    var d = saved ? x.data : _lldData[x.id], c = d ? _svlCounts(d) : null;
+    var when = saved && x.row && x.row.updated_at ? new Date(x.row.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    var meta = saved ? [_svlOccLabel(x.occasion), x.year ? String(x.year) : '', _svlTypeName(x.type)]
+                     : [x.date, x.day || _svlOccLabel(x.occasion), _svlTypeName(x.type), x.liturgist ? 'Liturgist: ' + x.liturgist : ''];
+    if (c) meta = meta.concat([c.sections + ' sections', c.liturgy + ' liturgy', c.readings + ' readings', c.songs + ' songs']);
+    if (when) meta.push('saved ' + when);
+    var q = [x.title, x.liturgist, x.day, x.date, _svlOccLabel(x.occasion), x.year].join(' ').toLowerCase();
+    var out = '<div class="svl-card svl-card--' + x.kind + (isFrom ? ' is-from' : '') + '" data-q="' + _lbdEsc(q) + '">' +
+      '<div class="svl-card__top"><div class="svl-card__t"><span class="svl-kindpill">' + (saved ? 'Saved liturgy' : 'Past service') + '</span>' + _lbdEsc(x.title) +
+        (isFrom ? '<span class="svl-pill">This order came from it</span>' : '') + '</div>' +
+        '<div class="svl-card__acts"><button type="button" class="lbd-btn" onclick="WO.lbdSvlToggle(\'' + escapeJsArg(x.key) + '\')">' + (open ? 'Hide' : 'Preview') + '</button>' +
+        (same ? '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlAsk(\'' + escapeJsArg(x.key) + '\')"><i class="fa-solid fa-file-import"></i> Load it</button>' : '') + '</div></div>' +
+      '<div class="svl-card__meta">' + _lbdEsc(meta.filter(Boolean).join(' · ')) + '</div>' +
+      (same ? '' : '<div class="svl-card__warn">Made for a ' + _lbdEsc(_svlTypeName(x.type).toLowerCase()) + ' service; open a ' + _lbdEsc(_svlTypeName(x.type).toLowerCase()) + ' order to use it.</div>');
+    if (use) {
+      var n = c ? c.songs : 0;
+      out += '<div class="svl-use"><p>This replaces this order’s sections and liturgy with ' + (saved ? '“' + _lbdEsc(x.title) + '”' : 'those of the ' + _lbdEsc(x.date || x.title) + ' service' + (x.liturgist ? ' (' + _lbdEsc(x.liturgist) + ')' : '')) + '. Undo brings them back.</p>' +
+        '<label class="svl-check"><input type="checkbox" id="svlSongs"> Bring its ' + (c ? n + ' ' : '') + 'song' + (n === 1 ? '' : 's') + ' too</label>' +
+        '<label class="svl-check"><input type="checkbox" id="svlReadings"> Bring its readings (otherwise this date’s come from the roster)</label>' +
+        '<div class="svl-use__foot"><button type="button" class="lbd-btn" onclick="WO.lbdSvlAsk(\'\')">Cancel</button>' +
+        '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlUse(\'' + escapeJsArg(x.key) + '\')"><i class="fa-solid fa-check"></i> Load into this service</button></div></div>';
+    }
+    if (open) {
+      out += d ? '<ol class="svl-outline">' + _svlOutline(d).map(function(sec) {
+          return '<li><b>' + _lbdEsc(sec.title) + '</b>' + (sec.items.length ? '<span>' + sec.items.map(function(it) {
+            return '<i class="fa-solid ' + ({ song: 'fa-music', reading: 'fa-book-bible', liturgy: 'fa-scroll', text: 'fa-font' })[it.kind] + '" aria-hidden="true"></i>' + _lbdEsc(it.title);
+          }).join('') + '</span>' : '') + '</li>';
+        }).join('') + '</ol>'
+        : '<p class="lbd-hint"><i class="fa-solid fa-spinner fa-spin"></i> Reading that service…</p>';
+    }
+    return out + '</div>';
+  }
+  function _svlDrawList() {
+    if (!currentOrderData) return;
+    var all = _svlSources(_svlRows, _lldOrders), type = _svlOrderType();
+    var here = _svlFilter(all, { kind: _svlKind, occ: _svlSel, year: _svlYear });
+    var forCount = _svlFilter(all, { kind: _svlKind, year: _svlYear });
+    var occOpts = '<option value="">All services</option>' + _svlOccasions().map(function(o) {
+      var n = forCount.filter(function(x) { return x.occasion === o.id; }).length;
+      return '<option value="' + _lbdEsc(o.id) + '"' + (o.id === _svlSel ? ' selected' : '') + '>' + _lbdEsc(o.label) + (n ? ' (' + n + ')' : '') + '</option>';
+    }).join('');
+    var years = {}; all.forEach(function(x) { if (x.year) years[x.year] = true; });
+    var yearOpts = '<option value="">All years</option>' + Object.keys(years).map(Number).sort(function(a, b) { return b - a; }).map(function(y) {
+      return '<option value="' + y + '"' + (y === _svlYear ? ' selected' : '') + '>' + y + '</option>';
+    }).join('');
+    var kinds = [['all', 'All'], ['saved', 'Saved liturgies'], ['order', 'Past services']].map(function(k) {
+      return '<button type="button" class="svl-kind' + (k[0] === _svlKind ? ' is-on' : '') + '" aria-pressed="' + (k[0] === _svlKind ? 'true' : 'false') + '" onclick="WO.lbdSvlFilter(\'kind\', \'' + k[0] + '\')">' + k[1] + '</button>';
+    }).join('');
+    var from = currentOrderData.template && currentOrderData.template.serviceLiturgy;
+    var cards = here.map(function(x) { return _svlCardHtml(x, type, from); }).join('');
+    var what = (_svlSel ? _svlOccLabel(_svlSel) : '') + (_svlYear ? (_svlSel ? ' ' : '') + _svlYear : '');
+    var html = '<div class="svl-filters"><div class="svl-kinds" role="group" aria-label="Where from">' + kinds + '</div>' +
+        '<label class="lbd-field svl-f"><span>Service</span><select class="lbd-select" onchange="WO.lbdSvlFilter(\'occ\', this.value)">' + occOpts + '</select></label>' +
+        '<label class="lbd-field svl-f"><span>Year</span><select class="lbd-select" onchange="WO.lbdSvlFilter(\'year\', this.value)">' + yearOpts + '</select></label>' +
+        '<input class="lbd-input svl-q" type="search" placeholder="Search by name, date or liturgist" aria-label="Search by name, date or liturgist" value="' + _lbdEsc(_svlQ) + '" oninput="WO.lbdSvlFind(this.value)"></div>' +
+      (_svlNoTable ? '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> Saved liturgies need a one-time update to the database (migrations/2026-11-01_service_liturgies.sql); past services are listed.</p>' : '') +
+      (cards ? '<div class="svl-list">' + cards + '</div><p class="lbd-hint svl-none" hidden>Nothing matches that search.</p>'
+             : '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> ' + (what ? 'Nothing for ' + _lbdEsc(what) + ' yet. ' : 'Nothing yet. ') +
+               'Shape this liturgy, then save it for its occasion, and a later year can start from it.</p>') +
+      '<div class="lbd-sheet-foot"><span></span><button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSaveSheet()"><i class="fa-solid fa-floppy-disk"></i> Save this liturgy…</button></div>';
+    _lbdSheet('<i class="fa-solid fa-layer-group"></i> Load a whole liturgy', html, { kind: 'svl' });
+    if (_svlQ) lbdSvlFind(_svlQ);
+  }
+  function lbdSvlFilter(field, value) {
+    if (field === 'kind') _svlKind = value || 'all';
+    else if (field === 'occ') _svlSel = value || '';
+    else if (field === 'year') _svlYear = parseInt(value, 10) || 0;
+    _svlOpen = ''; _svlUse = '';
+    _svlDrawList();
+  }
+  // The search, in place: the cards stay, the cursor stays in the box.
+  function lbdSvlFind(q) {
+    _svlQ = String(q || '');
+    var words = _svlQ.toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    document.querySelectorAll('.svl-list .svl-card').forEach(function(card) {
+      var t = card.getAttribute('data-q') || '', ok = words.every(function(w) { return t.indexOf(w) !== -1; });
+      card.hidden = !ok; if (ok) shown++;
+    });
+    var none = document.querySelector('.svl-none'); if (none) none.hidden = shown > 0;
+  }
+  // A past service's liturgy is read when it is first previewed or asked for.
+  function _svlNeedData(key) {
+    var x = _svlFind(key);
+    if (!x || x.kind !== 'order' || _lldData[x.id]) return;
+    // Drawn again only while the list is still up: not over a sheet opened since.
+    _lldOrderData(x.id).then(function() { if ((_svlOpen === key || _svlUse === key) && document.querySelector('.svl-filters')) _svlDrawList(); },
+      function(err) { showToast('That service could not be read just now: ' + (err && err.message || 'no answer'), 'error'); });
+  }
+  function lbdSvlToggle(key) { _svlOpen = _svlOpen === key ? '' : key; _svlDrawList(); if (_svlOpen) _svlNeedData(key); }
+  function lbdSvlAsk(key) { _svlUse = key || ''; _svlDrawList(); if (_svlUse) _svlNeedData(key); }
 
   // Using one: the order's sections and liturgy replaced, as one undoable change.
-  function lbdSvlUse(id) {
-    var r = (_svlRows || []).filter(function(x) { return x.id === id; })[0];
-    if (!r || !currentOrderData) return;
-    if ((r.order_type || 'traditional') !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }
+  function lbdSvlUse(key) {
+    var x = _svlFind(key);
+    if (!x || !currentOrderData) return;
+    if (x.type !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }
     var songs = !!(document.getElementById('svlSongs') || {}).checked, readings = !!(document.getElementById('svlReadings') || {}).checked;
-    var d = r.data || {}, added = 0;
+    (x.kind === 'order' ? _lldOrderData(x.id) : Promise.resolve(x.data)).then(function(d) { _svlApply(d || {}, x, songs, readings); },
+      function(err) { showToast('That service could not be read just now: ' + (err && err.message || 'no answer'), 'error'); });
+  }
+  function _svlApply(d, x, songs, readings) {
+    var added = 0;
     var ok = _lbdChange(function() {
       currentOrderData.sectionLayout = JSON.parse(JSON.stringify(d.sectionLayout || []));
       currentOrderData.clearedSections = (d.clearedSections || []).slice();
-      var ids = {}; currentOrderData.sectionLayout.forEach(function(s) { ids[s.id] = true; });
+      var ids = {}; currentOrderData.sectionLayout.forEach(function(sx) { ids[sx.id] = true; });
       var items = JSON.parse(JSON.stringify(d.items || [])).filter(function(it) { return readings || it.itemType !== 'scripture'; })
         .filter(function(it) { return !it.sectionId || ids[it.sectionId]; })
         .map(function(it) { it.id = _lbdPfx() + 'svl_' + _lbdUid(); return it; });
       currentOrderData.allItems = (currentOrderData.allItems || []).filter(function(it) { return it && it.itemType === 'song'; }).concat(items);
-      if (songs) (d.songs || []).forEach(function(s) {
-        var lib = _lbdLibSong(s.songId);
-        if (!lib || songOrderSections.some(function(x) { return x && x.songId === s.songId; })) return;
-        var secs = (s.sections || []).filter(function(x) { return ids[x]; });
+      if (songs) (d.songs || []).forEach(function(sg) {
+        var lib = _lbdLibSong(sg.songId);
+        if (!lib || songOrderSections.some(function(e) { return e && e.songId === sg.songId; })) return;
+        var secs = (sg.sections || []).filter(function(sid) { return ids[sid]; });
         var entry = _woNewSongEntry(lib, secs[0] || '');
         entry.serviceSections = secs; entry.sectionId = secs[0] || '';
-        entry.transposeSteps = parseInt(s.transposeSteps, 10) || 0;
-        entry.liturgistNotes = s.liturgistNotes || '';
+        entry.transposeSteps = parseInt(sg.transposeSteps, 10) || 0;
+        entry.liturgistNotes = sg.liturgistNotes || '';
         songOrderSections.push(entry);
         added++;
       });
       if (songs) _lbdSortSongsByService();
       if (!currentOrderData.template) currentOrderData.template = {};
       currentOrderData.template.serviceNotes = d.serviceNotes || '';
-      currentOrderData.template.serviceLiturgy = { id: r.id, title: r.title, occasion: r.occasion_id, year: r.year };
+      // Where its liturgy came from: a saved one (Save over is offered), or a past service.
+      currentOrderData.template.serviceLiturgy = x.kind === 'order'
+        ? { fromOrder: x.id, title: x.title, occasion: x.occasion, year: x.year }
+        : { id: x.id, title: x.title, occasion: x.occasion, year: x.year };
     });
     if (ok === false) return;
-    _svlUse = '';
+    _svlUse = ''; _svlOpen = '';
     _lbdCloseSheet();
-    var said = 'This service now has “' + (r.title || 'the liturgy') + '”' + (added ? ' and its ' + added + ' song' + (added === 1 ? '' : 's') : '');
+    var said = 'This service now has ' + (x.kind === 'order' ? 'the liturgy of the ' + (x.date || x.title) + ' service' : '“' + (x.title || 'the liturgy') + '”') +
+      (added ? ' and its ' + added + ' song' + (added === 1 ? '' : 's') : '');
     if (readings) { showToast(said, 'success', _woUndoOpts()); return; }
     // This date's readings from the roster go in as part of the same step:
     // one Undo takes the order back to before the liturgy came in. The
@@ -78308,7 +78516,7 @@ var WO = (function() {
         '<label class="lbd-field"><span>Year</span><input class="lbd-input" id="svlYear" type="number" min="2000" max="2100" value="' + year + '" oninput="WO.lbdSvlName()"></label>' +
         '<label class="lbd-field"><span>Name</span><input class="lbd-input" id="svlTitle" maxlength="80" data-autofocus value="' + _lbdEsc(_svlOccLabel(occ) + ' ' + year) + '"></label>' +
         '<p class="lbd-hint"><i class="fa-solid fa-circle-info"></i> Its sections, liturgy, readings, songs and notes, as this order has them now.</p>' +
-        '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies()">Load instead…</button><span class="svl-foot-gap"></span>' +
+        '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies(null, \'all\')">Load instead…</button><span class="svl-foot-gap"></span>' +
           (from && from.id ? '<button type="button" class="lbd-btn" onclick="WO.lbdSvlSave(true)"><i class="fa-solid fa-floppy-disk"></i> Save over “' + _lbdEsc(_woClipText(from.title || 'the original', 28)) + '”</button>' : '') +
           '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSave(false)"><i class="fa-solid fa-copy"></i> ' + (from && from.id ? 'Save as a new copy' : 'Save') + '</button></div>';
       _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Save this liturgy for its occasion', html, { kind: 'svl-save' });
@@ -78368,8 +78576,9 @@ var WO = (function() {
     _lbdOpenMenu(anchor, 'Save / Load', [
       { label: from && from.id ? 'Save: over “' + _woClipText(from.title, 24) + '”, or as a copy…' : 'Save this liturgy for its occasion…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet },
       '-',
-      { label: 'Load a saved liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ); } },
-      { label: 'All saved liturgies…', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies('*'); } }
+      { label: 'Load a whole liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
+      { label: 'From a past service: an earlier liturgist’s order…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } },
+      { label: 'All saved liturgies…', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies('*', 'saved'); } }
     ]);
   }
 
@@ -78379,8 +78588,8 @@ var WO = (function() {
     _lbdOpenMenu(anchor, 'Liturgy Builder', [
       { label: 'Import a Word document…', icon: 'fa-solid fa-file-import', run: _lbdOpenImportSheet },
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
-      { label: 'Templates', icon: 'fa-regular fa-calendar-days', run: function() { _lbdShowLib('tpl', ''); } },
-      { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(); } },
+      { label: 'Templates: a whole liturgy for a service and year', icon: 'fa-regular fa-calendar-days', run: function() { lbdServiceLiturgies(null, 'all'); } },
+      { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(null, 'all'); } },
       { label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
       { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
       { label: 'Export: a PDF document', icon: 'fa-regular fa-file-pdf', run: function() { lbdExport('pdf'); } },
@@ -79224,15 +79433,23 @@ var WO = (function() {
   function _lbdInsertItems(secId, full) {
     var items = [
       { label: 'Song', icon: 'fa-solid fa-music', run: function() { _lbdInsert('song', secId); } },
-      { label: 'Liturgy', icon: 'fa-solid fa-scroll', run: function() { _lbdInsert('liturgy', secId); } },
+      // Add Item's Liturgy is the ribbon's old Liturgy menu: the library,
+      // what suits this section, or your own.
+      full ? { label: 'Liturgy', icon: 'fa-solid fa-scroll', sub: _lbdLitMenuItems(secId) }
+           : { label: 'Liturgy', icon: 'fa-solid fa-scroll', run: function() { _lbdInsert('liturgy', secId); } },
       { label: 'Reading', icon: 'fa-solid fa-book-bible', run: function() { _lbdInsert('reading', secId); } },
       { label: 'Prayer', icon: 'fa-solid fa-hands-praying', run: function() { _lbdInsert('prayer', secId); } },
       { label: 'Sacrament', icon: 'fa-solid fa-wine-glass', run: function() { _lbdInsert('sacrament', secId); } },
       { label: 'Text slide', icon: 'fa-solid fa-font', run: function() { _lbdInsert('text', secId); } },
-      '-',
+      '-'
+    ];
+    // The menu keeps the cursor in the words (it takes no focus), so the
+    // break lands where the cursor is, as the ribbon's Slide did.
+    if (full) items.push({ label: 'Slide break at the cursor (Ctrl+Enter)', icon: 'fa-solid fa-scissors', run: _lbdBreakAtCaret });
+    items.push(
       { label: 'Note for the liturgist', icon: 'fa-regular fa-comment', run: function() { _lbdInsert('note', secId); } },
       { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }
-    ];
+    );
     if (full) {
       items.push('-',
         { label: 'Import a Word document\u2026', icon: 'fa-solid fa-file-import', run: _lbdOpenImportSheet },
@@ -93783,7 +94000,7 @@ var WO = (function() {
     redo: function() { return _lbdIsActive() ? lbdRedo() : woRedo(); },
     lbdRender: lbdRender,
     lbdFillReadings: lbdFillReadings,
-    lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
+    lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
     lbdSvlSaveSheet: lbdSvlSaveSheet, lbdSvlName: lbdSvlName, lbdSvlSave: lbdSvlSave,
     zoomEditor: zoomEditor,
     zoomPreview: zoomPreview,
@@ -111950,6 +112167,18 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .lbd-as-text:focus { outline: none; border-color: #22a957; box-shadow: 0 0 0 3px rgba(34,169,87,0.15); }
 #lbdAsErr:not([hidden]) { padding: 8px 10px; border-radius: 8px; background: #fef2f2; }
 /* ---- Service liturgies ---- */
+/* ---- Load a whole liturgy: saved ones and past services (2026-11-08) ---- */
+.svl-filters { display: grid; grid-template-columns: 1fr 140px; gap: 8px 10px; margin: 0 0 12px; }
+.svl-filters .svl-kinds, .svl-filters .svl-q { grid-column: 1 / -1; }
+.svl-filters .lbd-field { margin: 0; }
+.svl-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.svl-kind { min-height: 34px; padding: 0 14px; border: 1px solid rgba(15,61,46,0.2); border-radius: 999px; background: #fff; color: #1f3d33; font: 600 13px/1 Poppins, sans-serif; cursor: pointer; }
+.svl-kind.is-on { background: #14532d; border-color: #14532d; color: #fff; }
+.svl-q { width: 100%; }
+.svl-kindpill { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 999px; background: #e7f0ea; color: #14532d; font: 700 10.5px/1.5 Poppins, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 2px; }
+.svl-card--order .svl-kindpill { background: #fdf3dc; color: #8a5a00; }
+.svl-card[hidden] { display: none; }
+@media (max-width: 480px) { .svl-filters { grid-template-columns: 1fr 1fr; } }
 .svl-card { margin: 10px 0; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
 .svl-card.is-from { border-color: #22a957; box-shadow: inset 3px 0 0 #22a957; }
 .svl-card__top { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }

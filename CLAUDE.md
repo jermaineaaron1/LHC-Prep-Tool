@@ -135,8 +135,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
      grip to reorder), the page under a formatting bar (Speaker L:/P:/C:/All:,
      size, bold, italic, underline, colour), and Add to Order (the library by
      category, your own items, the service templates; click to add where you
-     are, or drag onto a section). A ribbon above inserts songs, liturgy,
-     readings, prayers, text, sections, slide breaks and notes. Sections are
+     are, or drag onto a section). The ribbon's **Add Item** holds what
+     there is to add -- a song, liturgy (the library, what suits the section,
+     or your own), a reading, a prayer, a sacrament, a text slide, a slide
+     break at the cursor, a note, a new section -- and no row of buttons sits
+     beside it any more (2026-11-08); the formatting bar keeps its own Slide
+     break. Sections are
      heading bars with move, duplicate and remove; the words are typed on the
      page with "Slide 2, 3" marks between slides (Ctrl/Shift+Enter breaks a
      slide, Backspace at its start joins it back); notes are margin
@@ -147,8 +151,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      from Word: headings become sections, the words under them liturgy.
      **Save / Load** (ribbon, or More / Add on a phone) saves the whole
      liturgy for its occasion of the church year and a year, and a later
-     year's order loads it whole, then saves over it or keeps a copy
-     (gotcha 51). The ribbon's Liturgy opens a menu: the library, what suits
+     year's order loads it whole, then saves over it or keeps a copy; it
+     also loads the whole liturgy of a PAST SERVICE, an earlier liturgist's
+     order, and **Templates** loads a whole liturgy for a service (Good
+     Friday, Traditional, Contemporary...) and a year of choice (gotcha 51).
+     Add Item's Liturgy opens a menu: the library, what suits
      this section, or your own written as liturgy (kept in the Liturgy Book's
      liturgy style); Text is a plain slide for this service only. Add to
      Order starts closed (`_lbdLibOn` false; a saved "open" counts only from
@@ -1491,6 +1498,34 @@ the anon key -- verify as `postgres`, not as the app.
     is what offers "Save over" beside "Save as a new copy"; both read the
     row back before they report it. Until the migration is run the menu
     says so and nothing is saved.
+    **Past services too** (the operator's team, 2026-11-08: load a past
+    order made by an earlier liturgist -- similar, never quite the same --
+    and reuse it; and Templates loads a WHOLE liturgy for a service and a
+    year, not one item). "Load a whole liturgy" (`lbdServiceLiturgies(occ,
+    kind)`, from Templates, Save / Load, a phone's Templates and Save / Load
+    tiles and More) lists the saved liturgies and every service's order
+    (`_lldLoadOrders`: not a songbook's `standalone_` pseudo-order, nor this
+    order) as one list (`_svlSources`, pure: newest year first, a year's
+    saved ones before its services), filtered by where from (All / Saved
+    liturgies / Past services), the service (the occasion) and the year
+    (`_svlFilter`, pure), and searched in place by name, date or liturgist
+    (`lbdSvlFind`, never a redraw). A past service shows its date, year
+    (from its title, as `_yearForOrder` reads it, else when it was made),
+    liturgical day, kind and liturgist -- the last two the roster's cells
+    for that date (roles `liturgical` and `liturgist`, one read for its
+    years, `_lldRosterMap`), and its occasion is that day's
+    (`_svlOccasionFor`), as a saved liturgy is filed. It is read whole
+    (`SBQ.loadOrder`) only when previewed or loaded, and kept
+    (`_lldOrderData`), into a saved liturgy's shape
+    (`_lldSnapshotFromOrder`: its sections -- its type's template if it kept
+    no layout -- its liturgy, text and readings, never that day's sermon
+    slides, videos or notes pages; its songs; its service notes). Both kinds
+    load through `_svlApply`: the same one Undo, the same type rule, songs
+    and readings only when asked. The order then notes `serviceLiturgy =
+    { fromOrder }` for a past service (no Save over: there is no saved row)
+    or `{ id }` for a saved one. A read that lands after the window has
+    closed does not reopen it. `tools/builder-load-liturgy-harness.js`
+    checks it.
 
 52. **A line's takes are a badge and a list, on every line with words.**
     A line with none -- left empty, or a dash (`lhcVoiceLines._hasWords`) --

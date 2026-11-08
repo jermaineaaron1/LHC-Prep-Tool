@@ -598,9 +598,11 @@ console.log('\n[service liturgies]');
   check('its readings and songs come only when asked; else this date\'s readings come from the roster, in the same undo step',
     has(/filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/) && has(/if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/) &&
     has(/if \(n && _lbdUndoStack\.length === mark \+ 1\) _lbdUndoStack\.splice\(mark, 1\);/));
-  check('only by an order of the kind it was made for', has(/if \(\(r\.order_type \|\| 'traditional'\) !== _svlOrderType\(\)\) \{ showToast\('That liturgy was made for another kind of service'/));
+  // (Since 2026-11-08 a past service is loaded the same way as a saved
+  // liturgy: tools/builder-load-liturgy-harness.js.)
+  check('only by an order of the kind it was made for', has(/if \(x\.type !== _svlOrderType\(\)\) \{ showToast\('That liturgy was made for another kind of service'/));
   check('the order remembers where its liturgy came from, and undo forgets it with the rest',
-    has(/currentOrderData\.template\.serviceLiturgy = \{ id: r\.id, title: r\.title, occasion: r\.occasion_id, year: r\.year \};/) &&
+    has(/\? \{ fromOrder: x\.id, title: x\.title, occasion: x\.occasion, year: x\.year \}\r?\n\s*: \{ id: x\.id, title: x\.title, occasion: x\.occasion, year: x\.year \};/) &&
     has(/svl: JSON\.stringify\(\(o\.template && o\.template\.serviceLiturgy\) \|\| null\),/) && has(/if \(svl\) currentOrderData\.template\.serviceLiturgy = svl; else delete currentOrderData\.template\.serviceLiturgy;/));
   check('saving over the one it came from, or as a copy, and read back before it is reported',
     has(/\? sup\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', from\.id\)\.select\(\) : sup\.from\('service_liturgies'\)\.insert\(row\)\.select\(\);/) &&

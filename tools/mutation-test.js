@@ -1576,6 +1576,15 @@ const CASES = [
     s => s.replace('    if (document.hidden || !_sbmBookOpen() || !_sbmActive()) return;\r\n    _sbmCoachClock.ms', '    _sbmCoachClock.ms')],
   ['songbook-coach-harness.js', 'a coach mark shows twice while the app stays open',
     s => s.replace('    _sbmCoachSeen[key] = true;\r\n', '')],
+  // Loading a whole liturgy from a past service (2026-11-08): never a
+  // songbook's pseudo-order, never that day's sermon slides, and only into
+  // an order of the kind it was made for.
+  ['builder-load-liturgy-harness.js', 'a songbook is listed as a past service',
+    s => s.replace("return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id);", "return o && o.id && !(currentOrderData && o.id === currentOrderData.id);")],
+  ['builder-load-liturgy-harness.js', 'a past service brings its sermon slides along',
+    s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
+  ['builder-load-liturgy-harness.js', 'a contemporary liturgy loads into a traditional order',
+    s => s.replace("    if (x.type !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }\r\n", '')],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],
