@@ -2220,7 +2220,14 @@ the anon key -- verify as `postgres`, not as the app.
     `--sbm-set`), falling arrows and a bar emptying over the 2.5 seconds,
     the card flashing three times; a tap anywhere or Got it ends it, and
     the floater takes over (`_sbmIntroEnd` -> `_sbmGuideCheck`). It is
-    never shown in the desk's Phone view.
+    never shown in the desk's Phone view. The floater does NOT wait for the
+    flash: every song opened -- the book opened or reopened, another song
+    chosen (`_sbmGuideUpdate` arms `_sbmGuideSong` / `_sbmGuideFresh`,
+    `closeSongbook` clears it) -- with its words not yet up the screen
+    (`_sbmIntroWant`) gets it, asked for a second and a half after the
+    render. Once the flash became once a device (#409), a desk -- words
+    halfway down, the band where `_sbmGuideWant` keeps what it was -- had
+    stopped showing the floater after any reload.
     Testing in a hidden browser pane: its animations sit at their first
     frame, so turn them off in the test page to see it.
     `tools/songbook-reading-view-harness.js` checks all of it.

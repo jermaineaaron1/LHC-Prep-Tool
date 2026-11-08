@@ -4,7 +4,10 @@
 //
 //   1. the scroll-down flash, on a desk too whenever the words are not yet up
 //      the screen. 2026-11-08: "only the first time the songbook is
-//      accessed" -- once on each device -- and 2.5 seconds;
+//      accessed" -- once on each device -- and 2.5 seconds. The floater
+//      ("Scroll down for lyrics / chords") no longer waits for the flash:
+//      every song opened with its words not yet up the screen gets it, on a
+//      desk too (after #409 it had stopped appearing on a desk after a reload);
 //   2. when the recordings sheet opens, four seconds pointing at what kind of
 //      take it is (whole song, an instrument, a voice part; a section has its
 //      own mic in the song) and at Record;
@@ -78,6 +81,44 @@ check('it shows when wanted, the floater comes after it, and waits while it is u
   /_sbmGuideOn = want;\r?\n\s*\/\/[^\n]*\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
 check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroDue')) &&
   /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroShow')));
+{
+  // The floater, run: a desk 768px tall, the flash already seen on this device.
+  let G = null;
+  try {
+    extractVar('_sbmGuideSong');
+    G = env => new Function('document', 'Date', '_sbmBookOpen', '_sbmActive', '_sbmDraw', '_sbBkOpen', '_sbmIntroDue', '_sbmIntroShow', '_sbmIntroUp',
+      extractVar('_sbmGuideOn') + '\n' + extractVar('_sbmGuideSong') + '\n' + ['_sbmGuideWant', '_sbmIntroWant', '_sbmGuideCheck'].map(extractFn).join('\n') +
+      '\nreturn { check: _sbmGuideCheck, arm: function(t) { _sbmGuideFresh = t; }, fresh: function() { return _sbmGuideFresh; } };')(
+      env.document, env.Date, () => true, () => true, null, () => false, () => false, () => {}, () => false);
+  } catch (e) { G = null; }
+  if (!G) check('the floater is armed by a song being opened', false);
+  else {
+    let top = 533, now = 1000000;
+    const g = { on: false, classList: { toggle(c, v) { if (c === 'is-on') g.on = !!v; } }, setAttribute() {} };
+    const words = { getBoundingClientRect: () => ({ top: top, bottom: top + 2400 }) };
+    const env = { Date: { now: () => now }, document: { getElementById: id => id === 'sbmGuide' ? g : id === 'sbmRoot' ? { getBoundingClientRect: () => ({ top: 0, height: 768 }) } : id === 'sbmWordsCard' ? { querySelector: () => words } : null } };
+    const api = G(env);
+    api.check();
+    check('a desk, the flash already seen, the words halfway down, nothing opened just now: no floater (the old way, which it was stuck in)', g.on === false);
+    api.arm(now); api.check();
+    check('...a song just opened there: the floater', g.on === true);
+    top = 90; api.check();
+    check('...gone once the words are up the screen', g.on === false);
+    top = 533; now += 60000; api.check();
+    check('...and not back when scrolled up halfway later: it comes back only when they are near the foot again', g.on === false);
+    top = 700; api.check();
+    check('...which brings it back', g.on === true);
+    top = 90; api.check(); api.arm(now); api.check();
+    check('a song opened with its words already up the screen: no floater', g.on === false);
+    now += 2000; top = 533; api.check();
+    check('...and the arming lapses: scrolled up later, still none', g.on === false && api.fresh() === 0);
+    top = 40; api.arm(now); api.check(); now += 400; top = 533; api.check();
+    check('a page still settling just after a render: the arming waits a moment for the words to land', g.on === true);
+  }
+  check('a song is armed when the book opens or another song is shown, and again when the book is opened again',
+    /if \(song && song\.id !== _sbmGuideSong\) \{ _sbmGuideSong = song\.id; _sbmGuideFresh = Date\.now\(\); \}/.test(fn('_sbmGuideUpdate')) &&
+    /function closeSongbook\(\) \{\r?\n\s*_sbmCoachClose\(\);\r?\n\s*_sbmGuideSong = null;/.test(SRC));
+}
 check('two and a half seconds, the bar that counts them down too', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(fn('_sbmIntroShow')) &&
   has(/\.sbm-intro__time span \{[^}]*animation: sbmIntroTime 2\.5s linear forwards; \}/) && !has(/sbmIntroTime 5s/));
 

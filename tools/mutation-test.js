@@ -1598,6 +1598,12 @@ const CASES = [
     s => s.replace('    _sbmCoachSeen[key] = true;\r\n', '')],
   // The drawing hint (2026-11-08): ten seconds in, once on the device, and
   // only with the song's words in sight to point at.
+  // The floater (2026-11-08): armed by a song being opened, not by the
+  // flash, which is once on a device -- or on a desk it never comes.
+  ['songbook-coach-harness.js', 'on a desk the floater waits for a flash that no longer comes',
+    s => s.replace('      if (_sbmGuideFresh && r.height > 0 && _sbmIntroWant(wt, wb, r.height)) { want = true; _sbmGuideFresh = 0; }\r\n', '')],
+  ['songbook-coach-harness.js', 'opening another song does not arm the floater',
+    s => s.replace('if (song && song.id !== _sbmGuideSong) { _sbmGuideSong = song.id; _sbmGuideFresh = Date.now(); }', '')],
   ['songbook-coach-harness.js', 'the drawing hint shows again every time the app is opened',
     s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen' };", 'var _SBM_COACH_ONCE = {};')],
   ['songbook-coach-harness.js', 'the drawing hint waits two minutes again',
