@@ -109,8 +109,8 @@ function newState(extra) {
 (async () => {
   // ------------------------------------------------------------ 1. the card
   console.log('\n1. The load window: the line under a name, and the liturgist');
-  check('the date / day / kind line is 10px bigger and bold',
-    has(/\.svl-card__meta \{ margin-top: 6px; font-size: calc\(0\.74rem \+ 10px\); font-weight: 700;/));
+  check('the date / day / kind line is 2px bigger and bold (it was 10px; on 2026-11-08 the operator asked for 5px less, then 3px less again)',
+    has(/\.svl-card__meta \{ margin-top: 6px; font-size: calc\(0\.74rem \+ 2px\); font-weight: 700;/));
   const card = fn('_svlCardHtml');
   check('the liturgist sits beside the order\'s name, not in that line',
     /\(x\.liturgist \? '<span class="svl-card__lit">/.test(card) && !/'Liturgist: ' \+ x\.liturgist/.test(card));
