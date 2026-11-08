@@ -54163,8 +54163,11 @@ var WO = (function() {
   // was opened -- and phones reopen the app all day, so singers met it again
   // and again. 2026-11-08: "only the first time the songbook is accessed",
   // and two and a half seconds, not five. So once on each device
-  // (lhc_sbm_intro_seen, the key it had before, so a device that saw it then
-  // does not see it again), and once a page where the browser keeps nothing.
+  // (lhc_sbm_intro_seen_v2 -- on 2026-11-08 every device was given the card
+  // and the drawing hint once more: the first key had been used up by the
+  // card's earlier versions, so most devices never saw this one), and once a
+  // page where the browser keeps nothing. More > Show the tips again plays
+  // both whenever asked (sbmReplayTips).
   // It shows only when the words are out of sight below -- the floater's own
   // test -- so a desk that opens with the words in view never sees it; and
   // never in the desk's Phone view.
@@ -54174,7 +54177,7 @@ var WO = (function() {
   function _sbmSeenMark(key) { try { localStorage.setItem(key, new Date().toISOString()); } catch (e) {} }
   var _sbmIntroT = 0, _sbmIntroDone = false;
   function _sbmIntroDue() {
-    return !_sbmIntroDone && !window.__SBM_PREVIEW && !_sbmSeenHere('lhc_sbm_intro_seen');
+    return !_sbmIntroDone && !window.__SBM_PREVIEW && !_sbmSeenHere('lhc_sbm_intro_seen_v2');
   }
   // Whether the flash is wanted (pure): the words not all in sight, and
   // not yet up the screen.
@@ -54188,7 +54191,7 @@ var WO = (function() {
     var modal = document.getElementById('songbookLiveModal');
     if (!modal || _sbmIntroUp()) return;
     _sbmIntroDone = true;
-    _sbmSeenMark('lhc_sbm_intro_seen');
+    _sbmSeenMark('lhc_sbm_intro_seen_v2');
     var el = document.createElement('div');
     el.id = 'sbmIntro'; el.className = 'sbm sbm-intro';
     el.setAttribute('role', 'dialog'); el.setAttribute('aria-live', 'polite'); el.setAttribute('aria-label', 'Where the chords and lyrics are');
@@ -54231,6 +54234,39 @@ var WO = (function() {
     clearTimeout(_sbmIntroT);
     var el = document.getElementById('sbmIntro'); if (el) el.remove();
     _sbmGuideCheck();
+    // A replay of the tips goes on to the drawing hint (sbmReplayTips).
+    var then = _sbmReplayThen; _sbmReplayThen = null;
+    if (then) then();
+  }
+  // ---- the tips again (2026-11-08) ----
+  //
+  // From the operator: the card and the drawing hint show once on a device,
+  // and More > Show the tips again plays both whenever asked -- the song from
+  // its top, the card, then, once the card has gone, the words brought up
+  // the screen and the drawing hint on them.
+  var _sbmReplayThen = null;
+  function sbmReplayTips() {
+    var root = document.getElementById('sbmRoot');
+    if (!root || !_sbmBookOpen() || !_sbmSong()) return;
+    _sbmCloseSheet();
+    _sbmCoachClose();
+    if (_sbmDraw) sbmDraw(false);
+    var old = document.getElementById('sbmIntro'); if (old) old.remove();
+    root.scrollTop = 0;
+    _sbmReplayThen = function() {
+      _sbmGuideGo();
+      var tries = 0;
+      var hint = function() {
+        if (!_sbmBookOpen() || _sbmMarksOk !== true) return;
+        if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); return; }
+        // A smooth scroll that has not got there by now (a browser that skips
+        // its frames) is made a jump, or the hint would wait for ever.
+        if (++tries === 6) _sbmGuideGo(true);
+        if (tries < 12) setTimeout(hint, 250);   // the words still on their way up
+      };
+      setTimeout(hint, 700);
+    };
+    _sbmIntroShow();
   }
 
   // ---- coach marks: pointing the way, once each time the app is opened ----
@@ -54245,7 +54281,7 @@ var WO = (function() {
   // everything -- the recordings sheet is z-index 3750 -- that lets every
   // tap through except on its own buttons, and goes by itself.
   var _sbmCoachSeen = {};
-  var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen' };
+  var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen_v2' };
   function _sbmCoachDue(key) {
     return !_sbmCoachSeen[key] && !window.__SBM_PREVIEW && !(_SBM_COACH_ONCE[key] && _sbmSeenHere(_SBM_COACH_ONCE[key]));
   }
@@ -54355,7 +54391,7 @@ var WO = (function() {
   // 2026-11-08: ten seconds after the songbook opens (it was two minutes),
   // and no card -- a finger double-tapping a word of the song itself, a ring
   // drawing itself round that word, and arrows up to the Draw chip. Once on
-  // each device (lhc_sbm_draw_hint_seen, through _SBM_COACH_ONCE). Only the
+  // each device (lhc_sbm_draw_hint_seen_v2, through _SBM_COACH_ONCE). Only the
   // time the songbook is open and in front counts, and it waits while the
   // reader is busy or the words are out of sight.
   var _sbmCoachClock = { t: 0, ms: 0, last: 0 };
@@ -54424,8 +54460,8 @@ var WO = (function() {
       return b.width > 0 ? { left: b.left, top: b.top, width: b.width, height: b.height } : null;
     } catch (e) { return null; }
   }
-  function _sbmCoachDraw() {
-    if (!_sbmCoachDue('draw') || !_sbmCoachDrawAt()) return;
+  function _sbmCoachDraw(force) {
+    if ((!force && !_sbmCoachDue('draw')) || !_sbmCoachDrawAt()) return;
     var L = _sbmCoachOpen('draw', 7000);
     L.classList.add('sbm-coach--hint');
     L.innerHTML =
@@ -54479,12 +54515,12 @@ var WO = (function() {
   }
 
   // To the words: the card's top just under the desk's sticky top bar.
-  function _sbmGuideGo() {
+  function _sbmGuideGo(instant) {
     var root = document.getElementById('sbmRoot'), card = document.getElementById('sbmWordsCard');
     if (!root || !card) return;
     var bar = root.querySelector('.sbm-top'), pad = (bar && getComputedStyle(bar).position === 'sticky') ? bar.offsetHeight : 0;
     var to = Math.max(0, root.scrollTop + card.getBoundingClientRect().top - root.getBoundingClientRect().top - pad - 8);
-    var smooth = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var smooth = !instant && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     _sbmGuideGoing = Date.now();
     _sbmGuideCheck();   // gone at once, not after the scroll
     try { root.scrollTo({ top: to, behavior: smooth ? 'smooth' : 'auto' }); } catch (e) { root.scrollTop = to; }
@@ -54626,6 +54662,7 @@ var WO = (function() {
     if (song && currentOrderData) rows.push(['fa-layer-group', _woMedleyOf(song.id) ? 'Edit the medley' : 'Make a medley', 'WO.sbmMedley()', '#ca8a04']);
     if (song && _sbVerOk === true) rows.push(['fa-code-branch', 'Versions of this song', 'WO.sbmVersions()', '#7c3aed']);
     if (song && order) rows.push(['fa-clock-rotate-left', 'Earlier versions: how this service or an earlier one sang it, with drawings, recordings and medleys', 'WO.sbmArrangements()', '#0d9488']);
+    if (song) rows.push(['fa-lightbulb', 'Show the tips again: where the words are, and how to draw', 'WO.sbmCloseSheet();WO.sbmReplayTips()', '#f59e0b']);
     rows = rows.concat([
       ['fa-file-lines', 'Page view — the printed page, with annotations', 'WO.sbmPageView(true)', '#0284c7'],
       ['fa-link', 'Links', 'WO.sbmResources()', '#db2777'],
@@ -95230,7 +95267,7 @@ var WO = (function() {
     mdEdMove: mdEdMove, mdEdDrop: mdEdDrop, mdEdAdd: mdEdAdd, mdEdClose: mdEdClose,
     mdEdSave: mdEdSave, mdsMore: mdsMore, mdsFind: mdsFind, mdsUse: mdsUse, mdsKeys: mdsKeys, mdsDelete: mdsDelete, mdEdBreak: mdEdBreak,
     // Versions of a song, and sharing one song
-    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmXpSel: sbmXpSel, sbmXpSelUndo: sbmXpSelUndo, sbmXpSelClose: sbmXpSelClose, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbEvOpen: sbEvOpen, sbEvOpenMember: sbEvOpenMember, sbEvBack: sbEvBack, sbEvUseMedley: sbEvUseMedley, sbEvPlay: sbEvPlay, sbEvTab: sbEvTab, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
+    sbmVersions: sbmVersions, sbmChoirStart: sbmChoirStart, sbmXpSel: sbmXpSel, sbmXpSelUndo: sbmXpSelUndo, sbmXpSelClose: sbmXpSelClose, sbmArrangements: sbmArrangements, sbArrCopy: sbArrCopy, sbEvOpen: sbEvOpen, sbEvOpenMember: sbEvOpenMember, sbEvBack: sbEvBack, sbEvUseMedley: sbEvUseMedley, sbEvPlay: sbEvPlay, sbEvTab: sbEvTab, sbmReplayTips: sbmReplayTips, sbmOwnVersion: sbmOwnVersion, sbVerUse: sbVerUse, sbVerCreate: sbVerCreate, sbVerUpdate: sbVerUpdate, sbVerMakeMain: sbVerMakeMain, sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept,
     sbVerRename: sbVerRename, sbVerDelete: sbVerDelete,
     sbShareSongWhatsApp: sbShareSongWhatsApp, sbCopySongLink: sbCopySongLink,
     sbmPractice: sbmPractice, sbmPracClose: sbmPracClose, sbmIndex: sbmIndex, sbmIndexReorder: sbmIndexReorder, sbmMoveSong: sbmMoveSong,

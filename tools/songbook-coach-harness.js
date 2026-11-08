@@ -79,8 +79,8 @@ const gc = fn('_sbmGuideCheck');
 check('it shows when wanted, the floater comes after it, and waits while it is up',
   /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) &&
   /_sbmGuideOn = want;\r?\n\s*\/\/[^\n]*\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
-check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroDue')) &&
-  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen'\);/.test(fn('_sbmIntroShow')));
+check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen_v2'\);/.test(fn('_sbmIntroDue')) &&
+  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen_v2'\);/.test(fn('_sbmIntroShow')));
 {
   // The floater, run: a desk 768px tall, the flash already seen on this device.
   let G = null;
@@ -118,6 +118,49 @@ check('kept on the device: once there, ever', /return !_sbmIntroDone && !window\
   check('a song is armed when the book opens or another song is shown, and again when the book is opened again',
     /if \(song && song\.id !== _sbmGuideSong\) \{ _sbmGuideSong = song\.id; _sbmGuideFresh = Date\.now\(\); \}/.test(fn('_sbmGuideUpdate')) &&
     /function closeSongbook\(\) \{\r?\n\s*_sbmCoachClose\(\);\r?\n\s*_sbmGuideSong = null;/.test(SRC));
+}
+// 2026-11-08: every device given both once more (fresh keys), and More >
+// Show the tips again plays them whenever asked.
+check('fresh keys, so every device sees the card and the drawing hint once more', has(/_sbmSeenHere\('lhc_sbm_intro_seen_v2'\)/) &&
+  has(/var _SBM_COACH_ONCE = \{ draw: 'lhc_sbm_draw_hint_seen_v2' \};/) && !has(/'lhc_sbm_intro_seen'\)/) && !has(/draw: 'lhc_sbm_draw_hint_seen' \}/));
+{
+  const rp = fn('sbmReplayTips');
+  check('Show the tips again is in More whenever a song is in front', has(/if \(song\) rows\.push\(\['fa-lightbulb', 'Show the tips again: where the words are, and how to draw', 'WO\.sbmCloseSheet\(\);WO\.sbmReplayTips\(\)'/) &&
+    has(/sbmReplayTips: sbmReplayTips,/));
+  check('...it puts the song back at its top and plays the card, whatever the device has seen',
+    /root\.scrollTop = 0;/.test(rp) && /\r?\n\s*_sbmIntroShow\(\);\r?\n\s*\}\r?$/.test(rp) && /if \(_sbmDraw\) sbmDraw\(false\);/.test(rp));
+  check('...then, once the card has gone, brings the words up and plays the drawing hint on them',
+    /var then = _sbmReplayThen; _sbmReplayThen = null;\r?\n\s*if \(then\) then\(\);/.test(fn('_sbmIntroEnd')) &&
+    /_sbmGuideGo\(\);/.test(rp) && /if \(_sbmCoachDrawAt\(\)\) \{ _sbmCoachDraw\(true\); return; \}/.test(rp) && /if \(\+\+tries === 6\) _sbmGuideGo\(true\);\r?\n\s*if \(tries < 12\) setTimeout\(hint, 250\);/.test(rp) && /var smooth = !instant && /.test(fn('_sbmGuideGo')));
+  check('...the drawing hint played on request even where it has been seen', /if \(\(!force && !_sbmCoachDue\('draw'\)\) \|\| !_sbmCoachDrawAt\(\)\) return;/.test(fn('_sbmCoachDraw')));
+  let R = null;
+  try {
+    extractFn('sbmReplayTips');
+    R = env => new Function('document', 'setTimeout', '_sbmBookOpen', '_sbmSong', '_sbmCloseSheet', '_sbmCoachClose', '_sbmDraw', 'sbmDraw', '_sbmGuideGo', '_sbmCoachDrawAt', '_sbmCoachDraw', '_sbmIntroShow', '_sbmMarksOk', 'clearTimeout', '_sbmIntroT', '_sbmGuideCheck',
+      extractVar('_sbmReplayThen') + '\n' + extractFn('sbmReplayTips') + '\n' + extractFn('_sbmIntroEnd') + '\nreturn { replay: sbmReplayTips, end: _sbmIntroEnd };')(
+      env.document, env.setTimeout, () => true, () => ({ id: 's1' }), () => {}, () => {}, null, () => {}, env.go, env.at, env.draw, env.show, true, () => {}, 0, () => {});
+  } catch (e) { R = null; }
+  if (!R) check('the replay runs', false);
+  else {
+    const log = [], timers = [], root = { scrollTop: 900 };
+    let atTries = 0;
+    const env = { document: { getElementById: id => id === 'sbmRoot' ? root : null }, setTimeout: (f) => { timers.push(f); return timers.length; },
+      go: inst => log.push(inst ? 'jump' : 'go'), show: () => log.push('card'), draw: f => log.push('hint:' + f), at: () => (++atTries >= 3 ? { word: {} } : null) };
+    const api = R(env);
+    api.replay();
+    check('replayed: the song at its top and the card up, the hint not yet', root.scrollTop === 0 && log.join() === 'card', log.join());
+    api.end();
+    while (timers.length) timers.shift()();
+    check('...the card gone: the words brought up, and the hint once they are in sight', log.join() === 'card,go,hint:true' && atTries === 3, log.join() + ' / tries ' + atTries);
+    api.end();
+    check('...and an ordinary end of the card afterwards plays nothing more', log.join() === 'card,go,hint:true');
+    // A browser whose smooth scroll never gets there: the words are jumped to.
+    log.length = 0; atTries = -100; let jumped = false;
+    const env2 = Object.assign({}, env, { go: inst => { log.push(inst ? 'jump' : 'go'); if (inst) jumped = true; }, at: () => (jumped ? { word: {} } : null) });
+    const api2 = R(env2); api2.replay(); api2.end();
+    while (timers.length) timers.shift()();
+    check('...and when a smooth scroll never gets there, the words are jumped to and the hint still plays', log.join() === 'card,go,jump,hint:true', log.join());
+  }
 }
 check('two and a half seconds, the bar that counts them down too', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(fn('_sbmIntroShow')) &&
   has(/\.sbm-intro__time span \{[^}]*animation: sbmIntroTime 2\.5s linear forwards; \}/) && !has(/sbmIntroTime 5s/));
@@ -158,7 +201,7 @@ else {
   day1.open('draw', 7000); day1.close('draw');
   const day2 = C(win, doc, T, LS);
   check('...and never again there, the app opened again; the others are due again',
-    !!kept.lhc_sbm_draw_hint_seen && day2.due('draw') === false && day2.due('record') === true && day2.due('tracks') === true, JSON.stringify(kept));
+    !!kept.lhc_sbm_draw_hint_seen_v2 && day2.due('draw') === false && day2.due('record') === true && day2.due('tracks') === true, JSON.stringify(kept));
   const priv = C(win, doc, T, { getItem: () => { throw new Error('no storage'); }, setItem: () => { throw new Error('no storage'); } });
   check('a browser that keeps nothing: still once while the app stays open', priv.due('draw') === true && (priv.open('draw', 7000), priv.due('draw') === false));
   priv.close('draw');

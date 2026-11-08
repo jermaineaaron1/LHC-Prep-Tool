@@ -2213,7 +2213,7 @@ the anon key -- verify as `postgres`, not as the app.
     "only at the initial opening of a songbook when the app is first opened"
     -- held in memory -- and phones reopen the app all day, so singers met it
     again and again; 2026-11-08, "only the first time the songbook is
-    accessed": kept on the device, `lhc_sbm_intro_seen` through
+    accessed": kept on the device, `lhc_sbm_intro_seen_v2` (`_v2` the same day: the first key had been used up by the card's older versions, so every device was given it once more) through
     `_sbmSeenHere` / `_sbmSeenMark`, the page's `_sbmIntroDone` standing in
     where the browser keeps nothing) a flash of 2.5 seconds (it was five)
     comes whenever the words are not yet up the screen
@@ -2240,7 +2240,7 @@ the anon key -- verify as `postgres`, not as the app.
     **Coach marks** (the operator, the same day, "both for mobile and desktop
     users"), the recordings sheet's and Tracks' once each time the app is
     opened, the drawing hint once on each device (`_SBM_COACH_ONCE`:
-    `lhc_sbm_draw_hint_seen`), none in the Phone view (`_sbmCoachDue`,
+    `lhc_sbm_draw_hint_seen_v2`; More > Show the tips again, `sbmReplayTips`, plays the card from the song's top and then the drawing hint on the words, whatever the device has seen), none in the Phone view (`_sbmCoachDue`,
     `_sbmCoachSeen`): a layer on `<body>` at z-index
     3800, over the recordings sheet (3750), that lets taps through except on
     its own buttons, follows what it points at (`__place` every 200ms -- the

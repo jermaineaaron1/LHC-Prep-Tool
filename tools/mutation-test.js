@@ -1613,12 +1613,12 @@ const CASES = [
   ['songbook-book-mode-harness.js', 'a zoom stays on the page it was set on',
     s => s.replace('    for (var i = idx; i >= 0; i--) {\r\n      var z = map ? map[i] : undefined;', '    for (var i = idx; i >= idx; i--) {\r\n      var z = map ? map[i] : undefined;')],
   ['songbook-reading-view-harness.js', 'the first-time flash shows every time',
-    s => s.replace("    _sbmIntroDone = true;\r\n    _sbmSeenMark('lhc_sbm_intro_seen');\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
+    s => s.replace("    _sbmIntroDone = true;\r\n    _sbmSeenMark('lhc_sbm_intro_seen_v2');\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
   // 2026-11-08: the flash once on the device, not once each time the app
   // is opened -- phones reopen the app all day, and singers met it again
   // and again.
   ['songbook-reading-view-harness.js', 'the first-time flash comes back each time the app is opened',
-    s => s.replace("    _sbmSeenMark('lhc_sbm_intro_seen');\r\n", '')],
+    s => s.replace("    _sbmSeenMark('lhc_sbm_intro_seen_v2');\r\n", '')],
   // The coach marks (the same day): the recordings sheet's, and the two
   // minutes before the drawing one, counted only while the book is in front.
   ['songbook-coach-harness.js', 'the recordings sheet opens with no coach mark',
@@ -1635,8 +1635,11 @@ const CASES = [
     s => s.replace('      if (_sbmGuideFresh && r.height > 0 && _sbmIntroWant(wt, wb, r.height)) { want = true; _sbmGuideFresh = 0; }\r\n', '')],
   ['songbook-coach-harness.js', 'opening another song does not arm the floater',
     s => s.replace('if (song && song.id !== _sbmGuideSong) { _sbmGuideSong = song.id; _sbmGuideFresh = Date.now(); }', '')],
+  // The tips again (2026-11-08): replayed from More, the hint after the card.
+  ['songbook-coach-harness.js', 'Show the tips again plays the card and stops',
+    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); return; }', 'if (_sbmCoachDrawAt()) { return; }')],
   ['songbook-coach-harness.js', 'the drawing hint shows again every time the app is opened',
-    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen' };", 'var _SBM_COACH_ONCE = {};')],
+    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen_v2' };", 'var _SBM_COACH_ONCE = {};')],
   ['songbook-coach-harness.js', 'the drawing hint waits two minutes again',
     s => s.replace('var _SBM_DRAW_HINT_AFTER = 10000;', 'var _SBM_DRAW_HINT_AFTER = 120000;')],
   ['songbook-coach-harness.js', 'the drawing hint shows with the words out of sight',
