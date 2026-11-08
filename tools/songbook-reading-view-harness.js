@@ -365,8 +365,8 @@ check('it comes at the first opening, the floater after it, and waits while it i
   /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) && /if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
 // (Third ask, 2026-11-08: "only the first time the songbook is accessed" --
 // once on the device -- and 2.5 seconds instead of 5.)
-check('once on the device, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen'\);/.test(due) &&
-  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen'\);/.test(show));
+check('once on the device, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen_v2'\);/.test(due) &&
+  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen_v2'\);/.test(show));
 check('two and a half seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
   /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
 check('it says where the words are, and flashes', /Scroll down!/.test(show) && /The chords &amp; lyrics are just below/.test(show) &&
@@ -402,7 +402,7 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
     const api = Idue(ls, {}, doc, () => 1, () => {}, () => {});
     const first = api.due();
     api.show();
-    check('the first time it shows, and the device remembers it', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen);
+    check('the first time it shows, and the device remembers it', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen_v2);
     check('...and not again while the app stays open', api.due() === false);
     const api2 = Idue(ls, {}, doc, () => 1, () => {}, () => {});
     check('...nor the next time the app is opened: phones reopen it all day', api2.due() === false);
