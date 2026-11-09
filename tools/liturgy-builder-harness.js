@@ -608,8 +608,9 @@ console.log('\n[service liturgies]');
     has(/\? sup\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', from\.id\)\.select\(\) : sup\.from\('service_liturgies'\)\.insert\(row\)\.select\(\);/) &&
     has(/return sup\.from\('service_liturgies'\)\.select\('id'\)\.eq\('id', saved\.id\)/));
   check('the occasions are the Liturgy page\'s own', has(/getOccasions: function\(\) \{ return OCCASIONS\.map\(/));
-  check('it is offered as Save / Load in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('menu-svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'/) &&
-    has(/\['svl', 'fa-solid fa-book-bookmark', 'Save \/ Load'\]/) && has(/label: 'Save \/ Load: this liturgy, or one from another year'/));
+  // (Save / Load became a Save button and a Load menu on 2026-11-09.)
+  check('it is offered as Save in the ribbon, on a phone\'s Add sheet, and in More', has(/b\('save-liturgy', 'fa-solid fa-floppy-disk', 'Save', /) &&
+    has(/\['save-liturgy', 'fa-solid fa-floppy-disk', 'Save liturgy'\]/) && has(/label: 'Save This Liturgy…'/));
   check('Add to Order starts closed, and an old saved "open" does not count',
     has(/var _lbdLibOn = false;/) && has(/if \(typeof p\.lib === 'boolean' && p\.libV === 2\) _lbdLibOn = p\.lib;/));
   check('Liturgy holds what the Liturgies menu did, and that menu is gone',

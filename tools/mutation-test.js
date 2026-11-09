@@ -1700,6 +1700,12 @@ const CASES = [
     s => s.replace("return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id);", "return o && o.id && !(currentOrderData && o.id === currentOrderData.id);")],
   ['builder-load-liturgy-harness.js', 'a past service brings its sermon slides along',
     s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
+  // Save and Load as two buttons, Templates gone (2026-11-09): Load offers
+  // past services too, and Add Item's New section keeps the template tools.
+  ['builder-load-liturgy-harness.js', 'Load forgets the past services',
+    s => s.replace("      { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } }\r\n    ]);", "    ]);")],
+  ['builder-load-liturgy-harness.js', 'Add Item\'s New section loses the template sections',
+    s => s.replace("full ? { label: 'New section', icon: 'fa-solid fa-heading', sub: _lbdNewSectionItems(secId) }", "full ? { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }")],
   ['builder-load-liturgy-harness.js', 'a contemporary liturgy loads into a traditional order',
     s => s.replace("    if (x.type !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }\r\n", '')],
   // A saved liturgy's year folder in the Liturgy Library (2026-11-08): never
