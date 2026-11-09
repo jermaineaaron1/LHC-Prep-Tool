@@ -77568,8 +77568,13 @@ var WO = (function() {
         '<i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Item</span></button>' +
       '<div class="lbw-rgroup" role="group" aria-label="Bring in">' +
         b('menu-import', 'fa-solid fa-file-import', 'Import' + dd, 'Bring in a Word document, pasted text, or this date’s readings', ' aria-haspopup="menu"') +
-        b('menu-templates', 'fa-regular fa-calendar-days', 'Templates' + dd, 'A whole liturgy for a service and a year -- a saved one or a past service -- or sections from a template', ' aria-haspopup="menu"') +
-        b('menu-svl', 'fa-solid fa-book-bookmark', 'Save / Load' + dd, 'Save this order of worship for its occasion, or load a whole liturgy: a saved one, or an earlier liturgist’s past service', ' aria-haspopup="menu"') +
+      '</div>' +
+      // Save and Load, two buttons in colours of their own (the operator,
+      // 2026-11-09). Templates went: what it held was Load's window again,
+      // and its two section tools are in Add Item › New section.
+      '<div class="lbw-rgroup lbw-rgroup--svl" role="group" aria-label="Save and load the liturgy">' +
+        b('save-liturgy', 'fa-solid fa-floppy-disk', 'Save', 'Save This Liturgy: keep this order of worship for its occasion and year, for a later year to load') +
+        b('menu-load', 'fa-solid fa-file-import', 'Load' + dd, 'Load a whole liturgy: one saved for this occasion, or an earlier liturgist’s past service', ' aria-haspopup="menu"') +
       '</div>' +
       '<div class="lbw-rgroup" role="group" aria-label="Share">' +
         b('share-wa', 'fa-brands fa-whatsapp', 'WhatsApp' + dd, 'Share this liturgy on WhatsApp: a link to the order of service, or every word of it', ' aria-haspopup="menu"') +
@@ -78822,7 +78827,8 @@ var WO = (function() {
     var tiles = [['song', 'fa-solid fa-music', 'Song'], ['liturgy', 'fa-solid fa-scroll', 'Liturgy'], ['reading', 'fa-solid fa-book-bible', 'Reading'],
       ['prayer', 'fa-solid fa-hands-praying', 'Prayer'], ['sacrament', 'fa-solid fa-wine-glass', 'Sacrament'], ['text', 'fa-solid fa-font', 'Text slide'],
       ['note', 'fa-regular fa-comment', 'Note'], ['section', 'fa-solid fa-heading', 'Section'], ['library', 'fa-solid fa-book-open', 'Library'],
-      ['templates', 'fa-regular fa-calendar-days', 'Templates'], ['svl', 'fa-solid fa-book-bookmark', 'Save / Load'], ['import', 'fa-solid fa-file-import', 'Import'], ['roster', 'fa-solid fa-calendar-check', 'Roster readings']];
+      ['save-liturgy', 'fa-solid fa-floppy-disk', 'Save liturgy'], ['load-liturgy', 'fa-solid fa-file-import', 'Load liturgy'], ['load-past', 'fa-solid fa-clock-rotate-left', 'Past services'],
+      ['import', 'fa-solid fa-file-import', 'Import'], ['roster', 'fa-solid fa-calendar-check', 'Roster readings']];
     _lbdSheet('Add to the order',
       '<label class="lbd-field lbw-ins-to"><span>Into</span><select class="lbd-select" data-sfield="ins-sec">' + opts + '</select></label>' +
       '<div class="lbw-tiles">' + tiles.map(function(t) {
@@ -78832,9 +78838,10 @@ var WO = (function() {
 
   function _lbdInsertKind(k, secId) {
     if (k === 'library') { _lbdSetCur(secId, ''); _lbdShowLib('lib', ''); return; }
-    // A phone's Templates is the whole liturgy for a service and year too.
-    if (k === 'templates') { lbdServiceLiturgies(null, 'all'); return; }
-    if (k === 'svl') { lbdServiceLiturgies(null, 'all'); return; }
+    // A phone's Save and Load: as the ribbon's.
+    if (k === 'save-liturgy') { lbdSvlSaveSheet(); return; }
+    if (k === 'load-liturgy') { lbdServiceLiturgies(_svlGuess(), 'all'); return; }
+    if (k === 'load-past') { lbdServiceLiturgies('*', 'order'); return; }
     if (k === 'import') { _lbdOpenImportSheet(); return; }
     if (k === 'roster') { lbdFillReadings(); return; }
     _lbdInsert(k, secId);
@@ -78847,35 +78854,26 @@ var WO = (function() {
     ]);
   }
 
-  // Templates: a WHOLE liturgy for a service and a year -- a saved one or a
-  // past service's -- replacing this order's, rather than one section at a
-  // time (the operator's team, 2026-11-08). The sections one at a time are
-  // still here, under "One section from a template".
-  function _lbdOpenTplMenu(anchor) {
+  // Add Item › New section: a blank one, the sections of this order's type
+  // it no longer has, or one section from a template. This was the old
+  // Templates button's (2026-11-09), whose whole liturgies are Load's now.
+  function _lbdNewSectionItems(secId) {
     var cur = _lbdCurTplKey(), tpl = orderStructures[cur] || [];
     var missing = tpl.filter(function(s, i) { return _lbdSecIndex('wo-section-' + i) < 0; }).length;
-    var occ = _svlGuess();
     var items = [
-      { label: 'A whole liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
-      { label: 'A whole liturgy: choose the service and year…', icon: 'fa-solid fa-layer-group', run: function() { lbdServiceLiturgies('*', 'all'); } },
-      { label: 'By service', icon: 'fa-regular fa-calendar-days', sub: _svlOccasions().map(function(o) {
-        return { label: o.label + '…', icon: 'fa-regular fa-calendar', run: function() { lbdServiceLiturgies(o.id, 'all'); } };
-      }) },
-      '-',
+      { label: 'A blank section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } },
       { label: missing ? 'Add back ' + missing + ' missing section' + (missing === 1 ? '' : 's') : 'Every template section is in this order',
-        icon: 'fa-solid fa-rotate-left', disabled: !missing, run: lbdAddMissingTemplateSections }
+        icon: 'fa-solid fa-rotate-left', disabled: !missing, run: lbdAddMissingTemplateSections },
+      '-'
     ];
-    var one = [];
     [cur].concat(Object.keys(orderStructures).filter(function(k) { return k !== cur; })).forEach(function(k) {
-      one.push({ label: (_LBD_TPL_NAMES[k] || k) + '…', icon: 'fa-regular fa-file-lines', sub: (orderStructures[k] || []).map(function(s, i) {
+      items.push({ label: (_LBD_TPL_NAMES[k] || k) + ' template…', icon: 'fa-regular fa-file-lines', sub: (orderStructures[k] || []).map(function(s, i) {
         var have = k === cur && _lbdSecIndex('wo-section-' + i) >= 0;
         return { label: (i + 1) + '. ' + _woStripNum(s.title), icon: have ? 'fa-solid fa-check' : 'fa-solid fa-plus', disabled: have,
                  run: function() { lbdAddTemplateSection(k, i); } };
       }) });
     });
-    items.push({ label: 'One section from a template', icon: 'fa-regular fa-file-lines', sub: one },
-      { label: 'Open the Templates panel', icon: 'fa-solid fa-table-columns', run: function() { _lbdShowLib('tpl', ''); } });
-    _lbdOpenMenu(anchor, 'Templates', items);
+    return items;
   }
 
   function _lbdOpenLitMenu(anchor) {
@@ -79405,7 +79403,7 @@ var WO = (function() {
         '<div class="lbd-sheet-foot"><button type="button" class="lbd-btn" onclick="WO.lbdServiceLiturgies(null, \'all\')">Load instead…</button><span class="svl-foot-gap"></span>' +
           (from && from.id ? '<button type="button" class="lbd-btn" onclick="WO.lbdSvlSave(true)"><i class="fa-solid fa-floppy-disk"></i> Save over “' + _lbdEsc(_woClipText(from.title || 'the original', 28)) + '”</button>' : '') +
           '<button type="button" class="lbd-btn lbd-btn--primary" onclick="WO.lbdSvlSave(false)"><i class="fa-solid fa-copy"></i> ' + (from && from.id ? 'Save as a new copy' : 'Save') + '</button></div>';
-      _lbdSheet('<i class="fa-solid fa-book-bookmark"></i> Save this liturgy for its occasion', html, { kind: 'svl-save' });
+      _lbdSheet('<i class="fa-solid fa-floppy-disk"></i> Save This Liturgy', html, { kind: 'svl-save' });
     });
   }
   // The name follows the occasion and year until somebody types one.
@@ -79477,14 +79475,14 @@ var WO = (function() {
   }
   function _woClipText(t, n) { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; }
 
-  function _lbdOpenSvlMenu(anchor) {
-    var occ = _svlGuess(), from = currentOrderData && currentOrderData.template && currentOrderData.template.serviceLiturgy;
-    _lbdOpenMenu(anchor, 'Save / Load', [
-      { label: from && from.id ? 'Save: over “' + _woClipText(from.title, 24) + '”, or as a copy…' : 'Save this liturgy for its occasion…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet },
-      '-',
-      { label: 'Load a whole liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
-      { label: 'From a past service: an earlier liturgist’s order…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } },
-      { label: 'All saved liturgies…', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies('*', 'saved'); } }
+  // Load: the liturgy for this service's occasion -- Contemporary Service,
+  // Traditional Service, or Advent, Maundy Thursday... as the roster names
+  // the day -- or an earlier liturgist's past service.
+  function _lbdOpenLoadMenu(anchor) {
+    var occ = _svlGuess();
+    _lbdOpenMenu(anchor, 'Load', [
+      { label: 'Load Liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
+      { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } }
     ]);
   }
 
@@ -79494,8 +79492,9 @@ var WO = (function() {
     _lbdOpenMenu(anchor, 'Liturgy Builder', [
       { label: 'Import a Word document…', icon: 'fa-solid fa-file-import', run: _lbdOpenImportSheet },
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
-      { label: 'Templates: a whole liturgy for a service and year', icon: 'fa-regular fa-calendar-days', run: function() { lbdServiceLiturgies(null, 'all'); } },
-      { label: 'Save / Load: this liturgy, or one from another year', icon: 'fa-solid fa-book-bookmark', run: function() { lbdServiceLiturgies(null, 'all'); } },
+      { label: 'Save This Liturgy…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet },
+      { label: 'Load Liturgy for ' + _svlOccLabel(_svlGuess()) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(_svlGuess(), 'all'); } },
+      { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } },
       { label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
       { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
       { label: 'Export: a PDF document', icon: 'fa-regular fa-file-pdf', run: function() { lbdExport('pdf'); } },
@@ -80354,7 +80353,8 @@ var WO = (function() {
     if (full) items.push({ label: 'Slide break at the cursor (Ctrl+Enter)', icon: 'fa-solid fa-scissors', run: _lbdBreakAtCaret });
     items.push(
       { label: 'Note for the liturgist', icon: 'fa-regular fa-comment', run: function() { _lbdInsert('note', secId); } },
-      { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }
+      full ? { label: 'New section', icon: 'fa-solid fa-heading', sub: _lbdNewSectionItems(secId) }
+           : { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }
     );
     if (full) {
       items.push('-',
@@ -80726,8 +80726,8 @@ var WO = (function() {
       case 'all-slides': lbdAllSlides(); break;
       case 'ins-line': _lbdNewLineAtCaret(); break;
       case 'menu-import': _lbdOpenImportMenu(btn); break;
-      case 'menu-templates': _lbdOpenTplMenu(btn); break;
-      case 'menu-svl': _lbdOpenSvlMenu(btn); break;
+      case 'save-liturgy': lbdSvlSaveSheet(); break;
+      case 'menu-load': _lbdOpenLoadMenu(btn); break;
       case 'share-wa': _lbdShareMenu(btn); break;
       case 'menu-export': _lbdExportMenu(btn); break;
       case 'menu-liturgies': _lbdOpenLitMenu(btn); break;
@@ -113043,7 +113043,17 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-rb[data-act="nav-toggle"], .lbw-rb[data-act="lib-toggle"] { width: 36px; padding: 0; justify-content: center; }
 .lbw--lg .lbw-rb[data-act="open-book"] span, .lbw--md .lbw-rb[data-act="open-book"] span,
 .lbw--md .lbw-rb[data-act^="ins-"] span,
-.lbw--md .lbw-rb[data-act="menu-templates"] span, .lbw--md .lbw-rb[data-act="menu-liturgies"] span { display: none; }
+.lbw--md .lbw-rb[data-act="menu-liturgies"] span { display: none; }
+/* Save green, Load light blue (the operator, 2026-11-09). */
+.lbw-rgroup--svl { gap: 6px; }
+.lbw-rb[data-act="save-liturgy"] { background: #1f9d55; border-color: #1f9d55; color: #fff; font-weight: 600; padding: 0 12px; }
+.lbw-rb[data-act="save-liturgy"] i { color: #fff; }
+.lbw-rb[data-act="save-liturgy"]:hover { background: #178046; border-color: #178046; }
+.lbw-rb[data-act="save-liturgy"]:active { background: #146c3b; }
+.lbw-rb[data-act="menu-load"] { background: #e0f2fe; border-color: #7dd3fc; color: #075985; font-weight: 600; padding: 0 12px; }
+.lbw-rb[data-act="menu-load"] i, .lbw-rb[data-act="menu-load"] .lbw-dd { color: #0369a1; }
+.lbw-rb[data-act="menu-load"]:hover { background: #bae6fd; border-color: #38bdf8; }
+.lbw-rb[data-act="menu-load"]:active { background: #a5dcfa; }
 .lbw--lg .lbw-rb[data-act="ins-section"] span, .lbw--lg .lbw-rb[data-act="ins-break"] span, .lbw--lg .lbw-rb[data-act="ins-note"] span { display: none; }
 
 /* Three columns on a desk. */

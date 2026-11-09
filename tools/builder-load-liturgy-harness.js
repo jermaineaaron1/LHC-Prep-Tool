@@ -156,17 +156,50 @@ check('a late read never reopens the window over something else', /&& document\.
 check('without the saved-liturgies table, the past services are still listed', /if \(err && err\.message === 'setup'\) \{ _svlNoTable = true; _svlRows = \[\]; return \[\]; \}/.test(fn('lbdServiceLiturgies')));
 
 // ------------------------------------------------------------- the menus
-console.log('\nTemplates and Save / Load');
-const tpl = fn('_lbdOpenTplMenu');
-check('Templates: a whole liturgy for this service, for any service and year, and by service',
-  /label: 'A whole liturgy for ' \+ _svlOccLabel\(occ\) \+ '…'/.test(tpl) && /label: 'A whole liturgy: choose the service and year…'/.test(tpl) &&
-  /label: 'By service', icon: 'fa-regular fa-calendar-days', sub: _svlOccasions\(\)\.map/.test(tpl));
-check('...and one section from a template is still there', /\{ label: 'One section from a template', icon: 'fa-regular fa-file-lines', sub: one \}/.test(tpl) && /lbdAddMissingTemplateSections/.test(tpl));
-const svl = fn('_lbdOpenSvlMenu');
-check('Save / Load: save, load for this service, from a past service, or all saved', /lbdSvlSaveSheet/.test(svl) &&
-  /label: 'From a past service: an earlier liturgist’s order…'[^\n]*lbdServiceLiturgies\('\*', 'order'\)/.test(svl) && /lbdServiceLiturgies\('\*', 'saved'\)/.test(svl));
-check('a phone\'s Templates tile and the More menu open the whole-liturgy window', /if \(k === 'templates'\) \{ lbdServiceLiturgies\(null, 'all'\); return; \}/.test(fn('_lbdInsertKind')) &&
-  has(/\{ label: 'Templates: a whole liturgy for a service and year', icon: 'fa-regular fa-calendar-days', run: function\(\) \{ lbdServiceLiturgies\(null, 'all'\); \} \}/));
+// From the operator (2026-11-09): Save and Load as two buttons, Save green
+// and Load light blue; "Save This Liturgy"; "Load Liturgy for <the
+// service>" and "Load Liturgy from Past Services"; and Templates gone, as it
+// repeated Load -- its two section tools now in Add Item › New section.
+console.log('\nSave and Load, and no Templates');
+const rib2 = fn('_lbdRibbonHtml');
+check('the ribbon has a Save button and a Load menu, and no Templates or Save / Load',
+  /b\('save-liturgy', 'fa-solid fa-floppy-disk', 'Save', 'Save This Liturgy: /.test(rib2) && /b\('menu-load', 'fa-solid fa-file-import', 'Load' \+ dd, /.test(rib2) &&
+  !/menu-templates|menu-svl/.test(SRC) && !/function _lbdOpenTplMenu|function _lbdOpenSvlMenu/.test(SRC) &&
+  has(/case 'save-liturgy': lbdSvlSaveSheet\(\); break;/) && has(/case 'menu-load': _lbdOpenLoadMenu\(btn\); break;/));
+check('...Save green, Load light blue', has(/\.lbw-rb\[data-act="save-liturgy"\] \{ background: #1f9d55; border-color: #1f9d55; color: #fff;/) &&
+  has(/\.lbw-rb\[data-act="menu-load"\] \{ background: #e0f2fe; border-color: #7dd3fc; color: #075985;/));
+const ld = fn('_lbdOpenLoadMenu');
+check('Load: "Load Liturgy for" this service\'s occasion, and "Load Liturgy from Past Services"',
+  /\{ label: 'Load Liturgy for ' \+ _svlOccLabel\(occ\) \+ '…', icon: 'fa-solid fa-file-import', run: function\(\) \{ lbdServiceLiturgies\(occ, 'all'\); \} \}/.test(ld) &&
+  /\{ label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function\(\) \{ lbdServiceLiturgies\('\*', 'order'\); \} \}/.test(ld) &&
+  /var occ = _svlGuess\(\);/.test(ld) && (ld.match(/label: /g) || []).length === 2);
+check('the save window is "Save This Liturgy"', /_lbdSheet\('<i class="fa-solid fa-floppy-disk"><\/i> Save This Liturgy', html, \{ kind: 'svl-save' \}\);/.test(fn('lbdSvlSaveSheet')));
+let ns = null, nsDetail = '';
+try {
+  const added = [];
+  ns = new Function('orderStructures', '_LBD_TPL_NAMES', 'added',
+    'var have = { "wo-section-0": 0, "wo-section-2": 1, "a": 2 };' +
+    'function _lbdCurTplKey() { return "traditional"; } function _lbdSecIndex(id) { return id in have ? have[id] : -1; }' +
+    'function lbdAddSection(i) { added.push("blank@" + i); } function lbdAddMissingTemplateSections() { added.push("missing"); }' +
+    'function lbdAddTemplateSection(k, i) { added.push(k + ":" + i); }' + fn('_woStripNum') + '\n' + extractFn('_lbdNewSectionItems') +
+    '\nreturn _lbdNewSectionItems;')(
+    { traditional: [{ title: '1. Invocation' }, { title: '2. Confession' }, { title: '3. Kyrie' }], contemporary: [{ title: 'Praise' }] },
+    { traditional: 'Traditional', contemporary: 'Contemporary' }, added)('a');
+  ns.added = added;
+} catch (e) { nsDetail = e.message; }
+check('Add Item › New section: a blank one below, the missing ones back, or one from a template (this type first)', !!ns &&
+  ns[0].label === 'A blank section below' && ns[1].label === 'Add back 1 missing section' && !ns[1].disabled && ns[2] === '-' &&
+  ns[3].label === 'Traditional template…' && ns[3].sub.map(x => x.label + (x.disabled ? '/have' : '')).join('|') === '1. Invocation/have|2. Confession|3. Kyrie/have' &&
+  ns[4].label === 'Contemporary template…' && !ns[4].sub[0].disabled, nsDetail || JSON.stringify(ns && ns.map(x => x.label || x)));
+if (ns) { ns[0].run(); ns[1].run(); ns[3].sub[1].run(); }
+check('...and each does what it says', !!ns && ns.added.join(',') === 'blank@3,missing,traditional:1', ns && ns.added.join(','));
+check('...in Add Item only: a section\'s own Insert keeps its plain New section below',
+  /full \? \{ label: 'New section', icon: 'fa-solid fa-heading', sub: _lbdNewSectionItems\(secId\) \}\r?\n\s*: \{ label: 'New section below', icon: 'fa-solid fa-heading', run: function\(\) \{ lbdAddSection\(_lbdSecIndex\(secId\) \+ 1\); \} \}/.test(fn('_lbdInsertItems')));
+check('a phone\'s Add has Save liturgy, Load liturgy and Past services tiles, and its More the same three',
+  has(/\['save-liturgy', 'fa-solid fa-floppy-disk', 'Save liturgy'\], \['load-liturgy', 'fa-solid fa-file-import', 'Load liturgy'\], \['load-past', 'fa-solid fa-clock-rotate-left', 'Past services'\]/) &&
+  /if \(k === 'save-liturgy'\) \{ lbdSvlSaveSheet\(\); return; \}/.test(fn('_lbdInsertKind')) && /if \(k === 'load-past'\) \{ lbdServiceLiturgies\('\*', 'order'\); return; \}/.test(fn('_lbdInsertKind')) &&
+  has(/\{ label: 'Save This Liturgy…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet \},/) && has(/\{ label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function\(\) \{ lbdServiceLiturgies\('\*', 'order'\); \} \},/) &&
+  !/'templates'|'Templates: a whole liturgy/.test(SRC));
 check('the new actions are reachable from the page', has(/lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind,/));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

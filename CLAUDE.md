@@ -139,9 +139,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      are, or drag onto a section). The ribbon's **Add Item** holds what
      there is to add -- a song, liturgy (the library, what suits the section,
      or your own), a reading, a prayer, a sacrament, a text slide, a slide
-     break at the cursor, a note, a new section -- and no row of buttons sits
-     beside it any more (2026-11-08); the formatting bar keeps its own Slide
-     break. Sections are
+     break at the cursor, a note, a new section (a blank one, the type's
+     missing sections back, or one from a template -- `_lbdNewSectionItems`,
+     once the Templates button's) -- and no row of buttons sits beside it any
+     more (2026-11-08); the formatting bar keeps its own Slide break. Sections are
      heading bars with move, duplicate and remove; the words are typed on the
      page with "Slide 2, 3" marks between slides (Ctrl/Shift+Enter breaks a
      slide, Backspace at its start joins it back); notes are margin
@@ -150,12 +151,17 @@ than a bash heredoc, which quietly eats a level of backslashes.
      the formatting keys over the keyboard. Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
      from Word: headings become sections, the words under them liturgy.
-     **Save / Load** (ribbon, or More / Add on a phone) saves the whole
-     liturgy for its occasion of the church year and a year, and a later
-     year's order loads it whole, then saves over it or keeps a copy; it
-     also loads the whole liturgy of a PAST SERVICE, an earlier liturgist's
-     order, and **Templates** loads a whole liturgy for a service (Good
-     Friday, Traditional, Contemporary...) and a year of choice (gotcha 51).
+     **Save** (green) and **Load** (light blue), two ribbon buttons since
+     2026-11-09 (More / Add on a phone: Save liturgy, Load liturgy, Past
+     services): Save This Liturgy keeps the whole liturgy for its occasion of
+     the church year and a year, and a later year's order loads it whole,
+     then saves over it or keeps a copy; Load offers "Load Liturgy for <this
+     service's occasion>" (Contemporary Service, Traditional Service, Advent,
+     Maundy Thursday...) and "Load Liturgy from Past Services", an earlier
+     liturgist's order; the window filters by service (Good Friday,
+     Traditional, Contemporary...) and year (gotcha 51). The Templates button
+     is gone: it opened the same window, and its section tools are in Add
+     Item › New section.
      A liturgy saved for a year is filed in the Liturgy Library: the
      occasion gets that year's folder if it has none, and its page lists
      the whole liturgies kept for it, a year folder those of its year.
@@ -182,7 +188,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      keydown as key 229; what they would do is caught again at `beforeinput`
      (`_lbdOnBeforeInput`: `insertParagraph` breaks the slide,
      `deleteContentBackward` at a slide's start joins it), never twice for
-     one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save / Load; a
+     one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save and Load; a
      phone's More; the Liturgy Book's Share) sends a link to the order of
      service -- the title, the date and a link that opens the order in the
      Liturgy Builder (`?order=<id>&view=builder`), so whoever opens it sees
@@ -1523,8 +1529,9 @@ the anon key -- verify as `postgres`, not as the app.
     order made by an earlier liturgist -- similar, never quite the same --
     and reuse it; and Templates loads a WHOLE liturgy for a service and a
     year, not one item). "Load a whole liturgy" (`lbdServiceLiturgies(occ,
-    kind)`, from Templates, Save / Load, a phone's Templates and Save / Load
-    tiles and More) lists the saved liturgies and every service's order
+    kind)`, from Load -- `_lbdOpenLoadMenu`, Templates and Save / Load
+    before 2026-11-09 -- a phone's Load liturgy and Past services tiles and
+    More) lists the saved liturgies and every service's order
     (`_lldLoadOrders`: not a songbook's `standalone_` pseudo-order, nor this
     order) as one list (`_svlSources`, pure: newest year first, a year's
     saved ones before its services), filtered by where from (All / Saved
