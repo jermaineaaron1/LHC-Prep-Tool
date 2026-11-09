@@ -170,7 +170,8 @@ check('...Save green, Load light blue', has(/\.lbw-rb\[data-act="save-liturgy"\]
   has(/\.lbw-rb\[data-act="menu-load"\] \{ background: #e0f2fe; border-color: #7dd3fc; color: #075985;/));
 const ld = fn('_lbdOpenLoadMenu');
 check('Load: "Load Liturgy for" this service\'s occasion, and "Load Liturgy from Past Services"',
-  /\{ label: 'Load Liturgy for ' \+ _svlOccLabel\(occ\) \+ '…', icon: 'fa-solid fa-file-import', run: function\(\) \{ lbdServiceLiturgies\(occ, 'all'\); \} \}/.test(ld) &&
+  // (since 2026-11-09 the first opens the ones saved in the Liturgy Library)
+  /\{ label: 'Load Liturgy for ' \+ _svlOccLabel\(occ\) \+ '…', icon: 'fa-solid fa-file-import', run: function\(\) \{ lbdServiceLiturgies\(occ, 'saved'\); \} \}/.test(ld) &&
   /\{ label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function\(\) \{ lbdServiceLiturgies\('\*', 'order'\); \} \}/.test(ld) &&
   /var occ = _svlGuess\(\);/.test(ld) && (ld.match(/label: /g) || []).length === 2);
 check('the save window is "Save This Liturgy"', /_lbdSheet\('<i class="fa-solid fa-floppy-disk"><\/i> Save This Liturgy', html, \{ kind: 'svl-save' \}\);/.test(fn('lbdSvlSaveSheet')));

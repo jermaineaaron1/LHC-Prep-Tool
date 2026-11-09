@@ -22818,7 +22818,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         (o.detail ? '<div class="lhc-ask__what"><i class="fa-solid ' + (o.detailIcon || 'fa-microphone') + '" aria-hidden="true"></i><span>' + escapeHtml(o.detail) + '</span></div>' : '') +
         '<p class="lhc-ask__msg" id="lhcAskM">' + escapeHtml(o.message || 'This cannot be undone.') + '</p>' +
         '<div class="lhc-ask__acts"><button type="button" class="lhc-ask__no">' + escapeHtml(o.cancelLabel || 'Keep it') + '</button>' +
-          '<button type="button" class="lhc-ask__yes"><i class="fa-solid fa-trash-can" aria-hidden="true"></i>' + escapeHtml(o.okLabel || 'Delete') + '</button></div></div>';
+          '<button type="button" class="lhc-ask__yes"><i class="fa-solid ' + (o.okIcon || 'fa-trash-can') + '" aria-hidden="true"></i>' + escapeHtml(o.okLabel || 'Delete') + '</button></div></div>';
       var key = function(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } };
       var done = function(v) { document.removeEventListener('keydown', key, true); if (bd.parentNode) bd.remove(); resolve(v); };
       bd.addEventListener('click', function(e) { if (e.target === bd) done(false); });
@@ -54735,6 +54735,77 @@ var WO = (function() {
     var song = _sbmSong();
     if (song && typeof sbScrollToSong === 'function') setTimeout(function() { sbScrollToSong(song.id); }, 30);
   }
+  // ---- The reading font (the operator, 2026-11-09) ----
+  // A font toolbar in place of Reset Layout, for the songbook and Book Mode.
+  // A reading preference, so it is THIS DEVICE's (lhc_sbm_font), like the
+  // part a singer follows (gotcha 26): one singer's choice never changes
+  // another's screen. A chord sheet places its chords by character column
+  // (gotcha 38), so a FIXED-WIDTH font changes the chord sheets too -- the
+  // chords and the words, the choir score's chord rows -- and any other font
+  // changes the words shown without chords (the Lyrics view, a phone's choir
+  // score, Book Mode's words), the chord grid staying fixed-width. '' is
+  // the songbook's own. Web fonts are fetched the first time they are
+  // chosen (g, a Google Fonts family).
+  var _SBM_FONTS = [
+    { id: '', label: 'Standard', fam: '' },
+    { id: 'robotomono', label: 'Roboto Mono', fam: "'Roboto Mono', ui-monospace, monospace", g: 'Roboto+Mono:wght@400;500;700', mono: true },
+    { id: 'courier', label: 'Courier Prime', fam: "'Courier Prime', 'Courier New', monospace", g: 'Courier+Prime:wght@400;700', mono: true },
+    { id: 'atkinson', label: 'Atkinson (easy to read)', fam: "'Atkinson Hyperlegible', system-ui, sans-serif", g: 'Atkinson+Hyperlegible:wght@400;700' },
+    { id: 'merriweather', label: 'Merriweather', fam: "Merriweather, Georgia, serif", g: 'Merriweather:wght@400;700' },
+    { id: 'georgia', label: 'Georgia', fam: "Georgia, 'Times New Roman', serif" },
+    { id: 'lato', label: 'Lato', fam: "Lato, system-ui, sans-serif" },
+    { id: 'poppins', label: 'Poppins', fam: "Poppins, system-ui, sans-serif" }
+  ];
+  var _SBM_GRID_STACK = 'ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace';
+  function _sbmFontOf(id) { return _SBM_FONTS.filter(function(f) { return f.id === id; })[0] || _SBM_FONTS[0]; }
+  function _sbmFontId() { try { return localStorage.getItem('lhc_sbm_font') || ''; } catch (e) { return ''; } }
+  function _sbmFontNow() { return _sbmFontOf(_sbmFontId()); }
+  // The words' face: the font chosen, else the songbook's own.
+  function _sbmFontWords() { var f = _sbmFontNow(); return f.fam || (_sbFontSettings && _sbFontSettings.family) || 'Georgia,serif'; }
+  // The chord grid's face: a fixed-width font chosen, else the standard one.
+  function _sbmFontGrid() { var f = _sbmFontNow(); return f.mono ? f.fam : _SBM_GRID_STACK; }
+  var _sbmFontLinked = {};
+  function _sbmFontLoad(f) {
+    if (!f || !f.g || _sbmFontLinked[f.id]) return Promise.resolve();
+    _sbmFontLinked[f.id] = true;
+    var l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + f.g + '&display=swap';
+    document.head.appendChild(l);
+    return new Promise(function(res) { l.onload = res; l.onerror = res; setTimeout(res, 4000); }).then(function() {
+      var first = f.fam.split(',')[0].trim();
+      if (!document.fonts || !document.fonts.load) return null;
+      return Promise.all([document.fonts.load('400 18px ' + first), document.fonts.load('700 18px ' + first)]).catch(function() { return null; });
+    });
+  }
+  // The variables the reading view's styles read, on the songbook's modal;
+  // a web font not fetched yet is fetched, and the view drawn again with it.
+  function _sbmFontApply() {
+    var m = document.getElementById('songbookLiveModal'), f = _sbmFontNow();
+    if (m) {
+      if (f.fam) m.style.setProperty('--sbm-words-font', f.fam); else m.style.removeProperty('--sbm-words-font');
+      if (f.mono) m.style.setProperty('--sbm-grid-font', f.fam); else m.style.removeProperty('--sbm-grid-font');
+    }
+    if (f.g && !_sbmFontLinked[f.id]) _sbmFontLoad(f).then(function() { if (_sbmFontId() === f.id && _sbmBookOpen()) _sbmRender(); });
+  }
+  function _sbmFontPickerHtml() {
+    var cur = _sbmFontNow();
+    var o = function(f) { return '<option value="' + escapeHtml(f.id) + '"' + (f.id === cur.id ? ' selected' : '') + '>' + escapeHtml(f.label) + '</option>'; };
+    return '<label class="sbm-btn sbm-font" title="The font the songbook and Book Mode show on this device">' +
+      '<i class="fa-solid fa-font" aria-hidden="true"></i><span class="sbm-font__l">Font<b>' + escapeHtml(cur.id ? cur.label : 'Standard') + '</b></span>' +
+      '<i class="fa-solid fa-chevron-down sbm-font__dd" aria-hidden="true"></i>' +
+      '<select class="sbm-font__sel" aria-label="Font for the songbook and Book Mode" onchange="WO.sbmFont(this.value)">' + o(_SBM_FONTS[0]) +
+        '<optgroup label="Chords and words (fixed width)">' + _SBM_FONTS.filter(function(f) { return f.mono; }).map(o).join('') + '</optgroup>' +
+        '<optgroup label="Words (chord sheets stay fixed width)">' + _SBM_FONTS.filter(function(f) { return f.id && !f.mono; }).map(o).join('') + '</optgroup>' +
+      '</select></label>';
+  }
+  function sbmFont(id) {
+    var f = _sbmFontOf(String(id == null ? '' : id));
+    try { if (f.id) localStorage.setItem('lhc_sbm_font', f.id); else localStorage.removeItem('lhc_sbm_font'); } catch (e) {}
+    _sbmFontApply();
+    _sbmRender();
+    showToast(!f.id ? 'Font: the songbook’s own' : 'Font: ' + f.label + (f.mono ? ', for the chords and the words' : '. Chords + Lyrics keeps a fixed-width font, so the chords stay over their words'), 'info');
+  }
+
   function sbmReset() {
     var song = _sbmSong(); if (!song) return;
     _sbmScale = 1; try { localStorage.setItem('lhc_sbm_scale', '1'); } catch (e) {}
@@ -55720,9 +55791,9 @@ var WO = (function() {
       '<div class="sbm-ev__acts"><button class="sbm-btn" onclick="WO.sbEvBack(' + (parent == null ? '' : parent) + ')"><i class="fa-solid fa-arrow-left"></i>Back</button>' +
         (r.kind === 'version' ? '<button class="sbm-btn" onclick="WO.sbVerRenameAsk(\'' + escapeJsArg(r.vid) + '\')"><i class="fa-solid fa-pen"></i>Rename</button>' +
           '<button class="sbm-btn sbm-btn--danger" onclick="WO.sbVerDelete(\'' + escapeJsArg(r.vid) + '\')" aria-label="Delete this version" title="Delete"><i class="fa-solid fa-trash"></i></button>' : '') +
-        (r.kind === 'kept' ? '<button class="sbm-btn" onclick="WO.sbVerRestoreMain(\'' + escapeJsArg(base) + '\',\'' + escapeJsArg(r.vid) + '\')"><i class="fa-solid fa-crown"></i>Make it the main song again</button>' : '') +
+        (r.kind === 'kept' ? '<button class="sbm-btn" onclick="WO.sbVerRestoreMain(\'' + escapeJsArg(base) + '\',\'' + escapeJsArg(r.vid) + '\')"><i class="fa-solid fa-crown"></i>Make it the Master Copy again</button>' : '') +
         (r.kind === 'member' || r.on ? '' : '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbArrCopy(' + i + ')">Use here</button>') + '</div></div>';
-    _sbmSheet({ version: 'Saved version', main: 'Main song', kept: 'Earlier main song' }[r.kind] || 'Earlier version', html);
+    _sbmSheet({ version: 'Saved version', main: 'Master (From Song Library)', kept: 'Earlier master copy' }[r.kind] || 'Earlier version', html);
     var sh = document.getElementById('sbmSheet'); if (sh) sh.setAttribute('data-sheet', 'earlier-open');
     _sbEvMountCards(temp);
     // The score: the song's choir parts as they are now (they are the song's,
@@ -56650,7 +56721,7 @@ var WO = (function() {
         if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
         var noChords = view === 'lyrics', cols = s.sbLyricsColumns === 2;
         out += '<div class="sbm-card sbm-card--follow" data-sbm-song="' + id + '">' +
-          '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
+          '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" style="font-family:' + escapeHtml(_sbmFontWords()) + ';">' + lyricsHtml + '</div></div>';
       }
       if (hasChoir && view === 'choir') {
         var score = _sbChoirBodyHtml(s, false, !wide);
@@ -56688,6 +56759,7 @@ var WO = (function() {
     // The sheet is being typed on (sbmType): a redraw would wipe what was
     // typed, so it waits for Enter, Esc or a tap elsewhere (gotcha 65).
     if (_sbNp && _sbNp.where === 'view' && _sbNp.el && _sbNp.el.isConnected) { _sbNp.renderAfter = true; return; }
+    _sbmFontApply();
     _sbmInit();
     // The way to the words, once this render (whichever way it ends) is in.
     setTimeout(_sbmGuideUpdate, 0);
@@ -56812,7 +56884,8 @@ var WO = (function() {
     var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
     html += '<div class="sbm-pair">' +
       '<button class="sbm-btn' + (hasLog ? ' is-on' : '') + '" onclick="WO.sbOpenLiturgistLog(\'' + escapeJsArg(song.id) + '\')"><i class="fa-solid fa-book"></i>Liturgist Notes</button>' +
-      '<button class="sbm-btn" onclick="WO.sbmReset()"><i class="fa-solid fa-text-height"></i>Reset Layout</button></div>';
+      // The font, where Reset Layout was (that is in More); this device's.
+      _sbmFontPickerHtml() + '</div>';
     // One row (the operator, 2026-11-07): Record, Tracks, YouTube, Book Mode,
     // Drawings, Edit, and More at the far right. Links, Browse and Medley are
     // in More. Save / Load Versions came out of More (2026-11-09), in purple,
@@ -56864,7 +56937,7 @@ var WO = (function() {
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
       html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmTypeChip(noChords) + _sbmLayersChip() + '</div>' +
-        '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbFontSettings.family || 'inherit') + ';">' + lyricsHtml + '</div></div>';
+        '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbmFontWords()) + ';">' + lyricsHtml + '</div></div>';
     }
     // A song with no choir parts, in Choir: its words as they would stand,
     // every line sung by All, and the way to make that its arrangement.
@@ -59370,8 +59443,8 @@ var WO = (function() {
   //
   // The operator, 2026-11-08: "more direct and simple, without too many words
   // and buttons". One sheet for what were Versions and Earlier versions:
-  //   THIS SERVICE   what it sings now, and two buttons -- Save as a version
-  //                  (a name, asked once) and Save as the main song (the song
+  //   THIS SERVICE   what it sings now, and two buttons -- Save this Version
+  //                  (a name, asked once) and Overwrite the Master Copy (the song
   //                  in the Songs page; the one it replaces is kept).
   //   PAST VERSIONS  newest first: the main song, this service's other copies,
   //                  the earlier services' copies, the saved versions and the
@@ -59404,12 +59477,13 @@ var WO = (function() {
     var recN = function(orderId) { return orderId ? recs.filter(function(x) { return String(x.order_id || '') === String(orderId); }).length : 0; };
     var kept = list.filter(_sbVerIsKept), origId = kept.length ? kept[0].id : '';
     var srcOf = function(v) { return { steps: parseInt(v.transpose_steps, 10) || 0, versionId: v.id, customLyrics: v.lyrics || '', lyrics: v.lyrics || '', richLyrics: v.rich_lyrics || null }; };
-    var past = [{ kind: 'main', title: 'Main song', sub: 'As in the Songs page', at: '', src: { steps: 0, versionId: '' }, on: !cur && !drift.key }]
+    // The library's own song is the MASTER copy (the operator, 2026-11-09).
+    var past = [{ kind: 'main', title: 'Master (From Song Library)', sub: 'As in the Songs page', at: '', src: { steps: 0, versionId: '' }, on: !cur && !drift.key }]
       .concat(_sbmOtherCopies(song).map(function(s) { return { kind: 'copy', title: _sbmSectionLabel(s, true) || 'Elsewhere in this service', sub: 'This service', here: true, src: _sbArrOf(s) }; }))
       .concat(D.earlier)
       .concat(list.map(function(v) {
         var isKept = _sbVerIsKept(v);
-        return { kind: isKept ? 'kept' : 'version', title: isKept && v.id === origId ? 'Original' : v.name, sub: isKept ? 'Main song until then' : 'Saved version',
+        return { kind: isKept ? 'kept' : 'version', title: isKept && v.id === origId ? 'Original' : v.name, sub: isKept ? 'Master copy until then' : 'Saved version',
           at: v.created_at || '', vid: v.id, on: v.id === cur, src: srcOf(v) };
       }));
     past = _sbVerOrder(past);
@@ -59438,16 +59512,16 @@ var WO = (function() {
       if (_sbVerNorm(m.lyrics) !== _sbVerNorm(lib.lyrics) || m.key !== String(lib.key || '').trim()) main = m;
     }
     var nowD = drawN(cur);
-    var nowChips = [['fa-key', _sbVerKeyText(song, steps, libKey)], ['fa-code-branch', curV ? curV.name : (cur ? 'A version since deleted' : 'Main song')]];
+    var nowChips = [['fa-key', _sbVerKeyText(song, steps, libKey)], ['fa-code-branch', curV ? curV.name : (cur ? 'A version since deleted' : 'Master copy')]];
     if (nowD) nowChips.push(['fa-pen-nib', nowD + ' drawing' + (nowD === 1 ? '' : 's')]);
     var changed = curV && (drift.key || drift.words);
     var nowBox = '<div class="vr-now"><div class="vr-now__h">This service<span class="vr-now__s">Changes here stay here unless you save them</span></div>' +
       '<div class="ver-chips">' + nowChips.map(function(c) { return '<span class="ver-chip"><i class="fa-solid ' + c[0] + '" aria-hidden="true"></i>' + escapeHtml(c[1]) + '</span>'; }).join('') + '</div>' +
       (changed ? '<div class="vr-now__drift"><span>Changed since you chose “' + escapeHtml(_sbmClip(curV.name, 28)) + '”</span><button class="sbm-btn" onclick="WO.sbVerUpdate()"><i class="fa-solid fa-rotate"></i>Update it</button></div>' : '') +
       (_sbVerOk === true
-        ? '<div class="vr-now__acts"><button class="sbm-btn sbm-btn--primary vr-big" id="sbVerSaveBtn" onclick="WO.sbVerSaveAsk()"><i class="fa-solid fa-floppy-disk"></i>Save as a version</button>' +
-            (main ? '<button class="sbm-btn vr-big vr-big--main" id="sbVerMainBtn" onclick="WO.sbVerMakeMain()"><i class="fa-solid fa-crown"></i>Save as the main song</button>'
-                  : '<span class="vr-same"><i class="fa-solid fa-check" aria-hidden="true"></i>Same as the main song</span>') + '</div>'
+        ? '<div class="vr-now__acts"><button class="sbm-btn sbm-btn--primary vr-big" id="sbVerSaveBtn" onclick="WO.sbVerSaveAsk()"><i class="fa-solid fa-floppy-disk"></i>Save this Version</button>' +
+            (main ? '<button class="sbm-btn vr-big vr-big--main" id="sbVerMainBtn" onclick="WO.sbVerMakeMain()"><i class="fa-solid fa-crown"></i>Overwrite the Master Copy</button>'
+                  : '<span class="vr-same"><i class="fa-solid fa-check" aria-hidden="true"></i>Same as the Master Copy</span>') + '</div>'
         : '<p class="vr-note">Saving needs a one-time database update (song_versions).</p>') +
       '</div>';
     // Medleys: this one to save, and the ones it was sung in.
@@ -59473,11 +59547,11 @@ var WO = (function() {
     // The first time on a device: a finger on the newest past version's Use.
     if (nP > 1) setTimeout(function() { _sbmCoachRecallPick(false); }, 350);
   }
-  // Save as a version: a name, asked once, then this service's way kept.
+  // Save this Version: a name, asked once, then this service's way kept.
   function sbVerSaveAsk() {
     var song = _sbmSong(); if (!song) return;
     var def = _sbmClip((currentOrderData && (currentOrderData.title || currentOrderData.orderName)) || song.title || 'My version', 60);
-    var ask = (typeof window.customPrompt === 'function') ? window.customPrompt('Save as a version', 'A name the team will know it by', def)
+    var ask = (typeof window.customPrompt === 'function') ? window.customPrompt('Save this Version', 'A name the team will know it by', def)
       : Promise.resolve(window.prompt('Name this version', def));
     ask.then(function(name) {
       name = String(name || '').trim().slice(0, 60);
@@ -59727,6 +59801,18 @@ var WO = (function() {
   }
   // The songbook's own confirm, which names its button (customConfirm's
   // says Delete under a trash can), lifted over the song library's preview.
+  // Before the master copy is overwritten (the operator, 2026-11-09): a
+  // warning in the app's own look, over every sheet (lhcAskDelete, z-index
+  // 10060), naming the song and its key now and after; Keep the master is
+  // what Esc, a tap outside and the first focus choose. Resolves true or false.
+  function _sbVerMasterWarn(o) {
+    var keys = (o.from || o.to) ? (o.from && o.to && o.from !== o.to ? 'Key ' + o.from + ' → ' + o.to : 'Key ' + (o.to || o.from)) : '';
+    var ask = (typeof window.lhcAskDelete === 'function')
+      ? window.lhcAskDelete({ icon: 'fa-triangle-exclamation', title: o.title, detail: o.song + (keys ? ' · ' + keys : ''), detailIcon: 'fa-music',
+          message: o.message, cancelLabel: 'Keep the master', okLabel: 'Overwrite the master', okIcon: 'fa-crown' })
+      : _sbVerAsk(o.title, o.message, 'Overwrite the master');
+    return ask;
+  }
   function _sbVerAsk(title, msg, okLabel) {
     return new Promise(function(resolve) {
       var el = document.getElementById('sbConfirmModal');
@@ -59815,10 +59901,9 @@ var WO = (function() {
     if (_sbVerNorm(m.lyrics) === _sbVerNorm(lib.lyrics) && m.key === oldKey) { showToast('The song already has these words, in this key', 'info'); return; }
     if (!_sbVerNorm(m.lyrics)) { showToast('This service has no words for the song, so it cannot be its main version', 'info'); return; }
     var title = lib.title || song.title || 'This song';
-    var msg = '“' + title + '” in the song library becomes what this service sings' + (m.key ? ', in ' + m.key : '') +
-      ': its words and chords. New services start from it; services already planned keep their own copies. ' +
-      'The song as it is now' + (oldKey ? ' (key ' + oldKey + ')' : '') + ' is kept under Earlier main versions, where it can be restored.';
-    _sbVerAsk('Make this the song’s main version?', msg, 'Make it the main version').then(function(ok) {
+    _sbVerMasterWarn({ title: 'Overwrite the Master Copy?', song: title, from: oldKey, to: m.key,
+      message: 'The master copy of “' + title + '” in the song library will be replaced by what this service sings: its words, chords and key. ' +
+        'Every new service starts from the master. Services already planned keep their own copies, and the master as it is now is kept under Past versions, where it can be put back.' }).then(function(ok) {
       if (!ok) return;
       var btn = document.getElementById('sbVerMainBtn'); if (btn) btn.disabled = true;
       var before = _sbVerSnap(song); before.key = song.key; before.masterLyrics = song.masterLyrics;
@@ -59827,7 +59912,7 @@ var WO = (function() {
         _sbVerSaved();
         _sbVerReshow(song);
         _sbVerAfterLibraryChange(base);
-        var t = '“' + _sbmClip(title, 30) + '” now has these words' + (m.key ? ' in ' + m.key : '') + '. The song as it was is kept under Earlier main versions.';
+        var t = 'The master copy of “' + _sbmClip(title, 30) + '” now has these words' + (m.key ? ' in ' + m.key : '') + '. The master as it was is kept under Past versions.';
         var undo = function() {
           _sbVerUndoMain(base, lib, r).then(function(all) {
             if (_sbmSong() !== song) sbmSelectSong(song.id);
@@ -59843,7 +59928,7 @@ var WO = (function() {
         else showToast(t, 'success', { action: 'Undo', duration: 10000, onAction: undo });
       }, function(err) {
         if (btn) btn.disabled = false;
-        showToast('Could not make it the main version: ' + (err && err.message || 'no answer'), 'error');
+        showToast('Could not overwrite the master copy: ' + (err && err.message || 'no answer'), 'error');
       });
     });
   }
@@ -59864,9 +59949,9 @@ var WO = (function() {
       var m = _sbVerMainOf(v.lyrics, v.transpose_steps, lib.key, lib.key);
       if (_sbVerNorm(m.lyrics) === _sbVerNorm(lib.lyrics) && m.key === String(lib.key || '').trim()) { showToast('The song already has these words, in this key', 'info'); return false; }
       var title = lib.title || 'This song';
-      var msg = '“' + title + '” in the song library goes back to “' + v.name + '”' + (m.key ? ', in ' + m.key : '') +
-        '. New services start from it; services already planned keep their own copies. The song as it is now is kept under Earlier main versions too.';
-      return _sbVerAsk('Restore this main version?', msg, 'Restore it').then(function(yes) {
+      return _sbVerMasterWarn({ title: 'Overwrite the Master Copy with “' + v.name + '”?', song: title, from: String(lib.key || '').trim(), to: m.key,
+        message: 'The master copy of “' + title + '” in the song library goes back to “' + v.name + '”. Every new service starts from the master. ' +
+          'Services already planned keep their own copies, and the master as it is now is kept under Past versions too.' }).then(function(yes) {
         if (!yes) return false;
         return _sbVerReplaceMain(base, lib, m).then(function(r) {
           var song = _sbmSong(); if (song && _sbBaseSongId(song) === base) _sbVerReshow(song);
@@ -74380,9 +74465,9 @@ var WO = (function() {
       '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}',
       '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}',
       '.sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#edf9f4;color:#0e9f6e;font-weight:600;flex-shrink:0;}',
-      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}',
+      '.sp-lyrics-wrap{font-family:' + _sbmFontWords() + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}',
       '.sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}',
-      '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;font-weight:700;color:#14532d;font-size:16px;margin:1em 0 0;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}',
+      '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:' + _sbmFontGrid() + ';font-weight:700;color:#14532d;font-size:16px;margin:1em 0 0;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}',
       '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#000000;font-weight:700;margin:0 0 0.5em;}',
       '.sp-lyrics-wrap .wo-lyrics-empty-line{height:2.2em;}',
       '.sp-lyrics-wrap .wo-lyrics-section-header{display:inline-block;padding:4px 12px;margin:2em 0 1em;font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;border-radius:4px;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}',
@@ -74660,7 +74745,7 @@ var WO = (function() {
         var tcM = document.createElement('div');
         tcM.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + tcCW + 'px;' +
           'visibility:hidden;pointer-events:none;z-index:-1;' +
-          'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';' +
+          'font-family:' + _sbmFontWords() + ';font-size:' + _sbFontSettings.size + ';' +
           'line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;';
         tcM.innerHTML = lyricsHtml;
         document.body.appendChild(tcM);
@@ -74696,7 +74781,7 @@ var WO = (function() {
             return it.top >= slot.start && it.bottom <= slot.end + 1;
           }).map(function(it) { return it.html; }).join('');
           return '<div style="flex:1;min-width:0;height:' + ch + 'px;overflow:hidden;' +
-            'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';' +
+            'font-family:' + _sbmFontWords() + ';font-size:' + _sbFontSettings.size + ';' +
             'line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;">' + html + '</div>';
         }
 
@@ -77543,12 +77628,17 @@ var WO = (function() {
     return 'Order of Worship';
   }
 
-  // The phone's top bar: where you are, and undo.
+  // The phone's top bar: where you are -- about half the bar, it needs no
+  // more -- then WhatsApp (the order of service's link), Save and Load, as
+  // the desk's ribbon has them (the operator, 2026-11-09), and undo.
   function _lbdMbarHtml() {
     return '<div class="lbw-mbar" role="toolbar" aria-label="Liturgy Builder">' +
       '<button type="button" class="lbw-mb lbw-mb-sec" data-act="nav-toggle" aria-label="Open the outline">' +
         '<i class="fa-solid fa-list-ol" aria-hidden="true"></i><span class="lbw-mbar-cur">' + _lbdEsc(_lbdCurLabel()) + '</span>' +
         '<i class="fa-solid fa-chevron-down lbw-dd" aria-hidden="true"></i></button>' +
+      '<button type="button" class="lbw-mb lbw-mb-act" data-act="share-link" aria-label="Share the order of service on WhatsApp" title="WhatsApp: a link to the order of service"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i></button>' +
+      '<button type="button" class="lbw-mb lbw-mb-act" data-act="save-liturgy" aria-label="Save This Liturgy" title="Save This Liturgy"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>' +
+      '<button type="button" class="lbw-mb lbw-mb-act" data-act="menu-load" aria-haspopup="menu" aria-label="Load a liturgy" title="Load: one saved in the Liturgy Library, or a past service"><i class="fa-solid fa-file-import" aria-hidden="true"></i></button>' +
       '<button type="button" class="lbw-mb" data-act="undo" aria-label="Undo"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>' +
       '<button type="button" class="lbw-mb" data-act="redo" aria-label="Redo"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>' +
     '</div>';
@@ -78840,7 +78930,7 @@ var WO = (function() {
     if (k === 'library') { _lbdSetCur(secId, ''); _lbdShowLib('lib', ''); return; }
     // A phone's Save and Load: as the ribbon's.
     if (k === 'save-liturgy') { lbdSvlSaveSheet(); return; }
-    if (k === 'load-liturgy') { lbdServiceLiturgies(_svlGuess(), 'all'); return; }
+    if (k === 'load-liturgy') { lbdServiceLiturgies(_svlGuess(), 'saved'); return; }
     if (k === 'load-past') { lbdServiceLiturgies('*', 'order'); return; }
     if (k === 'import') { _lbdOpenImportSheet(); return; }
     if (k === 'roster') { lbdFillReadings(); return; }
@@ -79481,7 +79571,8 @@ var WO = (function() {
   function _lbdOpenLoadMenu(anchor) {
     var occ = _svlGuess();
     _lbdOpenMenu(anchor, 'Load', [
-      { label: 'Load Liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'all'); } },
+      // saved in the Liturgy Library; the past services are the other choice
+      { label: 'Load Liturgy for ' + _svlOccLabel(occ) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(occ, 'saved'); } },
       { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } }
     ]);
   }
@@ -79493,7 +79584,7 @@ var WO = (function() {
       { label: 'Import a Word document…', icon: 'fa-solid fa-file-import', run: _lbdOpenImportSheet },
       { label: 'Readings from the roster', icon: 'fa-solid fa-calendar-check', run: lbdFillReadings },
       { label: 'Save This Liturgy…', icon: 'fa-solid fa-floppy-disk', run: lbdSvlSaveSheet },
-      { label: 'Load Liturgy for ' + _svlOccLabel(_svlGuess()) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(_svlGuess(), 'all'); } },
+      { label: 'Load Liturgy for ' + _svlOccLabel(_svlGuess()) + '…', icon: 'fa-solid fa-file-import', run: function() { lbdServiceLiturgies(_svlGuess(), 'saved'); } },
       { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } },
       { label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(false); } },
       { label: 'WhatsApp: every word of the liturgy', icon: 'fa-brands fa-whatsapp', run: function() { lbdShareWhatsApp(true); } },
@@ -80727,6 +80818,7 @@ var WO = (function() {
       case 'ins-line': _lbdNewLineAtCaret(); break;
       case 'menu-import': _lbdOpenImportMenu(btn); break;
       case 'save-liturgy': lbdSvlSaveSheet(); break;
+      case 'share-link': lbdShareWhatsApp(false); break;
       case 'menu-load': _lbdOpenLoadMenu(btn); break;
       case 'share-wa': _lbdShareMenu(btn); break;
       case 'menu-export': _lbdExportMenu(btn); break;
@@ -95703,6 +95795,7 @@ var WO = (function() {
     _sbConfirmOk: _sbConfirmOk,
     _sbConfirmCancel: _sbConfirmCancel,
     sbSetFontFamily: sbSetFontFamily,
+    sbmFont: sbmFont,
     sbSetFontSize: sbSetFontSize,
     sbSetFontSizePt: sbSetFontSizePt,
     sbSetLineHeight: sbSetLineHeight,
@@ -113521,11 +113614,20 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 }
 .lbw-mb:active { background: #e8f0e9; }
 .lbw-mb-sec {
-  flex: 1 1 auto; min-width: 0; justify-content: flex-start; padding: 0 12px; margin-right: 4px;
+  flex: 1 1 0; min-width: 0; max-width: 50%; justify-content: flex-start; padding: 0 12px; margin-right: 4px;
   border: 1px solid var(--lbw-line); background: #fff; font-size: 15px; font-weight: 700; color: var(--lbw-green-d);
 }
 .lbw-mb-sec > i:first-child { color: var(--lbw-green); font-size: 15px; }
 .lbw-mbar-cur { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-family: var(--lbw-serif); }
+/* WhatsApp, Save (green) and Load (light blue) beside the section, as the
+   ribbon has them; the bar's buttons a little narrower to make the room. */
+.lbw--sm .lbw-mbar { gap: 3px; }
+.lbw--sm .lbw-mb-act, .lbw--sm .lbw-mb[data-act="undo"], .lbw--sm .lbw-mb[data-act="redo"] { min-width: 36px; width: 36px; height: 40px; }
+.lbw-mb[data-act="share-link"] { border: 1px solid #c8ead5; background: #fff; color: #1faa59; font-size: 19px; }
+.lbw-mb[data-act="save-liturgy"] { background: #1f9d55; color: #fff; }
+.lbw-mb[data-act="save-liturgy"]:active { background: #178046; }
+.lbw-mb[data-act="menu-load"] { border: 1px solid #7dd3fc; background: #e0f2fe; color: #0369a1; }
+.lbw-mb[data-act="menu-load"]:active { background: #bae6fd; }
 .lbw--sm .lbw-body { display: block; padding: 0 0 12px; }
 .lbw--sm .lbw-page { padding: 22px 16px 20px; border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
 .lbw--sm .lbw-doc-title { font-size: 26px; }
@@ -114488,10 +114590,18 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-lyrics .wo-lyrics-lyric-line { font-weight: 500; margin: 0 0 0.35em; color: var(--sbm-text); }
 .sbm-lyrics .wo-lyrics-chord-line,
 .sbm-lyrics .wo-inline-chord {
-  font-family: var(--sbm-font-mono); font-weight: 700; color: var(--sbm-chord);
+  font-family: var(--sbm-grid-font, var(--sbm-font-mono)); font-weight: 700; color: var(--sbm-chord);
   font-size: calc(var(--sbm-t-chord) * var(--sbm-lyrics-scale));
 }
 .sbm-lyrics .wo-lyrics-chord-pair { margin: 0.2em 0 0.55em; line-height: 1.35; }
+/* The font picker where Reset Layout was: a button's look, the native list
+   over it (a phone's wheel, a desk's menu). */
+.sbm-font { position: relative; cursor: pointer; }
+.sbm-font__l { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbm-font__l b { font-weight: 700; color: var(--sbm-teal, #0d9488); overflow: hidden; text-overflow: ellipsis; }
+.sbm-font__dd { font-size: 11px; opacity: 0.6; }
+.sbm-font__sel { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; -webkit-appearance: none; appearance: none; }
+.sbm-font:focus-within { outline: 2px solid var(--sbm-teal, #0d9488); outline-offset: 2px; }
 .sbm-lyrics--nochords .wo-lyrics-chord-line,
 .sbm-lyrics--nochords .wo-inline-chord { display: none !important; }
 
@@ -114508,7 +114618,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 @media not all and (max-width: 820px) and (orientation: portrait) {
   #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-chord-line,
   #sbmRoot :is(#sbmLyrics, .sbm-card--follow > .sbm-lyrics):not(.sbm-lyrics--nochords) .wo-lyrics-lyric-line {
-    font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace !important;
+    font-family: var(--sbm-grid-font, ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace) !important;
     font-size: calc(18px * var(--sbm-lyrics-scale) * var(--sbm-fit, 1)) !important;
     letter-spacing: 0 !important;
     white-space: break-spaces !important;
@@ -115030,7 +115140,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score { font-size: calc(17px * var(--sbm-lyrics-scale)); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-who--chord { display: none; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-chords { padding: 0 6px; gap: 0; min-height: 0; margin: 0; }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-words { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; font-family: var(--sbm-font-body); }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-words { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; font-family: var(--sbm-words-font, var(--sbm-font-body)); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-ln--inl { padding-top: 0.25em; row-gap: 0.45em; }
 /* The room for the chords is INSIDE the words' box, not above the row:
    when the words wrap under the chip, chords riding on the first line
@@ -115376,7 +115486,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
    take the full width, so a unison verse is not one label wide narrower. */
 #sbmRoot .sbm-score .vl-score {
   --vl-text: calc(18px * var(--sbm-lyrics-scale, 1)); --vl-row: 0px;
-  --vl-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  --vl-mono: var(--sbm-grid-font, ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace);
 }
 #sbmRoot .sbm-score .vl-score .vl-section { margin: 18px 0 8px; }
 #sbmRoot .sbm-score .vl-score > .vl-section:first-child { margin-top: 0; }
@@ -127401,13 +127511,18 @@ window.LHC_Install = (function() {
     }
     #songbookLiveModal .wo-lyrics-chord-line,
     #songbookLiveModal .wo-lyrics-lyric-line {
-      font-family:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace !important;
+      font-family:var(--sbm-grid-font, ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace) !important;
       font-size:1rem !important;
       letter-spacing:0 !important;
       white-space:break-spaces !important;
       overflow-wrap:anywhere;
       word-break:normal;
       tab-size:2;
+    }
+    /* The Lyrics view shows no chords, so a reader's font for words reaches
+       it here too (2026-11-09); with none chosen it keeps this grid. */
+    #songbookLiveModal .sbm-lyrics--nochords .wo-lyrics-lyric-line {
+      font-family:var(--sbm-words-font, var(--sbm-grid-font, ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace)) !important;
     }
     #songbookLiveModal .wo-lyrics-chord-line {
       line-height:1.35 !important;
