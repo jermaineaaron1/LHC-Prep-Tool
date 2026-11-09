@@ -148,7 +148,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      slide, Backspace at its start joins it back); notes are margin
      comments. On a phone it works like Google Docs: a bottom bar with Add
      in the middle, the outline and the library as sheets from below, and
-     the formatting keys over the keyboard. Compact shows one line per part;
+     the formatting keys over the keyboard; its top bar is the section (at
+     most half the bar) then WhatsApp (the order's link), Save (green), Load
+     (light blue), undo and redo (`_lbdMbarHtml`, 2026-11-09). Load asks:
+     "Load Liturgy for <occasion>" (the ones SAVED in the Liturgy Library)
+     or "Load Liturgy from Past Services". Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
      from Word: headings become sections, the words under them liturgy.
      **Save** (green) and **Load** (light blue), two ribbon buttons since
@@ -237,7 +241,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
      ones, which stay off until switched on -- with Show all and Only mine
      (gotcha 50). The key's flat and sharp are large blue buttons, and a
      key moved on one device redraws every other device's view at once, with
-     a word saying so; the A- / 100% / A+ size buttons are gone, and so is
+     a word saying so; the A- / 100% / A+ size buttons are gone (a Font
+     picker sits where Reset Layout was, gotcha 74), and so is
      the notice under a song sung twice. A gold floater at the foot of the
      screen points to the words while they are out of sight below and goes
      once you are there; a double-tap (or double-click) anywhere on the
@@ -2396,8 +2401,8 @@ the anon key -- verify as `postgres`, not as the app.
     take was made for.** From the operator (2026-11-08): singers asked
     whether what a service does to a song overwrites the song in the Songs
     page. It does not: a service's key, words and chords and the version it
-    sings are its copy's own, and only Make this the song's main version
-    (gotcha 46) writes the song. What IS shared by every service: the choir
+    sings are its copy's own, and only Overwrite the Master Copy (once Make
+    this the song's main version, gotcha 46) writes the song. What IS shared by every service: the choir
     parts (`song_voice_lines`), the drawings on a version (Standard too) and
     the recordings. The sheet says exactly that, first.
     **Every take says which service it was made for.** `song_recordings.order_id`
@@ -2592,6 +2597,39 @@ the anon key -- verify as `postgres`, not as the app.
       that panel that puts something in front of the congregation and must
       not have a twin.
     `tools/lcd-rail-parts-harness.js` checks all of it.
+
+74. **The songbook's font is the reader's, and a chord sheet only takes a
+    fixed-width one.** From the operator (2026-11-09): a font toolbar in
+    place of Reset Layout (still in More), for the songbook and Book Mode.
+    It is a picker (`_sbmFontPickerHtml`, `sbmFont`) kept on THIS DEVICE
+    (`lhc_sbm_font`), never in the songbook or the order -- one singer's
+    choice must not change another's screen, as the part a singer follows
+    (gotcha 26). A chord sheet places its chords by character column
+    (gotcha 38), so the fonts are two kinds (`_SBM_FONTS`, `mono`): a
+    FIXED-WIDTH one (Roboto Mono, Courier Prime) changes everything --
+    the chord and lyric lines, the choir score's chord rows and a desk's
+    choir words, Book Mode's chord lines -- and any other (Atkinson,
+    Merriweather, Georgia, Lato, Poppins) changes only the words shown
+    without chords: the Lyrics view, a phone's choir words, Book Mode's
+    words. The styles read two variables set on `#songbookLiveModal` at
+    every render (`_sbmFontApply`, after the notepad's guard): `--sbm-words-
+    font` (any font chosen) and `--sbm-grid-font` (a fixed-width one only);
+    every chord grid rule is `font-family: var(--sbm-grid-font, <the
+    standard stack>)` -- the desk's, a phone held upright's late rule, the
+    inline chords, `--vl-mono` -- and Book Mode's styles are built with
+    `_sbmFontWords()` / `_sbmFontGrid()`. A phone held upright set even the
+    Lyrics view in the fixed-width grid; a chosen font for words now
+    reaches it (`.sbm-lyrics--nochords .wo-lyrics-lyric-line`), and with
+    none chosen it is as it was. Web fonts are fetched from Google Fonts
+    the first time they are chosen (`_sbmFontLoad`) and the view drawn again
+    once they are in. Anything new that draws a chord grid must read
+    `--sbm-grid-font` or `_sbmFontGrid()`. **The master copy:** Versions'
+    two saves are "Save this Version" and "Overwrite the Master Copy"; the
+    library's own song is "Master (From Song Library)"; overwriting it --
+    or putting an earlier one back -- first asks through `_sbVerMasterWarn`
+    (`lhcAskDelete` with a warning sign, the song and its key before and
+    after, Keep the master first; `okIcon` lets it carry a crown).
+    `tools/phone-bar-font-master-harness.js` checks all three.
 
 ## Quick Commands for Claude Code
 

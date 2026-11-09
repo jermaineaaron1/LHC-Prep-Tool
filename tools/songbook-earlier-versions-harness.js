@@ -333,13 +333,14 @@ function fakeSup(tables, log) {
   const render = fn('_sbVerRender');
   check('Versions and Earlier versions are one sheet', /function sbmArrangements\(\) \{ sbmVersions\(\); \}/.test(SRC) && !/function _sbArrRender\(/.test(SRC) &&
     /_sbVerRender\(song\);/.test(fn('sbEvBack')));
-  check('This service: what it sings now, a short line that changes stay here, and two big buttons -- Save as a version, Save as the main song',
+  // (2026-11-09: "Save this Version" or "Overwrite the Master Copy")
+  check('This service: what it sings now, a short line that changes stay here, and two big buttons -- Save this Version, Overwrite the Master Copy',
     /<div class="vr-now__h">This service<span class="vr-now__s">Changes here stay here unless you save them<\/span>/.test(render) &&
-    /onclick="WO\.sbVerSaveAsk\(\)"><i class="fa-solid fa-floppy-disk"><\/i>Save as a version<\/button>/.test(render) &&
-    /onclick="WO\.sbVerMakeMain\(\)"><i class="fa-solid fa-crown"><\/i>Save as the main song<\/button>/.test(render) && /Same as the main song/.test(render));
+    /onclick="WO\.sbVerSaveAsk\(\)"><i class="fa-solid fa-floppy-disk"><\/i>Save this Version<\/button>/.test(render) &&
+    /onclick="WO\.sbVerMakeMain\(\)"><i class="fa-solid fa-crown"><\/i>Overwrite the Master Copy<\/button>/.test(render) && /Same as the Master Copy/.test(render));
   check('...and, when it has changed since a version was chosen, Update it', /onclick="WO\.sbVerUpdate\(\)"><i class="fa-solid fa-rotate"><\/i>Update it<\/button>/.test(render));
-  check('Save as a version asks for a name once, then saves this service\'s way',
-    /window\.customPrompt\('Save as a version', 'A name the team will know it by', def\)/.test(fn('sbVerSaveAsk')) && /if \(name\) _sbVerSaveNamed\(song, name\)\.catch/.test(fn('sbVerSaveAsk')));
+  check('Save this Version asks for a name once, then saves this service\'s way',
+    /window\.customPrompt\('Save this Version', 'A name the team will know it by', def\)/.test(fn('sbVerSaveAsk')) && /if \(name\) _sbVerSaveNamed\(song, name\)\.catch/.test(fn('sbVerSaveAsk')));
   check('Past versions: one list, newest first; a row opens it read-only, one Use button sings it',
     /<span>Past versions<\/span><span class="ver-head__n">' \+ \(nP - 1\) \+ '<\/span><span class="vr-head__s">Newest first<\/span>/.test(render) &&
     /onclick="WO\.sbEvOpen\(' \+ i \+ '\)"/.test(render) && /class="sbm-btn sbm-btn--primary vr-row__use" onclick="event\.stopPropagation\(\);WO\.' \+ \(r\.kind === 'medley' \? 'sbEvUseMedley' : 'sbArrCopy'\) \+ '\(' \+ i \+ '\)">Use<\/button>/.test(render) &&
@@ -351,8 +352,8 @@ function fakeSup(tables, log) {
       { kind: 'copy', title: 'here' }, { kind: 'kept', title: 'Original', at: '2026-08-01' }, { kind: 'version', title: 'v-new', at: '2026-11-05' }]) : [];
     check('...in order: the main song, this service\'s other copies, then newest first', rows.map(r => r.title).join() === 'Main song,here,v-new,svc-new,v-old,Original', rows.map(r => r.title).join());
   }
-  check('...rename, delete and making it the main song again are in the read-only view, not the list',
-    /onclick="WO\.sbVerRenameAsk\(/.test(fn('_sbEvSongOpen')) && /onclick="WO\.sbVerDelete\(/.test(fn('_sbEvSongOpen')) && /Make it the main song again/.test(fn('_sbEvSongOpen')) &&
+  check('...rename, delete and making it the Master Copy again are in the read-only view, not the list',
+    /onclick="WO\.sbVerRenameAsk\(/.test(fn('_sbEvSongOpen')) && /onclick="WO\.sbVerDelete\(/.test(fn('_sbEvSongOpen')) && /Make it the Master Copy again/.test(fn('_sbEvSongOpen')) &&
     !/sbVerDelete|sbVerRename/.test(render) && /function sbVerRename\(vid\) \{ sbVerRenameAsk\(vid\); \}/.test(SRC));
   check('Medleys: Save this medley, and the medleys it was sung in, each to Use',
     /onclick="WO\.sbVerSaveMedley\(\)"><i class="fa-solid fa-floppy-disk"><\/i>Save this medley<\/button>/.test(render) && /_mdsKeep\(md\.medley\.songs\)\.then/.test(fn('sbVerSaveMedley')));

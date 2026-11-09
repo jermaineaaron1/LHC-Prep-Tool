@@ -165,7 +165,11 @@ withFont.forEach((r, i) => {
   const prop = PROPORTIONAL.test(fam);
   check('pair rule ' + (i + 1) + ' is monospace', mono && !prop,
     fam.trim().slice(0, 72) + (prop ? '  <-- contains a proportional family' : ''));
-  check('  and ends in a monospace fallback', /monospace\s*!?\s*important?\s*$/i.test(fam.trim()),
+  // A reader's fixed-width font comes in as var(--sbm-grid-font, <stack>)
+  // (2026-11-09): the stack still ends in monospace, inside the var(), and
+  // the variable is only ever set to a fixed-width face
+  // (phone-bar-font-master-harness checks every such font is one).
+  check('  and ends in a monospace fallback', /monospace\)?\s*!?\s*important?\s*$/i.test(fam.trim()),
     fam.trim().slice(-30));
 });
 

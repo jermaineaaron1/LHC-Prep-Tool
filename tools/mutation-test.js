@@ -1700,6 +1700,13 @@ const CASES = [
     s => s.replace("return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id);", "return o && o.id && !(currentOrderData && o.id === currentOrderData.id);")],
   ['builder-load-liturgy-harness.js', 'a past service brings its sermon slides along',
     s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
+  // The phone's bar, the songbook's font, the master copy (2026-11-09).
+  ['phone-bar-font-master-harness.js', 'the phone\'s bar loses its Save',
+    s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],
+  ['phone-bar-font-master-harness.js', 'a font for words moves the chords off their words',
+    s => s.replace("return f.mono ? f.fam : _SBM_GRID_STACK;", "return f.fam || _SBM_GRID_STACK;")],
+  ['phone-bar-font-master-harness.js', 'the master copy is overwritten whatever the answer',
+    s => s.replace("        'Every new service starts from the master. Services already planned keep their own copies, and the master as it is now is kept under Past versions, where it can be put back.' }).then(function(ok) {\r\n      if (!ok) return;\r\n", "        'Every new service starts from the master. Services already planned keep their own copies, and the master as it is now is kept under Past versions, where it can be put back.' }).then(function(ok) {\r\n")],
   // Save and Load as two buttons, Templates gone (2026-11-09): Load offers
   // past services too, and Add Item's New section keeps the template tools.
   ['builder-load-liturgy-harness.js', 'Load forgets the past services',
