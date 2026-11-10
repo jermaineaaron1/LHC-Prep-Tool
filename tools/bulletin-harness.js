@@ -65,7 +65,84 @@ if (EXPECT_BROKEN) {
 }
 const MODULE = SRC.slice(a, b).replace(/\r/g, '');
 
+// ── a DOM small enough to run the sanitiser against ────────────────────
+// minidom models elements and classes, but not text nodes, sibling walks
+// or innerHTML parsing -- and the sanitiser is nothing but those. Rather
+// than assert on its source, which would prove only that it was spelled
+// the same way, this parses real HTML into real nodes and runs it.
+const VOID = new Set(['BR', 'IMG', 'META', 'LINK', 'HR', 'INPUT', 'SOURCE']);
+const ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: ' ' };
+
+function decode(s) {
+  return String(s).replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, b) => {
+    if (b[0] === '#') return String.fromCharCode(parseInt(b[1] === 'x' || b[1] === 'X' ? b.slice(2) : b.slice(1), b[1] === 'x' || b[1] === 'X' ? 16 : 10));
+    return ENT[b.toLowerCase()] !== undefined ? ENT[b.toLowerCase()] : m;
+  });
+}
+function relink(el) {
+  el.firstChild = el.childNodes[0] || null;
+  el.childNodes.forEach((c, i) => { c.nextSibling = el.childNodes[i + 1] || null; });
+}
+function mkText(v) {
+  return { nodeType: 3, nodeValue: v, parentNode: null, nextSibling: null, childNodes: [] };
+}
+function mkEl(tag) {
+  const el = { nodeType: 1, tagName: String(tag).toUpperCase(), childNodes: [], style: {},
+               parentNode: null, firstChild: null, nextSibling: null };
+  el.appendChild = c => { c.parentNode = el; el.childNodes.push(c); relink(el); return c; };
+  el.removeChild = c => {
+    const i = el.childNodes.indexOf(c);
+    if (i >= 0) { el.childNodes.splice(i, 1); c.parentNode = null; relink(el); }
+    return c;
+  };
+  el.querySelectorAll = sel => {
+    const want = new Set(sel.split(',').map(s => s.trim().toUpperCase()));
+    const out = [];
+    (function walk(n) {
+      n.childNodes.forEach(c => { if (c.nodeType === 1) { if (want.has(c.tagName)) out.push(c); walk(c); } });
+    })(el);
+    return out;
+  };
+  Object.defineProperty(el, 'innerHTML', {
+    get: () => '',
+    set(v) { el.childNodes = []; parseInto(el, String(v == null ? '' : v)); relink(el); }
+  });
+  return el;
+}
+function parseInto(root, html) {
+  const stack = [root];
+  const re = /<\/?([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)\/?>/g;
+  let at = 0, m;
+  const push = n => { const p = stack[stack.length - 1]; p.childNodes.push(n); n.parentNode = p; relink(p); };
+  while ((m = re.exec(html))) {
+    if (m.index > at) push(mkText(decode(html.slice(at, m.index))));
+    at = m.index + m[0].length;
+    const tag = m[1].toUpperCase();
+    if (m[0][1] === '/') {
+      for (let i = stack.length - 1; i > 0; i--) {
+        if (stack[i].tagName === tag) { stack.length = i; break; }
+      }
+      continue;
+    }
+    const el = mkEl(tag);
+    const sm = /style\s*=\s*"([^"]*)"|style\s*=\s*'([^']*)'/i.exec(m[2] || '');
+    if (sm) {
+      decode(sm[1] || sm[2] || '').split(';').forEach(decl => {
+        const i = decl.indexOf(':');
+        if (i < 0) return;
+        const k = decl.slice(0, i).trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+        if (k) el.style[k] = decl.slice(i + 1).trim();
+      });
+    }
+    push(el);
+    if (!VOID.has(tag) && !/\/\s*>$/.test(m[0])) stack.push(el);
+  }
+  if (at < html.length) push(mkText(decode(html.slice(at))));
+  return root.childNodes;
+}
+
 const doc = makeDocument();
+doc.createElement = mkEl;
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -220,7 +297,7 @@ check('each list grows',
    d.giving.entries.length, d.contacts.length],
   [before[0] + 2, before[1] + 1, before[2] + 1, before[3] + 1, before[4] + 1]);
 check('a new giving purpose is empty, not a copy of the last',
-  d.giving.entries[d.giving.entries.length - 1], { purpose: '', name: '', bank: '', number: '' });
+  d.giving.entries[d.giving.entries.length - 1], { purpose: '', name: '', bank: '', number: '', qr: '' });
 BLT.removeItem('giving', d.giving.entries.length - 1);
 check('  and can be taken away again', d.giving.entries.length, before[3]);
 d.notices[0].lead = 'Keep me';
@@ -245,7 +322,7 @@ const firstWeek = BLT._sane({ giving: { title: 'Online giving',
   lines: ['Luther House Chapel', 'RHB 2120 6800 0442 29'] } });
 check('the first week\'s two loose giving lines are carried over',
   firstWeek.giving.entries,
-  [{ purpose: '', name: 'Luther House Chapel', bank: '', number: 'RHB 2120 6800 0442 29' }]);
+  [{ purpose: '', name: 'Luther House Chapel', bank: '', number: 'RHB 2120 6800 0442 29', qr: '' }]);
 check('a bulletin already on the new shape is left alone',
   BLT._sane({ giving: { entries: [{ purpose: 'Building fund', name: 'LHC', bank: 'RHB', number: '1' }] } })
     .giving.entries[0].purpose, 'Building fund');
@@ -355,7 +432,7 @@ check('the stage scrolls once the page is wider than it',
 // Centred overflow runs off BOTH sides, so the left of a zoomed page
 // could never be scrolled to. Auto margins centre and still scroll.
 check('  and is centred by margin, never justify-content',
-  /\.blt-stage__inner \{ position: relative; margin: 0 auto; \}/.test(SRC), true);
+  /\.blt-stage__box \{ margin: 0 auto; \}/.test(SRC), true);
 check('fitting the window is the state it opens in', /var _zoom = null;/.test(SRC), true);
 check('the percentage goes back to fitting', /onclick="BLT\.zoomFit\(\)"/.test(SRC), true);
 // Zoom is a view setting; it must never reach the captured page, which
@@ -376,9 +453,94 @@ check('  and sits in a column of its own, words beside it',
   /\.blt-notices li \{ counter-increment: blt-n; display: flex;/.test(SRC) &&
   /\.blt-notices__t \{ flex: 1 1 auto; min-width: 0; \}/.test(SRC), true);
 check('the words are wrapped so the number cannot collide with them',
-  /<li><span class="blt-notices__t"><b>/.test(MODULE), true);
+  /<li><div class="blt-notices__t">/.test(MODULE), true);
 
 // ── 10. the second column, and the table behind it ─────────────────────
+console.log('\nthe page sits in the middle');
+// `margin: 0 auto` was cancelled by a negative marginRight that _fit set
+// to give the scaled sheet the right footprint: an auto LEFT margin
+// against a fixed RIGHT one pushes a box right, and the bulletin sat off
+// centre at every zoom. The footprint belongs to a wrapper now.
+check('the footprint is the wrapper\'s, the scaling the inner\'s',
+  /box\.style\.width = Math\.round\(A4_W \* scale\)/.test(MODULE), true);
+check('  so nothing sets a margin that cancels the centring',
+  /stage\.style\.margin(Right|Bottom)/.test(MODULE), false);
+
+console.log('\nformatting the words, and what survives a save');
+const rich = BLT._richClean.bind(BLT);
+check('bold, italic and underline are kept',
+  rich('<b>a</b><i>b</i><u>c</u>'), '<b>a</b><i>b</i><u>c</u>');
+check('a colour or a face is kept',
+  rich('<span style="color: rgb(1, 2, 3); font-family: Cinzel;">x</span>'),
+  '<span style="color:rgb(1, 2, 3);font-family:Cinzel;">x</span>');
+// Everything else a browser or a paste leaves behind keeps its WORDS and
+// loses its markup -- the words are what somebody typed.
+check('a pasted table keeps its words and loses itself',
+  rich('<table><tr><td>Gotong Royong</td></tr></table>'), 'Gotong Royong');
+check('a font tag is unwrapped', rich('<font color="red">x</font>'), 'x');
+check('a script cannot reach the bulletin', rich('<script>alert(1)</script>hi'), 'hi');
+check('  nor an image, nor an event handler',
+  rich('<img src=x onerror="alert(1)"><b onclick="alert(1)">y</b>'), '<b>y</b>');
+check('a stray background or size is dropped, the words stay',
+  rich('<span style="background:#000;font-size:90px">big</span>'), 'big');
+check('angle brackets somebody typed stay text',
+  rich('a &lt; b'), 'a &lt; b');
+check('line breaks survive', rich('one<br>two'), 'one<br>two');
+check('a div becomes a break, not a block',
+  rich('one<div>two</div>'), 'one<br>two');
+// A paste must never carry the site it came from, even into a rich field.
+check('a paste is still inserted as plain text',
+  /document\.execCommand\('insertText', false, t\);/.test(MODULE), true);
+
+console.log('\nundo and redo');
+// Rendering replaces the sheet's HTML and takes the browser's own undo
+// stack with it, so the bulletin keeps its own.
+check('there are two stacks', /var _undo = \[\], _redo = \[\]/.test(MODULE), true);
+check('a run of typing is one step, not one per key',
+  /now - _typeAt > 1400/.test(MODULE), true);
+check('  and the snapshot is taken BEFORE the keystroke is written',
+  /_noteTyping\(\);\s*\n\s*_setPath\(_cur\.data, el\.dataset\.p/.test(MODULE), true);
+check('adding and removing an item are each one step',
+  (MODULE.match(/_flushTyping\(\); _pushUndo\(\);/g) || []).length >= 2, true);
+check('the history does not grow without bound', /UNDO_MAX = 60/.test(MODULE), true);
+check('opening another bulletin starts a fresh history',
+  /_undo\.length = 0; _redo\.length = 0; _typeSnap = null;/.test(MODULE), true);
+check('Ctrl+Z and Ctrl+Shift+Z are wired',
+  /if \(e\.shiftKey\) redo\(\); else undo\(\);/.test(MODULE), true);
+// What comes back off the stack goes through the same reader as a stored
+// row, so an undo can never put a shape on the page that a load could not.
+check('an undone state is read back through _sane',
+  /_cur\.data = _sane\(JSON\.parse\(_undo\.pop\(\)\)\);/.test(MODULE), true);
+// execCommand fires an input event of its own. Reaching the typing
+// handler, it opened a TYPING undo step on top of the formatting one, so
+// undoing a single Bold took two presses. Found by pressing it.
+check('one formatting change is one undo step',
+  /if \(_applying\) return;/.test(MODULE) && /_applying = true;/.test(MODULE), true);
+check('  and the flag is always put down again',
+  /\} finally \{ _applying = false; \}/.test(MODULE), true);
+check('backspace on an emptied announcement removes it',
+  /removeItem\('notice', parseInt\(m\[1\], 10\)\);/.test(MODULE), true);
+
+console.log('\nthe account, and the QR code');
+check('the name is bold, on its own line',
+  /\.blt-give__name \{ font-family: 'Poppins', sans-serif; font-weight: 700;/.test(SRC), true);
+check('the bank is a line of its own', /class="blt-give__bank"/.test(MODULE), true);
+check('and the number is labelled', /A\/C No :/.test(MODULE), true);
+check('the chapel\'s account is what a new bulletin starts with',
+  [BLT._blank().giving.entries[0].name, BLT._blank().giving.entries[0].bank,
+   BLT._blank().giving.entries[0].number],
+  ['Luther House Chapel', 'RHB Bank', '2120-68000-44-22-9']);
+// A QR travels in the row so it reaches the PDF without a second trip to
+// storage -- which is only safe if it is an image and a small one.
+check('a QR is kept with its entry', 'qr' in BLT._blank().giving.entries[0], true);
+check('only an image data URL is read back',
+  [BLT._sane({ giving: { entries: [{ qr: 'javascript:alert(1)' }] } }).giving.entries[0].qr,
+   BLT._sane({ giving: { entries: [{ qr: 'https://example.com/x.png' }] } }).giving.entries[0].qr,
+   BLT._sane({ giving: { entries: [{ qr: 'data:image/png;base64,AAA' }] } }).giving.entries[0].qr],
+  ['', '', 'data:image/png;base64,AAA']);
+check('a picture too big for a bulletin is refused', /QR_MAX = 350 \* 1024/.test(MODULE), true);
+check('the empty slot does not print', /\.blt-capturing \.blt-qr--empty/.test(SRC), true);
+
 console.log('\nthe second column, and the table behind it');
 // Opening the bulletin on the last Sunday of a month still needs a NEXT
 // Sunday for the right-hand column, so it looks three months out.

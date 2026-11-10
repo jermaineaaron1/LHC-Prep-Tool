@@ -58,7 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
-| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -2767,6 +2767,42 @@ the anon key -- verify as `postgres`, not as the app.
     serving a writable page. It also falls back to `public/`, since Vercel
     serves that at the root. `LHC_ALLOW_WRITES=1` turns all of it off --
     only for work that really is meant to write to production.
+
+79. **The bulletin's prose fields hold sanitised HTML; everything else
+    holds words.** The theme verse, the prayer and both halves of an
+    announcement are `contenteditable="true"` with `data-rich="1"`, read
+    by `_richOf` and drawn through `_richClean`. Only `b/strong/i/em/u/s`,
+    `<br>` and a `<span>` carrying colour, family, weight, style or
+    decoration survive; everything else keeps its WORDS and loses its
+    markup, so a pasted table becomes its text and a `<script>` becomes
+    nothing. Stored HTML is walked again before it is drawn, so a row
+    written by anything but this page still cannot put markup on a
+    bulletin. Every other field stays plain and is read by `_textOf`, and
+    a PASTE is inserted as plain text even into a rich field: formatting
+    is applied here, never inherited from whatever site the words came
+    off. `tools/bulletin-harness.js` parses real HTML into real nodes to
+    run the sanitiser rather than matching its source -- minidom has no
+    text nodes or sibling walks, and a sanitiser asserted on by regex is
+    a sanitiser nobody has tested.
+
+    **Undo is the bulletin's own**, because `render()` replaces the
+    sheet's HTML and takes the browser's stack with it: whole snapshots
+    of the stored data, 60 deep, read back through `_sane` so an undo can
+    never put a shape on the page that a load could not. A RUN of typing
+    is one step (1.4s apart starts a new one), and the snapshot is taken
+    BEFORE the keystroke is written. `execCommand` fires an `input` event
+    of its own, which reached the typing handler and opened a second,
+    typing-shaped step on top of the formatting one -- so undoing a
+    single Bold took two presses. `_applying` stands the handler down
+    while a command runs; `_applyCmd` writes the field itself the moment
+    it returns.
+
+    **The page is centred by a wrapper.** `.blt-stage__box` carries the
+    scaled footprint and `margin: 0 auto`; `.blt-stage__inner` carries
+    the transform. Doing both on one element meant `_fit` setting a
+    negative `marginRight` to size it, which cancelled the centring --
+    an auto LEFT margin against a fixed RIGHT one pushes a box right,
+    and the bulletin sat off-centre at every zoom.
 
 ## Quick Commands for Claude Code
 
