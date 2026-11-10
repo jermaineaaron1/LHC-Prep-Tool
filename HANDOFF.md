@@ -1,8 +1,127 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-11-09 by Claude Code_
+_Last updated: 2026-11-10 by Claude Code_
 
 ---
+
+## 2026-11-10 — Projected words wrap instead of shrinking (branch `fix/projection-text-wrap`)
+
+The operator sent a screenshot of the full-screen presenter view: make the
+projection read like that, and "if the words can't fit in the same line, then
+push it to the line below automatically, don't shrink the fonts just to fit
+the line".
+
+### How bad it actually was
+
+Measured in the real projection document at a true 1920x1080, the same two
+slides of the Collect, with the default 5vw:
+
+| slide | before | after |
+|---|---|---|
+| "L: Almighty God, to whom all hearts are open, ..." | **38.4px** | 96px, wrapped to 3 lines |
+| "C: Amen." | 96px | 96px |
+
+Two consecutive slides of one prayer, two and a half times apart, because the
+fit loop shrank the whole slide whenever ANY line was too wide. That is the
+complaint, and it is now a before/after the harness reproduces.
+
+### What was asked, and what was asked back
+
+The presenter view is a fixed 44.8px (2.8rem), so "+2px" is ~47px; the
+projector is set in screen-widths (5vw = ~96px on a 1080p projector). Taking
+"+2px" literally would have roughly HALVED the words on the wall — about 5cm
+letters where the rule of thumb for the back of a room wants more like 7.5cm.
+Asked with those numbers, the operator chose **keep the size on the wall, fix
+the shrinking**. So the base is still 5vw and still theirs to set from the
+Text settings slider; only the line spacing was matched to the presenter view
+(1.5 -> 1.6).
+
+### The regression the measurement caught
+
+Removing the width test is not enough on its own, and the gap is silent.
+
+`.projection-text` is a flex item in a centred flex container. Without a width
+cap it sizes to MAX-CONTENT, so `overflow-wrap: break-word` never gets a line
+box to break against. With the shrink gone and before `max-width: 100%` went
+in, a 75-character word with no space came out **3374px wide in a 1728px safe
+zone** — 823px clipped off the left, the rest off the right, the word simply
+gone from the wall. The old shrink-to-fit had been hiding it.
+
+This is the argument for driving the real projection document rather than
+reading the diff: the harness as first drafted would have passed.
+
+### What was deliberately left alone
+
+- **The height test stays.** `.projection-content` is `overflow: hidden` and a
+  wall has nothing to scroll, so a slide taller than the screen would lose its
+  last lines in front of everybody. Verified: nine lines still shrink to
+  65.3px and fit; three normal slides stay at 96px.
+- **The small Program / Live preview.** It has no fit function (it already
+  wraps) and `.wo-preview-inner` is tuned per phone width with a long comment
+  explaining why. Not this change's business.
+- **The projector's heavier text-shadow**, which is for legibility over a lit
+  background rather than a style choice to be matched.
+
+### How this was verified
+
+The projection window is `window.open('')` plus `document.write`, so there was
+no page to point a browser at. `window.open` was stubbed to capture the written
+HTML, the real document was then rendered into an iframe at a true 1920x1080,
+and `handleProjectionData` was called on it — the projector's own code path,
+at the projector's own size. The before/after above was produced by swapping
+only the fit function inside that iframe, so the content and the viewport were
+identical on both sides.
+
+The presenter overlay was checked in the live app: the same Collect line
+renders at the full 44.8px over two lines, with `max-width` at the barrier's
+1369px.
+
+### Then: 125px, and nothing of the app's own on the wall
+
+Two more asks on the same branch, from an annotated copy of the presenter-view
+screenshot above: "please increase it to 125px", and "please do not show those
+parts when projecting live" — circled on the app header, the prev/next arrows
+and the filmstrip.
+
+**125px is 6.5vw**, which is 124.8px on a 1080p projector and one exact stop of
+the dialog's existing 2—10vw slider. Said in vw, not px, because the choice
+the day before was to keep the projected words scaling with the screen; 6.5vw
+is both answers at once. Measured in the real projection document at
+1920x1080: 124.8px on a short line, a typical two-line slide, the long Collect
+(four lines) and an unbreakable word (three lines), every one inside the safe
+zone; seven lines still shrinks to 86.4px rather than losing any.
+
+It is the DEFAULT only — the dialog saves per device under `TEXT_SETTINGS_KEY`.
+A machine that has already stored a size keeps it until the slider moves or
+Reset is pressed. Worth saying to the operator rather than letting them find
+it.
+
+**The chrome.** Asked which window reaches the projector, the operator said
+the Project button's own — which carries none of it, so nothing they circled
+is on their wall today. But `goFullscreen` falls back to the presenter overlay
+when that window cannot be opened (no extension, popups blocked), and then the
+operator's working view IS the output. That is the hole, and the screenshot is
+what it looks like. So in true browser fullscreen the arrows, the filmstrip,
+its hover strip, the close button and the mouse pointer all go; windowed, it
+behaves exactly as before. Esc still exits either way.
+
+`display: none !important` is required rather than tidy: `.wofs-filmstrip` sets
+`display: flex` of its own and the arrows have hover rules.
+
+**What could not be verified here, and how it was covered instead.** The
+Fullscreen API refuses a synthetic gesture ("TypeError: not granted"), so true
+element fullscreen is out of reach from the automation. `:fullscreen` matching
+is a browser primitive; what could actually fail is the cascade. So the rule's
+own declarations were cloned onto a plain class and applied to the live
+overlay: arrows, filmstrip, trigger and close button all went to
+`display: none` over their own rules, and the cursor to `none`.
+
+Green: `python tools/check-inline-scripts.py --check Index.html`, `npm run
+check` (466 mutation cases, 0 missed, 0 stale — 11 new), and the harness
+against the previous master with `--expect-broken` (8 passed, 21 failed).
+
+---
+
 
 ## 2026-11-09 — LCD rail: the title rows in black, and All Slides on the console (branch `feat/lcd-rail-ui`)
 

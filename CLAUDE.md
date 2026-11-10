@@ -58,7 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
-| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, giving, attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 75-76 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, giving, attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -2653,7 +2653,73 @@ the anon key -- verify as `postgres`, not as the app.
     after, Keep the master first; `okIcon` lets it carry a crown).
     `tools/phone-bar-font-master-harness.js` checks all three.
 
-75. **The bulletin stores no duties, and that is the whole design.**
+75. **Projected words WRAP; they never shrink to fit a line.** From the
+    operator (2026-11-10), on a screenshot of the full-screen presenter view:
+    the projection should read like that view, and "if the words can't fit in
+    the same line, then push it to the line below automatically, don't shrink
+    the fonts just to fit the line". It was not subtle. Measured in the real
+    projection document at a true 1920x1080, with the default 5vw:
+    "L: Almighty God, to whom all hearts are open, ..." came out at **38.4px**
+    and "C: Amen." at **96px** — two slides of the same prayer, two and a
+    half times apart, because `_fitProjectionText` shrank the whole slide
+    whenever ANY line was too wide.
+    - The fit loop now tests the HEIGHT alone. That test STAYS:
+      `.projection-content` is `overflow: hidden` and a wall has nothing to
+      scroll, so a slide with more lines than the screen holds would otherwise
+      lose its last lines in front of everybody. Slides are broken by hand and
+      rarely reach it, so the size is steady across a service.
+    - **`.projection-text` needs `max-width: 100%`, and that is the piece that
+      is silent when it is lost.** It is a flex item in a centred flex
+      container, so without a cap it sizes to MAX-CONTENT and `overflow-wrap`
+      never gets a line box to break against. Measured, with the shrink
+      removed and before the cap went in: a 75-character word with no space
+      came out 3374px wide in a 1728px safe zone, 823px clipped off the left
+      and the rest off the right — the word simply gone from the wall. The
+      old shrink-to-fit had been hiding that.
+    - The presenter overlay follows the same rule (`_fitFullscreenText`),
+      because it is the view the operator reads from and the two must not
+      disagree on exactly the long line that prompted this. Its safe-zone
+      width goes to the element as a `max-width`, which also keeps the words
+      inside the barrier: `.wofs-inner`'s own max-width is 90% of the overlay,
+      a different boundary. With the default 5% barriers the two coincide, so
+      that part is a no-op until somebody sets an uneven safe zone.
+    - The base size is unchanged and still the operator's: `5vw`, the Text
+      settings slider (2—10vw), scaling with whatever projector is plugged
+      in. Asked directly, the operator chose to keep the size on the wall and
+      fix only the shrinking — matching the presenter view's fixed 44.8px
+      would have roughly halved the words on a 1080p projector. Only the line
+      spacing was matched to it (1.5 -> 1.6). The projector keeps its heavier
+      text-shadow, which is for legibility over a lit background.
+    - The small Program / Live preview is NOT in this: it has no fit function
+      (it already wraps) and its sizing is tuned per phone width. Leave it.
+    - **The projected size is 6.5vw** (2026-11-10, "please increase it to
+      125px"): 124.8px on a 1080p projector, and one exact stop of the
+      dialog's 2—10vw slider. Said in vw rather than px because the operator
+      chose the day before to keep the projected words scaling with the
+      screen, so a bigger projector gives bigger letters rather than the same
+      ones further off; 6.5vw is both answers at once. It is the DEFAULT only:
+      the dialog saves per device under `TEXT_SETTINGS_KEY`, so a machine that
+      has already stored a size keeps it until the slider moves or Reset is
+      pressed. At 125px a four-line slide is the most that fits a 1080p safe
+      zone at full size; more than that still shrinks on height.
+    - **Nothing of the app's own goes on a screen the room can see.** The
+      operator projects through the Project button's own window, which carries
+      no chrome — but `goFullscreen` falls back to the presenter OVERLAY
+      whenever that window cannot be opened (no extension, popups blocked),
+      and then the operator's working view IS the output, with the app header
+      over the words and the filmstrip under them. So in true browser
+      fullscreen — the one state this view is put into to BE a display — the
+      nav arrows, the filmstrip, its hover strip, the close button and the
+      mouse pointer all go. Windowed it is unchanged, chrome on hover as
+      before. `display: none !important` is needed, not laziness:
+      `.wofs-filmstrip` sets `display: flex` of its own. Esc still exits, so
+      hiding the close button strands nobody. Both the standard and
+      `-webkit-full-screen` forms are written, per gotcha 71.
+    `tools/projection-text-wrap-harness.js` checks it, and lifts the
+    projector's fit loop out of the HTML string it is written into so the loop
+    itself is run, not just matched.
+
+76. **The bulletin stores no duties, and that is the whole design.**
     `bulletins.data` holds only what somebody types. Both Sundays' duties
     and the four readings come out of `roster` on every open, through the
     same role ids the roster itself defines -- a bulletin keeping its own
@@ -2665,7 +2731,7 @@ the anon key -- verify as `postgres`, not as the app.
     every role id the bulletin names against the roster's own list, which
     is the check that catches a renamed role before it prints blank.
 
-76. **The liturgical cell is JSON, as a STRING.** `roster` keeps
+77. **The liturgical cell is JSON, as a STRING.** `roster` keeps
     `liturgical` as `{"day":"25th Sunday after Pentecost","color":"Green"}`
     -- text, not an object -- so unwrapping `v.day` alone leaves the braces
     on the page, which is exactly what the bulletin's masthead printed the
@@ -2679,7 +2745,7 @@ the anon key -- verify as `postgres`, not as the app.
     `.blt-sheet` -- html-to-image captures the node at its own size, so a
     transform on the sheet is baked into the PDF.
 
-77. **`.claude/preview-server.js` serves the app READ-ONLY, and fails
+78. **`.claude/preview-server.js` serves the app READ-ONLY, and fails
     closed.** The Supabase URL and anon key are in the page, so a local
     run talks to production (a "throwaway" order once created a real row
     and six storage files). The server now forces the Phone-view write
