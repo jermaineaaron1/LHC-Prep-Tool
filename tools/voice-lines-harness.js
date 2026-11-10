@@ -585,8 +585,9 @@ const realHtml = V.html(L);
 check('11 silent moments are shown as blanks',
   (realHtml.match(/vl-blank/g) || []).length, 11);
 check('13 lines are labelled ALL', (realHtml.match(/>All</g) || []).length, 13);
-check('no banner and no cue class remain',
-  /vl-together|vl-sys--together/.test(realHtml), false);
+// The banner stays gone. A moment where both parts have words is marked
+// vl-sys--together, which the reading view draws as a bar, not as words.
+check('no banner remains', /class="vl-together/.test(realHtml), false);
 // Across all 46 rows of a real arrangement, not one indent.
 check('and not one line is indented', /vl-lead/.test(realHtml), false);
 check('every lane in it is one of the two canonical ones',

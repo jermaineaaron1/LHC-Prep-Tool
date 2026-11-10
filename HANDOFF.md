@@ -1,6 +1,472 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-10-08 by Claude Code_
+_Last updated: 2026-11-10 by Claude Code_
+
+---
+
+## 2026-11-10 — Projected words wrap instead of shrinking (branch `fix/projection-text-wrap`)
+
+The operator sent a screenshot of the full-screen presenter view: make the
+projection read like that, and "if the words can't fit in the same line, then
+push it to the line below automatically, don't shrink the fonts just to fit
+the line".
+
+### How bad it actually was
+
+Measured in the real projection document at a true 1920x1080, the same two
+slides of the Collect, with the default 5vw:
+
+| slide | before | after |
+|---|---|---|
+| "L: Almighty God, to whom all hearts are open, ..." | **38.4px** | 96px, wrapped to 3 lines |
+| "C: Amen." | 96px | 96px |
+
+Two consecutive slides of one prayer, two and a half times apart, because the
+fit loop shrank the whole slide whenever ANY line was too wide. That is the
+complaint, and it is now a before/after the harness reproduces.
+
+### What was asked, and what was asked back
+
+The presenter view is a fixed 44.8px (2.8rem), so "+2px" is ~47px; the
+projector is set in screen-widths (5vw = ~96px on a 1080p projector). Taking
+"+2px" literally would have roughly HALVED the words on the wall — about 5cm
+letters where the rule of thumb for the back of a room wants more like 7.5cm.
+Asked with those numbers, the operator chose **keep the size on the wall, fix
+the shrinking**. So the base is still 5vw and still theirs to set from the
+Text settings slider; only the line spacing was matched to the presenter view
+(1.5 -> 1.6).
+
+### The regression the measurement caught
+
+Removing the width test is not enough on its own, and the gap is silent.
+
+`.projection-text` is a flex item in a centred flex container. Without a width
+cap it sizes to MAX-CONTENT, so `overflow-wrap: break-word` never gets a line
+box to break against. With the shrink gone and before `max-width: 100%` went
+in, a 75-character word with no space came out **3374px wide in a 1728px safe
+zone** — 823px clipped off the left, the rest off the right, the word simply
+gone from the wall. The old shrink-to-fit had been hiding it.
+
+This is the argument for driving the real projection document rather than
+reading the diff: the harness as first drafted would have passed.
+
+### What was deliberately left alone
+
+- **The height test stays.** `.projection-content` is `overflow: hidden` and a
+  wall has nothing to scroll, so a slide taller than the screen would lose its
+  last lines in front of everybody. Verified: nine lines still shrink to
+  65.3px and fit; three normal slides stay at 96px.
+- **The small Program / Live preview.** It has no fit function (it already
+  wraps) and `.wo-preview-inner` is tuned per phone width with a long comment
+  explaining why. Not this change's business.
+- **The projector's heavier text-shadow**, which is for legibility over a lit
+  background rather than a style choice to be matched.
+
+### How this was verified
+
+The projection window is `window.open('')` plus `document.write`, so there was
+no page to point a browser at. `window.open` was stubbed to capture the written
+HTML, the real document was then rendered into an iframe at a true 1920x1080,
+and `handleProjectionData` was called on it — the projector's own code path,
+at the projector's own size. The before/after above was produced by swapping
+only the fit function inside that iframe, so the content and the viewport were
+identical on both sides.
+
+The presenter overlay was checked in the live app: the same Collect line
+renders at the full 44.8px over two lines, with `max-width` at the barrier's
+1369px.
+
+### Then: 125px, and nothing of the app's own on the wall
+
+Two more asks on the same branch, from an annotated copy of the presenter-view
+screenshot above: "please increase it to 125px", and "please do not show those
+parts when projecting live" — circled on the app header, the prev/next arrows
+and the filmstrip.
+
+**125px is 6.5vw**, which is 124.8px on a 1080p projector and one exact stop of
+the dialog's existing 2—10vw slider. Said in vw, not px, because the choice
+the day before was to keep the projected words scaling with the screen; 6.5vw
+is both answers at once. Measured in the real projection document at
+1920x1080: 124.8px on a short line, a typical two-line slide, the long Collect
+(four lines) and an unbreakable word (three lines), every one inside the safe
+zone; seven lines still shrinks to 86.4px rather than losing any.
+
+It is the DEFAULT only — the dialog saves per device under `TEXT_SETTINGS_KEY`.
+A machine that has already stored a size keeps it until the slider moves or
+Reset is pressed. Worth saying to the operator rather than letting them find
+it.
+
+**The chrome.** Asked which window reaches the projector, the operator said
+the Project button's own — which carries none of it, so nothing they circled
+is on their wall today. But `goFullscreen` falls back to the presenter overlay
+when that window cannot be opened (no extension, popups blocked), and then the
+operator's working view IS the output. That is the hole, and the screenshot is
+what it looks like. So in true browser fullscreen the arrows, the filmstrip,
+its hover strip, the close button and the mouse pointer all go; windowed, it
+behaves exactly as before. Esc still exits either way.
+
+`display: none !important` is required rather than tidy: `.wofs-filmstrip` sets
+`display: flex` of its own and the arrows have hover rules.
+
+**What could not be verified here, and how it was covered instead.** The
+Fullscreen API refuses a synthetic gesture ("TypeError: not granted"), so true
+element fullscreen is out of reach from the automation. `:fullscreen` matching
+is a browser primitive; what could actually fail is the cascade. So the rule's
+own declarations were cloned onto a plain class and applied to the live
+overlay: arrows, filmstrip, trigger and close button all went to
+`display: none` over their own rules, and the cursor to `none`.
+
+Green: `python tools/check-inline-scripts.py --check Index.html`, `npm run
+check` (466 mutation cases, 0 missed, 0 stale — 11 new), and the harness
+against the previous master with `--expect-broken` (8 passed, 21 failed).
+
+---
+
+
+## 2026-11-09 — LCD rail: the title rows in black, and All Slides on the console (branch `feat/lcd-rail-ui`)
+
+Two changes marked on screenshots, a day after the rail was chunked by part.
+
+### The rows that carry a title are black
+
+The section band and the song / liturgy / reading / presentation inside it.
+The eye lands on the shape of the service first and the slides are the quiet
+thing between the bands. Contrast measured on the live page: 18.1:1 on the
+section band, 14.9:1 on the item band, 9.2:1 for the gold count badge — all
+past AAA.
+
+**The VERSE / CHORUS badges are deliberately not in it.** The circles on the
+screenshot covered a part badge in one place and clearly excluded one in
+another, and the two readings lead to different work — black everywhere would
+have undone the colour-coding shipped the day before — so the operator was
+asked and chose "section + item names". Worth repeating the rule: ask when the
+readings diverge, decide when they do not.
+
+All of it is scoped by `#lcdCompactRail`, an id. Every one of those selectors
+is also set by a class-only rule elsewhere in the sheet (the navy base pass,
+the ivory correction pass, the phone pass), so anything class-only here would
+be decided by source order.
+
+A presentation heading row could not be seen on any order to hand, so its
+styling was proved by building the exact markup `_lcdBuildPptGroupRow` emits,
+attaching it to the live rail, reading the computed style back and removing it
+— DOM only, nothing written.
+
+### All Slides, and where it could NOT go
+
+Asked for "here too" with an arrow at the console's controls row. It is not
+there, and the measurement is why:
+
+| | controls row at 1536 |
+|---|---|
+| room | 517px |
+| already spent | 490px (six controls + five gaps) |
+| a seventh labelled button | 602px needed — wraps |
+| cost of wrapping | row 44px -> 88px, projection 291px -> 247px |
+
+Even an icon-only button needs 526px. That row is full. And the 44px comes
+straight out of the panel the same operator asked to be the main view two
+changes earlier, so paying it to add a convenience door is the wrong trade.
+
+It sits under the projection instead, beside "+ Add Slide": the same
+neighbourhood the arrow pointed at, the same kind of action, and that row has
+355px of width for 322px of buttons at the operator's 1158px — one line at
+both widths, no height added anywhere. Same `lcdOpenSectionAllSlides` handler
+as the Slide Editor's button and the section menu's item: one way in, three
+doors to it.
+
+**Blue, as asked, but `#1d4ed8` and flat — not Project's `#0066ff` gradient
+with its gold glow.** Project is the one control on that panel that puts
+something in front of the congregation; it should not have a twin, and a tool
+should read quieter than a live action anyway.
+
+### A note on verifying against live data
+
+Partway through, the orders list showed "Service - Nov 8 — edited 4 min ago",
+which wanted explaining before anything else continued. It was not this
+session: a write aimed from the page at an id that cannot exist came back
+"REFUSED: The phone view only reads", and the row's `last_edited` was
+identical before and after (`16:07:31.308`, unchanged). The operator had that
+very order open in the live app to take the screenshots.
+
+Two things follow. Reading the guard's source is not proof — aim a harmless
+write at a row that cannot exist and read the timestamp back. And the live
+data moves while these checks run, so a timestamp that surprises you is worth
+a minute, not a shrug.
+
+---
+
+
+## 2026-11-08 — LCD rail: the slides are chunked by part, and any slide can be given a heading (branch `feat/lcd-rail-parts`)
+
+From the operator, on a marked-up screenshot of the rail: the eighteen slides
+of one song were a flat run of rows with the song's title on every one and the
+first line of lyric underneath, with nothing to say where Verse 1 ended and
+the Chorus began. They had written "Verse 1" and "Chorus" on it by hand, boxed
+the rows each covered, and asked for three things — chunks rather than one
+list, coloured badges for a song's parts, and headings they could add
+themselves to liturgy, which has no markers of its own.
+
+### What the rail does now
+
+A heading row per song and per liturgy item (scripture and presentations
+already had one), and under it a coloured heading wherever a part begins —
+with the part's colour repeated as a thin edge on every slide that belongs to
+it, so a run still reads as one block once its heading has scrolled away.
+
+The parts of a song come from its own `[Verse 1]` markers. Those were already
+in the data — the operator's own song, "Here I am Lord", carries six of them
+— and nothing had ever shown them.
+
+Liturgy gets its headings by hand: a tag button on every row, a pen and a
+cross on every heading. The same button works on a song slide, which is how a
+verse gets split ("Last Time" over its final three slides).
+
+### Three facts this rests on, two of them load-bearing
+
+- **The part is CARRIED DOWN, never written.** `parseLyricsIntoSlides` hangs
+  "[Verse 1]" on the slide the marker opened and leaves the slides that finish
+  the verse with nothing. `_lcdSlideParts` (pure) fills the run in. Writing
+  the label onto each slide instead would have been the obvious fix and is the
+  wrong one, because of the next point. Verified against the live order: after
+  labelling, the save payload still carried headers on six of eighteen song
+  slides, exactly the six the markers put there.
+- **A heading is never projected, and that is what makes adding one safe at
+  all.** `selectSlideBox` projects the text of `.wo-slide-content`; a heading
+  lives in `.wo-slide-section-header`, that element's SIBLING.
+  `_lcdWriteSlideHeader` inserts before, never inside. Measured on the live
+  order with a heading added: the projected text did not contain it.
+- **`slides[].header` already round-tripped for songs, and half of it already
+  did for liturgy.** `collectOrderItems` saved it for both; only the liturgy
+  LOAD never put it back, so a heading added to liturgy lived until the next
+  load and then quietly vanished. One line. No new column, no migration.
+
+### Two bugs found on the way
+
+- **`getSectionTypeClass` could never return `prechorus`.** It asked about
+  "chorus" first, and "pre-chorus" contains "chorus", so that class had never
+  once been applied. The same mis-ordered chain is written out three more
+  times (`getSectionType` twice, `getSectionClass`) for the song preview and
+  the Lyrics Editor; those are **not** fixed — they are outside this path and
+  touching three more views for a colour was not worth the blast radius.
+- **The rail does not hold its place.** Replacing its markup clamps its
+  scroller to the top, and `_lcdWatchSelectedRow` then reveals the SELECTED
+  row, which is the slide on the screen. Measured at 1158px: labelling slide
+  4.8 sent the rail from 2072 to 214, twice over. In a 110-slide service that
+  would throw the operator back to the start every time they named a part.
+  `_lcdRailHoldScroll()` is called BEFORE the change (the only moment the
+  position is right) and puts it back after each of the rebuilds one edit
+  brings — the render, then the save's own 120ms refresh.
+
+  Two cuts of this were tried and measured before the third worked. Revealing
+  the labelled row after the rebuild: at 80ms the row is still in view, so the
+  reveal is a no-op, and by the time it is not, the clamp has happened. Then a
+  one-shot "skip the next reveal" flag: spent on the first rebuild, and the
+  second snapped the rail back anyway. Both are written up in the source, so
+  the next person does not try them again.
+
+### What the row shows now, and what that cost
+
+With the item named on its heading row, a slide row shows the WORDS — two
+lines of them — instead of the item title repeated down the list, and drops
+the per-row icon the heading row already carries.
+
+Measured at the operator's own 1158px, where the rail column is 252px: the
+words get 111px, about twenty characters a line. That is tight, and it is the
+width the column has; dropping the icon and the width kept for a number never
+wider than "4.10" bought six of those pixels back. At 1536px it is
+comfortable. Nothing overflows the rail at either width (checked by
+measurement, not by eye).
+
+### How this was verified
+
+The same read-only recipe as the last LCD change, with one addition. The
+server (`roserver.js`, in the session scratchpad) now also has:
+
+- **`/frame?w=&h=`** — the app in a same-origin iframe at a chosen size,
+  because `resize_window` is a no-op on a maximised Chrome window. Real
+  viewport, real media queries, and measurable from the parent.
+- **`?injecthdr=<sourceId>:<slideIdx>:<text>`** — rewrites ONE `order_items`
+  row on the way IN, so a restore path can be proved end to end **with no
+  write at all**. That is how the liturgy heading was shown to come back on
+  load: the app read an order whose `slides[1].header` was set, and drew the
+  heading row with its three slides under it.
+
+Writes stayed refused throughout, and that was checked by side effect rather
+than by trusting the guard: after everything above, a direct read of the
+production row showed `slides[1].header` still `""`. The only console errors
+in the whole session were the guard's own "The phone view only reads".
+
+Also green: `python tools/check-inline-scripts.py --check Index.html`,
+`npm run check` (425 caught, 0 missed, 0 stale — 11 of those cases are new
+and each was shown to fail on a broken copy), and the new harness against
+pre-change source with `--expect-broken` (4 passed, 33 failed).
+
+---
+
+
+## 2026-11-05 — LCD Projection: the console stops rearranging itself, and the projection becomes the main view (branch `feature/lcd-projection-stage`)
+
+Three changes the operator asked for, in one branch. All verified in a real
+1158px viewport against production DATA with every write refused — see
+"How this was verified" below, which is the reusable part.
+
+### 1. The projection is the middle, main panel; the editor is secondary
+
+`.lcd-outputs-row`'s two children are physically reordered in the markup
+(not `order:` in CSS) so Program / Live comes first for the keyboard and a
+screen reader too. The split flips with them: **58:42 to the projection**,
+where every round before this gave the larger share to the Slide Editor.
+
+The slide navigation (`.lcd-slide-nav`: prev, next, Add Slide) moved out of
+the editor and **under the projection it drives**, and the duplicate pair of
+chevrons that sat in the controls row was removed — the same two buttons
+twice, 20px apart, once they were both in the same column.
+
+Two things were measured rather than assumed, and both changed the answer:
+
+- **The editor's `min-width` had to come DOWN to 260px.** At 300px the floor
+  was above the editor's 42% share at the operator's own 1158px desk, so it
+  took the difference straight back off the projection and the split came out
+  51:49. At 260 it is a true 58:42 from 1158px up.
+- **At 260px the formatting ribbon wraps to four rows**, which is the failure
+  the old 60/40 split was written to avoid. That is accepted now because the
+  ribbon is **hidden while the pad is shut** (below), so the cramped case only
+  exists while somebody is actually typing. Worth knowing if the editor is
+  ever made primary again.
+
+### 2. The editor pad opens on a deliberate act, never on selection
+
+`contenteditable` starts **false**. Three ways in, all deliberate:
+double-click a slide in the rail, double-click the projection, or press
+**Edit**. Selecting a slide with a single click still loads it and sends it to
+the screen — it just does not arm the text box. Preview shuts it again, and
+so does every entry into the console.
+
+Why: selecting a slide is something the operator does dozens of times in a
+service, and the pad used to go live on every one of them. The console spent
+the whole service one stray keystroke away from rewriting the words the
+congregation was reading.
+
+While shut, the panel still SHOWS the slide — an operator reading along
+needs the words. What stands down with the pad is only what acts on text:
+the formatting ribbon (hidden outright, not dimmed) and **Apply**. Delete,
+All Slides and Open in Songbook stay live, because they act on the slide and
+not on typed text; dimming Delete also made it unreadable against the ivory
+header.
+
+**All three openers are mouse gestures and two are double-clicks, which a
+touch screen does not have** (CLAUDE.md gotcha 28). That is sound HERE and
+only here: the Slide Editor panel does not exist below 1120px, where phones
+get the All Slides modal instead. **Edit is the only opener that would
+survive this panel ever reaching a touch screen, so it must stay a plain
+single-press button.**
+
+### 3. Fixed layout (the DEFAULT) vs Adaptive
+
+The team's report was that the console keeps rearranging itself when the
+window is resized. It does: breakpoints at 1800, 1440, 1280 and 1120 move
+columns, dock the Song Library to a 44px tab on their own, and below 1120
+abandon the grid for a stacked phone layout. Six consoles depending on the
+window.
+
+**Fixed** pins one layout and handles a window too narrow for it by drawing
+the whole console **smaller** rather than reshaping it. **Adaptive** is the
+old behaviour, opt-in from the new `Layout` button in the LCD top bar.
+Stored per browser under `lhc_lcd_layout_mode`; absent means fixed.
+
+Measured across 1500 / 1300 / 1158 / 1060 / 980 / 880 / 800:
+
+| | fixed mode | adaptive mode |
+|---|---|---|
+| 1500 / 1300 / 1158 | 58:42, no scaling, columns stretch | same |
+| 1060 and below | **logical width pinned at 1000px**, identical columns, only the zoom changes | drops to flex, outputs row stacks |
+| below 760 | stands down to the phone layout | phone layout |
+
+Four things worth keeping:
+
+- **CSS `zoom`, not `transform: scale()`.** A transform leaves the layout box
+  at full size (the console would float in a hole of reserved height) and
+  makes the element a containing block for `position: fixed` descendants —
+  gotcha 27, the trap the songbook control bar fell into. `zoom` scales the
+  layout box. Checked first that nothing inside `.wo-main-content` is
+  `position: fixed`, and that the console's popup menus are appended to
+  `document.body` and placed from `getBoundingClientRect()`, which reports
+  post-zoom viewport coordinates either way. The layout menu was clicked
+  through at a scaled width to confirm it lands.
+- **`getBoundingClientRect()` is post-zoom, `offsetWidth`/`clientWidth` are
+  pre-zoom.** Verified directly (630px vs 539px on the same element). This is
+  load-bearing: `_lcdSizeWorkspaceColumns()` reads rects and writes inline px
+  INTO the zoomed subtree, so every rect it reads now goes through one
+  `_own()` helper. At zoom 1 — every window 1120px or wider, i.e. every real
+  desk — that is an exact no-op and the arithmetic is unchanged.
+- **Never measure the thing you are about to size.** The first cut derived the
+  target width per resize as "design viewport minus whatever the chrome
+  costs", measuring `.wo-main-content` itself. Once the console is wider than
+  its room, that measurement returns the grid's MIN-CONTENT, so each pass read
+  the shape the previous pass had made: 1060/980/880 settled on three
+  different layouts (950, 814, 812px) — the exact shape-shifting the feature
+  exists to stop. It now measures the HOST (a plain block whose width nothing
+  here can move) against one constant, `LCD_DESIGN_W = 1000`.
+- **The narrow-width escapes carry `!important`.** `@media (769-1024px) and
+  (orientation: landscape)` sets `.wo-preview-panel {width: 300px !important}`
+  and `.wo-worship-order {max-width: calc(100% - 300px) !important}`. Before
+  that was overridden, a 980px window gave a 33px Service Schedule and a 0px
+  projection inside grid tracks that correctly read 300px and 630px — the
+  tracks were right and the children were being squeezed out of them.
+
+All of the fixed-mode CSS lives at the END of **THE COLUMN BLOCK**, which is
+where this file says column decisions live. It beats every band above it by
+carrying one more class (`body.lcd-fixed-layout ...`); a media query adds no
+specificity, so source order and viewport width stop mattering.
+
+### Known limits, stated rather than discovered later
+
+- **Below about 1000px the app's OWN sidebar opens to a 250px drawer** and
+  takes the width with it, so the console is scaled harder there and the
+  editor column can clip. That is the app shell, not the console, and it is
+  outside what this branch touched — but it is a layout change on resize, so
+  it is the next thing the operator will report if they drag that far.
+- **`LCD_MIN_ZOOM = 0.55`** is a floor, not a fit. Past it the console
+  overflows and scrolls, deliberately: smaller than that is unreadable.
+- **Cross-reload persistence of the layout choice was NOT verified.** The
+  read-only verification server neutralises storage, so only the in-session
+  round trip was proved (write "adaptive", read it back, mode applies) plus
+  the no-value default. The key is `lhc_lcd_layout_mode`.
+
+### How this was verified — reusable, and it is the useful part
+
+`Index.html` is served by a tiny read-only Node server
+(`roserver.js`, kept in the session scratchpad) that rewrites the page on the
+way out, per the recipe in this file and in memory:
+
+1. force the app's own phone-view write guard on, but **WITHOUT setting
+   `window.__SBM_PREVIEW`** — that flag also diverts boot into the songbook
+   preview path. A `window.__LHC_FORCE_READONLY` flag injected before the
+   guard runs is enough; the rest of the guard block never reads `pv`.
+2. strip the SECOND supabase-js tag, or it hands back an unwrapped
+   `createClient`.
+3. proxy `/api/*` GETs upstream, refuse everything else at the server.
+
+Proved by inspection, never by calling a write: `createClient` reads
+`_lhcReadOnlyClient`, `from('songs').insert` reads `_lhcDenied`, one
+supabase-js tag, `__SBM_PREVIEW` null.
+
+**The 1158px viewport came from an iframe**, not from resizing the window:
+`resize_window` is a no-op on a maximised Chrome window, and an iframe gets a
+real viewport with real media queries and can be re-sized from JS between
+measurements. That is what made a seven-width sweep cheap.
+
+**The save pipeline was proved intact by measurement**, which is the check
+this console's markup always needs: `SBQ.saveOrder` was stubbed, `saveImmediately()`
+called, and the captured payload counted — **116 slides in the DOM, 116
+slides in 20 saved items.** The only diff lines touching `collectOrderItems`'
+selectors are one comment and one READ (`#woWorshipOrder .wo-slide-box.selected`,
+the selector the rest of the console already uses). No order markup was
+renamed or restructured.
+
+Also green: `python tools/check-inline-scripts.py --check Index.html` (14
+blocks) and `npm run check` (346 caught, 0 missed, 0 stale), before and after.
 
 ---
 

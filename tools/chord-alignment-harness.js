@@ -149,6 +149,11 @@ check('the stylesheets were found at all', CSS.length > 50000,
   (CSS.length / 1024).toFixed(0) + ' KB extracted');
 check('at least one rule sets the pair together', pairRules.length > 0,
   pairRules.length + ' found');
+// Earlier versions' read-only card (2026-11-08) binds the pair too, for its
+// own preview; it must never stand in for the songbook's own rules.
+const ownPairs = pairRules.filter(r => !/\.sbm-ev__words/.test(r.sel));
+check('  and the songbook itself does, not only a preview card', ownPairs.some(r => /font-family\s*:/.test(r.body)),
+  ownPairs.length + ' of the songbook rules');
 
 const withFont = pairRules.filter(r => /font-family\s*:/.test(r.body));
 check('  and at least one of those sets font-family', withFont.length > 0,
@@ -160,7 +165,11 @@ withFont.forEach((r, i) => {
   const prop = PROPORTIONAL.test(fam);
   check('pair rule ' + (i + 1) + ' is monospace', mono && !prop,
     fam.trim().slice(0, 72) + (prop ? '  <-- contains a proportional family' : ''));
-  check('  and ends in a monospace fallback', /monospace\s*!?\s*important?\s*$/i.test(fam.trim()),
+  // A reader's fixed-width font comes in as var(--sbm-grid-font, <stack>)
+  // (2026-11-09): the stack still ends in monospace, inside the var(), and
+  // the variable is only ever set to a fixed-width face
+  // (phone-bar-font-master-harness checks every such font is one).
+  check('  and ends in a monospace fallback', /monospace\)?\s*!?\s*important?\s*$/i.test(fam.trim()),
     fam.trim().slice(-30));
 });
 

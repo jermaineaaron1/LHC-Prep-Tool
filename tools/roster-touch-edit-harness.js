@@ -233,6 +233,42 @@ console.log('\nwho is allowed, and what each cell does');
   check('  and the scripture cell switches to editing', log, ['edit:reading1__Nov_1']);
 }
 
+console.log('\nthe cell menu actually opens');
+// Measured on the live roster BEFORE this was fixed: 124 cells carried
+// the "..." icon and 20 of them had a handler. The table's own markup
+// emits the icon as a bare <span> for every ROLE cell, and the guard
+// read "if this cell has no icon, make one and wire it" -- so it skipped
+// exactly the cells that needed wiring. Nobody noticed because on a
+// desktop the double-click is the first way in and this is the second;
+// on a phone there was no first way.
+{
+  const table = buildTable();
+  // The renderer gives a role cell its icon already, as a span.
+  const pre = new El('span', 'roster-cell-dropdown-icon');
+  pre._listeners = {};
+  pre.addEventListener = (type, fn) => { (pre._listeners[type] = pre._listeners[type] || []).push(fn); };
+  table.cells.live.appendChild(pre);
+  const log = [];
+  run(table, { picMode: true }, log).bindCellEvents();
+
+  const iconOf = k => table.cells[k].querySelector('.roster-cell-dropdown-icon');
+  check('a cell the renderer already gave an icon keeps that one',
+    iconOf('live') === pre, true);
+  check('  and it is wired', typeof (iconOf('live') || {}).onclick, 'function');
+  check('a cell with no icon still gets one made',
+    !!iconOf('pa') && typeof iconOf('pa').onclick === 'function', true);
+  // The one that would have caught it: not "does an icon exist" but
+  // "is there an icon anywhere that does nothing".
+  const dead = ['live', 'pa', 'scripture']
+    .filter(k => { const i = iconOf(k); return i && typeof i.onclick !== 'function'; });
+  check('no cell is left with an icon that does nothing', dead, []);
+  // A span answers neither Enter nor a tab stop until it is told to.
+  check('the span is given a button\'s semantics',
+    [pre.getAttribute('role'), pre.getAttribute('tabindex')], ['button', '0']);
+  iconOf('live').onclick({ stopPropagation() {} });
+  check('  and tapping it opens the menu', log, ['menu']);
+}
+
 console.log('\nthe cell menu is its own control');
 {
   const table = buildTable();
@@ -276,6 +312,37 @@ check('a PIC on a phone is told the gesture',
 check('  and only while signed in as one',
   /#rosterMobilePremium \.rmp-edit-hint \{ display: none !important; \}/.test(css) &&
   /body\.pic-mode #rosterMobilePremium \.rmp-edit-hint \{/.test(css), true);
+
+console.log('\nthe phone roster\'s controls stay big enough to hit');
+// FLOORS, not exact sizes. The sizes are a taste decision and have moved
+// once already (-6 on the menu, -15 across the month bar and tabs, +5 on
+// the share button, all asked for). What must not move is that each of
+// these is something a thumb has to find on a phone: the share button was
+// 14px tall before, below anything anyone can aim at, and it is the
+// control that sends a whole service to the team.
+const rule = sel => {
+  const i = css.indexOf(sel + ' {', css.indexOf('#worshipRosterView #rosterMobilePremium'));
+  return i < 0 ? '' : css.slice(i, css.indexOf('}', i) + 1);
+};
+const sizeOf = (r, prop) => parseFloat((new RegExp(prop + ':\\s*([\\d.]+)px').exec(r) || [])[1]);
+const moreRule = rule('.rmp-more');
+check('the appbar menu is a square you can hit',
+  sizeOf(moreRule, 'width') >= 28 && sizeOf(moreRule, 'height') >= 28, true);
+check('the month arrows are too', sizeOf(rule('.rmp-nav-btn'), 'height') >= 32, true);
+check('and the Whole Month / Service Cards tabs',
+  sizeOf(rule('.rmp-tab'), 'min-height') >= 30, true);
+// The share button has no height of its own -- it is padding either side
+// of an icon -- so the floor is on what adds up to one.
+const shareRule = (function () {
+  const i = css.indexOf('.roster-share-btn { padding:');
+  return i < 0 ? '' : css.slice(i, css.indexOf('}', i) + 1);
+})();
+const sp = /padding:\s*([\d.]+)px\s+([\d.]+)px/.exec(shareRule);
+const sf = /font-size:\s*([\d.]+)px/.exec(shareRule);
+check('the WhatsApp button is taller than the 14px it was',
+  !!sp && !!sf && (parseFloat(sp[1]) * 2 + parseFloat(sf[1])) >= 18, true);
+check('  and wider than its own glyph',
+  !!sp && parseFloat(sp[2]) >= 8, true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
