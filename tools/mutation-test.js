@@ -1598,6 +1598,21 @@ const CASES = [
   ['lcd-rail-parts-harness.js', 'All Slides takes Project\'s blue, so the live button has a twin',
     s => s.replace('background: #1d4ed8; border-color: #1d4ed8; color: #fff;',
                    'background: #0066ff; border-color: #0066ff; color: #fff;')],
+  // Projected words wrap instead of shrinking (2026-11-10). The height test
+  // stays -- a wall has nothing to scroll -- and max-width is what lets
+  // overflow-wrap act at all on a flex item in a centred flex container.
+  ['projection-text-wrap-harness.js', 'a long line shrinks the whole slide again',
+    s => s.replace("'  while (textEl.scrollHeight > maxH && fs > 1.2) {' +",
+                   "'  var maxW = content ? content.offsetWidth - 4 : window.innerWidth - 80;' +\r\n      '  while ((textEl.scrollHeight > maxH || textEl.scrollWidth > maxW) && fs > 1.2) {' +")],
+  ['projection-text-wrap-harness.js', 'a slide taller than the screen keeps its size and loses its last lines',
+    s => s.replace("'  while (textEl.scrollHeight > maxH && fs > 1.2) {' +",
+                   "'  while (false && fs > 1.2) {' +")],
+  ['projection-text-wrap-harness.js', 'the projected text loses its width cap, so a long word runs off both edges',
+    s => s.replace("font-size: 5vw; line-height: 1.6; max-width: 100%;", "font-size: 5vw; line-height: 1.6;")],
+  ['projection-text-wrap-harness.js', 'a word with no space in it stops breaking',
+    s => s.replace("max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word;", "max-width: 100%; white-space: pre-wrap;")],
+  ['projection-text-wrap-harness.js', 'the presenter view stops wrapping at the safe zone',
+    s => s.replace("    textEl.style.maxWidth = Math.round(maxW) + 'px';\r\n", '')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick

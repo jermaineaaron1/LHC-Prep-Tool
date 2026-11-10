@@ -2631,6 +2631,49 @@ the anon key -- verify as `postgres`, not as the app.
     after, Keep the master first; `okIcon` lets it carry a crown).
     `tools/phone-bar-font-master-harness.js` checks all three.
 
+75. **Projected words WRAP; they never shrink to fit a line.** From the
+    operator (2026-11-10), on a screenshot of the full-screen presenter view:
+    the projection should read like that view, and "if the words can't fit in
+    the same line, then push it to the line below automatically, don't shrink
+    the fonts just to fit the line". It was not subtle. Measured in the real
+    projection document at a true 1920x1080, with the default 5vw:
+    "L: Almighty God, to whom all hearts are open, ..." came out at **38.4px**
+    and "C: Amen." at **96px** — two slides of the same prayer, two and a
+    half times apart, because `_fitProjectionText` shrank the whole slide
+    whenever ANY line was too wide.
+    - The fit loop now tests the HEIGHT alone. That test STAYS:
+      `.projection-content` is `overflow: hidden` and a wall has nothing to
+      scroll, so a slide with more lines than the screen holds would otherwise
+      lose its last lines in front of everybody. Slides are broken by hand and
+      rarely reach it, so the size is steady across a service.
+    - **`.projection-text` needs `max-width: 100%`, and that is the piece that
+      is silent when it is lost.** It is a flex item in a centred flex
+      container, so without a cap it sizes to MAX-CONTENT and `overflow-wrap`
+      never gets a line box to break against. Measured, with the shrink
+      removed and before the cap went in: a 75-character word with no space
+      came out 3374px wide in a 1728px safe zone, 823px clipped off the left
+      and the rest off the right — the word simply gone from the wall. The
+      old shrink-to-fit had been hiding that.
+    - The presenter overlay follows the same rule (`_fitFullscreenText`),
+      because it is the view the operator reads from and the two must not
+      disagree on exactly the long line that prompted this. Its safe-zone
+      width goes to the element as a `max-width`, which also keeps the words
+      inside the barrier: `.wofs-inner`'s own max-width is 90% of the overlay,
+      a different boundary. With the default 5% barriers the two coincide, so
+      that part is a no-op until somebody sets an uneven safe zone.
+    - The base size is unchanged and still the operator's: `5vw`, the Text
+      settings slider (2—10vw), scaling with whatever projector is plugged
+      in. Asked directly, the operator chose to keep the size on the wall and
+      fix only the shrinking — matching the presenter view's fixed 44.8px
+      would have roughly halved the words on a 1080p projector. Only the line
+      spacing was matched to it (1.5 -> 1.6). The projector keeps its heavier
+      text-shadow, which is for legibility over a lit background.
+    - The small Program / Live preview is NOT in this: it has no fit function
+      (it already wraps) and its sizing is tuned per phone width. Leave it.
+    `tools/projection-text-wrap-harness.js` checks it, and lifts the
+    projector's fit loop out of the HTML string it is written into so the loop
+    itself is run, not just matched.
+
 ## Quick Commands for Claude Code
 
 ```bash
