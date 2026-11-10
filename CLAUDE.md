@@ -58,7 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
-| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, giving, attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -2743,7 +2743,18 @@ the anon key -- verify as `postgres`, not as the app.
     for one page" rather than pushing its footer off in silence; and the
     scale that fits the sheet to the screen goes on the WRAPPER, never on
     `.blt-sheet` -- html-to-image captures the node at its own size, so a
-    transform on the sheet is baked into the PDF.
+    transform on the sheet is baked into the PDF. A third: a PLACEHOLDER
+    belongs to the editor, not to the page -- `.blt-ed:empty::before`
+    unscoped printed the words "The theme verse" and "REFERENCE" across
+    the masthead of any bulletin whose verse had not been typed yet, so
+    it is scoped `.blt-sheet:not(.blt-capturing)` like the hover outline
+    and the add/remove controls. The sheet is scaled to fit and the
+    toolbar zooms it; the stage is centred by AUTO MARGINS, never
+    `justify-content`, because centred overflow runs off both sides and
+    the left of a zoomed page could then never be scrolled to. The
+    announcements are numbered by a CSS counter, not `list-style`:
+    something in the app's own CSS strips list markers, so the `<ol>`
+    numbered nothing.
 
 78. **`.claude/preview-server.js` serves the app READ-ONLY, and fails
     closed.** The Supabase URL and anon key are in the page, so a local

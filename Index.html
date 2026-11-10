@@ -9318,6 +9318,11 @@
           <button class="blt-btn" onclick="BLT.toggleRows(event)" title="Which duty rows the bulletin carries">
             <i class="fa-solid fa-list-check"></i>Rows
           </button>
+          <span class="blt-zoom">
+            <button class="blt-btn" onclick="BLT.zoomBy(-0.15)" aria-label="Zoom out" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+            <button type="button" class="blt-zoom__pct" id="bltZoomPct" onclick="BLT.zoomFit()" title="Fit the page to the window">--</button>
+            <button class="blt-btn" onclick="BLT.zoomBy(0.15)" aria-label="Zoom in" title="Zoom in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+          </span>
           <span class="blt-bar__spacer"></span>
           <span id="bltLong" style="display:none;font-size:.74rem;font-weight:700;color:#b91c1c;"></span>
           <span id="bltSaved" style="font-size:.74rem;color:#64748b;"></span>
@@ -129678,8 +129683,12 @@ window.LHC_Install = (function() {
 
 /* The stage holds the scaled sheet and takes its scaled height, or the
    page would keep scroll room for the full 1123px whatever the zoom. */
-.blt-stage { display: flex; justify-content: center; padding: 18px 8px 0; }
-.blt-stage__inner { position: relative; }
+.blt-stage { padding: 18px 8px 0; overflow-x: auto; }
+.blt-stage__inner { position: relative; margin: 0 auto; }
+.blt-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.blt-zoom .blt-btn { padding: 0 10px; min-width: 38px; justify-content: center; }
+.blt-zoom__pct { min-width: 52px; text-align: center; font-family: 'Poppins', sans-serif;
+  font-weight: 600; font-size: .78rem; color: #475569; font-variant-numeric: tabular-nums; }
 .blt-sheet {
   width: 794px; height: 1123px; box-sizing: border-box; overflow: hidden;
   transform-origin: top left; background: #ffffff; color: #2b2b2b;
@@ -129726,12 +129735,25 @@ window.LHC_Install = (function() {
 .blt-block--figs   .blt-h { color: #5c5540; }
 .blt-p { margin: 6px 0 0; font-size: 10.5px; line-height: 1.5; color: #23303a; text-wrap: pretty; }
 
-.blt-notices { margin: 7px 0 0; padding: 0 0 0 19px; display: flex; flex-direction: column; gap: 6px; }
-.blt-notices li { font-size: 10.5px; line-height: 1.48; color: #2a2335; text-wrap: pretty; }
+/* A counter, not list-style: something in the app's own CSS strips list
+   markers, so the <ol> numbered nothing and the items ran as plain
+   lines. This also puts the number in a column of its own with the
+   words beside it, and renumbers itself on add and remove. */
+.blt-notices { margin: 7px 0 0; padding: 0; list-style: none; counter-reset: blt-n;
+  display: flex; flex-direction: column; gap: 6px; }
+.blt-notices li { counter-increment: blt-n; display: flex; gap: 6px; align-items: baseline;
+  font-size: 10.5px; line-height: 1.48; color: #2a2335; text-wrap: pretty; }
+.blt-notices li::before { content: counter(blt-n) "."; flex: 0 0 auto; min-width: 11px;
+  font-family: 'Poppins', sans-serif; font-weight: 700; color: #46306b; }
+.blt-notices__t { flex: 1 1 auto; min-width: 0; }
 .blt-notices b { color: #46306b; }
 
-.blt-give__line { font-size: 10.5px; color: #3a2f15; line-height: 1.5; }
-.blt-give__line--acct { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+.blt-give + .blt-give { margin-top: 7px; border-top: 1px solid #edd9a4; padding-top: 6px; }
+.blt-give__for { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 9px;
+  letter-spacing: .1em; text-transform: uppercase; color: #8a6210; }
+.blt-give__name { font-size: 10.5px; color: #3a2f15; line-height: 1.5; }
+.blt-give__acct { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 11px;
+  letter-spacing: .02em; color: #3a2f15; line-height: 1.45; }
 
 .blt-figs { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
 .blt-fig__n { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 19px; color: #2b2b2b; line-height: 1; }
@@ -129768,7 +129790,10 @@ window.LHC_Install = (function() {
 .blt-ed { outline: none; }
 .blt-sheet:not(.blt-capturing) .blt-ed:hover { background: rgba(37,99,235,.07); border-radius: 3px; }
 .blt-sheet:not(.blt-capturing) .blt-ed:focus { background: rgba(37,99,235,.10); box-shadow: 0 0 0 2px rgba(37,99,235,.45); border-radius: 3px; }
-.blt-ed:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
+/* A placeholder belongs to the editor, not to the page. Unscoped, a
+   bulletin with an empty theme verse PRINTED the words "The theme
+   verse" and "REFERENCE" across its masthead. */
+.blt-sheet:not(.blt-capturing) .blt-ed:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
 
 .blt-x, .blt-add {
   font-family: 'Poppins', sans-serif; border: 1px solid #cbd5e1; background: #ffffff;
@@ -129930,7 +129955,9 @@ var BLT = (function() {
       verse: { text: '', ref: '' },
       prayer: '',
       notices: [],
-      giving: { title: 'Online giving', lines: ['', ''] },
+      giving: { title: 'Online giving', entries: [
+        { purpose: '', name: 'Luther House Chapel', bank: 'RHB Bank Berhad', number: '2120680044229' }
+      ] },
       attendance: { asAt: '', figures: [
         { label: 'Adults', value: '' },
         { label: 'Children', value: '' },
@@ -129960,8 +129987,20 @@ var BLT = (function() {
       return { lead: (n && n.lead) || '', body: (n && n.body) || '' };
     });
     if (d.giving && typeof d.giving === 'object') {
-      b.giving = { title: d.giving.title || 'Online giving',
-                   lines: Array.isArray(d.giving.lines) ? d.giving.lines.slice() : b.giving.lines };
+      b.giving.title = d.giving.title || 'Online giving';
+      if (Array.isArray(d.giving.entries)) {
+        b.giving.entries = d.giving.entries.map(function(g) {
+          return { purpose: (g && g.purpose) || '', name: (g && g.name) || '',
+                   bank: (g && g.bank) || '', number: (g && g.number) || '' };
+        });
+      } else if (Array.isArray(d.giving.lines)) {
+        // The shape this had when the bulletin shipped: two loose lines,
+        // an account name and "bank and account number" run together.
+        // Carried over rather than dropped, so a bulletin written in the
+        // first week still opens with its details in it.
+        b.giving.entries = [{ purpose: '', name: d.giving.lines[0] || '',
+                              bank: '', number: d.giving.lines[1] || '' }];
+      }
     }
     if (d.attendance && typeof d.attendance === 'object') {
       b.attendance = { asAt: d.attendance.asAt || '',
@@ -130181,8 +130220,9 @@ var BLT = (function() {
     h +=   '<div class="blt-h">ANNOUNCEMENTS</div>';
     h +=   '<ol class="blt-notices">';
     d.notices.forEach(function(n, i) {
-      h += '<li><b>' + _ed('notices.' + i + '.lead', n.lead, 'Title') + '</b> ' +
-           _ed('notices.' + i + '.body', n.body, 'What it says') + _x('notice', i) + '</li>';
+      h += '<li><span class="blt-notices__t"><b>' + _ed('notices.' + i + '.lead', n.lead, 'Title') +
+           '</b> ' + _ed('notices.' + i + '.body', n.body, 'What it says') + '</span>' +
+           _x('notice', i) + '</li>';
     });
     h +=   '</ol>';
     h +=   _add('notice', 'Announcement');
@@ -130191,12 +130231,16 @@ var BLT = (function() {
     // Giving
     h += '<div class="blt-block blt-block--give">';
     h +=   '<div class="blt-h">' + _ed('giving.title', d.giving.title, 'Online giving') + '</div>';
-    d.giving.lines.forEach(function(ln, i) {
-      h += '<div class="blt-give__line' + (i ? ' blt-give__line--acct' : '') + '">' +
-           _ed('giving.lines.' + i, ln, i ? 'Bank and account number' : 'Account name') +
-           (d.giving.lines.length > 1 ? _x('giving', i) : '') + '</div>';
+    d.giving.entries.forEach(function(g, i) {
+      h += '<div class="blt-give">';
+      h +=   '<div class="blt-give__for">' + _ed('giving.entries.' + i + '.purpose', g.purpose, 'What it is for') +
+             (d.giving.entries.length > 1 ? _x('giving', i) : '') + '</div>';
+      h +=   '<div class="blt-give__name">' + _ed('giving.entries.' + i + '.name', g.name, 'Account name') + '</div>';
+      h +=   '<div class="blt-give__acct">' + _ed('giving.entries.' + i + '.bank', g.bank, 'Bank') + ' ' +
+             _ed('giving.entries.' + i + '.number', g.number, 'Account number') + '</div>';
+      h += '</div>';
     });
-    h +=   _add('giving', 'Line');
+    h +=   _add('giving', 'Purpose');
     h += '</div>';
 
     // Attendance and offering
@@ -130297,11 +130341,38 @@ var BLT = (function() {
   // the WRAPPER, never on the sheet: html-to-image captures the node it
   // is given at that node's own size, so a transform on the sheet itself
   // would be baked into the PDF.
+  // null means "fit the window", which is what it opens at and what the
+  // percentage goes back to when clicked. A number is a size the reader
+  // chose, and it survives a redraw and a window resize.
+  var _zoom = null;
+
+  function _fitScale() {
+    var stage = _$('bltStageInner');
+    var room = (stage && stage.parentElement ? stage.parentElement.clientWidth : A4_W) - 16;
+    return Math.min(1, Math.max(0.2, room / A4_W));
+  }
+
+  // The page is set at 10px and scaled down to fit, so on a laptop it
+  // lands near 70% and the small print is hard to read, let alone
+  // correct. Steps rather than a slider: a bulletin is looked at
+  // closely a few times, not scrubbed through.
+  function zoomBy(step) {
+    var cur = (_zoom == null) ? _fitScale() : _zoom;
+    _zoom = Math.max(0.35, Math.min(3, Math.round((cur + step) * 100) / 100));
+    _fit();
+  }
+
+  function zoomFit() { _zoom = null; _fit(); }
+
   function _fit() {
     var stage = _$('bltStageInner'), sheet = _$('bltSheet');
     if (!stage || !sheet) return;
-    var room = (stage.parentElement ? stage.parentElement.clientWidth : A4_W) - 16;
-    var scale = Math.min(1, Math.max(0.2, room / A4_W));
+    var scale = (_zoom == null) ? _fitScale() : _zoom;
+    var pct = _$('bltZoomPct');
+    if (pct) {
+      pct.textContent = Math.round(scale * 100) + '%';
+      pct.title = (_zoom == null) ? 'Fitted to the window' : 'Back to fitting the window';
+    }
     stage.style.transform = 'scale(' + scale + ')';
     stage.style.transformOrigin = 'top left';
     stage.style.width = A4_W + 'px';
@@ -130356,7 +130427,7 @@ var BLT = (function() {
   function addItem(what) {
     var d = _cur.data;
     if (what === 'notice') d.notices.push({ lead: '', body: '' });
-    else if (what === 'giving') d.giving.lines.push('');
+    else if (what === 'giving') d.giving.entries.push({ purpose: '', name: '', bank: '', number: '' });
     else if (what === 'figure') d.attendance.figures.push({ label: '', value: '' });
     else if (what === 'offering') d.offering.push({ label: '', value: '' });
     else if (what === 'contact') d.contacts.push({ role: '', name: '', phone: '', email: '' });
@@ -130367,7 +130438,7 @@ var BLT = (function() {
   function removeItem(what, i) {
     var d = _cur.data;
     if (what === 'notice') d.notices.splice(i, 1);
-    else if (what === 'giving') d.giving.lines.splice(i, 1);
+    else if (what === 'giving') d.giving.entries.splice(i, 1);
     else if (what === 'figure') d.attendance.figures.splice(i, 1);
     else if (what === 'offering') d.offering.splice(i, 1);
     else if (what === 'contact') d.contacts.splice(i, 1);
@@ -130596,6 +130667,8 @@ var BLT = (function() {
     fillFromRoster: fillFromRoster, toggleRows: toggleRows,
     addItem: addItem, removeItem: removeItem,
     print: print, downloadPdf: downloadPdf, shareWhatsApp: shareWhatsApp,
+    zoomBy: zoomBy, zoomFit: zoomFit,
+    _zoomState: function() { return _zoom; },
     // for the harness
     _blank: _blank, _sane: _sane, _clean: _clean, _cell: _cell, _textOf: _textOf,
     _litDay: _litDay, _warnIfLong: _warnIfLong,
