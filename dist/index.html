@@ -6791,6 +6791,12 @@
             <div class="home-nav-desc">Sing along &amp; match pitch</div>
             <div class="home-nav-stat" id="homeStatPractice">Vocal Hero</div>
           </button>
+          <button class="home-nav-card home-nav-bulletin" onclick="setActiveView('bulletinView')">
+            <div class="home-nav-icon"><i class="fa-solid fa-newspaper"></i></div>
+            <div class="home-nav-label font-cinzel">Sunday Bulletin</div>
+            <div class="home-nav-desc">Announcements, figures &amp; both services</div>
+            <div class="home-nav-stat" id="homeStatBulletin">This Sunday</div>
+          </button>
         </div>
 
         <!-- Roster + Trending Songs — Side by Side -->
@@ -9292,6 +9298,44 @@
           allow="microphone; camera; autoplay; midi"
           allowfullscreen>
         </iframe>
+      </section>
+
+      <!-- ═══════════════ SUNDAY BULLETIN ═══════════════
+           The toolbar, and a stage holding one A4 sheet. Everything
+           inside the sheet is drawn by BLT.render() from the stored
+           bulletin plus the roster, so nothing of the page itself is
+           written here. -->
+      <section id="bulletinView" style="display:none;">
+        <div class="blt-bar">
+          <button class="blt-btn" onclick="setActiveView('homeView')" aria-label="Back to home">
+            <i class="fa-solid fa-arrow-left"></i>Back
+          </button>
+          <span class="blt-bar__title">Sunday Bulletin</span>
+          <select id="bltDate" class="blt-date" aria-label="Which Sunday"></select>
+          <button class="blt-btn" onclick="BLT.fillFromRoster()" title="Read both Sundays' duties from the roster again">
+            <i class="fa-solid fa-rotate"></i>Roster
+          </button>
+          <button class="blt-btn" onclick="BLT.toggleRows(event)" title="Which duty rows the bulletin carries">
+            <i class="fa-solid fa-list-check"></i>Rows
+          </button>
+          <span class="blt-bar__spacer"></span>
+          <span id="bltLong" style="display:none;font-size:.74rem;font-weight:700;color:#b91c1c;"></span>
+          <span id="bltSaved" style="font-size:.74rem;color:#64748b;"></span>
+          <button class="blt-btn" onclick="BLT.print()" title="Print the bulletin">
+            <i class="fa-solid fa-print"></i>Print
+          </button>
+          <button class="blt-btn blt-btn--primary" onclick="BLT.downloadPdf()" title="Save it as a PDF">
+            <i class="fa-solid fa-file-pdf"></i>PDF
+          </button>
+          <button class="blt-btn blt-btn--wa" onclick="BLT.shareWhatsApp()" title="Send the PDF on WhatsApp">
+            <i class="fa-brands fa-whatsapp"></i>Share
+          </button>
+        </div>
+        <div class="blt-stage">
+          <div class="blt-stage__inner" id="bltStageInner">
+            <div class="blt-sheet" id="bltSheet"></div>
+          </div>
+        </div>
       </section>
 
     </main>
@@ -22887,12 +22931,15 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     // Close sidebar on mobile when switching views
     closeSidebarOnMobile();
 
-    ['homeView', 'songFinderView', 'worshipRosterView', 'worshipOrderView', 'liturgyView', 'practiceGameView'].forEach(function(id) {
+    ['homeView', 'songFinderView', 'worshipRosterView', 'worshipOrderView', 'liturgyView', 'practiceGameView', 'bulletinView'].forEach(function(id) {
       var el = $(id);
       if (el) el.style.display = 'none';
     });
     var activeView = $(viewId);
     if (activeView) activeView.style.display = 'block';
+    // The bulletin reads the roster every time it is shown, so it is built
+    // on arrival rather than at boot -- nobody pays for it who never opens it.
+    if (viewId === 'bulletinView' && window.BLT) BLT.open();
     // The Liturgy Builder's page-wide rules (body.wo-lbd-on) belong to it only
     // while it is on screen: the builder stays open behind another view.
     document.body.classList.toggle('wo-lbd-on',
@@ -129583,7 +129630,982 @@ window.LHC_Install = (function() {
     #songFinderView #sfStatsMobileSlot { margin-top:3px; }
     #songFinderView #sfStatsMobileSlot .sf-library-metrics > div { padding:4px 7px; }
   }
+
+/* ═════════════════════ SUNDAY BULLETIN ═════════════════════
+   One A4 sheet, edited in place. The masthead is fixed furniture --
+   logo, church name, address, service time -- and everything below it
+   is typed by whoever makes the bulletin, except the duty table, which
+   is read live from the roster every time the page opens.
+
+   The sheet is always laid out at its true A4 size (794x1123 CSS px at
+   96dpi) and scaled to fit the screen with a transform, so a phone and
+   a desk see the same page and the PDF is the page they saw. Measuring
+   the sheet at the screen's width instead would reflow every line and
+   the printed page would not match the one on screen. */
+
+#bulletinView { padding: 0 0 48px; }
+
+.blt-bar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 14px; background: #ffffff;
+  border-bottom: 1px solid #e2e8f0; box-shadow: 0 2px 10px rgba(15,23,42,.05);
+}
+.blt-bar__title {
+  font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 1rem;
+  color: #15314f; margin-right: 4px;
+}
+.blt-bar__spacer { flex: 1 1 auto; }
+.blt-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 0 14px; border-radius: 9px;
+  border: 1px solid #cbd5e1; background: #ffffff; color: #334155;
+  font-family: 'Poppins', 'Segoe UI', sans-serif; font-weight: 600; font-size: .82rem;
+  cursor: pointer; white-space: nowrap;
+}
+.blt-btn:hover { background: #f1f5f9; }
+.blt-btn--primary { background: #0e9f6e; border-color: transparent; color: #ffffff; }
+.blt-btn--primary:hover { background: #0b875d; }
+.blt-btn--wa { background: #25d366; border-color: transparent; color: #0b3b22; }
+.blt-btn--wa:hover { background: #1fb956; }
+.blt-btn[disabled] { opacity: .55; cursor: default; }
+
+.blt-date {
+  min-height: 40px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid #cbd5e1; background: #ffffff; color: #1e293b;
+  font-family: 'Poppins', sans-serif; font-weight: 600; font-size: .82rem;
+}
+
+/* The stage holds the scaled sheet and takes its scaled height, or the
+   page would keep scroll room for the full 1123px whatever the zoom. */
+.blt-stage { display: flex; justify-content: center; padding: 18px 8px 0; }
+.blt-stage__inner { position: relative; }
+.blt-sheet {
+  width: 794px; height: 1123px; box-sizing: border-box; overflow: hidden;
+  transform-origin: top left; background: #ffffff; color: #2b2b2b;
+  font-family: 'Lato', 'Segoe UI', sans-serif;
+  display: flex; flex-direction: column;
+  box-shadow: 0 6px 30px rgba(15, 23, 42, .18);
+}
+
+/* ---- masthead: gold circle, grey sweep, blue ground ---- */
+.blt-head { flex: 0 0 248px; position: relative; overflow: hidden; background: #dcedf4; }
+.blt-head__sweep { position: absolute; left: -480px; top: -136px; width: 1240px; height: 520px; border-radius: 50%; background: #8f8f8f; }
+.blt-head__disc  { position: absolute; left: -18px;  top: -68px;  width: 384px;  height: 384px; border-radius: 50%; background: #f6c659; }
+.blt-head__rose  { position: absolute; right: 26px; top: 12px; width: 74px; height: 74px; object-fit: contain; }
+.blt-head__cols  { position: absolute; inset: 0; display: flex; align-items: stretch; }
+.blt-head__left  { flex: 0 0 358px; padding: 0 0 0 40px; display: flex; flex-direction: column; justify-content: center; }
+.blt-head__right { flex: 1 1 auto; min-width: 0; padding: 30px 96px 0 44px; }
+.blt-church { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 32px; line-height: 1.04; color: #4a4a4a; letter-spacing: -.01em; }
+.blt-addr   { font-family: 'Poppins', sans-serif; font-weight: 500; font-size: 9.5px; letter-spacing: .16em; color: #574e3a; margin-top: 12px; line-height: 1.5; }
+.blt-time   { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 13.5px; color: #4a4a4a; margin-top: 11px; }
+.blt-welcome { font-family: 'Poppins', sans-serif; font-weight: 700; font-style: italic; font-size: 34px; color: #141414; line-height: 1; }
+.blt-when   { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 14px; color: #1a1a1a; line-height: 1.25; }
+.blt-when--first { margin-top: 8px; }
+.blt-verse  { font-size: 10px; font-style: italic; font-weight: 700; line-height: 1.5; color: #141414; margin-top: 10px; text-wrap: pretty; }
+.blt-verse__ref { font-family: 'Poppins', sans-serif; font-weight: 700; font-style: italic; font-size: 10px; letter-spacing: .1em; color: #141414; margin-top: 5px; }
+
+/* ---- body ---- */
+.blt-body { flex: 1 1 auto; min-height: 0; display: flex; gap: 16px; padding: 15px 22px 0; }
+.blt-col  { flex: 0 0 268px; display: flex; flex-direction: column; gap: 11px; }
+/* The duty table takes whatever height the page has left, so the rows
+   breathe and the sheet reads as a full page instead of content stacked
+   at the top with a white band above the footer. */
+.blt-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.blt-main .blt-table { flex: 1 1 auto; }
+
+.blt-block { padding: 10px 13px; }
+.blt-block--prayer { background: #dcedf4; border-left: 4px solid #7fb4cc; }
+.blt-block--notice { background: #e2d8ee; border-left: 4px solid #a98fcb; }
+.blt-block--give   { background: #fdf2d8; border-left: 4px solid #f6c659; }
+.blt-block--figs   { background: #f4f2e9; border: 1px solid #c9c2ab; }
+.blt-h { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: .1em; }
+.blt-block--prayer .blt-h { color: #1d4a5e; }
+.blt-block--notice .blt-h { color: #46306b; }
+.blt-block--give   .blt-h { color: #7a5609; }
+.blt-block--figs   .blt-h { color: #5c5540; }
+.blt-p { margin: 6px 0 0; font-size: 10.5px; line-height: 1.5; color: #23303a; text-wrap: pretty; }
+
+.blt-notices { margin: 7px 0 0; padding: 0 0 0 19px; display: flex; flex-direction: column; gap: 6px; }
+.blt-notices li { font-size: 10.5px; line-height: 1.48; color: #2a2335; text-wrap: pretty; }
+.blt-notices b { color: #46306b; }
+
+.blt-give__line { font-size: 10.5px; color: #3a2f15; line-height: 1.5; }
+.blt-give__line--acct { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+
+.blt-figs { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
+.blt-fig__n { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 19px; color: #2b2b2b; line-height: 1; }
+.blt-fig__l { font-size: 9.5px; color: #5c5540; margin-top: 2px; }
+.blt-money { border-top: 1px solid #d7d1bc; margin-top: 9px; padding-top: 7px; display: flex; flex-direction: column; gap: 4px; }
+.blt-money__row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10.5px; color: #3a3426; }
+/* The amount is the part that must stay readable, so it never wraps and
+   never shrinks; the label beside it is what gives way. Letting the
+   amount wrap put "RM 9,913" on two lines, over the row beneath it. */
+.blt-money__row > span:first-child { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.blt-money__v { flex: 0 0 auto; white-space: nowrap; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums; color: #2b2b2b; }
+
+/* ---- the duty table ---- */
+.blt-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.blt-table th, .blt-table td { padding: 4px 7px; vertical-align: middle; }
+.blt-table thead th { background: #cedda6; border: 1px solid #a8b784; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 11.5px; color: #2f3a1c; text-align: center; }
+.blt-table thead th:first-child { padding: 6px 7px; }
+.blt-td-role { background: #bedcea; border: 1px solid #8fb8c9; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 10px; color: #16303d; text-align: center; line-height: 1.25; }
+.blt-td-who  { background: #ebe8da; border: 1px solid #c3bda4; font-size: 10.5px; color: #2b2b2b; text-align: center; line-height: 1.35; white-space: pre-line; }
+.blt-ref { display: block; font-weight: 700; color: #4b4327; }
+
+/* ---- footer ---- */
+.blt-foot { flex: 0 0 auto; background: #f6c659; margin-top: 14px; padding: 12px 34px; display: flex; gap: 22px; align-items: flex-start; }
+.blt-foot__c { flex: 1 1 0; text-align: center; position: relative; }
+.blt-foot__c + .blt-foot__c { border-left: 1px solid #d9a93a; }
+.blt-foot__role { font-family: 'Poppins', sans-serif; font-weight: 700; font-style: italic; font-size: 11.5px; color: #4a4a4a; }
+.blt-foot__name { font-family: 'Poppins', sans-serif; font-weight: 700; font-style: italic; font-size: 12.5px; color: #2b2b2b; margin-top: 1px; }
+.blt-foot__line { font-size: 10.5px; color: #4f4631; margin-top: 2px; line-height: 1.45; }
+
+/* ---- editing ---- */
+/* A field is only outlined while the sheet is being edited, and never
+   while it is being captured for the PDF -- `.blt-capturing` is what the
+   capture adds, so the picture is of the bulletin and not of the editor. */
+.blt-ed { outline: none; }
+.blt-sheet:not(.blt-capturing) .blt-ed:hover { background: rgba(37,99,235,.07); border-radius: 3px; }
+.blt-sheet:not(.blt-capturing) .blt-ed:focus { background: rgba(37,99,235,.10); box-shadow: 0 0 0 2px rgba(37,99,235,.45); border-radius: 3px; }
+.blt-ed:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
+
+.blt-x, .blt-add {
+  font-family: 'Poppins', sans-serif; border: 1px solid #cbd5e1; background: #ffffff;
+  color: #475569; cursor: pointer; line-height: 1;
+}
+.blt-x { width: 16px; height: 16px; border-radius: 50%; font-size: 10px; padding: 0; margin-left: 5px; vertical-align: middle; }
+.blt-x:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+.blt-add { margin-top: 6px; padding: 3px 9px; border-radius: 7px; font-size: 9.5px; font-weight: 700; }
+.blt-add:hover { background: #f1f5f9; }
+.blt-capturing .blt-x, .blt-capturing .blt-add { display: none !important; }
+
+/* Which rows the bulletin carries. */
+.blt-rows {
+  position: absolute; z-index: 40; top: 0; left: 0; width: 290px; max-height: 60vh; overflow: auto;
+  background: #ffffff; border: 1px solid #cbd5e1; border-radius: 11px;
+  box-shadow: 0 14px 40px rgba(15,23,42,.22); padding: 10px 12px;
+}
+.blt-rows__h { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: .78rem; color: #15314f; margin-bottom: 7px; }
+.blt-rows label { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: .8rem; color: #334155; cursor: pointer; }
+.blt-rows input { width: 15px; height: 15px; flex: 0 0 auto; }
+
+.blt-empty { padding: 50px 20px; text-align: center; color: #64748b; font-size: .9rem; }
+
+@media (max-width: 820px) {
+  .blt-bar { padding: 8px 10px; gap: 6px; }
+  .blt-bar__title { width: 100%; }
+  .blt-btn { min-height: 38px; padding: 0 11px; font-size: .78rem; }
+  .blt-stage { padding: 12px 6px 0; }
+}
 </style>
+
+<!-- ═══════════════ SUNDAY BULLETIN ═══════════════ -->
+<script>
+/* The weekly bulletin.
+ *
+ * One A4 sheet per service. The masthead is fixed; everything below is
+ * either typed into the sheet itself or read from the roster.
+ *
+ * WHAT IS STORED AND WHAT IS NOT
+ * Only what somebody types is stored (`bulletins.data`). Both Sundays'
+ * duties and the four readings are read from the ROSTER every time the
+ * bulletin is opened, and never copied into the row -- the roster is
+ * where a duty lives (CLAUDE.md gotcha 5), and a bulletin holding its
+ * own copy would quietly disagree with it the week a reader swapped.
+ * The two duties the roster has no role for, Acolyte and Flower
+ * Offering, are the exception: they are typed, so they are stored.
+ */
+var SBQ_BULLETINS = {
+  _sb: function() { return getSupabaseClient(); },
+
+  _fromRow: function(row) {
+    return {
+      id:          row.id,
+      serviceDate: row.service_date || '',
+      year:        row.year || 0,
+      title:       row.title || '',
+      data:        row.data || {},
+      updatedAt:   row.updated_at || ''
+    };
+  },
+
+  // The bulletins table is new (migrations/2026-11-10_bulletins.sql). Until
+  // it is run every call errors, so each one answers softly rather than
+  // throwing the page over -- BLT.open() says what to do about it once.
+  _missing: false,
+
+  loadRecent: function(limit) {
+    var sb = SBQ_BULLETINS._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('bulletins').select('*')
+      .order('year', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(limit || 12)
+      .then(function(r) {
+        if (r.error) { SBQ_BULLETINS._missing = true; return []; }
+        SBQ_BULLETINS._missing = false;
+        return (r.data || []).map(SBQ_BULLETINS._fromRow);
+      });
+  },
+
+  forDate: function(serviceDate, year) {
+    var sb = SBQ_BULLETINS._sb();
+    if (!sb) return Promise.resolve(null);
+    return sb.from('bulletins').select('*')
+      .eq('service_date', serviceDate).eq('year', year).limit(1)
+      .then(function(r) {
+        if (r.error) { SBQ_BULLETINS._missing = true; return null; }
+        SBQ_BULLETINS._missing = false;
+        return r.data && r.data.length ? SBQ_BULLETINS._fromRow(r.data[0]) : null;
+      });
+  },
+
+  // One bulletin per service, so this is an upsert on the pair that
+  // identifies it. The unique index in the migration is what makes
+  // onConflict work; without it every save would insert another row.
+  save: function(b) {
+    var sb = SBQ_BULLETINS._sb();
+    if (!sb || !b || !b.serviceDate) return Promise.reject(new Error('save needs a service date'));
+    return sb.from('bulletins').upsert({
+      service_date: b.serviceDate,
+      year:         b.year,
+      title:        b.title || '',
+      data:         b.data || {},
+      updated_at:   new Date().toISOString()
+    }, { onConflict: 'service_date,year' }).select('*')
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return r.data && r.data.length ? SBQ_BULLETINS._fromRow(r.data[0]) : null;
+      });
+  }
+};
+window.SBQ_BULLETINS = SBQ_BULLETINS;
+
+var BLT = (function() {
+  'use strict';
+
+  var A4_W = 794, A4_H = 1123;
+
+  // Each row of the duty table, and where its two cells come from.
+  // `roles` are roster role ids whose names stack in the cell; `ref` is a
+  // scripture slot whose reference goes under them. `manual: true` means
+  // the roster has no role for it at all (Acolyte, Flower Offering) and
+  // it is typed on the bulletin instead.
+  var ROWS = [
+    { key: 'preacher',  label: 'Preacher / Holy Comm',  roles: ['preacher'] },
+    { key: 'liturgist', label: 'Liturgist',             roles: ['liturgist'] },
+    { key: 'read1',     label: 'First Reading',         roles: ['reader1'], ref: 'reading1' },
+    { key: 'psalm',     label: 'Psalm Reading',         ref: 'psalm' },
+    { key: 'read2',     label: 'Second Reading',        roles: ['reader2'], ref: 'reading2' },
+    { key: 'gospel',    label: 'Gospel Reading',        ref: 'gospel' },
+    { key: 'acolyte',   label: 'Acolyte',               manual: true },
+    { key: 'ushers',    label: 'Ushers',                roles: ['usher1', 'usher2'] },
+    { key: 'communion', label: 'Communion Asst.',       roles: ['communion1', 'communion2', 'communion3'] },
+    { key: 'altar',     label: 'Altar Guild',           roles: ['altar1', 'altar2'] },
+    { key: 'floral',    label: 'Floral Arrangement',    roles: ['flowerarrangement'] },
+    { key: 'floweroff', label: 'Flower Offering',       manual: true },
+    { key: 'music',     label: 'Musicians & Vocalists', roles: ['pianist', 'guitarist', 'bassist', 'drummer', 'singer1', 'singer2', 'singer3', 'singer4'] },
+    { key: 'pa',        label: 'PA System',             roles: ['pa'] },
+    { key: 'lcd',       label: 'LCD',                   roles: ['lcd'] },
+    { key: 'stream',    label: 'Live Streaming',        roles: ['streaming'] },
+    { key: 'ssteach',   label: 'S. School Teachers',    roles: ['ssteacher1', 'ssteacher2', 'ssteacher3'] }
+  ];
+
+  var _days = [];      // upcoming service days, soonest first
+  var _pick = 0;       // which of them this bulletin is for
+  var _cur = null;     // { serviceDate, year, title, data }
+  var _map = {};       // "roleId__Nov 15" -> value, from the roster
+  var _saveT = null;
+  var _rowsPanel = null;
+
+  function _$(id) { return document.getElementById(id); }
+  function _esc(s) { return window.escapeHtml ? window.escapeHtml(s) : String(s == null ? '' : s); }
+  function _toast(m, k) { if (window.showToast) showToast(m, k || 'info'); }
+
+  // ── the stored shape ───────────────────────────────────────────────
+  function _blank() {
+    return {
+      v: 1,
+      verse: { text: '', ref: '' },
+      prayer: '',
+      notices: [],
+      giving: { title: 'Online giving', lines: ['', ''] },
+      attendance: { asAt: '', figures: [
+        { label: 'Adults', value: '' },
+        { label: 'Children', value: '' },
+        { label: 'Sunday School', value: '' }
+      ] },
+      offering: [
+        { label: 'Offering as at', value: '' },
+        { label: 'Offering month to date', value: '' }
+      ],
+      contacts: [
+        { role: 'Pastor in charge:', name: '', phone: '', email: '' },
+        { role: 'Council Chairperson:', name: '', phone: '', email: '' }
+      ],
+      manual: {},
+      hidden: {}
+    };
+  }
+
+  // Anything missing from a stored bulletin is filled in, so a row saved
+  // by an older version of this page still opens.
+  function _sane(d) {
+    var b = _blank();
+    d = d && typeof d === 'object' ? d : {};
+    if (d.verse && typeof d.verse === 'object') b.verse = { text: d.verse.text || '', ref: d.verse.ref || '' };
+    b.prayer = typeof d.prayer === 'string' ? d.prayer : '';
+    if (Array.isArray(d.notices)) b.notices = d.notices.map(function(n) {
+      return { lead: (n && n.lead) || '', body: (n && n.body) || '' };
+    });
+    if (d.giving && typeof d.giving === 'object') {
+      b.giving = { title: d.giving.title || 'Online giving',
+                   lines: Array.isArray(d.giving.lines) ? d.giving.lines.slice() : b.giving.lines };
+    }
+    if (d.attendance && typeof d.attendance === 'object') {
+      b.attendance = { asAt: d.attendance.asAt || '',
+                       figures: Array.isArray(d.attendance.figures) ? d.attendance.figures.map(function(f) {
+                         return { label: (f && f.label) || '', value: (f && f.value) || '' };
+                       }) : b.attendance.figures };
+    }
+    if (Array.isArray(d.offering)) b.offering = d.offering.map(function(o) {
+      return { label: (o && o.label) || '', value: (o && o.value) || '' };
+    });
+    if (Array.isArray(d.contacts)) b.contacts = d.contacts.map(function(c) {
+      return { role: (c && c.role) || '', name: (c && c.name) || '',
+               phone: (c && c.phone) || '', email: (c && c.email) || '' };
+    });
+    if (d.manual && typeof d.manual === 'object') b.manual = d.manual;
+    if (d.hidden && typeof d.hidden === 'object') b.hidden = d.hidden;
+    return b;
+  }
+
+  function _setPath(obj, path, val) {
+    var parts = String(path).split('.'), cur = obj, i;
+    for (i = 0; i < parts.length - 1; i++) {
+      var k = parts[i];
+      if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = /^\d+$/.test(parts[i + 1]) ? [] : {};
+      cur = cur[k];
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+
+  // Read a plain-text editable: text, <br> and block elements to newlines.
+  // Never innerHTML -- what a browser leaves behind after a paste or a
+  // backspace is not what was typed.
+  function _textOf(el) {
+    var out = '';
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) { out += c.nodeValue; continue; }
+        if (c.nodeType !== 1) continue;
+        if (c.tagName === 'BR') { out += '\n'; continue; }
+        var block = /^(DIV|P|LI|SECTION)$/.test(c.tagName);
+        if (block && out && out.slice(-1) !== '\n') out += '\n';
+        walk(c);
+        if (block && out && out.slice(-1) !== '\n') out += '\n';
+      }
+    })(el);
+    return out.replace(/\n+$/, '');
+  }
+
+  // ── the roster ─────────────────────────────────────────────────────
+  // Every service day from this month and the two after it, soonest
+  // first. Three months rather than two so that opening the bulletin on
+  // the last Sunday of a month still has a NEXT Sunday to put in the
+  // second column.
+  function _serviceDays() {
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var out = [];
+    if (!(window.RosterEngine && RosterEngine.getServiceDays)) return out;
+    for (var k = 0; k < 3; k++) {
+      var m = now.getMonth() + k, y = now.getFullYear();
+      while (m > 11) { m -= 12; y += 1; }
+      (RosterEngine.getServiceDays(y, m) || []).forEach(function(d) {
+        d.year = y; d.month = m;
+        out.push(d);
+      });
+    }
+    out.sort(function(a, b) { return a.date - b.date; });
+    return out.filter(function(d) { return d.date >= today; });
+  }
+
+  // The roster for whichever months the two columns fall in. A month that
+  // was never fetched is simply not in STATE.rosterEdits (gotcha 3), so
+  // this always asks Supabase rather than reading what happens to be in
+  // memory.
+  function _loadRoster(days) {
+    var want = {}, jobs = [];
+    days.forEach(function(d) { if (d) want[d.year + ':' + d.month] = d; });
+    Object.keys(want).forEach(function(k) {
+      var d = want[k];
+      jobs.push(SBQ_ROSTER.getData(d.month, d.year));
+    });
+    return Promise.all(jobs).then(function(res) {
+      var map = {};
+      res.forEach(function(rows) {
+        (rows || []).forEach(function(e) {
+          if (e && e.roleId && e.date) {
+            map[String(e.roleId).toLowerCase().trim() + '__' + String(e.date).trim()] = e.value;
+          }
+        });
+      });
+      // Edits made in this session but not yet saved win, the same way
+      // the Home page's roster card reads them.
+      if (typeof STATE !== 'undefined' && STATE.rosterEdits) {
+        STATE.rosterEdits.forEach(function(value, editKey) {
+          var parts = String(editKey).split('__');
+          if (parts.length >= 2) map[parts[0].toLowerCase() + '__' + parts[1].replace(/_/g, ' ')] = value;
+        });
+      }
+      return map;
+    }).catch(function(err) {
+      console.warn('Bulletin: roster fetch failed', err);
+      return {};
+    });
+  }
+
+  // A roster value as the bulletin should print it. '__BLANK__' and 'TBD'
+  // are empty. A bare '-' is NOT: in a scripture slot it is the sentinel
+  // meaning this service has no psalm, and normalising it away is exactly
+  // what the psalm-slot rule forbids -- so it is kept for scripture and
+  // dropped for a person's name.
+  function _clean(v, isScripture) {
+    if (v && typeof v === 'object' && v.day) v = v.day;
+    v = String(v == null ? '' : v).trim();
+    if (!v || v === '__BLANK__' || v === 'TBD') return '';
+    if (v === '-' && !isScripture) return '';
+    return v;
+  }
+
+  // The liturgical cell is stored by the roster as JSON -- {"day":"25th
+  // Sunday after Pentecost","color":"Green"} -- as a STRING, not an
+  // object, so unwrapping only objects left the braces on the page. A
+  // cell somebody typed by hand is plain text and is kept as it is,
+  // because a cell that is not JSON has to show what it actually says.
+  function _litDay(v) {
+    if (v && typeof v === 'object') return v.day || '';
+    var s = String(v == null ? '' : v).trim();
+    if (s.charAt(0) === '{') {
+      try {
+        var j = JSON.parse(s);
+        if (j && typeof j === 'object') return j.day || '';
+      } catch (e) { /* not JSON after all: keep the text */ }
+    }
+    return s;
+  }
+
+  function _cell(row, day) {
+    if (!day) return { names: [], ref: '' };
+    if (row.manual) {
+      var m = (_cur.data.manual || {})[row.key] || {};
+      return { manual: true, text: m[day.dateStr] || '' };
+    }
+    var names = [];
+    (row.roles || []).forEach(function(rid) {
+      var v = _clean(_map[rid + '__' + day.dateStr], false);
+      if (v && window.LHC_addressedName) v = window.LHC_addressedName(rid, v);
+      if (v && names.indexOf(v) === -1) names.push(v);
+    });
+    return { names: names, ref: row.ref ? _clean(_map[row.ref + '__' + day.dateStr], true) : '' };
+  }
+
+  // ── drawing the sheet ──────────────────────────────────────────────
+  function _ed(path, value, ph, cls, style) {
+    return '<span class="blt-ed ' + (cls || '') + '" contenteditable="plaintext-only" ' +
+      'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '"' +
+      (style ? ' style="' + style + '"' : '') + '>' + _esc(value || '') + '</span>';
+  }
+  function _edBlock(path, value, ph, cls) {
+    return '<div class="blt-ed ' + (cls || '') + '" contenteditable="plaintext-only" ' +
+      'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '">' + _esc(value || '') + '</div>';
+  }
+  function _x(what, i) {
+    return '<button type="button" class="blt-x" onclick="BLT.removeItem(\'' + what + '\',' + i + ')" ' +
+      'aria-label="Remove this one">&times;</button>';
+  }
+  function _add(what, label) {
+    return '<button type="button" class="blt-add" onclick="BLT.addItem(\'' + what + '\')">' +
+      '<i class="fa-solid fa-plus"></i> ' + _esc(label) + '</button>';
+  }
+
+  function render() {
+    var sheet = _$('bltSheet');
+    if (!sheet) return;
+    if (!_cur) { sheet.innerHTML = '<div class="blt-empty">No service to make a bulletin for.</div>'; return; }
+
+    var d = _cur.data;
+    var a = _days[_pick] || null;
+    var b = _days[_pick + 1] || null;
+    // "Twenty Third Sunday after Pentecost" is a roster row (role id
+    // `liturgical`), not something getServiceDays knows: it names only the
+    // feast days it works out itself, and leaves an ordinary Sunday null.
+    var dayName = _clean(_litDay(_map['liturgical__' + (a ? a.dateStr : '')]), true) ||
+                  (a && a.name) || '';
+    var longDate = a ? _longDate(a.date) : '';
+
+    var h = '';
+
+    // Masthead -- fixed furniture apart from the verse.
+    h += '<div class="blt-head">';
+    h +=   '<div class="blt-head__sweep"></div><div class="blt-head__disc"></div>';
+    h +=   '<img class="blt-head__rose" src="/lhc-luther-rose.png" alt="The Luther Rose">';
+    h +=   '<div class="blt-head__cols">';
+    h +=     '<div class="blt-head__left">';
+    h +=       '<div class="blt-church">Luther<br>House<br>Chapel</div>';
+    h +=       '<div class="blt-addr">37, JALAN SS 4C/5,<br>TAMAN RASA SAYANG, PJ</div>';
+    h +=       '<div class="blt-time">Sunday Service at 9.30am</div>';
+    h +=     '</div>';
+    h +=     '<div class="blt-head__right">';
+    h +=       '<div class="blt-welcome">WELCOME</div>';
+    h +=       '<div class="blt-when blt-when--first">' + _esc(longDate) + '</div>';
+    h +=       '<div class="blt-when">' + _esc(dayName) + '</div>';
+    h +=       '<div class="blt-verse">' + _ed('verse.text', d.verse.text, 'The theme verse') + '</div>';
+    h +=       '<div class="blt-verse__ref">' + _ed('verse.ref', d.verse.ref, 'REFERENCE') + '</div>';
+    h +=     '</div>';
+    h +=   '</div>';
+    h += '</div>';
+
+    h += '<div class="blt-body"><div class="blt-col">';
+
+    // Prayer
+    h += '<div class="blt-block blt-block--prayer">';
+    h +=   '<div class="blt-h">PRAYER OF THE DAY</div>';
+    h +=   _edBlock('prayer', d.prayer, 'The prayer of the day', 'blt-p');
+    h += '</div>';
+
+    // Announcements -- a numbered list the admin adds to and takes from.
+    h += '<div class="blt-block blt-block--notice">';
+    h +=   '<div class="blt-h">ANNOUNCEMENTS</div>';
+    h +=   '<ol class="blt-notices">';
+    d.notices.forEach(function(n, i) {
+      h += '<li><b>' + _ed('notices.' + i + '.lead', n.lead, 'Title') + '</b> ' +
+           _ed('notices.' + i + '.body', n.body, 'What it says') + _x('notice', i) + '</li>';
+    });
+    h +=   '</ol>';
+    h +=   _add('notice', 'Announcement');
+    h += '</div>';
+
+    // Giving
+    h += '<div class="blt-block blt-block--give">';
+    h +=   '<div class="blt-h">' + _ed('giving.title', d.giving.title, 'Online giving') + '</div>';
+    d.giving.lines.forEach(function(ln, i) {
+      h += '<div class="blt-give__line' + (i ? ' blt-give__line--acct' : '') + '">' +
+           _ed('giving.lines.' + i, ln, i ? 'Bank and account number' : 'Account name') +
+           (d.giving.lines.length > 1 ? _x('giving', i) : '') + '</div>';
+    });
+    h +=   _add('giving', 'Line');
+    h += '</div>';
+
+    // Attendance and offering
+    h += '<div class="blt-block blt-block--figs">';
+    h +=   '<div class="blt-h">ATTENDANCE &middot; ' + _ed('attendance.asAt', d.attendance.asAt, 'DATE') + '</div>';
+    h +=   '<div class="blt-figs">';
+    d.attendance.figures.forEach(function(f, i) {
+      h += '<div><div class="blt-fig__n">' + _ed('attendance.figures.' + i + '.value', f.value, '0') + '</div>' +
+           '<div class="blt-fig__l">' + _ed('attendance.figures.' + i + '.label', f.label, 'Who') + _x('figure', i) + '</div></div>';
+    });
+    h +=   '</div>';
+    h +=   _add('figure', 'Figure');
+    h +=   '<div class="blt-money">';
+    d.offering.forEach(function(o, i) {
+      h += '<div class="blt-money__row"><span>' + _ed('offering.' + i + '.label', o.label, 'What') + _x('offering', i) + '</span>' +
+           '<span class="blt-money__v">' + _ed('offering.' + i + '.value', o.value, 'RM 0') + '</span></div>';
+    });
+    h +=   '</div>';
+    h +=   _add('offering', 'Offering line');
+    h += '</div>';
+
+    h += '</div><div class="blt-main">';
+
+    // The duty table.
+    h += '<table class="blt-table"><thead><tr><th></th>';
+    h += '<th>' + _esc(a ? _colDate(a) : '') + '</th>';
+    h += '<th>' + _esc(b ? _colDate(b) : '') + '</th>';
+    h += '</tr></thead><tbody>';
+    ROWS.forEach(function(row) {
+      if (d.hidden[row.key]) return;
+      h += '<tr><td class="blt-td-role">' + _esc(row.label) + '</td>';
+      [a, b].forEach(function(day) {
+        var c = _cell(row, day);
+        h += '<td class="blt-td-who">';
+        if (c.manual) {
+          h += _ed('manual.' + row.key + '.' + (day ? day.dateStr : 'x'), c.text, '-');
+        } else {
+          h += _esc(c.names.join('\n'));
+          if (c.ref) h += '<span class="blt-ref">' + _esc(c.ref) + '</span>';
+          if (!c.names.length && !c.ref) h += '-';
+        }
+        h += '</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+
+    h += '</div></div>';
+
+    // Footer contacts.
+    h += '<div class="blt-foot">';
+    d.contacts.forEach(function(c, i) {
+      h += '<div class="blt-foot__c">';
+      h +=   '<div class="blt-foot__role">' + _ed('contacts.' + i + '.role', c.role, 'Role:') +
+             (d.contacts.length > 1 ? _x('contact', i) : '') + '</div>';
+      h +=   '<div class="blt-foot__name">' + _ed('contacts.' + i + '.name', c.name, 'Name') + '</div>';
+      h +=   '<div class="blt-foot__line">' + _ed('contacts.' + i + '.phone', c.phone, 'Phone') + '</div>';
+      h +=   '<div class="blt-foot__line">' + _ed('contacts.' + i + '.email', c.email, 'Email') + '</div>';
+      h += '</div>';
+    });
+    h += '</div>';
+
+    sheet.innerHTML = h;
+    _fit();
+    _warnIfLong();
+  }
+
+  // An A4 page does not grow. A fourth long announcement used to fall off
+  // the bottom in silence -- and only on paper, which is the one place
+  // nobody looks before it is handed out. The body is the flexible part,
+  // so what it cannot fit is what is lost.
+  function _warnIfLong() {
+    var sheet = _$('bltSheet'), badge = _$('bltLong');
+    if (!sheet || !badge) return;
+    var body = sheet.querySelector('.blt-body');
+    var over = body ? body.scrollHeight - body.clientHeight : 0;
+    if (over > 2) {
+      badge.style.display = '';
+      badge.textContent = 'Too long for one page - shorten something';
+    } else {
+      badge.style.display = 'none';
+      badge.textContent = '';
+    }
+  }
+
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                'August', 'September', 'October', 'November', 'December'];
+
+  function _longDate(dt) {
+    if (!(dt instanceof Date) || isNaN(dt)) return '';
+    return dt.getDate() + ' ' + MONTHS[dt.getMonth()] + ' ' + dt.getFullYear();
+  }
+  function _colDate(day) {
+    return day.dateStr + ' ' + day.year;
+  }
+
+  // The sheet is laid out at A4 and scaled to fit. The transform goes on
+  // the WRAPPER, never on the sheet: html-to-image captures the node it
+  // is given at that node's own size, so a transform on the sheet itself
+  // would be baked into the PDF.
+  function _fit() {
+    var stage = _$('bltStageInner'), sheet = _$('bltSheet');
+    if (!stage || !sheet) return;
+    var room = (stage.parentElement ? stage.parentElement.clientWidth : A4_W) - 16;
+    var scale = Math.min(1, Math.max(0.2, room / A4_W));
+    stage.style.transform = 'scale(' + scale + ')';
+    stage.style.transformOrigin = 'top left';
+    stage.style.width = A4_W + 'px';
+    stage.style.height = A4_H + 'px';
+    stage.style.marginBottom = (A4_H * scale - A4_H) + 'px';
+    stage.style.marginRight = (A4_W * scale - A4_W) + 'px';
+  }
+
+  // ── editing ────────────────────────────────────────────────────────
+  function _bind() {
+    var sheet = _$('bltSheet');
+    if (!sheet || sheet._bltBound) return;
+    sheet._bltBound = true;
+    sheet.addEventListener('input', function(e) {
+      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
+      if (!el || !el.dataset.p) return;
+      _setPath(_cur.data, el.dataset.p, _textOf(el));
+      _queueSave();
+    });
+    // A paste carries the page it came from. Plain text only.
+    sheet.addEventListener('paste', function(e) {
+      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
+      if (!el) return;
+      e.preventDefault();
+      var t = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+      document.execCommand('insertText', false, t);
+    });
+  }
+
+  function _queueSave() {
+    var badge = _$('bltSaved');
+    if (badge) badge.textContent = 'Saving...';
+    clearTimeout(_saveT);
+    _saveT = setTimeout(saveNow, 900);
+  }
+
+  function saveNow() {
+    clearTimeout(_saveT);
+    if (!_cur) return Promise.resolve();
+    var badge = _$('bltSaved');
+    return SBQ_BULLETINS.save(_cur).then(function() {
+      if (badge) badge.textContent = 'Saved';
+      setTimeout(function() { if (badge && badge.textContent === 'Saved') badge.textContent = ''; }, 2200);
+    }).catch(function(err) {
+      if (badge) badge.textContent = 'Not saved';
+      console.warn('Bulletin save failed', err);
+      _toast('The bulletin could not be saved. ' +
+        (SBQ_BULLETINS._missing ? 'Run migrations/2026-11-10_bulletins.sql in Supabase first.' : String(err.message || err)), 'error');
+    });
+  }
+
+  function addItem(what) {
+    var d = _cur.data;
+    if (what === 'notice') d.notices.push({ lead: '', body: '' });
+    else if (what === 'giving') d.giving.lines.push('');
+    else if (what === 'figure') d.attendance.figures.push({ label: '', value: '' });
+    else if (what === 'offering') d.offering.push({ label: '', value: '' });
+    else if (what === 'contact') d.contacts.push({ role: '', name: '', phone: '', email: '' });
+    else return;
+    render(); _queueSave();
+  }
+
+  function removeItem(what, i) {
+    var d = _cur.data;
+    if (what === 'notice') d.notices.splice(i, 1);
+    else if (what === 'giving') d.giving.lines.splice(i, 1);
+    else if (what === 'figure') d.attendance.figures.splice(i, 1);
+    else if (what === 'offering') d.offering.splice(i, 1);
+    else if (what === 'contact') d.contacts.splice(i, 1);
+    else return;
+    render(); _queueSave();
+  }
+
+  // Which duty rows this bulletin carries.
+  function toggleRows(ev) {
+    if (ev) ev.stopPropagation();
+    if (_rowsPanel) { _rowsPanel.remove(); _rowsPanel = null; return; }
+    if (!_cur) return;
+    var bar = ev && ev.currentTarget;
+    var p = document.createElement('div');
+    p.className = 'blt-rows';
+    var h = '<div class="blt-rows__h">Rows on the bulletin</div>';
+    ROWS.forEach(function(row) {
+      h += '<label><input type="checkbox" data-k="' + _esc(row.key) + '"' +
+           (_cur.data.hidden[row.key] ? '' : ' checked') + '>' + _esc(row.label) + '</label>';
+    });
+    p.innerHTML = h;
+    p.addEventListener('click', function(e) { e.stopPropagation(); });
+    p.addEventListener('change', function(e) {
+      var k = e.target && e.target.dataset ? e.target.dataset.k : null;
+      if (!k) return;
+      if (e.target.checked) delete _cur.data.hidden[k];
+      else _cur.data.hidden[k] = true;
+      render(); _queueSave();
+    });
+    document.body.appendChild(p);
+    if (bar) {
+      var r = bar.getBoundingClientRect();
+      p.style.top = (r.bottom + window.scrollY + 6) + 'px';
+      p.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.innerWidth - 300)) + 'px';
+    }
+    _rowsPanel = p;
+    setTimeout(function() {
+      document.addEventListener('click', function once() {
+        if (_rowsPanel) { _rowsPanel.remove(); _rowsPanel = null; }
+        document.removeEventListener('click', once);
+      });
+    }, 0);
+  }
+
+  // ── opening ────────────────────────────────────────────────────────
+  function _fillPicker() {
+    var sel = _$('bltDate');
+    if (!sel) return;
+    sel.innerHTML = _days.map(function(day, i) {
+      return '<option value="' + i + '"' + (i === _pick ? ' selected' : '') + '>' +
+        _esc(day.dateStr + ' ' + day.year + (day.name ? ' - ' + day.name : '')) + '</option>';
+    }).join('');
+    sel.onchange = function() { pick(parseInt(sel.value, 10) || 0); };
+  }
+
+  // A new bulletin starts from the most recent one, because most of it --
+  // the giving details, the contacts, the theme verse, often half the
+  // announcements -- is the same every week. Only what changes is typed.
+  function _carry() {
+    return SBQ_BULLETINS.loadRecent(1).then(function(list) {
+      return list && list.length ? _sane(list[0].data) : _blank();
+    }).catch(function() { return _blank(); });
+  }
+
+  function pick(i) {
+    if (!_days.length) return Promise.resolve();
+    _pick = Math.max(0, Math.min(i, _days.length - 1));
+    var day = _days[_pick];
+    var badge = _$('bltSaved');
+    if (badge) badge.textContent = 'Loading...';
+    return Promise.all([
+      SBQ_BULLETINS.forDate(day.dateStr, day.year),
+      _loadRoster([_days[_pick], _days[_pick + 1]])
+    ]).then(function(res) {
+      _map = res[1] || {};
+      if (res[0]) {
+        _cur = { serviceDate: day.dateStr, year: day.year, title: res[0].title, data: _sane(res[0].data) };
+        if (badge) badge.textContent = '';
+        render(); _bind();
+        return;
+      }
+      return _carry().then(function(data) {
+        _cur = { serviceDate: day.dateStr, year: day.year,
+                 title: 'Sunday Bulletin ' + _longDate(day.date), data: data };
+        if (badge) badge.textContent = '';
+        render(); _bind();
+      });
+    });
+  }
+
+  function open() {
+    _days = _serviceDays();
+    if (!_days.length) {
+      var sheet = _$('bltSheet');
+      if (sheet) sheet.innerHTML = '<div class="blt-empty">The roster has no upcoming services, so there is nothing to make a bulletin for yet.</div>';
+      return Promise.resolve();
+    }
+    _fillPicker();
+    return pick(_pick).then(function() {
+      if (SBQ_BULLETINS._missing) {
+        _toast('The bulletins table is not in the database yet - run migrations/2026-11-10_bulletins.sql in Supabase. You can still lay one out; it will not save.', 'error');
+      }
+    });
+  }
+
+  // The roster can change after a bulletin is opened; this reads it again.
+  // The bulletin stores no duties, so there is nothing to overwrite.
+  function fillFromRoster() {
+    if (!_cur) return;
+    _loadRoster([_days[_pick], _days[_pick + 1]]).then(function(map) {
+      _map = map || {};
+      render();
+      _toast('Duties read from the roster', 'success');
+    });
+  }
+
+  // ── out ────────────────────────────────────────────────────────────
+  function _png() {
+    var sheet = _$('bltSheet');
+    if (!sheet) return Promise.reject(new Error('no sheet'));
+    sheet.classList.add('blt-capturing');
+    return _loadScript('https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js')
+      .then(function() {
+        if (!window.htmlToImage) throw new Error('The picture library did not load.');
+        return window.htmlToImage.toPng(sheet, {
+          pixelRatio: 2, backgroundColor: '#ffffff', width: A4_W, height: A4_H,
+          style: { transform: 'none', margin: '0', boxShadow: 'none' }
+        });
+      })
+      .then(function(png) { sheet.classList.remove('blt-capturing'); return png; })
+      .catch(function(err) { sheet.classList.remove('blt-capturing'); throw err; });
+  }
+
+  function _pdfBlob() {
+    return _png().then(function(png) {
+      var J = window.jspdf && window.jspdf.jsPDF;
+      if (!J) throw new Error('The PDF maker has not loaded yet.');
+      var doc = new J({ unit: 'pt', format: 'a4', compress: true });
+      doc.setProperties({ title: (_cur && _cur.title) || 'LHC Sunday Bulletin', creator: 'LHC Worship Prep' });
+      doc.addImage(png, 'PNG', 0, 0, 595.28, 841.89, undefined, 'FAST');
+      return doc.output('blob');
+    });
+  }
+
+  function _fileName() {
+    var day = _days[_pick];
+    return 'LHC-Bulletin-' + String((day ? day.dateStr : '') + '-' + (day ? day.year : ''))
+      .replace(/\s+/g, '-').replace(/[^A-Za-z0-9-]/g, '') + '.pdf';
+  }
+
+  function _download(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  function _busy(on) {
+    var bar = document.querySelector('.blt-bar');
+    if (!bar) return;
+    bar.querySelectorAll('.blt-btn').forEach(function(b) { b.disabled = !!on; });
+  }
+
+  function downloadPdf() {
+    _busy(true);
+    return _pdfBlob().then(function(blob) {
+      _download(blob, _fileName());
+      _toast('Bulletin saved as a PDF', 'success');
+    }).catch(function(err) {
+      _toast(String(err.message || err), 'error');
+    }).then(function() { _busy(false); });
+  }
+
+  // The PDF itself goes to WhatsApp where the device allows it, so what
+  // lands in the chat is the bulletin and not a link to it. Where it does
+  // not -- a desk browser, mostly -- the file is saved and WhatsApp opens
+  // with the message, for the operator to attach it.
+  function shareWhatsApp() {
+    _busy(true);
+    var name = _fileName();
+    var day = _days[_pick];
+    var text = 'Sunday Bulletin - ' + (day ? _longDate(day.date) : '') +
+      (day && day.name ? ' (' + day.name + ')' : '') + ' - Luther House Chapel';
+    return _pdfBlob().then(function(blob) {
+      var file = new File([blob], name, { type: 'application/pdf' });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        return navigator.share({ title: 'LHC Sunday Bulletin', text: text, files: [file] })
+          .catch(function(err) { if (err && err.name !== 'AbortError') throw err; });
+      }
+      _download(blob, name);
+      if (window.lhcWhatsAppUrl) window.open(window.lhcWhatsAppUrl(text), '_blank');
+      _toast('PDF saved - attach it in WhatsApp', 'success');
+    }).catch(function(err) {
+      _toast(String(err.message || err), 'error');
+    }).then(function() { _busy(false); });
+  }
+
+  function print() {
+    _busy(true);
+    return _png().then(function(png) {
+      var w = window.open('', '_blank');
+      if (!w) { _toast('The browser blocked the print window', 'error'); return; }
+      w.document.write('<!doctype html><html><head><meta charset="utf-8">' +
+        '<title>' + _esc((_cur && _cur.title) || 'LHC Sunday Bulletin') + '</title>' +
+        '<style>@page{size:A4;margin:0}html,body{margin:0;padding:0}' +
+        'img{width:100%;height:auto;display:block}</style></head><body>' +
+        '<img alt="Sunday Bulletin" src="' + png + '"></body></html>');
+      w.document.close();
+      var go = function() { try { w.focus(); w.print(); } catch (e) {} };
+      var img = w.document.images && w.document.images[0];
+      if (img && !img.complete) img.onload = go; else setTimeout(go, 220);
+    }).catch(function(err) {
+      _toast(String(err.message || err), 'error');
+    }).then(function() { _busy(false); });
+  }
+
+  window.addEventListener('resize', function() {
+    var v = _$('bulletinView');
+    if (v && v.style.display !== 'none') _fit();
+  });
+
+  return {
+    ROWS: ROWS,
+    open: open, pick: pick, render: render, saveNow: saveNow,
+    fillFromRoster: fillFromRoster, toggleRows: toggleRows,
+    addItem: addItem, removeItem: removeItem,
+    print: print, downloadPdf: downloadPdf, shareWhatsApp: shareWhatsApp,
+    // for the harness
+    _blank: _blank, _sane: _sane, _clean: _clean, _cell: _cell, _textOf: _textOf,
+    _litDay: _litDay, _warnIfLong: _warnIfLong,
+    _setPath: _setPath, _serviceDays: _serviceDays,
+    _state: function() { return { days: _days, pick: _pick, cur: _cur, map: _map }; },
+    _inject: function(days, pick, cur, map) { _days = days; _pick = pick; _cur = cur; _map = map; }
+  };
+})();
+window.BLT = BLT;
+</script>
 
 </body>
 </html>
