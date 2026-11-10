@@ -129795,10 +129795,12 @@ window.LHC_Install = (function() {
 .blt-qr__img { width: 62px; height: 62px; object-fit: contain; display: block; background: #fff; border: 1px solid #e6d7ab; }
 .blt-qr__x { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
   border: 1px solid #cbd5e1; background: #fff; color: #475569; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; }
-.blt-qr--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  border: 1px dashed #d9b968; border-radius: 4px; background: rgba(255,255,255,.55); color: #8a6210;
-  font-family: 'Poppins', sans-serif; font-size: 7.5px; font-weight: 700; letter-spacing: .06em; cursor: pointer; }
-.blt-qr--empty i { font-size: 17px; }
+.blt-qr--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 1.5px dashed #c99a1f; border-radius: 5px; background: rgba(255,255,255,.75); color: #7a5609;
+  font-family: 'Poppins', sans-serif; font-size: 8px; font-weight: 700; letter-spacing: .04em; cursor: pointer; }
+.blt-qr--empty i { font-size: 15px; }
+.blt-qr--empty:hover { background: #fff; border-color: #8a6210; color: #5f4309; }
+.blt-qr--empty:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .blt-capturing .blt-qr--empty, .blt-capturing .blt-qr__x { display: none !important; }
 
 .blt-figs { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
@@ -130263,38 +130265,110 @@ var BLT = (function() {
   // the bulletin itself: a QR is a few kilobytes, and putting it in the
   // row means it travels with the bulletin into the PDF without a
   // second round trip to storage.
-  var QR_MAX = 350 * 1024;
+  var QR_MAX = 350 * 1024;   // what may be stored, after shrinking
+  var QR_SIDE = 512;         // a QR needs no more than this to scan
 
   function _qrHtml(i, qr) {
+    var drops = 'data-qr-i="' + i + '" ondragover="event.preventDefault()" ' +
+      'ondrop="BLT.dropQr(event,' + i + ')"';
     if (qr) {
-      return '<div class="blt-qr"><img class="blt-qr__img" src="' + _esc(qr) + '" alt="QR code for giving">' +
+      return '<div class="blt-qr" ' + drops + ' title="Drop or paste another picture to replace this one">' +
+        '<img class="blt-qr__img" src="' + _esc(qr) + '" alt="QR code for giving">' +
         '<button type="button" class="blt-qr__x" onclick="BLT.clearQr(' + i + ')" aria-label="Remove the QR code">&times;</button></div>';
     }
-    return '<button type="button" class="blt-qr blt-qr--empty" onclick="BLT.pickQr(' + i + ')">' +
-      '<i class="fa-solid fa-qrcode"></i><span>QR code</span></button>';
+    return '<button type="button" class="blt-qr blt-qr--empty" ' + drops +
+      ' onclick="BLT.pickQr(' + i + ')" title="Choose a QR picture, or drop or paste one here">' +
+      '<i class="fa-solid fa-arrow-up-from-bracket"></i><span>Add QR</span></button>';
+  }
+
+  // A photograph of a QR is a megapixel JPEG, which the cap used to
+  // refuse outright. Scale it down here instead -- onto a WHITE ground,
+  // because a transparent PNG laid over the gold block loses the quiet
+  // zone a scanner needs.
+  function _qrShrink(file) {
+    return new Promise(function(ok, bad) {
+      var rd = new FileReader();
+      rd.onerror = function() { bad(new Error('read')); };
+      rd.onload = function() {
+        var src = String(rd.result || '');
+        var im = new Image();
+        im.onerror = function() { bad(new Error('decode')); };
+        im.onload = function() {
+          var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+          var side = Math.max(w, h);
+          if (!side) { bad(new Error('empty')); return; }
+          if (side <= QR_SIDE && src.length <= 120 * 1024) { ok(src); return; }
+          var k = Math.min(1, QR_SIDE / side);
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w * k));
+          c.height = Math.max(1, Math.round(h * k));
+          var g = c.getContext('2d');
+          g.fillStyle = '#ffffff';
+          g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(im, 0, 0, c.width, c.height);
+          // PNG first: a QR is flat black and white and keeps its edges
+          // crisp. But a QR PHOTOGRAPHED against anything patterned is
+          // photographic content, which PNG cannot compress -- a 512px
+          // noisy square is about a megabyte. JPEG handles that, and a
+          // QR reads perfectly well through it.
+          var out = c.toDataURL('image/png');
+          if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.85);
+          if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.6);
+          ok(out);
+        };
+        im.src = src;
+      };
+      rd.readAsDataURL(file);
+    });
+  }
+
+  // The one place a picture becomes this entry's QR, whichever way it
+  // arrived: chosen, dropped or pasted.
+  function _qrAccept(i, file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || '')) { _toast('That is not a picture', 'error'); return; }
+    if (!_cur || !_cur.data.giving.entries[i]) return;
+    _qrShrink(file).then(function(url) {
+      if (url.length > QR_MAX) {
+        _toast('That picture will not fit on a bulletin - try a plainer QR', 'error');
+        return;
+      }
+      _flushTyping(); _pushUndo();
+      _cur.data.giving.entries[i].qr = url;
+      render(); _queueSave();
+      _toast('QR code added', 'success');
+    }).catch(function() { _toast('That picture could not be read', 'error'); });
   }
 
   function pickQr(i) {
     var inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = 'image/png,image/jpeg,image/webp,image/gif';
-    inp.onchange = function() {
-      var f = inp.files && inp.files[0];
-      if (!f) return;
-      if (f.size > QR_MAX) {
-        _toast('That picture is too big for a bulletin - please use one under 350KB', 'error');
+    inp.onchange = function() { _qrAccept(i, inp.files && inp.files[0]); };
+    inp.click();
+  }
+
+  function dropQr(ev, i) {
+    ev.preventDefault();
+    var dt = ev.dataTransfer;
+    _qrAccept(i, dt && dt.files && dt.files[0]);
+  }
+
+  // A QR copied out of a banking app is on the clipboard, not in a file.
+  // Paste reaches the document rather than the button, so the slot that
+  // has focus is the one it lands on.
+  function _qrPaste(ev) {
+    var a = document.activeElement;
+    var slot = a && a.closest ? a.closest('.blt-qr') : null;
+    if (!slot || !slot.dataset || slot.dataset.qrI == null) return;
+    var items = (ev.clipboardData && ev.clipboardData.items) || [];
+    for (var k = 0; k < items.length; k++) {
+      if (items[k].kind === 'file' && /^image\//.test(items[k].type || '')) {
+        ev.preventDefault();
+        _qrAccept(parseInt(slot.dataset.qrI, 10), items[k].getAsFile());
         return;
       }
-      var rd = new FileReader();
-      rd.onload = function() {
-        _flushTyping(); _pushUndo();
-        _cur.data.giving.entries[i].qr = String(rd.result || '');
-        render(); _queueSave();
-      };
-      rd.onerror = function() { _toast('That picture could not be read', 'error'); };
-      rd.readAsDataURL(f);
-    };
-    inp.click();
+    }
   }
 
   function clearQr(i) {
@@ -130682,6 +130756,7 @@ var BLT = (function() {
     });
 
     document.addEventListener('selectionchange', _noteSelection);
+    document.addEventListener('paste', _qrPaste);
     _paintUndo();
   }
 
@@ -130955,7 +131030,8 @@ var BLT = (function() {
     print: print, downloadPdf: downloadPdf, shareWhatsApp: shareWhatsApp,
     zoomBy: zoomBy, zoomFit: zoomFit,
     undo: undo, redo: redo, fmt: fmt, fmtColour: fmtColour, fmtFont: fmtFont,
-    pickQr: pickQr, clearQr: clearQr,
+    pickQr: pickQr, clearQr: clearQr, dropQr: dropQr,
+    _qrAccept: _qrAccept, _qrShrink: _qrShrink,
     _richOf: _richOf, _richClean: _richClean,
     _undoDepth: function() { return { undo: _undo.length, redo: _redo.length }; },
     _zoomState: function() { return _zoom; },

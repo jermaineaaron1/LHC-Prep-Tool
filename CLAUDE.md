@@ -2804,6 +2804,19 @@ the anon key -- verify as `postgres`, not as the app.
     an auto LEFT margin against a fixed RIGHT one pushes a box right,
     and the bulletin sat off-centre at every zoom.
 
+    **The QR takes a picture three ways** -- clicked, dropped, or pasted
+    (one copied out of a banking app is on the clipboard, not in a file;
+    paste reaches the document, so the slot with FOCUS is the one it
+    lands on). All three go through `_qrAccept`, which turns anything
+    that is not an image away and scales the rest to 512px through
+    `_qrShrink`: PNG first, so a plain QR keeps its edges, then JPEG at
+    0.85 and 0.6, because a QR PHOTOGRAPHED against anything patterned
+    is photographic content that PNG cannot compress -- a 512px noisy
+    square is about a megabyte, and refusing it was the old behaviour.
+    Always drawn on a WHITE ground: a transparent PNG over the gold
+    block has no quiet zone and will not scan, and JPEG has no alpha at
+    all.
+
 ## Quick Commands for Claude Code
 
 ```bash

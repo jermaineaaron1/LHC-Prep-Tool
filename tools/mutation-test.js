@@ -762,6 +762,34 @@ const CASES = [
     s => s.replace("      removeItem('notice', parseInt(m[1], 10));", '')],
   // A QR travels inside the bulletin row, so what goes in must be an
   // image and nothing else.
+  // The slot opened a picker all along; nobody could tell it was a button.
+  ['bulletin-harness.js', 'the QR slot reads as a placeholder again',
+    s => s.replace('<span>Add QR</span>', '<span>QR code</span>')],
+  ['bulletin-harness.js', 'the slot stops saying what it does on hover',
+    s => s.replace('title="Choose a QR picture, or drop or paste one here"', '')],
+  // A QR copied out of a banking app is on the clipboard, not in a file.
+  ['bulletin-harness.js', 'a QR can no longer be dropped on the slot',
+    s => s.replace('ondrop="BLT.dropQr(event,', 'data-nodrop="(')],
+  ['bulletin-harness.js', 'a dropped picture navigates the page away instead',
+    s => s.replace('  function dropQr(ev, i) {', '  function dropQr(ev, i) { if (1) return;')],
+  ['bulletin-harness.js', 'a QR can no longer be pasted',
+    s => s.replace("document.addEventListener('paste', _qrPaste);", '')],
+  ['bulletin-harness.js', 'a paste no longer knows which slot it is for',
+    s => s.replace("var slot = a && a.closest ? a.closest('.blt-qr') : null;", 'var slot = null;')],
+  // A photograph of a QR is a megapixel file, and refusing it was the
+  // old behaviour -- it is the commonest thing somebody would try.
+  ['bulletin-harness.js', 'a photographed QR is refused instead of scaled',
+    s => s.replace('var QR_SIDE = 512;         // a QR needs no more than this to scan', 'var QR_SIDE = 99999;')],
+  ['bulletin-harness.js', 'a QR photographed on a patterned table is refused',
+    s => s.replace("if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.85);", '')],
+  ['bulletin-harness.js', 'the last resort for a noisy photo is gone',
+    s => s.replace("if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.6);", '')],
+  // A transparent PNG over the gold block loses the quiet zone a
+  // scanner needs, and JPEG has no alpha at all.
+  ['bulletin-harness.js', 'the QR is laid on nothing, so it will not scan',
+    s => s.replace("          g.fillStyle = '#ffffff';", '')],
+  ['bulletin-harness.js', 'any file at all is taken as a QR',
+    s => s.replace("    if (!/^image\\//.test(file.type || '')) { _toast('That is not a picture', 'error'); return; }", '')],
   ['bulletin-harness.js', 'anything at all can be stored as the QR code',
     s => s.replace("qr: (g && typeof g.qr === 'string' && /^data:image\\//.test(g.qr)) ? g.qr : ''",
                    "qr: (g && g.qr) || ''")],

@@ -538,8 +538,39 @@ check('only an image data URL is read back',
    BLT._sane({ giving: { entries: [{ qr: 'https://example.com/x.png' }] } }).giving.entries[0].qr,
    BLT._sane({ giving: { entries: [{ qr: 'data:image/png;base64,AAA' }] } }).giving.entries[0].qr],
   ['', '', 'data:image/png;base64,AAA']);
-check('a picture too big for a bulletin is refused', /QR_MAX = 350 \* 1024/.test(MODULE), true);
+check('there is a ceiling on what may be stored', /QR_MAX = 350 \* 1024/.test(MODULE), true);
 check('the empty slot does not print', /\.blt-capturing \.blt-qr--empty/.test(SRC), true);
+
+console.log('\nputting a QR on the bulletin');
+// The slot opened a file picker all along, but a 55px box labelled "QR
+// code" reads as a placeholder, not a button -- so it was never used.
+check('the slot says what it does', /<span>Add QR<\/span>/.test(MODULE), true);
+check('  and says it again on hover', /title="Choose a QR picture, or drop or paste one here"/.test(MODULE), true);
+// Three ways in, because a QR is as likely to be on the clipboard --
+// copied out of a banking app -- as in a file.
+check('it can be clicked', /onclick="BLT\.pickQr\(/.test(MODULE), true);
+check('it can be dropped on', /ondrop="BLT\.dropQr\(/.test(MODULE), true);
+check('  and a drop is stopped from navigating the page',
+  /function dropQr\(ev, i\) \{\s*\n\s*ev\.preventDefault\(\);/.test(MODULE), true);
+check('it can be pasted into', /document\.addEventListener\('paste', _qrPaste\);/.test(MODULE), true);
+check('  the paste lands on the slot that has focus',
+  /a\.closest\('\.blt-qr'\)/.test(MODULE) && /slot\.dataset\.qrI/.test(MODULE), true);
+check('all three go through one door',
+  (MODULE.match(/_qrAccept\(/g) || []).length >= 4, true);
+
+// A photograph of a QR is a megapixel file; refusing it outright was
+// the old behaviour and it is the commonest thing somebody would try.
+check('a big picture is scaled down rather than refused', /QR_SIDE = 512/.test(MODULE), true);
+check('  PNG first, so a plain QR keeps its edges',
+  /var out = c\.toDataURL\('image\/png'\);/.test(MODULE), true);
+check('  then JPEG, which PNG cannot do for a photographed one',
+  /c\.toDataURL\('image\/jpeg', 0\.85\)/.test(MODULE) && /c\.toDataURL\('image\/jpeg', 0\.6\)/.test(MODULE), true);
+// A transparent PNG over the gold block has no quiet zone and will not
+// scan, and JPEG has no alpha at all.
+check('  on a white ground, so it still scans',
+  /g\.fillStyle = '#ffffff';\s*\n\s*g\.fillRect\(0, 0, c\.width, c\.height\);/.test(MODULE), true);
+check('anything that is not a picture is turned away',
+  /if \(!\/\^image\\\/\/\.test\(file\.type \|\| ''\)\)/.test(MODULE), true);
 
 console.log('\nthe second column, and the table behind it');
 // Opening the bulletin on the last Sunday of a month still needs a NEXT
