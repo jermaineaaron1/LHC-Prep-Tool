@@ -8519,8 +8519,8 @@
 
               <!-- Font Size -->
               <div class="wo-text-setting">
-                <label class="wo-text-label">Font Size: <span id="woFontSizeValue">5</span>vw</label>
-                <input type="range" id="woFontSize" min="2" max="10" step="0.5" value="5" onchange="WO.updateTextPreview()" oninput="WO.updateTextPreview()">
+                <label class="wo-text-label">Font Size: <span id="woFontSizeValue">6.5</span>vw</label>
+                <input type="range" id="woFontSize" min="2" max="10" step="0.5" value="6.5" onchange="WO.updateTextPreview()" oninput="WO.updateTextPreview()">
                 <div class="wo-text-range-labels">
                   <span>Small</span>
                   <span>Large</span>
@@ -44981,7 +44981,13 @@ var WO = (function() {
   var TEXT_SETTINGS_KEY = 'lhc_projection_text_settings';
   var textSettings = {
     fontFamily: 'Georgia, serif',
-    fontSize: 5,
+    // 6.5vw is 124.8px on a 1080p projector -- "125px", asked for on
+    // 2026-11-10 -- and still a fraction of the screen, so a bigger
+    // projector gives bigger letters rather than the same ones further off.
+    // NOTE this is the default only: the dialog saves to localStorage per
+    // device (TEXT_SETTINGS_KEY), so a machine that has already saved a size
+    // keeps it until the slider is moved or Reset is pressed.
+    fontSize: 6.5,
     color: '#ffffff',
     bold: false,
     italic: false
@@ -45085,7 +45091,7 @@ var WO = (function() {
   function resetTextSettings() {
     textSettings = {
       fontFamily: 'Georgia, serif',
-      fontSize: 5,
+      fontSize: 6.5,
       color: '#ffffff',
       bold: false,
       italic: false
@@ -46831,7 +46837,14 @@ var WO = (function() {
       '#projBackground { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }' +
       '#projBackground video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }' +
       '.projection-content { position: absolute; z-index: 1; top: ' + _barrierConfig.global.top + '%; right: ' + _barrierConfig.global.right + '%; bottom: ' + _barrierConfig.global.bottom + '%; left: ' + _barrierConfig.global.left + '%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; }' +
-      '.projection-text { font-size: 5vw; line-height: 1.5; white-space: pre-wrap; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
+      // max-width is what makes the wrapping possible at all. This is a flex
+      // item in a centred flex container, so without it the element sizes to
+      // MAX-CONTENT and overflow-wrap never has a line box to break against.
+      // Measured at 1920x1080: a 75-character word with no space in it came
+      // out 3374px wide in a 1728px safe zone, 823px of it clipped off the
+      // left and the rest off the right -- the word simply gone from the wall.
+      // The old shrink-to-fit hid this by making the whole slide smaller.
+      '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
       '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
       '.projection-video { width: 100vw; height: 100vh; }' +
@@ -46850,17 +46863,31 @@ var WO = (function() {
       '<div style="font-size:1.2vw;color:rgba(255,255,255,0.5);">or press F11</div>' +
       '</div>' +
       '<scr' + 'ipt>' +
-      // Auto-scale projection text so all lines always fit within the viewport
+      // Shrink the projected words to fit the HEIGHT of the safe zone, and
+      // never to fit a line.
+      //
+      // From the operator (2026-11-10): "if the words can't fit in the same
+      // line, then push it to the line below automatically, don't shrink the
+      // fonts just to fit the line". A long line used to drop the whole slide
+      // a size or more, so one verse was half the height of the next and the
+      // wall changed size between slides. `white-space: pre-wrap` and
+      // `overflow-wrap: break-word` wrap it instead, which is what the
+      // congregation wants: the same letters on every slide.
+      //
+      // The height test stays. Without it a slide with more lines than the
+      // screen can hold simply loses its last lines off the bottom --
+      // .projection-content is `overflow: hidden`, and on a wall there is
+      // nothing to scroll. In practice slides are broken by hand and rarely
+      // reach it, so the size is steady across a service.
       'function _fitProjectionText() {' +
       '  var textEl = document.querySelector(".projection-text");' +
       '  if (!textEl) return;' +
       '  var content = document.getElementById("projContent");' +
       '  var maxH = content ? content.offsetHeight - 4 : window.innerHeight - 80;' +
-      '  var maxW = content ? content.offsetWidth  - 4 : window.innerWidth  - 80;' +
       '  var s = window._textSettings || {};' +
-      '  var fs = s.fontSize || 5;' +
+      '  var fs = s.fontSize || 6.5;' +
       '  textEl.style.fontSize = fs + "vw";' +
-      '  while ((textEl.scrollHeight > maxH || textEl.scrollWidth > maxW) && fs > 1.2) {' +
+      '  while (textEl.scrollHeight > maxH && fs > 1.2) {' +
       '    fs = Math.max(1.2, +(fs - 0.2).toFixed(1));' +
       '    textEl.style.fontSize = fs + "vw";' +
       '  }' +
@@ -46953,7 +46980,7 @@ var WO = (function() {
       '  } else if (data.type === "text") {' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
-      '    style += "font-size:" + (s.fontSize || 5) + "vw;";' +
+      '    style += "font-size:" + (s.fontSize || 6.5) + "vw;";' +
       '    style += "color:" + (s.color || "#ffffff") + ";";' +
       '    style += "font-weight:" + (s.bold ? "bold" : "normal") + ";";' +
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
@@ -91737,7 +91764,16 @@ var WO = (function() {
     });
   }
 
-  // Auto-scale fullscreen overlay text to fit within the viewport
+  // The same rule as the projector: WRAP at the safe zone's width, shrink
+  // only for its height.
+  //
+  // This is the view the operator reads from, so it has to behave as the wall
+  // does or the two disagree on exactly the long line that caused the
+  // question. The width is no longer a reason to shrink -- it is handed to
+  // the element as a max-width, so the words wrap there instead. That also
+  // keeps them inside the safe zone, which the old shrink-to-fit did by
+  // making everything smaller; `.wofs-inner` is an inline-block whose own
+  // max-width is 90% of the overlay, which is not the same boundary.
   function _fitFullscreenText() {
     var contentEl = $('woFullscreenContent');
     if (!contentEl) return;
@@ -91748,9 +91784,10 @@ var WO = (function() {
     var maxH = Math.max(100, ovH * (100 - b.top - b.bottom) / 100);
     var maxW = Math.max(100, ovW * (100 - b.left - b.right) / 100);
     var textEl = contentEl.querySelector('.wofs-inner') || contentEl;
+    textEl.style.maxWidth = Math.round(maxW) + 'px';
     var fs = 2.8;
     textEl.style.fontSize = fs + 'rem';
-    while ((textEl.offsetHeight > maxH || textEl.offsetWidth > maxW) && fs > 0.9) {
+    while (textEl.offsetHeight > maxH && fs > 0.9) {
       fs = Math.max(0.9, parseFloat((fs - 0.15).toFixed(2)));
       textEl.style.fontSize = fs + 'rem';
     }
@@ -106304,11 +106341,29 @@ function filterLiturgyItems() {
   .wo-fullscreen-overlay.show { display: flex; }
   .wofs-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
   .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
-  .wofs-inner { display: inline-block; max-width: 100%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); line-height: 1.6; }
+  .wofs-inner { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); line-height: 1.6; }
   .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 8; opacity: 0; transition: color .2s, opacity .3s; }
   .wo-fullscreen-overlay:hover .wo-close-fullscreen { opacity: 1; }
   .wo-close-fullscreen:hover { color: white; }
   .wofs-indicator { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: rgba(255,255,255,0.18); font-family: 'Poppins', sans-serif; z-index: 2; letter-spacing: .12em; font-weight: 300; transition: opacity 1s; }
+  /* Live on a screen the room can see: the operator's furniture goes.
+     :fullscreen is the state this view is put into to BE a display -- the
+     arrows, the filmstrip and its hover strip would otherwise sit on the wall
+     over the words. The keys still move the slides. */
+  .wo-fullscreen-overlay:fullscreen .wofs-nav-btn,
+  .wo-fullscreen-overlay:fullscreen .wofs-filmstrip,
+  .wo-fullscreen-overlay:fullscreen .wofs-filmstrip-trigger,
+  .wo-fullscreen-overlay:fullscreen .wo-close-fullscreen,
+  .wo-fullscreen-overlay:-webkit-full-screen .wofs-nav-btn,
+  .wo-fullscreen-overlay:-webkit-full-screen .wofs-filmstrip,
+  .wo-fullscreen-overlay:-webkit-full-screen .wofs-filmstrip-trigger,
+  .wo-fullscreen-overlay:-webkit-full-screen .wo-close-fullscreen {
+    display: none !important;
+  }
+  /* ...and the pointer with them, so a mouse left over the window is not a
+     white arrow on the wall for the whole service. */
+  .wo-fullscreen-overlay:fullscreen,
+  .wo-fullscreen-overlay:-webkit-full-screen { cursor: none; }
   /* Fullscreen overlay side-nav arrows */
   .wofs-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.42); border: 1.5px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.65); width: 52px; height: 52px; border-radius: 50%; font-size: 1.25rem; cursor: pointer; z-index: 8; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .28s, background .18s, color .18s, border-color .18s; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   .wo-fullscreen-overlay:hover .wofs-nav-btn { opacity: 1; }
