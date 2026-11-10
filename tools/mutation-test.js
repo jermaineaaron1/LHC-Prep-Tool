@@ -763,6 +763,41 @@ const CASES = [
   // A QR travels inside the bulletin row, so what goes in must be an
   // image and nothing else.
   // The slot opened a picker all along; nobody could tell it was a button.
+  // Three fixed columns with no colgroup split evenly, so short duty
+  // labels had as much room as cells holding three names.
+  ['bulletin-harness.js', 'the duty labels take back the names\' width',
+    s => s.replace('<colgroup><col style="width:28%"><col style="width:36%"><col style="width:36%"></colgroup>', '')],
+  ['bulletin-harness.js', 'the duty column becomes the widest of the three',
+    s => s.replace('<col style="width:28%"><col style="width:36%"><col style="width:36%">',
+                   '<col style="width:50%"><col style="width:25%"><col style="width:25%">')],
+  // The dialogue is the whole point: the sheet is 10px type.
+  ['bulletin-harness.js', 'a section can no longer be opened to edit it',
+    s => s.replace('    verse: { title: ', '    zz_verse: { title: ')],
+  ['bulletin-harness.js', 'the dialogue adds items its own way',
+    s => s.replace('function dlgAdd(what) { addItem(what); _dlgRefresh(); }',
+                   'function dlgAdd(what) { _cur.data.notices.push({}); _dlgRefresh(); }')],
+  ['bulletin-harness.js', 'the dialogue removes items its own way',
+    s => s.replace('function dlgRemove(what, i) { removeItem(what, i); _dlgRefresh(); }',
+                   'function dlgRemove(what, i) { _cur.data.notices.splice(i, 1); _dlgRefresh(); }')],
+  ['bulletin-harness.js', 'a list no longer says what kind of item it holds',
+    s => s.replace("addKey: 'notice', ", '')],
+  ['bulletin-harness.js', 'the page behind the dialogue stops moving as you type',
+    s => s.replace('      _dlgPaint = setTimeout(function() { render(); }, 220);', '')],
+  ['bulletin-harness.js', 'the formatting bar leaves the dialogue',
+    s => s.replace("'<div class=\"blt-dlg__bar\">' +", "'' +")],
+  ['bulletin-harness.js', 'the dialogue cannot be dismissed',
+    s => s.replace("      if (e.key === 'Escape') { e.preventDefault(); closeSection(); return; }", '')],
+  ['bulletin-harness.js', 'the edit pencils print on the bulletin',
+    s => s.replace('.blt-capturing .blt-pen { display: none !important; }', '')],
+  // A phone fitting A4 to its width lands near 45%.
+  ['bulletin-harness.js', 'a phone opens at a size nobody can read',
+    s => s.replace('var PHONE_ZOOM = 0.87;', 'var PHONE_ZOOM = 0.45;')],
+  ['bulletin-harness.js', 'the phone zoom is forced on every visit',
+    s => s.replace('if (_zoom == null && _isPhone()) _zoom = PHONE_ZOOM;', 'if (_isPhone()) _zoom = PHONE_ZOOM;')],
+  ['bulletin-harness.js', 'a tablet with a coarse pointer is not treated as one',
+    s => s.replace("      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);", '      false;')],
+  ['bulletin-harness.js', 'a phone opens in the middle of the duty table',
+    s => s.replace('      sc.scrollLeft = 0; sc._bltScrolled = true;', '')],
   ['bulletin-harness.js', 'the QR slot reads as a placeholder again',
     s => s.replace('<span>Add QR</span>', '<span>QR code</span>')],
   ['bulletin-harness.js', 'the slot stops saying what it does on hover',
