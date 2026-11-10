@@ -722,6 +722,39 @@ const CASES = [
   // again, so every one of these is a wrong name on a real page.
   // The page is a fixed A4 box, so anything that does not fit is simply
   // gone -- and only on paper, where nobody looks before Sunday.
+  // Placeholders belong to the editor. Unscoped, an un-typed theme verse
+  // printed the words "The theme verse" across the masthead.
+  ['bulletin-harness.js', 'empty fields print their placeholder text',
+    s => s.replace('.blt-sheet:not(.blt-capturing) .blt-ed:empty::before { content: attr(data-ph)',
+                   '.blt-ed:empty::before { content: attr(data-ph)')],
+  // Centred overflow runs off both sides: the left of a zoomed page
+  // could then never be scrolled to.
+  ['bulletin-harness.js', 'a zoomed page cannot be scrolled back to its left edge',
+    s => s.replace('.blt-stage { padding: 18px 8px 0; overflow-x: auto; }',
+                   '.blt-stage { display: flex; justify-content: center; padding: 18px 8px 0; overflow: hidden; }')],
+  ['bulletin-harness.js', 'the zoom buttons have nothing to reset to',
+    s => s.replace('onclick="BLT.zoomFit()"', 'onclick="void 0"')],
+  ['bulletin-harness.js', 'the bulletin opens at a fixed size instead of fitting',
+    s => s.replace('var _zoom = null;', 'var _zoom = 0.7;')],
+  // The PDF is always the whole A4 page, whatever the screen is showing.
+  ['bulletin-harness.js', 'the PDF is captured at whatever zoom was on screen',
+    s => s.replace("          pixelRatio: 2, backgroundColor: '#ffffff', width: A4_W, height: A4_H,",
+                   "          pixelRatio: 2, backgroundColor: '#ffffff', width: A4_W * (_zoom || 1), height: A4_H,")],
+  // Something in the app's own CSS strips list markers, so the <ol>
+  // numbered nothing and the announcements ran together.
+  ['bulletin-harness.js', 'the announcements lose their numbering again',
+    s => s.replace('list-style: none; counter-reset: blt-n;', 'counter-reset: blt-n;')],
+  ['bulletin-harness.js', 'the number is not drawn at all',
+    s => s.replace('.blt-notices li::before { content: counter(blt-n) ".";', '.blt-notices li::before { content: "";')],
+  ['bulletin-harness.js', 'the words are not kept clear of the number',
+    s => s.replace('.blt-notices__t { flex: 1 1 auto; min-width: 0; }', '')],
+  // Giving was two loose lines in the first week; a bulletin written
+  // then must still open with its account details in it.
+  ['bulletin-harness.js', 'the first week\'s giving details are dropped on open',
+    s => s.replace('      } else if (Array.isArray(d.giving.lines)) {', '      } else if (false) {')],
+  ['bulletin-harness.js', 'a new giving purpose arrives pre-filled',
+    s => s.replace("d.giving.entries.push({ purpose: '', name: '', bank: '', number: '' });",
+                   "d.giving.entries.push(d.giving.entries[0]);")],
   ['bulletin-harness.js', 'an over-long bulletin loses its bottom in silence',
     s => s.replace('    _warnIfLong();', '')],
   ['bulletin-harness.js', 'the overflow check measures the page, which never grows',

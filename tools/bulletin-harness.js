@@ -212,13 +212,17 @@ check('a missing second service reads as empty, it does not throw',
 console.log('\nthe admin adds and takes away items');
 const d = cur.data;
 const before = [d.notices.length, d.attendance.figures.length, d.offering.length,
-                d.giving.lines.length, d.contacts.length];
+                d.giving.entries.length, d.contacts.length];
 BLT.addItem('notice'); BLT.addItem('notice'); BLT.addItem('figure');
 BLT.addItem('offering'); BLT.addItem('giving'); BLT.addItem('contact');
 check('each list grows',
   [d.notices.length, d.attendance.figures.length, d.offering.length,
-   d.giving.lines.length, d.contacts.length],
+   d.giving.entries.length, d.contacts.length],
   [before[0] + 2, before[1] + 1, before[2] + 1, before[3] + 1, before[4] + 1]);
+check('a new giving purpose is empty, not a copy of the last',
+  d.giving.entries[d.giving.entries.length - 1], { purpose: '', name: '', bank: '', number: '' });
+BLT.removeItem('giving', d.giving.entries.length - 1);
+check('  and can be taken away again', d.giving.entries.length, before[3]);
 d.notices[0].lead = 'Keep me';
 d.notices[1].lead = 'Drop me';
 BLT.removeItem('notice', 1);
@@ -233,8 +237,18 @@ console.log('\na bulletin saved by an older page still opens');
 const old = BLT._sane({ prayer: 'Almighty God', notices: [{ lead: 'LAWA' }] });
 check('what it had is kept', [old.prayer, old.notices[0].lead], ['Almighty God', 'LAWA']);
 check('what it lacked is filled in',
-  [Array.isArray(old.offering), Array.isArray(old.contacts), typeof old.giving.lines],
-  [true, true, 'object']);
+  [Array.isArray(old.offering), Array.isArray(old.contacts), Array.isArray(old.giving.entries)],
+  [true, true, true]);
+// Giving was two loose lines in the first week this shipped. A bulletin
+// written then must still open with its details in it, not blank.
+const firstWeek = BLT._sane({ giving: { title: 'Online giving',
+  lines: ['Luther House Chapel', 'RHB 2120 6800 0442 29'] } });
+check('the first week\'s two loose giving lines are carried over',
+  firstWeek.giving.entries,
+  [{ purpose: '', name: 'Luther House Chapel', bank: '', number: 'RHB 2120 6800 0442 29' }]);
+check('a bulletin already on the new shape is left alone',
+  BLT._sane({ giving: { entries: [{ purpose: 'Building fund', name: 'LHC', bank: 'RHB', number: '1' }] } })
+    .giving.entries[0].purpose, 'Building fund');
 check('junk does not get through',
   [BLT._sane(null).notices, BLT._sane({ notices: 'nope' }).notices], [[], []]);
 check('a notice missing its body still draws',
@@ -325,6 +339,44 @@ check('the add and remove controls are hidden while capturing',
   /\.blt-capturing \.blt-x, \.blt-capturing \.blt-add \{ display: none !important; \}/.test(SRC), true);
 check('and the hover outline is off then too',
   /\.blt-sheet:not\(\.blt-capturing\) \.blt-ed:hover/.test(SRC), true);
+// Unscoped, this printed "The theme verse" and "REFERENCE" across the
+// masthead of any bulletin whose verse had not been typed yet. A
+// placeholder belongs to the editor, never to the page.
+check('an empty field prints nothing at all',
+  /\.blt-sheet:not\(\.blt-capturing\) \.blt-ed:empty::before \{ content: attr\(data-ph\)/.test(SRC), true);
+check('  and no unscoped placeholder rule is left',
+  /(?<!\)\s)\.blt-ed:empty::before/.test(SRC), false);
+
+console.log('\nzooming in on the small print');
+// The page is set at 10px and scaled to fit, so on a laptop it lands
+// near 70% and the small print cannot be read, let alone corrected.
+check('the stage scrolls once the page is wider than it',
+  /\.blt-stage \{ padding: 18px 8px 0; overflow-x: auto; \}/.test(SRC), true);
+// Centred overflow runs off BOTH sides, so the left of a zoomed page
+// could never be scrolled to. Auto margins centre and still scroll.
+check('  and is centred by margin, never justify-content',
+  /\.blt-stage__inner \{ position: relative; margin: 0 auto; \}/.test(SRC), true);
+check('fitting the window is the state it opens in', /var _zoom = null;/.test(SRC), true);
+check('the percentage goes back to fitting', /onclick="BLT\.zoomFit\(\)"/.test(SRC), true);
+// Zoom is a view setting; it must never reach the captured page, which
+// is always the full A4 sheet.
+const pngBody = MODULE.slice(MODULE.indexOf('function _png'), MODULE.indexOf('function _pdfBlob'));
+check('the capture never consults the zoom', /_zoom/.test(pngBody), false);
+check('  it asks for A4 at its own size, with the transform off',
+  /width: A4_W, height: A4_H/.test(pngBody) && /transform: 'none'/.test(pngBody), true);
+
+console.log('\nannouncements are numbered');
+// The <ol> marker never showed -- something in the app's own CSS strips
+// them -- so the items ran together as plain lines.
+check('a counter numbers them, not list-style',
+  /\.blt-notices \{[^}]*list-style: none; counter-reset: blt-n;/.test(SRC), true);
+check('  the number is drawn from that counter',
+  /\.blt-notices li::before \{ content: counter\(blt-n\) "\."/.test(SRC), true);
+check('  and sits in a column of its own, words beside it',
+  /\.blt-notices li \{ counter-increment: blt-n; display: flex;/.test(SRC) &&
+  /\.blt-notices__t \{ flex: 1 1 auto; min-width: 0; \}/.test(SRC), true);
+check('the words are wrapped so the number cannot collide with them',
+  /<li><span class="blt-notices__t"><b>/.test(MODULE), true);
 
 // ── 10. the second column, and the table behind it ─────────────────────
 console.log('\nthe second column, and the table behind it');
