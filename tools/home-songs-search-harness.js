@@ -186,6 +186,9 @@ check('  and 0.78rem + 6px on a phone', /\.home-nav-label \{ grid-area: label; f
 check('  Cinzel is actually fetched at 800', /family=Cinzel:wght@500;700;800&/.test(SRC));
 check('  one row on a phone, so the card is no taller for the bigger name', /grid-template-areas: "icon label stat";/.test(SRC));
 const rosterStat = fn('_homeRosterStat') || '';
+// Only between 901 and 1310px. Outside it auto-fit is already balanced,
+// and forcing three there would be a regression, not a fix.
+check('  three and three where auto-fit would orphan the last card', /@media \(min-width: 901px\) and \(max-width: 1310px\) \{\r?\n\s*\.home-nav-grid \{ grid-template-columns: repeat\(3, 1fr\); \}/.test(SRC));
 check('  the count drops "this month", which the page around it says', /' service' \+ \(dateCount !== 1 \? 's' : ''\);/.test(rosterStat) && !/this month/.test(rosterStat));
 
 console.log('\nthe roster count and the room around');
