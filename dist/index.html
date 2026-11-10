@@ -9318,6 +9318,24 @@
           <button class="blt-btn" onclick="BLT.toggleRows(event)" title="Which duty rows the bulletin carries">
             <i class="fa-solid fa-list-check"></i>Rows
           </button>
+          <span class="blt-fmt" id="bltFmt">
+            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('bold')" title="Bold"><b>B</b></button>
+            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('italic')" title="Italic"><i>I</i></button>
+            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('underline')" title="Underline"><u>U</u></button>
+            <input type="color" class="blt-fmt__c" id="bltFmtColour" value="#2b2b2b" title="Colour of the words" onchange="BLT.fmtColour(this.value)">
+            <select class="blt-fmt__f" title="Font" onchange="BLT.fmtFont(this.value); this.selectedIndex=0;">
+              <option value="">Font</option>
+              <option value="Lato, sans-serif">Lato</option>
+              <option value="Poppins, sans-serif">Poppins</option>
+              <option value="Cinzel, serif">Cinzel</option>
+              <option value="Georgia, serif">Georgia</option>
+              <option value="Courier New, monospace">Courier New</option>
+            </select>
+          </span>
+          <span class="blt-fmt">
+            <button class="blt-btn blt-fmt__b" id="bltUndo" onmousedown="event.preventDefault()" onclick="BLT.undo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+            <button class="blt-btn blt-fmt__b" id="bltRedo" onmousedown="event.preventDefault()" onclick="BLT.redo()" title="Redo (Ctrl+Shift+Z)"><i class="fa-solid fa-rotate-right"></i></button>
+          </span>
           <span class="blt-zoom">
             <button class="blt-btn" onclick="BLT.zoomBy(-0.15)" aria-label="Zoom out" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
             <button type="button" class="blt-zoom__pct" id="bltZoomPct" onclick="BLT.zoomFit()" title="Fit the page to the window">--</button>
@@ -9337,8 +9355,10 @@
           </button>
         </div>
         <div class="blt-stage">
-          <div class="blt-stage__inner" id="bltStageInner">
-            <div class="blt-sheet" id="bltSheet"></div>
+          <div class="blt-stage__box" id="bltStageBox">
+            <div class="blt-stage__inner" id="bltStageInner">
+              <div class="blt-sheet" id="bltSheet"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -129684,7 +129704,18 @@ window.LHC_Install = (function() {
 /* The stage holds the scaled sheet and takes its scaled height, or the
    page would keep scroll room for the full 1123px whatever the zoom. */
 .blt-stage { padding: 18px 8px 0; overflow-x: auto; }
-.blt-stage__inner { position: relative; margin: 0 auto; }
+/* The footprint belongs to the BOX and the scaling to the inner. Doing
+   both on one element meant _fit setting a negative marginRight to make
+   the box the right size, which cancelled `margin: 0 auto` -- an auto
+   left margin against a fixed right one pushes a box to the right, and
+   the page sat off-centre at every zoom. */
+.blt-stage__box { margin: 0 auto; }
+.blt-stage__inner { position: relative; transform-origin: top left; }
+.blt-fmt { display: inline-flex; align-items: center; gap: 2px; }
+.blt-fmt__b { padding: 0 10px; min-width: 36px; justify-content: center; font-size: .9rem; }
+.blt-fmt__c { width: 36px; height: 40px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; cursor: pointer; }
+.blt-fmt__f { height: 40px; padding: 0 6px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff;
+  font-family: 'Poppins', sans-serif; font-weight: 600; font-size: .78rem; color: #475569; cursor: pointer; }
 .blt-zoom { display: inline-flex; align-items: center; gap: 2px; }
 .blt-zoom .blt-btn { padding: 0 10px; min-width: 38px; justify-content: center; }
 .blt-zoom__pct { min-width: 52px; text-align: center; font-family: 'Poppins', sans-serif;
@@ -129746,14 +129777,29 @@ window.LHC_Install = (function() {
 .blt-notices li::before { content: counter(blt-n) "."; flex: 0 0 auto; min-width: 11px;
   font-family: 'Poppins', sans-serif; font-weight: 700; color: #46306b; }
 .blt-notices__t { flex: 1 1 auto; min-width: 0; }
+.blt-notice__lead { font-family: 'Poppins', sans-serif; font-weight: 700; color: #46306b; }
+.blt-notice__body { margin-top: 1px; }
 .blt-notices b { color: #46306b; }
 
 .blt-give + .blt-give { margin-top: 7px; border-top: 1px solid #edd9a4; padding-top: 6px; }
 .blt-give__for { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 9px;
   letter-spacing: .1em; text-transform: uppercase; color: #8a6210; }
-.blt-give__name { font-size: 10.5px; color: #3a2f15; line-height: 1.5; }
-.blt-give__acct { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 11px;
-  letter-spacing: .02em; color: #3a2f15; line-height: 1.45; }
+.blt-give { display: flex; align-items: flex-start; gap: 9px; }
+.blt-give__rows { flex: 1 1 auto; min-width: 0; }
+.blt-give__name { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 11px; color: #3a2f15; line-height: 1.45; }
+.blt-give__bank { font-size: 10.5px; color: #3a2f15; line-height: 1.45; }
+.blt-give__acct { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 10.5px;
+  letter-spacing: .01em; color: #3a2f15; line-height: 1.45; }
+.blt-give__lbl { color: #7a5609; }
+.blt-qr { flex: 0 0 auto; position: relative; width: 62px; height: 62px; }
+.blt-qr__img { width: 62px; height: 62px; object-fit: contain; display: block; background: #fff; border: 1px solid #e6d7ab; }
+.blt-qr__x { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid #cbd5e1; background: #fff; color: #475569; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; }
+.blt-qr--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px dashed #d9b968; border-radius: 4px; background: rgba(255,255,255,.55); color: #8a6210;
+  font-family: 'Poppins', sans-serif; font-size: 7.5px; font-weight: 700; letter-spacing: .06em; cursor: pointer; }
+.blt-qr--empty i { font-size: 17px; }
+.blt-capturing .blt-qr--empty, .blt-capturing .blt-qr__x { display: none !important; }
 
 .blt-figs { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
 .blt-fig__n { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 19px; color: #2b2b2b; line-height: 1; }
@@ -129956,7 +130002,8 @@ var BLT = (function() {
       prayer: '',
       notices: [],
       giving: { title: 'Online giving', entries: [
-        { purpose: '', name: 'Luther House Chapel', bank: 'RHB Bank Berhad', number: '2120680044229' }
+        { purpose: '', name: 'Luther House Chapel', bank: 'RHB Bank',
+          number: '2120-68000-44-22-9', qr: '' }
       ] },
       attendance: { asAt: '', figures: [
         { label: 'Adults', value: '' },
@@ -129991,7 +130038,8 @@ var BLT = (function() {
       if (Array.isArray(d.giving.entries)) {
         b.giving.entries = d.giving.entries.map(function(g) {
           return { purpose: (g && g.purpose) || '', name: (g && g.name) || '',
-                   bank: (g && g.bank) || '', number: (g && g.number) || '' };
+                   bank: (g && g.bank) || '', number: (g && g.number) || '',
+                   qr: (g && typeof g.qr === 'string' && /^data:image\//.test(g.qr)) ? g.qr : '' };
         });
       } else if (Array.isArray(d.giving.lines)) {
         // The shape this had when the bulletin shipped: two loose lines,
@@ -129999,7 +130047,7 @@ var BLT = (function() {
         // Carried over rather than dropped, so a bulletin written in the
         // first week still opens with its details in it.
         b.giving.entries = [{ purpose: '', name: d.giving.lines[0] || '',
-                              bank: '', number: d.giving.lines[1] || '' }];
+                              bank: '', number: d.giving.lines[1] || '', qr: '' }];
       }
     }
     if (d.attendance && typeof d.attendance === 'object') {
@@ -130157,10 +130205,104 @@ var BLT = (function() {
       'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '"' +
       (style ? ' style="' + style + '"' : '') + '>' + _esc(value || '') + '</span>';
   }
+  // What survives a save. Anything else a browser leaves behind -- a
+  // pasted <table>, a <font> tag, a style nobody asked for -- is
+  // unwrapped to its words rather than stored.
+  var RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, SPAN: 1 };
+  var RICH_STYLES = ['color', 'fontFamily', 'fontWeight', 'fontStyle', 'textDecoration'];
+
+  function _richOf(node) {
+    var out = '';
+    for (var c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { out += _esc(c.nodeValue); continue; }
+      if (c.nodeType !== 1) continue;
+      var tag = c.tagName;
+      if (tag === 'BR') { out += '<br>'; continue; }
+      var inner = _richOf(c);
+      if (tag === 'DIV' || tag === 'P') {
+        out += (out && !/<br>$/.test(out) ? '<br>' : '') + inner;
+        continue;
+      }
+      if (!RICH_TAGS[tag]) { out += inner; continue; }   // keep the words, drop the tag
+      if (tag === 'SPAN') {
+        var st = '';
+        RICH_STYLES.forEach(function(k) {
+          var v = c.style[k];
+          if (v) st += k.replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); }) + ':' + v + ';';
+        });
+        out += st ? '<span style="' + _esc(st) + '">' + inner + '</span>' : inner;
+        continue;
+      }
+      var t = tag.toLowerCase();
+      out += '<' + t + '>' + inner + '</' + t + '>';
+    }
+    return out;
+  }
+
+  // Stored HTML is walked again before it is drawn, so a row written by
+  // anything but this page still cannot put markup on the bulletin.
+  function _richClean(html) {
+    var box = document.createElement('div');
+    box.innerHTML = String(html == null ? '' : html);
+    Array.prototype.forEach.call(
+      box.querySelectorAll('script,style,iframe,object,embed,link,meta,img,svg'),
+      function(n) { if (n.parentNode) n.parentNode.removeChild(n); });
+    return _richOf(box);
+  }
+
+  function _edRich(path, value, ph, cls) {
+    return '<span class="blt-ed blt-ed--rich ' + (cls || '') + '" contenteditable="true" data-rich="1" ' +
+      'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '">' + _richClean(value) + '</span>';
+  }
+
   function _edBlock(path, value, ph, cls) {
     return '<div class="blt-ed ' + (cls || '') + '" contenteditable="plaintext-only" ' +
       'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '">' + _esc(value || '') + '</div>';
   }
+  // Room for the QR code the congregation scans. Kept as a data URL on
+  // the bulletin itself: a QR is a few kilobytes, and putting it in the
+  // row means it travels with the bulletin into the PDF without a
+  // second round trip to storage.
+  var QR_MAX = 350 * 1024;
+
+  function _qrHtml(i, qr) {
+    if (qr) {
+      return '<div class="blt-qr"><img class="blt-qr__img" src="' + _esc(qr) + '" alt="QR code for giving">' +
+        '<button type="button" class="blt-qr__x" onclick="BLT.clearQr(' + i + ')" aria-label="Remove the QR code">&times;</button></div>';
+    }
+    return '<button type="button" class="blt-qr blt-qr--empty" onclick="BLT.pickQr(' + i + ')">' +
+      '<i class="fa-solid fa-qrcode"></i><span>QR code</span></button>';
+  }
+
+  function pickQr(i) {
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    inp.onchange = function() {
+      var f = inp.files && inp.files[0];
+      if (!f) return;
+      if (f.size > QR_MAX) {
+        _toast('That picture is too big for a bulletin - please use one under 350KB', 'error');
+        return;
+      }
+      var rd = new FileReader();
+      rd.onload = function() {
+        _flushTyping(); _pushUndo();
+        _cur.data.giving.entries[i].qr = String(rd.result || '');
+        render(); _queueSave();
+      };
+      rd.onerror = function() { _toast('That picture could not be read', 'error'); };
+      rd.readAsDataURL(f);
+    };
+    inp.click();
+  }
+
+  function clearQr(i) {
+    _flushTyping(); _pushUndo();
+    if (_cur.data.giving.entries[i]) _cur.data.giving.entries[i].qr = '';
+    render(); _queueSave();
+  }
+
   function _x(what, i) {
     return '<button type="button" class="blt-x" onclick="BLT.removeItem(\'' + what + '\',' + i + ')" ' +
       'aria-label="Remove this one">&times;</button>';
@@ -130201,7 +130343,7 @@ var BLT = (function() {
     h +=       '<div class="blt-welcome">WELCOME</div>';
     h +=       '<div class="blt-when blt-when--first">' + _esc(longDate) + '</div>';
     h +=       '<div class="blt-when">' + _esc(dayName) + '</div>';
-    h +=       '<div class="blt-verse">' + _ed('verse.text', d.verse.text, 'The theme verse') + '</div>';
+    h +=       '<div class="blt-verse">' + _edRich('verse.text', d.verse.text, 'The theme verse') + '</div>';
     h +=       '<div class="blt-verse__ref">' + _ed('verse.ref', d.verse.ref, 'REFERENCE') + '</div>';
     h +=     '</div>';
     h +=   '</div>';
@@ -130212,7 +130354,7 @@ var BLT = (function() {
     // Prayer
     h += '<div class="blt-block blt-block--prayer">';
     h +=   '<div class="blt-h">PRAYER OF THE DAY</div>';
-    h +=   _edBlock('prayer', d.prayer, 'The prayer of the day', 'blt-p');
+    h +=   '<div class="blt-p">' + _edRich('prayer', d.prayer, 'The prayer of the day') + '</div>';
     h += '</div>';
 
     // Announcements -- a numbered list the admin adds to and takes from.
@@ -130220,9 +130362,10 @@ var BLT = (function() {
     h +=   '<div class="blt-h">ANNOUNCEMENTS</div>';
     h +=   '<ol class="blt-notices">';
     d.notices.forEach(function(n, i) {
-      h += '<li><span class="blt-notices__t"><b>' + _ed('notices.' + i + '.lead', n.lead, 'Title') +
-           '</b> ' + _ed('notices.' + i + '.body', n.body, 'What it says') + '</span>' +
-           _x('notice', i) + '</li>';
+      h += '<li><div class="blt-notices__t">' +
+           '<div class="blt-notice__lead">' + _edRich('notices.' + i + '.lead', n.lead, 'Title') + '</div>' +
+           '<div class="blt-notice__body">' + _edRich('notices.' + i + '.body', n.body, 'What it says') + '</div>' +
+           '</div>' + _x('notice', i) + '</li>';
     });
     h +=   '</ol>';
     h +=   _add('notice', 'Announcement');
@@ -130233,11 +130376,15 @@ var BLT = (function() {
     h +=   '<div class="blt-h">' + _ed('giving.title', d.giving.title, 'Online giving') + '</div>';
     d.giving.entries.forEach(function(g, i) {
       h += '<div class="blt-give">';
-      h +=   '<div class="blt-give__for">' + _ed('giving.entries.' + i + '.purpose', g.purpose, 'What it is for') +
-             (d.giving.entries.length > 1 ? _x('giving', i) : '') + '</div>';
-      h +=   '<div class="blt-give__name">' + _ed('giving.entries.' + i + '.name', g.name, 'Account name') + '</div>';
-      h +=   '<div class="blt-give__acct">' + _ed('giving.entries.' + i + '.bank', g.bank, 'Bank') + ' ' +
-             _ed('giving.entries.' + i + '.number', g.number, 'Account number') + '</div>';
+      h +=   '<div class="blt-give__rows">';
+      h +=     '<div class="blt-give__for">' + _ed('giving.entries.' + i + '.purpose', g.purpose, 'What it is for') +
+               (d.giving.entries.length > 1 ? _x('giving', i) : '') + '</div>';
+      h +=     '<div class="blt-give__name">' + _ed('giving.entries.' + i + '.name', g.name, 'Account name') + '</div>';
+      h +=     '<div class="blt-give__bank">' + _ed('giving.entries.' + i + '.bank', g.bank, 'Bank') + '</div>';
+      h +=     '<div class="blt-give__acct"><span class="blt-give__lbl">A/C No :</span> ' +
+               _ed('giving.entries.' + i + '.number', g.number, '0000-00000-00-00-0') + '</div>';
+      h +=   '</div>';
+      h +=   _qrHtml(i, g.qr);
       h += '</div>';
     });
     h +=   _add('giving', 'Purpose');
@@ -130374,12 +130521,120 @@ var BLT = (function() {
       pct.title = (_zoom == null) ? 'Fitted to the window' : 'Back to fitting the window';
     }
     stage.style.transform = 'scale(' + scale + ')';
-    stage.style.transformOrigin = 'top left';
     stage.style.width = A4_W + 'px';
     stage.style.height = A4_H + 'px';
-    stage.style.marginBottom = (A4_H * scale - A4_H) + 'px';
-    stage.style.marginRight = (A4_W * scale - A4_W) + 'px';
+    var box = _$('bltStageBox');
+    if (box) {
+      box.style.width = Math.round(A4_W * scale) + 'px';
+      box.style.height = Math.round(A4_H * scale) + 'px';
+    }
   }
+
+  // ── undo ───────────────────────────────────────────────────────────
+  // Rendering replaces the sheet's HTML, which takes the browser's own
+  // undo stack with it, so the bulletin keeps its own: whole snapshots
+  // of the stored data, which is small. A RUN of typing is one step --
+  // otherwise undo walks back a character at a time.
+  var _undo = [], _redo = [], _typeSnap = null, _typeAt = 0;
+  var UNDO_MAX = 60;
+
+  function _snap() { return JSON.stringify(_cur ? _cur.data : null); }
+
+  function _paintUndo() {
+    var u = _$('bltUndo'), r = _$('bltRedo');
+    if (u) u.disabled = !(_undo.length || _typeSnap != null);
+    if (r) r.disabled = !_redo.length;
+  }
+
+  function _pushUndo(snap) {
+    _undo.push(snap == null ? _snap() : snap);
+    if (_undo.length > UNDO_MAX) _undo.shift();
+    _redo.length = 0;
+    _paintUndo();
+  }
+
+  // Called BEFORE the keystroke is written, so the snapshot is the state
+  // the run of typing started from.
+  function _noteTyping() {
+    var now = Date.now();
+    if (_typeSnap == null || now - _typeAt > 1400) {
+      _flushTyping();
+      _typeSnap = _snap();
+    }
+    _typeAt = now;
+    _paintUndo();
+  }
+
+  function _flushTyping() {
+    if (_typeSnap == null) return;
+    var s = _typeSnap;
+    _typeSnap = null;
+    _pushUndo(s);
+  }
+
+  function undo() {
+    _flushTyping();
+    if (!_undo.length || !_cur) return;
+    _redo.push(_snap());
+    _cur.data = _sane(JSON.parse(_undo.pop()));
+    render(); _queueSave(); _paintUndo();
+  }
+
+  function redo() {
+    if (!_redo.length || !_cur) return;
+    _undo.push(_snap());
+    _cur.data = _sane(JSON.parse(_redo.pop()));
+    render(); _queueSave(); _paintUndo();
+  }
+
+  // ── the formatting bar ─────────────────────────────────────────────
+  // The colour box and the font list take focus away from the words, so
+  // where the cursor was is remembered and put back before the command
+  // runs. The B/I/U buttons prevent focus moving at all.
+  var _lastRange = null;
+  // execCommand fires an `input` event of its own, which would otherwise
+  // reach the handler below and open a TYPING undo step on top of the
+  // formatting one -- so undoing a Bold took two presses. The handler
+  // stands aside while a command is running; _applyCmd writes the field
+  // and saves it itself the moment the command returns.
+  var _applying = false;
+
+  function _noteSelection() {
+    var s = window.getSelection();
+    if (!s || !s.rangeCount) return;
+    var n = s.anchorNode;
+    var el = n ? (n.nodeType === 1 ? n : n.parentElement) : null;
+    if (el && el.closest && el.closest('.blt-ed--rich')) _lastRange = s.getRangeAt(0).cloneRange();
+  }
+
+  function _restoreRange() {
+    if (!_lastRange) return null;
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(_lastRange);
+    var n = _lastRange.startContainer;
+    var el = n ? (n.nodeType === 1 ? n : n.parentElement) : null;
+    return el && el.closest ? el.closest('.blt-ed--rich') : null;
+  }
+
+  function _applyCmd(cmd, value) {
+    var el = _restoreRange();
+    if (!el) { _toast('Select some words on the bulletin first', 'info'); return; }
+    _flushTyping();
+    _pushUndo();
+    _applying = true;
+    try {
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand(cmd, false, value == null ? undefined : value);
+    } catch (e) { return; } finally { _applying = false; }
+    _setPath(_cur.data, el.dataset.p, _richOf(el));
+    _noteSelection();
+    _queueSave();
+  }
+
+  function fmt(cmd) { _applyCmd(cmd, null); }
+  function fmtColour(v) { _applyCmd('foreColor', v); }
+  function fmtFont(v) { if (v) _applyCmd('fontName', v); }
 
   // ── editing ────────────────────────────────────────────────────────
   function _bind() {
@@ -130389,17 +130644,45 @@ var BLT = (function() {
     sheet.addEventListener('input', function(e) {
       var el = e.target.closest ? e.target.closest('.blt-ed') : null;
       if (!el || !el.dataset.p) return;
-      _setPath(_cur.data, el.dataset.p, _textOf(el));
+      if (_applying) return;          // _applyCmd writes it the moment the command returns
+      _noteTyping();
+      _setPath(_cur.data, el.dataset.p, el.dataset.rich ? _richOf(el) : _textOf(el));
       _queueSave();
     });
-    // A paste carries the page it came from. Plain text only.
+    // A paste carries the page it came from. Plain text only, even into
+    // a rich field: formatting is applied here, never inherited from
+    // whatever site the words were copied off.
     sheet.addEventListener('paste', function(e) {
       var el = e.target.closest ? e.target.closest('.blt-ed') : null;
       if (!el) return;
       e.preventDefault();
       var t = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+      _noteTyping();
       document.execCommand('insertText', false, t);
     });
+
+    sheet.addEventListener('keydown', function(e) {
+      var k = (e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
+      // Backspace on an announcement with nothing left in it takes the
+      // whole item away, rather than leaving an empty number behind.
+      if (e.key !== 'Backspace') return;
+      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
+      var m = el && el.dataset.p ? /^notices\.(\d+)\./.exec(el.dataset.p) : null;
+      if (!m) return;
+      var li = el.closest('li');
+      if (!li || li.innerText.replace(/\s+/g, '') !== '') return;
+      e.preventDefault();
+      removeItem('notice', parseInt(m[1], 10));
+    });
+
+    document.addEventListener('selectionchange', _noteSelection);
+    _paintUndo();
   }
 
   function _queueSave() {
@@ -130425,9 +130708,10 @@ var BLT = (function() {
   }
 
   function addItem(what) {
+    _flushTyping(); _pushUndo();
     var d = _cur.data;
     if (what === 'notice') d.notices.push({ lead: '', body: '' });
-    else if (what === 'giving') d.giving.entries.push({ purpose: '', name: '', bank: '', number: '' });
+    else if (what === 'giving') d.giving.entries.push({ purpose: '', name: '', bank: '', number: '', qr: '' });
     else if (what === 'figure') d.attendance.figures.push({ label: '', value: '' });
     else if (what === 'offering') d.offering.push({ label: '', value: '' });
     else if (what === 'contact') d.contacts.push({ role: '', name: '', phone: '', email: '' });
@@ -130436,6 +130720,7 @@ var BLT = (function() {
   }
 
   function removeItem(what, i) {
+    _flushTyping(); _pushUndo();
     var d = _cur.data;
     if (what === 'notice') d.notices.splice(i, 1);
     else if (what === 'giving') d.giving.entries.splice(i, 1);
@@ -130514,6 +130799,7 @@ var BLT = (function() {
       _loadRoster([_days[_pick], _days[_pick + 1]])
     ]).then(function(res) {
       _map = res[1] || {};
+      _undo.length = 0; _redo.length = 0; _typeSnap = null;
       if (res[0]) {
         _cur = { serviceDate: day.dateStr, year: day.year, title: res[0].title, data: _sane(res[0].data) };
         if (badge) badge.textContent = '';
@@ -130668,6 +130954,10 @@ var BLT = (function() {
     addItem: addItem, removeItem: removeItem,
     print: print, downloadPdf: downloadPdf, shareWhatsApp: shareWhatsApp,
     zoomBy: zoomBy, zoomFit: zoomFit,
+    undo: undo, redo: redo, fmt: fmt, fmtColour: fmtColour, fmtFont: fmtFont,
+    pickQr: pickQr, clearQr: clearQr,
+    _richOf: _richOf, _richClean: _richClean,
+    _undoDepth: function() { return { undo: _undo.length, redo: _redo.length }; },
     _zoomState: function() { return _zoom; },
     // for the harness
     _blank: _blank, _sane: _sane, _clean: _clean, _cell: _cell, _textOf: _textOf,
