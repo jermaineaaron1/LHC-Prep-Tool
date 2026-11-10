@@ -58,6 +58,7 @@ The ones worth knowing; there are around 29 in all.
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, giving, attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 75-76 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -102,7 +103,28 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Chord transposition in preview
 - Song statistics (most used, recent, newest)
 
-### 2. Worship Roster
+### 2. Sunday Bulletin
+
+- The weekly bulletin, as one A4 sheet edited in place (Home > Sunday
+  Bulletin, `bulletinView`, the `BLT` module).
+- The masthead is FIXED furniture -- the gold circle, the grey sweep, the
+  Luther Rose (`public/lhc-luther-rose.png`), the church name, address and
+  service time. Everything below it is typed on the sheet itself.
+- The duty table is the roster: this Sunday and the next, side by side,
+  seventeen rows read live from `roster` every time the page opens.
+- Typed: theme verse, prayer of the day, numbered announcements, online
+  giving, attendance figures, offering lines, the two footer contacts, and
+  the two duties the roster has no role for (Acolyte, Flower Offering).
+  Every one of those lists can be added to and taken from; **Rows** in the
+  toolbar says which duty rows the bulletin carries.
+- A new bulletin opens from the most recent one, because the giving
+  details, contacts and theme verse are the same most weeks.
+- Out: **Print**, **PDF**, and **Share**, which sends the PDF itself to
+  WhatsApp through `navigator.share({files})` where the device allows it.
+  Drawn on the device (html-to-image into jsPDF) -- never through
+  `/api/render-roster-pdf`, whose quota is the church's and nearly spent.
+
+### 3. Worship Roster
 - Monthly calendar view with service dates
 - Editable cells (double-click to edit)
 - Role categories: Worship Enablers, Scripture, Communion, Music, Tech
@@ -120,7 +142,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
   the WhatsApp message to check before sending, a month at a time. See
   gotcha 68.
 
-### 3. Worship Orders
+### 4. Worship Orders
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
 - The Orders menu lists the latest ten orders, the most recently edited first
   (`_woOrderTime`); **See more** lists the rest under an Archived heading
@@ -2630,6 +2652,44 @@ the anon key -- verify as `postgres`, not as the app.
     (`lhcAskDelete` with a warning sign, the song and its key before and
     after, Keep the master first; `okIcon` lets it carry a crown).
     `tools/phone-bar-font-master-harness.js` checks all three.
+
+75. **The bulletin stores no duties, and that is the whole design.**
+    `bulletins.data` holds only what somebody types. Both Sundays' duties
+    and the four readings come out of `roster` on every open, through the
+    same role ids the roster itself defines -- a bulletin keeping its own
+    copy would quietly disagree with the roster the week a reader swapped,
+    and nobody proof-reads a printed bulletin against the roster on a
+    Sunday morning. The two exceptions are **Acolyte** and **Flower
+    Offering**, which have no roster role at all and so are typed
+    (`data.manual[rowKey][dateStr]`). `tools/bulletin-harness.js` checks
+    every role id the bulletin names against the roster's own list, which
+    is the check that catches a renamed role before it prints blank.
+
+76. **The liturgical cell is JSON, as a STRING.** `roster` keeps
+    `liturgical` as `{"day":"25th Sunday after Pentecost","color":"Green"}`
+    -- text, not an object -- so unwrapping `v.day` alone leaves the braces
+    on the page, which is exactly what the bulletin's masthead printed the
+    first time. Read it with `_litDay`: parse when it parses, keep the raw
+    text when it does not, because a cell typed by hand is plain text and
+    has to show what it says (the same rule `enablers-calendar-harness.js`
+    already guards elsewhere). Two more things the page itself taught:
+    an A4 sheet does not grow, so the bulletin CLIPS and says "Too long
+    for one page" rather than pushing its footer off in silence; and the
+    scale that fits the sheet to the screen goes on the WRAPPER, never on
+    `.blt-sheet` -- html-to-image captures the node at its own size, so a
+    transform on the sheet is baked into the PDF.
+
+77. **`.claude/preview-server.js` serves the app READ-ONLY, and fails
+    closed.** The Supabase URL and anon key are in the page, so a local
+    run talks to production (a "throwaway" order once created a real row
+    and six storage files). The server now forces the Phone-view write
+    guard on and strips the SECOND supabase-js tag, which would otherwise
+    replace the wrapped `createClient`; both anchors are matched by REGEX
+    because Index.html is CRLF and a literal with `\n` silently matches
+    nothing. If either anchor moves it refuses to serve rather than
+    serving a writable page. It also falls back to `public/`, since Vercel
+    serves that at the root. `LHC_ALLOW_WRITES=1` turns all of it off --
+    only for work that really is meant to write to production.
 
 ## Quick Commands for Claude Code
 

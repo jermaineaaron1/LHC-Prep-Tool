@@ -717,6 +717,62 @@ const CASES = [
                    "    return [String((song && song.title) || '').trim(), 'chords']")],
   ['songbook-live-harness.js', 'an absent artist leaves a gap in the search',
     s => s.replace('      .filter(Boolean).join(\' \');', "      .join(' ');")],
+  // ── The Sunday bulletin ──────────────────────────────────────────
+  // It is printed, handed out, and never checked against the roster
+  // again, so every one of these is a wrong name on a real page.
+  // The page is a fixed A4 box, so anything that does not fit is simply
+  // gone -- and only on paper, where nobody looks before Sunday.
+  ['bulletin-harness.js', 'an over-long bulletin loses its bottom in silence',
+    s => s.replace('    _warnIfLong();', '')],
+  ['bulletin-harness.js', 'the overflow check measures the page, which never grows',
+    s => s.replace('var over = body ? body.scrollHeight - body.clientHeight : 0;',
+                   'var over = sheet.scrollHeight - A4_H;')],
+  ['bulletin-harness.js', 'the footer is shoved off the page instead of clipping',
+    s => s.replace('width: 794px; height: 1123px; box-sizing: border-box; overflow: hidden;',
+                   'width: 794px; height: 1123px; box-sizing: border-box;')],
+  ['bulletin-harness.js', 'an offering amount wraps onto the row beneath it',
+    s => s.replace('.blt-money__v { flex: 0 0 auto; white-space: nowrap; font-family',
+                   '.blt-money__v { font-family')],
+  ['bulletin-harness.js', 'the page ends in a white band above the footer',
+    s => s.replace('.blt-main .blt-table { flex: 1 1 auto; }', '')],
+  ['bulletin-harness.js', 'the first reading prints the passage as the reader',
+    s => s.replace("{ key: 'read1',     label: 'First Reading',         roles: ['reader1'], ref: 'reading1' }",
+                   "{ key: 'read1',     label: 'First Reading',         roles: ['reading1'], ref: 'reading1' }")],
+  // The roster keeps the liturgical cell as a JSON STRING, so unwrapping
+  // only objects printed the braces across the masthead.
+  ['bulletin-harness.js', 'the liturgical day prints as raw JSON',
+    s => s.replace("if (s.charAt(0) === '{') {", "if (false) {")],
+  ['bulletin-harness.js', 'a hand-typed liturgical day disappears',
+    s => s.replace("} catch (e) { /* not JSON after all: keep the text */ }", "} catch (e) { return ''; }")],
+  ['bulletin-harness.js', 'a duty points at a roster role that does not exist',
+    s => s.replace("roles: ['flowerarrangement']", "roles: ['flowers']")],
+  ['bulletin-harness.js', 'the band loses half its players',
+    s => s.replace("roles: ['pianist', 'guitarist', 'bassist', 'drummer', 'singer1', 'singer2', 'singer3', 'singer4']",
+                   "roles: ['pianist', 'guitarist']")],
+  // '-' in a scripture slot is the roster saying there is no psalm today.
+  ['bulletin-harness.js', 'the no-psalm sentinel is tidied away',
+    s => s.replace("if (v === '-' && !isScripture) return '';", "if (v === '-') return '';")],
+  ['bulletin-harness.js', 'the same person rostered twice is printed twice',
+    s => s.replace('if (v && names.indexOf(v) === -1) names.push(v);', 'if (v) names.push(v);')],
+  // The sheet is scaled to fit the screen; scaling the SHEET rather than
+  // its wrapper bakes that fraction into the printed PDF.
+  ['bulletin-harness.js', 'the PDF is printed at whatever size the phone showed',
+    s => s.replace("stage.style.transform = 'scale(' + scale + ')';",
+                   "sheet.style.transform = 'scale(' + scale + ')';")],
+  ['bulletin-harness.js', 'the editing controls print on the bulletin',
+    s => s.replace('.blt-capturing .blt-x, .blt-capturing .blt-add { display: none !important; }', '')],
+  // Without onConflict the upsert inserts another row on every keystroke
+  // batch, and reopening the bulletin returns whichever one came back first.
+  ['bulletin-harness.js', 'every save makes a second bulletin for the same Sunday',
+    s => s.replace("{ onConflict: 'service_date,year' }", '{}')],
+  ['bulletin-harness.js', 'a bulletin saved by an older page throws on open',
+    s => s.replace('if (Array.isArray(d.notices)) b.notices = d.notices.map(function(n) {',
+                   'if (d.notices) b.notices = d.notices.map(function(n) {')],
+  // Opened on the last Sunday of a month, one month ahead leaves the
+  // right-hand column with no service to name.
+  ['bulletin-harness.js', 'the next-Sunday column runs out at a month end',
+    s => s.replace('for (var k = 0; k < 3; k++) {', 'for (var k = 0; k < 1; k++) {')],
+
   ['songbook-live-harness.js', 'the box goes back to holding only the title',
     s => s.replace("value=\"' + escapeHtml(_sbmFindQuery(song)) +",
                    "value=\"' + escapeHtml(String(song.title || '').trim()) +")],
