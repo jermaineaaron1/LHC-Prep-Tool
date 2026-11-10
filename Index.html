@@ -9318,20 +9318,6 @@
           <button class="blt-btn" onclick="BLT.toggleRows(event)" title="Which duty rows the bulletin carries">
             <i class="fa-solid fa-list-check"></i>Rows
           </button>
-          <span class="blt-fmt" id="bltFmt">
-            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('bold')" title="Bold"><b>B</b></button>
-            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('italic')" title="Italic"><i>I</i></button>
-            <button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt('underline')" title="Underline"><u>U</u></button>
-            <input type="color" class="blt-fmt__c" id="bltFmtColour" value="#2b2b2b" title="Colour of the words" onchange="BLT.fmtColour(this.value)">
-            <select class="blt-fmt__f" title="Font" onchange="BLT.fmtFont(this.value); this.selectedIndex=0;">
-              <option value="">Font</option>
-              <option value="Lato, sans-serif">Lato</option>
-              <option value="Poppins, sans-serif">Poppins</option>
-              <option value="Cinzel, serif">Cinzel</option>
-              <option value="Georgia, serif">Georgia</option>
-              <option value="Courier New, monospace">Courier New</option>
-            </select>
-          </span>
           <span class="blt-fmt">
             <button class="blt-btn blt-fmt__b" id="bltUndo" onmousedown="event.preventDefault()" onclick="BLT.undo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
             <button class="blt-btn blt-fmt__b" id="bltRedo" onmousedown="event.preventDefault()" onclick="BLT.redo()" title="Redo (Ctrl+Shift+Z)"><i class="fa-solid fa-rotate-right"></i></button>
@@ -129831,6 +129817,114 @@ window.LHC_Install = (function() {
 .blt-foot__name { font-family: 'Poppins', sans-serif; font-weight: 700; font-style: italic; font-size: 12.5px; color: #2b2b2b; margin-top: 1px; }
 .blt-foot__line { font-size: 10.5px; color: #4f4631; margin-top: 2px; line-height: 1.45; }
 
+/* ── the section dialogue ─────────────────────────────────────────────
+   The sheet is an A4 page set at 10px. Typing into it is possible but
+   squinting work, so every block on it opens a dialogue: the same
+   fields at a size a person can read, with the formatting bar in the
+   dialogue rather than away up in the toolbar. The sheet behind it
+   redraws as you type, so the page is still what you are editing. */
+.blt-pen {
+  position: absolute; top: 4px; right: 4px; width: 17px; height: 17px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(15,23,42,.18); border-radius: 50%;
+  background: rgba(255,255,255,.88); color: #475569;
+  font-size: 8.5px; cursor: pointer; padding: 0; opacity: 0;
+  transition: opacity .12s;
+}
+.blt-sec { position: relative; }
+.blt-sec:hover .blt-pen, .blt-pen:focus-visible { opacity: 1; }
+.blt-pen:hover { background: #fff; color: #1e293b; border-color: #94a3b8; }
+.blt-capturing .blt-pen { display: none !important; }
+
+.blt-dlg {
+  position: fixed; inset: 0; z-index: 12000; background: rgba(15,23,42,.5);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.blt-dlg__card {
+  background: #fff; width: min(620px, 100%); max-height: 88vh;
+  border-radius: 16px 16px 0 0; display: flex; flex-direction: column;
+  box-shadow: 0 -14px 44px rgba(0,0,0,.34);
+}
+.blt-dlg__hd {
+  display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.blt-dlg__ttl {
+  flex: 1 1 auto; font-family: 'Cinzel', Georgia, serif; font-weight: 700;
+  font-size: 1rem; color: #15314f;
+}
+.blt-dlg__x {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
+  border: 1px solid #cbd5e1; background: #fff; color: #475569; cursor: pointer; font-size: 1rem;
+}
+.blt-dlg__bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  padding: 8px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc;
+}
+.blt-dlg__gap { flex: 1 1 auto; }
+/* On a phone the bar is already full; a spacer only pushes undo and redo
+   onto a second row of their own. */
+@media (max-width: 560px) { .blt-dlg__gap { display: none; } }
+.blt-dlg__body { flex: 1 1 auto; overflow: auto; padding: 14px 16px 18px; }
+.blt-dlg__ft {
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #e2e8f0; display: flex; gap: 8px; justify-content: flex-end;
+}
+
+.blt-dlg__lbl {
+  font-family: 'Poppins', sans-serif; font-weight: 700; font-size: .7rem;
+  letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin-bottom: 4px;
+}
+.blt-dlg__row + .blt-dlg__row { margin-top: 12px; }
+.blt-dlg__f {
+  width: 100%; box-sizing: border-box; min-height: 42px; padding: 9px 11px;
+  border: 1px solid #cbd5e1; border-radius: 9px; background: #fff;
+  font-family: 'Lato', 'Segoe UI', sans-serif; font-size: .95rem; line-height: 1.5; color: #1e293b;
+}
+.blt-dlg__f--big { min-height: 120px; }
+.blt-dlg__f:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+/* The sheet's own placeholder rule is scoped to .blt-sheet, so the
+   dialogue needs its own. */
+.blt-dlg__f:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
+
+.blt-dlg__item {
+  border: 1px solid #e2e8f0; border-radius: 11px; padding: 11px 12px; margin-top: 10px; background: #f8fafc;
+}
+.blt-dlg__item-hd {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.blt-dlg__n {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0;
+  color: #334155; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: .72rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.blt-dlg__item-ttl { flex: 1 1 auto; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: .78rem; color: #475569; }
+.blt-dlg__drop {
+  border: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+  color: #b91c1c; cursor: pointer; font-size: .74rem; font-weight: 700; padding: 4px 9px;
+}
+.blt-dlg__drop:hover { background: #fee2e2; border-color: #fca5a5; }
+.blt-dlg__add {
+  margin-top: 10px; padding: 8px 13px; border-radius: 9px; border: 1px dashed #94a3b8;
+  background: #fff; color: #334155; font-family: 'Poppins', sans-serif; font-weight: 700;
+  font-size: .78rem; cursor: pointer;
+}
+.blt-dlg__add:hover { background: #f1f5f9; border-color: #475569; }
+.blt-dlg__none { color: #64748b; font-size: .85rem; font-style: italic; padding: 4px 0; }
+
+/* The QR slot, at a size you can actually see, inside the dialogue. */
+.blt-dlg__qr { display: flex; align-items: center; gap: 12px; }
+.blt-dlg__qr .blt-qr { width: 96px; height: 96px; }
+.blt-dlg__qr .blt-qr__img { width: 96px; height: 96px; }
+.blt-dlg__qr .blt-qr--empty { font-size: 10px; }
+.blt-dlg__qr .blt-qr--empty i { font-size: 22px; }
+.blt-dlg__qr-note { flex: 1 1 auto; font-size: .78rem; color: #64748b; line-height: 1.45; }
+
+@media (min-width: 640px) {
+  .blt-dlg { align-items: center; }
+  .blt-dlg__card { border-radius: 16px; }
+}
+
 /* ---- editing ---- */
 /* A field is only outlined while the sheet is being edited, and never
    while it is being captured for the PDF -- `.blt-capturing` is what the
@@ -130413,11 +130507,12 @@ var BLT = (function() {
     h +=       '<div class="blt-addr">37, JALAN SS 4C/5,<br>TAMAN RASA SAYANG, PJ</div>';
     h +=       '<div class="blt-time">Sunday Service at 9.30am</div>';
     h +=     '</div>';
-    h +=     '<div class="blt-head__right">';
+    h +=     '<div class="blt-head__right blt-sec">';
     h +=       '<div class="blt-welcome">WELCOME</div>';
     h +=       '<div class="blt-when blt-when--first">' + _esc(longDate) + '</div>';
     h +=       '<div class="blt-when">' + _esc(dayName) + '</div>';
-    h +=       '<div class="blt-verse">' + _edRich('verse.text', d.verse.text, 'The theme verse') + '</div>';
+    h +=       '<div class="blt-verse">' + _edRich('verse.text', d.verse.text, 'The theme verse') + '</div>' +
+      _pen('verse');
     h +=       '<div class="blt-verse__ref">' + _ed('verse.ref', d.verse.ref, 'REFERENCE') + '</div>';
     h +=     '</div>';
     h +=   '</div>';
@@ -130426,13 +130521,13 @@ var BLT = (function() {
     h += '<div class="blt-body"><div class="blt-col">';
 
     // Prayer
-    h += '<div class="blt-block blt-block--prayer">';
+    h += '<div class="blt-block blt-block--prayer blt-sec">' + _pen('prayer');
     h +=   '<div class="blt-h">PRAYER OF THE DAY</div>';
     h +=   '<div class="blt-p">' + _edRich('prayer', d.prayer, 'The prayer of the day') + '</div>';
     h += '</div>';
 
     // Announcements -- a numbered list the admin adds to and takes from.
-    h += '<div class="blt-block blt-block--notice">';
+    h += '<div class="blt-block blt-block--notice blt-sec">' + _pen('notices');
     h +=   '<div class="blt-h">ANNOUNCEMENTS</div>';
     h +=   '<ol class="blt-notices">';
     d.notices.forEach(function(n, i) {
@@ -130446,7 +130541,7 @@ var BLT = (function() {
     h += '</div>';
 
     // Giving
-    h += '<div class="blt-block blt-block--give">';
+    h += '<div class="blt-block blt-block--give blt-sec">' + _pen('giving');
     h +=   '<div class="blt-h">' + _ed('giving.title', d.giving.title, 'Online giving') + '</div>';
     d.giving.entries.forEach(function(g, i) {
       h += '<div class="blt-give">';
@@ -130465,7 +130560,7 @@ var BLT = (function() {
     h += '</div>';
 
     // Attendance and offering
-    h += '<div class="blt-block blt-block--figs">';
+    h += '<div class="blt-block blt-block--figs blt-sec">' + _pen('figures');
     h +=   '<div class="blt-h">ATTENDANCE &middot; ' + _ed('attendance.asAt', d.attendance.asAt, 'DATE') + '</div>';
     h +=   '<div class="blt-figs">';
     d.attendance.figures.forEach(function(f, i) {
@@ -130486,7 +130581,9 @@ var BLT = (function() {
     h += '</div><div class="blt-main">';
 
     // The duty table.
-    h += '<table class="blt-table"><thead><tr><th></th>';
+    h += '<table class="blt-table">' +
+         '<colgroup><col style="width:28%"><col style="width:36%"><col style="width:36%"></colgroup>' +
+         '<thead><tr><th></th>';
     h += '<th>' + _esc(a ? _colDate(a) : '') + '</th>';
     h += '<th>' + _esc(b ? _colDate(b) : '') + '</th>';
     h += '</tr></thead><tbody>';
@@ -130512,7 +130609,7 @@ var BLT = (function() {
     h += '</div></div>';
 
     // Footer contacts.
-    h += '<div class="blt-foot">';
+    h += '<div class="blt-foot blt-sec">' + _pen('contacts');
     d.contacts.forEach(function(c, i) {
       h += '<div class="blt-foot__c">';
       h +=   '<div class="blt-foot__role">' + _ed('contacts.' + i + '.role', c.role, 'Role:') +
@@ -130567,6 +130664,17 @@ var BLT = (function() {
   // chose, and it survives a redraw and a window resize.
   var _zoom = null;
 
+  // A phone fitting an A4 page to its width lands near 45%, which is a
+  // picture of a bulletin rather than something you can read or correct.
+  // 87% shows the left-hand column at a legible size with the duty table
+  // beginning beside it, and the page scrolls from there. Asked for by
+  // the operator (2026-11-10) against a screenshot of that very view.
+  var PHONE_ZOOM = 0.87;
+  function _isPhone() {
+    return (window.innerWidth || 0) <= 820 ||
+      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+  }
+
   function _fitScale() {
     var stage = _$('bltStageInner');
     var room = (stage && stage.parentElement ? stage.parentElement.clientWidth : A4_W) - 16;
@@ -130602,6 +130710,234 @@ var BLT = (function() {
       box.style.width = Math.round(A4_W * scale) + 'px';
       box.style.height = Math.round(A4_H * scale) + 'px';
     }
+    // Wider than the window: show the left-hand edge, which is where the
+    // prayer, the announcements and the giving are. Centred, a phone
+    // would open in the middle of the duty table.
+    var sc = stage.parentElement && stage.parentElement.parentElement;
+    if (sc && sc.scrollWidth > sc.clientWidth && !sc._bltScrolled) {
+      sc.scrollLeft = 0; sc._bltScrolled = true;
+    }
+  }
+
+
+  // ── the section dialogue ───────────────────────────────────────────
+  // The sheet is an A4 page set at 10px: typing on it works, but it is
+  // squinting work, and the fields that take a whole paragraph are the
+  // worst of it. Every block therefore opens a dialogue holding the
+  // SAME fields at a size a person can read, with the formatting bar
+  // in the dialogue rather than away up in the toolbar. The sheet
+  // behind redraws as you type, so what you are editing is still the
+  // page you are going to print.
+  //
+  // One spec per section, so adding a block later is a few lines here
+  // and not another dialogue.
+  var SECTIONS = {
+    verse: { title: 'Welcome and theme verse', blocks: [
+      { fields: [
+        { p: 'verse.text', label: 'The verse', rich: true, big: true, ph: 'The theme verse' },
+        { p: 'verse.ref', label: 'Reference', ph: 'COLOSSIANS 2:6-7' }
+      ] }
+    ] },
+    prayer: { title: 'Prayer of the day', blocks: [
+      { fields: [{ p: 'prayer', label: 'The prayer', rich: true, big: true, ph: 'The prayer of the day' }] }
+    ] },
+    notices: { title: 'Announcements', blocks: [
+      { list: 'notices', addKey: 'notice', addLabel: 'Add an announcement', each: 'Announcement',
+        item: [
+          { k: 'lead', label: 'Title', rich: true, ph: 'LAWA gathering' },
+          { k: 'body', label: 'What it says', rich: true, big: true, ph: 'on the 1st floor every Wednesday, 7.30pm.' }
+        ] }
+    ] },
+    giving: { title: 'Online giving', blocks: [
+      { fields: [{ p: 'giving.title', label: 'Heading', ph: 'Online giving' }] },
+      { list: 'giving.entries', addKey: 'giving', addLabel: 'Add another purpose', each: 'Purpose',
+        item: [
+          { k: 'purpose', label: 'What it is for', ph: 'leave empty for the general offering' },
+          { k: 'name', label: 'Account name', ph: 'Luther House Chapel' },
+          { k: 'bank', label: 'Bank', ph: 'RHB Bank' },
+          { k: 'number', label: 'Account number', ph: '2120-68000-44-22-9' },
+          { k: 'qr', label: 'QR code', qr: true }
+        ] }
+    ] },
+    figures: { title: 'Attendance and offering', blocks: [
+      { fields: [{ p: 'attendance.asAt', label: 'Counted on', ph: '8 NOV 2026' }] },
+      { list: 'attendance.figures', addKey: 'figure', addLabel: 'Add a figure', each: 'Figure',
+        item: [
+          { k: 'label', label: 'Who', ph: 'Adults' },
+          { k: 'value', label: 'How many', ph: '0' }
+        ] },
+      { list: 'offering', addKey: 'offering', addLabel: 'Add an offering line', each: 'Offering',
+        item: [
+          { k: 'label', label: 'What', ph: 'Offering as at 8.11.26' },
+          { k: 'value', label: 'How much', ph: 'RM 9,913' }
+        ] }
+    ] },
+    contacts: { title: 'Who to contact', blocks: [
+      { list: 'contacts', addKey: 'contact', addLabel: 'Add a contact', each: 'Contact',
+        item: [
+          { k: 'role', label: 'Role', ph: 'Pastor in charge:' },
+          { k: 'name', label: 'Name', ph: 'Rev. Benedict Muthusamy' },
+          { k: 'phone', label: 'Phone', ph: '016-663 8789' },
+          { k: 'email', label: 'Email', ph: 'name@gmail.com' }
+        ] }
+    ] }
+  };
+
+  var _dlg = null, _dlgKey = null, _dlgPaint = null;
+
+  function _getPath(obj, path) {
+    var parts = String(path).split('.'), cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null) return undefined;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  function _dlgField(path, f, value) {
+    var cls = 'blt-dlg__f blt-ed' + (f.rich ? ' blt-ed--rich' : '') + (f.big ? ' blt-dlg__f--big' : '');
+    return '<div class="blt-dlg__row"><div class="blt-dlg__lbl">' + _esc(f.label) + '</div>' +
+      '<div class="' + cls + '" contenteditable="' + (f.rich ? 'true' : 'plaintext-only') + '"' +
+      (f.rich ? ' data-rich="1"' : '') +
+      ' data-p="' + _esc(path) + '" data-ph="' + _esc(f.ph || '') + '">' +
+      (f.rich ? _richClean(value) : _esc(value || '')) + '</div></div>';
+  }
+
+  function _dlgHtml(key) {
+    var spec = SECTIONS[key], d = _cur.data;
+    var h = '';
+    var anyRich = false;
+    spec.blocks.forEach(function(b) {
+      if (b.fields) {
+        b.fields.forEach(function(f) {
+          if (f.rich) anyRich = true;
+          h += _dlgField(f.p, f, _getPath(d, f.p));
+        });
+        return;
+      }
+      var arr = _getPath(d, b.list) || [];
+      h += '<div class="blt-dlg__lbl" style="margin-top:14px;">' + _esc(b.each) + 's</div>';
+      if (!arr.length) h += '<div class="blt-dlg__none">None yet.</div>';
+      arr.forEach(function(it, i) {
+        h += '<div class="blt-dlg__item">';
+        h +=   '<div class="blt-dlg__item-hd"><span class="blt-dlg__n">' + (i + 1) + '</span>' +
+               '<span class="blt-dlg__item-ttl">' + _esc(b.each) + '</span>' +
+               '<button type="button" class="blt-dlg__drop" onclick="BLT.dlgRemove(\'' + b.addKey + '\',' + i + ')">Remove</button></div>';
+        b.item.forEach(function(f) {
+          if (f.rich) anyRich = true;
+          if (f.qr) {
+            h += '<div class="blt-dlg__row"><div class="blt-dlg__lbl">' + _esc(f.label) + '</div>' +
+                 '<div class="blt-dlg__qr">' + _qrHtml(i, it[f.k]) +
+                 '<div class="blt-dlg__qr-note">Click to choose a picture, or drop or paste one here. ' +
+                 'A photograph is fine &mdash; it is scaled down for you.</div></div></div>';
+            return;
+          }
+          h += _dlgField(b.list + '.' + i + '.' + f.k, f, it[f.k]);
+        });
+        h += '</div>';
+      });
+      h += '<button type="button" class="blt-dlg__add" onclick="BLT.dlgAdd(\'' + b.addKey + '\')">' +
+           '<i class="fa-solid fa-plus"></i> ' + _esc(b.addLabel) + '</button>';
+    });
+    return { body: h, rich: anyRich };
+  }
+
+  function openSection(key) {
+    if (!_cur || !SECTIONS[key]) return;
+    closeSection();
+    _dlgKey = key;
+    var spec = SECTIONS[key];
+    var built = _dlgHtml(key);
+
+    var bd = document.createElement('div');
+    bd.className = 'blt-dlg';
+    bd.id = 'bltDlg';
+    var bar = built.rich
+      ? '<div class="blt-dlg__bar">' +
+        '<button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt(\'bold\')" title="Bold"><b>B</b></button>' +
+        '<button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt(\'italic\')" title="Italic"><i>I</i></button>' +
+        '<button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.fmt(\'underline\')" title="Underline"><u>U</u></button>' +
+        '<input type="color" class="blt-fmt__c" value="#2b2b2b" title="Colour of the words" onchange="BLT.fmtColour(this.value)">' +
+        '<select class="blt-fmt__f" title="Font" onchange="BLT.fmtFont(this.value); this.selectedIndex=0;">' +
+          '<option value="">Font</option>' +
+          '<option value="Lato, sans-serif">Lato</option>' +
+          '<option value="Poppins, sans-serif">Poppins</option>' +
+          '<option value="Cinzel, serif">Cinzel</option>' +
+          '<option value="Georgia, serif">Georgia</option>' +
+          '<option value="Courier New, monospace">Courier New</option>' +
+        '</select>' +
+        '<span class="blt-dlg__gap"></span>' +
+        '<button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.undo()" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>' +
+        '<button class="blt-btn blt-fmt__b" onmousedown="event.preventDefault()" onclick="BLT.redo()" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>' +
+        '</div>'
+      : '';
+    bd.innerHTML =
+      '<div class="blt-dlg__card" role="dialog" aria-modal="true" aria-label="' + _esc(spec.title) + '">' +
+        '<div class="blt-dlg__hd"><div class="blt-dlg__ttl">' + _esc(spec.title) + '</div>' +
+          '<button type="button" class="blt-dlg__x" onclick="BLT.closeSection()" aria-label="Close">&times;</button></div>' +
+        bar +
+        '<div class="blt-dlg__body" id="bltDlgBody">' + built.body + '</div>' +
+        '<div class="blt-dlg__ft"><button type="button" class="blt-btn blt-btn--primary" onclick="BLT.closeSection()">Done</button></div>' +
+      '</div>';
+
+    // Typing in the dialogue writes the bulletin and redraws the sheet
+    // behind it, debounced -- the page is the point, so it should move.
+    bd.addEventListener('input', function(e) {
+      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
+      if (!el || !el.dataset.p) return;
+      if (_applying) return;
+      _noteTyping();
+      _setPath(_cur.data, el.dataset.p, el.dataset.rich ? _richOf(el) : _textOf(el));
+      clearTimeout(_dlgPaint);
+      _dlgPaint = setTimeout(function() { render(); }, 220);
+      _queueSave();
+    });
+    bd.addEventListener('paste', function(e) {
+      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
+      if (!el) return;
+      e.preventDefault();
+      _noteTyping();
+      document.execCommand('insertText', false,
+        (e.clipboardData || window.clipboardData).getData('text/plain') || '');
+    });
+    bd.addEventListener('click', function(e) { if (e.target === bd) closeSection(); });
+    bd.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeSection(); return; }
+      var k = (e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+    });
+
+    document.body.appendChild(bd);
+    _dlg = bd;
+    var first = bd.querySelector('.blt-dlg__f');
+    if (first) { first.focus(); if (window.lhcCaretToStart) window.lhcCaretToStart(first); }
+  }
+
+  function closeSection() {
+    clearTimeout(_dlgPaint);
+    if (_dlg && _dlg.parentNode) _dlg.parentNode.removeChild(_dlg);
+    if (_dlg) { _dlg = null; _dlgKey = null; render(); _queueSave(); }
+  }
+
+  // Add and remove from inside the dialogue: the same two functions the
+  // sheet uses, then the dialogue is drawn again so its numbering and
+  // its fields match what was just changed.
+  function _dlgRefresh() {
+    if (!_dlg || !_dlgKey) return;
+    var body = _dlg.querySelector('#bltDlgBody');
+    if (body) body.innerHTML = _dlgHtml(_dlgKey).body;
+    render();
+  }
+  function dlgAdd(what) { addItem(what); _dlgRefresh(); }
+  function dlgRemove(what, i) { removeItem(what, i); _dlgRefresh(); }
+
+  function _pen(key) {
+    return '<button type="button" class="blt-pen" onclick="BLT.openSection(\'' + key + '\')" ' +
+      'title="Open this to edit it" aria-label="Edit ' + _esc(SECTIONS[key].title) + '">' +
+      '<i class="fa-solid fa-pen"></i></button>';
   }
 
   // ── undo ───────────────────────────────────────────────────────────
@@ -130891,6 +131227,9 @@ var BLT = (function() {
   }
 
   function open() {
+    // Only on arrival, so a size the reader picked is not taken off them
+    // every time they come back to the view.
+    if (_zoom == null && _isPhone()) _zoom = PHONE_ZOOM;
     _days = _serviceDays();
     if (!_days.length) {
       var sheet = _$('bltSheet');
@@ -131031,6 +131370,9 @@ var BLT = (function() {
     zoomBy: zoomBy, zoomFit: zoomFit,
     undo: undo, redo: redo, fmt: fmt, fmtColour: fmtColour, fmtFont: fmtFont,
     pickQr: pickQr, clearQr: clearQr, dropQr: dropQr,
+    openSection: openSection, closeSection: closeSection,
+    dlgAdd: dlgAdd, dlgRemove: dlgRemove,
+    SECTIONS: SECTIONS, _dlgOpen: function() { return _dlgKey; },
     _qrAccept: _qrAccept, _qrShrink: _qrShrink,
     _richOf: _richOf, _richClean: _richClean,
     _undoDepth: function() { return { undo: _undo.length, redo: _redo.length }; },

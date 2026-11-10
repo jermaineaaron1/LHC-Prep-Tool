@@ -2817,6 +2817,31 @@ the anon key -- verify as `postgres`, not as the app.
     block has no quiet zone and will not scan, and JPEG has no alpha at
     all.
 
+    **Every block opens a DIALOGUE** (`SECTIONS`, one spec per block;
+    `openSection`). An A4 page set at 10px can be typed on, but it is
+    squinting work, so a pencil on each block opens the same fields at a
+    readable size with the formatting bar inside the dialogue rather
+    than in the toolbar -- undo and redo stay there, being about the
+    whole bulletin. A dialogue's fields carry the SAME `.blt-ed` classes
+    as the sheet's, so `_applyCmd` and `_noteSelection` reach them
+    unchanged, and its lists add and remove through the same `addItem` /
+    `removeItem` the sheet uses, so there is one definition of what an
+    item is. Typing in it redraws the sheet behind, debounced -- the
+    page is what is being edited, not a separate preview.
+
+    **The duty table declares its columns** (`<colgroup>` 28/36/36).
+    `table-layout: fixed` with no colgroup splits three columns evenly,
+    so short duty labels had as much room as cells holding three names.
+
+    **A phone opens the bulletin at 87%, not fitted.** Fitting A4 to a
+    phone lands near 45%, which is a picture of a bulletin rather than
+    something anybody can read or correct; 87% shows the left-hand
+    column legibly with the duty table starting beside it, and the page
+    scrolls from there. Set only on arrival (`_zoom == null`), so a size
+    the reader chose is not taken off them, and the stage is scrolled to
+    its LEFT edge once -- centred, a phone would open in the middle of
+    the duty table.
+
 ## Quick Commands for Claude Code
 
 ```bash

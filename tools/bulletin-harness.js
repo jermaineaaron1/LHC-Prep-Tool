@@ -572,6 +572,68 @@ check('  on a white ground, so it still scans',
 check('anything that is not a picture is turned away',
   /if \(!\/\^image\\\/\/\.test\(file\.type \|\| ''\)\)/.test(MODULE), true);
 
+console.log('\nthe duty labels give their width to the names');
+// table-layout:fixed with no colgroup splits three columns evenly, so
+// the labels -- which are short -- had as much room as the names, which
+// run two and three to a cell.
+check('the columns are declared, not left to split evenly',
+  /<colgroup><col style="width:28%"><col style="width:36%"><col style="width:36%"><\/colgroup>/.test(MODULE), true);
+check('  and the two name columns are the wider pair',
+  (function () {
+    const m = /width:(\d+)%"><col style="width:(\d+)%"><col style="width:(\d+)%/.exec(MODULE);
+    return m ? (Number(m[2]) > Number(m[1]) && Number(m[2]) === Number(m[3])) : false;
+  })(), true);
+
+console.log('\nevery block opens a dialogue');
+// An A4 page set at 10px can be typed on, but it is squinting work. The
+// same fields open at a size a person can read.
+const secKeys = Object.keys(BLT.SECTIONS);
+check('there is one for each block on the sheet',
+  secKeys, ['verse', 'prayer', 'notices', 'giving', 'figures', 'contacts']);
+check('each one is titled and has something to edit',
+  secKeys.filter(k => !BLT.SECTIONS[k].title || !(BLT.SECTIONS[k].blocks || []).length), []);
+// A list in a dialogue adds and removes through the SAME two functions
+// the sheet uses, so there is one definition of what an item is.
+const addKeys = [];
+secKeys.forEach(k => (BLT.SECTIONS[k].blocks || []).forEach(b => { if (b.list) addKeys.push(b.addKey); }));
+check('every list says which kind of item it holds',
+  addKeys.sort(), ['contact', 'figure', 'giving', 'notice', 'offering']);
+check('  and those are the kinds addItem knows',
+  addKeys.filter(k => !new RegExp("what === '" + k + "'").test(MODULE)), []);
+check('adding from the dialogue goes through addItem',
+  /function dlgAdd\(what\) \{ addItem\(what\); _dlgRefresh\(\); \}/.test(MODULE), true);
+check('  and removing through removeItem',
+  /function dlgRemove\(what, i\) \{ removeItem\(what, i\); _dlgRefresh\(\); \}/.test(MODULE), true);
+// Typing in the dialogue should move the page behind it: the sheet is
+// what is being edited, not a separate preview.
+check('the sheet redraws while you type in the dialogue',
+  /_dlgPaint = setTimeout\(function\(\) \{ render\(\); \}, 220\);/.test(MODULE), true);
+check('a dialogue field is the same kind of field as the sheet\'s',
+  /class="blt-dlg__f blt-ed/.test(MODULE) || /'blt-dlg__f blt-ed'/.test(MODULE), true);
+check('  so the formatting bar reaches it',
+  /blt-ed--rich/.test(MODULE), true);
+// The bar belongs where the words are.
+check('the formatting bar is in the dialogue',
+  /<div class="blt-dlg__bar">/.test(MODULE), true);
+check('  and no longer in the toolbar', /id="bltFmt"/.test(SRC), false);
+check('undo and redo stay in the toolbar, being about the whole bulletin',
+  /id="bltUndo"/.test(SRC) && /id="bltRedo"/.test(SRC), true);
+check('the dialogue closes on Escape and on the backdrop',
+  /e\.key === 'Escape'/.test(MODULE) && /if \(e\.target === bd\) closeSection\(\)/.test(MODULE), true);
+check('a dialogue never prints', /\.blt-capturing \.blt-pen/.test(SRC), true);
+
+console.log('\na phone opens close enough to read');
+// Fitting an A4 page to a phone lands near 45%, which is a picture of a
+// bulletin rather than something you can correct.
+check('a phone opens at 87%', /PHONE_ZOOM = 0\.87/.test(MODULE), true);
+check('  only on arrival, so a chosen size is not taken away',
+  /if \(_zoom == null && _isPhone\(\)\) _zoom = PHONE_ZOOM;/.test(MODULE), true);
+check('  and a coarse pointer counts as a phone, not just a narrow window',
+  /\(hover: none\) and \(pointer: coarse\)/.test(MODULE), true);
+// Centred, a phone would open in the middle of the duty table.
+check('it starts at the left edge, where the typed blocks are',
+  /sc\.scrollLeft = 0; sc\._bltScrolled = true;/.test(MODULE), true);
+
 console.log('\nthe second column, and the table behind it');
 // Opening the bulletin on the last Sunday of a month still needs a NEXT
 // Sunday for the right-hand column, so it looks three months out.
