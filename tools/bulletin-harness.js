@@ -414,15 +414,15 @@ check('the duty table takes up the page\'s slack',
 console.log('\nthe editor does not print itself');
 check('the add and remove controls are hidden while capturing',
   /\.blt-capturing \.blt-x, \.blt-capturing \.blt-add \{ display: none !important; \}/.test(SRC), true);
-check('and the hover outline is off then too',
-  /\.blt-sheet:not\(\.blt-capturing\) \.blt-ed:hover/.test(SRC), true);
+check('and the block highlight is off then too',
+  /\.blt-sheet:not\(\.blt-capturing\) \.blt-sec:hover/.test(SRC), true);
 // Unscoped, this printed "The theme verse" and "REFERENCE" across the
 // masthead of any bulletin whose verse had not been typed yet. A
 // placeholder belongs to the editor, never to the page.
 check('an empty field prints nothing at all',
-  /\.blt-sheet:not\(\.blt-capturing\) \.blt-ed:empty::before \{ content: attr\(data-ph\)/.test(SRC), true);
+  /\.blt-sheet:not\(\.blt-capturing\) \.blt-view:empty::before \{ content: attr\(data-ph\)/.test(SRC), true);
 check('  and no unscoped placeholder rule is left',
-  /(?<!\)\s)\.blt-ed:empty::before/.test(SRC), false);
+  /(?<!\)\s)\.blt-view:empty::before/.test(SRC), false);
 
 console.log('\nzooming in on the small print');
 // The page is set at 10px and scaled to fit, so on a laptop it lands
@@ -489,8 +489,10 @@ check('line breaks survive', rich('one<br>two'), 'one<br>two');
 check('a div becomes a break, not a block',
   rich('one<div>two</div>'), 'one<br>two');
 // A paste must never carry the site it came from, even into a rich field.
-check('a paste is still inserted as plain text',
-  /document\.execCommand\('insertText', false, t\);/.test(MODULE), true);
+check('a paste into the form is still inserted as plain text',
+  /execCommand\('insertText', false,/.test(MODULE), true);
+check('  so no formatting rides in from the site it was copied off',
+  /getData\('text\/plain'\)/.test(MODULE), true);
 
 console.log('\nundo and redo');
 // Rendering replaces the sheet's HTML and takes the browser's own undo
@@ -518,8 +520,10 @@ check('one formatting change is one undo step',
   /if \(_applying\) return;/.test(MODULE) && /_applying = true;/.test(MODULE), true);
 check('  and the flag is always put down again',
   /\} finally \{ _applying = false; \}/.test(MODULE), true);
-check('backspace on an emptied announcement removes it',
-  /removeItem\('notice', parseInt\(m\[1\], 10\)\);/.test(MODULE), true);
+// Removing is a labelled button in the form now, rather than a
+// backspace on a field that no longer exists on the sheet.
+check('an item is removed by a button that says so',
+  /class="blt-dlg__drop" onclick="BLT\.dlgRemove/.test(MODULE), true);
 
 console.log('\nthe account, and the QR code');
 check('the name is bold, on its own line',
@@ -571,6 +575,57 @@ check('  on a white ground, so it still scans',
   /g\.fillStyle = '#ffffff';\s*\n\s*g\.fillRect\(0, 0, c\.width, c\.height\);/.test(MODULE), true);
 check('anything that is not a picture is turned away',
   /if \(!\/\^image\\\/\/\.test\(file\.type \|\| ''\)\)/.test(MODULE), true);
+
+console.log('\nthe sheet is read, not typed into');
+// Two ways to write one field meant two code paths for it, and the
+// in-place one was 10px type you could not aim at on a phone. The page
+// is now a page; the form is where it changes.
+check('no field on the sheet is editable',
+  /contenteditable/.test(MODULE.slice(MODULE.indexOf('function _ed('), MODULE.indexOf('function _x('))), false);
+check('  they are shown through one class', /class="blt-view /.test(MODULE), true);
+// The FORM's fields must still be editable, or nothing can be typed.
+check('the form\'s fields still are',
+  /'blt-dlg__f blt-ed' \+ \(f\.rich \? ' blt-ed--rich' : ''\)/.test(MODULE) ||
+  /class="blt-dlg__f blt-ed/.test(MODULE), true);
+check('  and still say which are rich',
+  /contenteditable="' \+ \(f\.rich \? 'true' : 'plaintext-only'\)/.test(MODULE), true);
+
+console.log('\ndouble click, and double TAP');
+// `dblclick` never fires on a phone: the page allows zooming, so a
+// double tap is a zoom and the browser keeps it (gotcha 28). The roster
+// hit this same wall; a desktop-only binding would have left the form
+// unreachable on the phones this is mostly read on.
+check('a block opens on double click', /el\.ondblclick = function/.test(MODULE), true);
+check('  and on a double TAP, which is a different event entirely',
+  /addEventListener\('touchend'/.test(MODULE), true);
+check('  within the same window the roster uses',
+  /\(now - _tapAt\) < 400/.test(MODULE), true);
+// Without preventDefault the second tap is swallowed as a zoom.
+check('  and the second tap is stopped from zooming the page',
+  /e\.preventDefault\(\); +\/\/ or the second tap is a zoom/.test(MODULE), true);
+check('  the listener is not passive, or it could not',
+  /\{ passive: false \}/.test(MODULE), true);
+// Every block, not just the ones somebody remembered.
+const stamped = (MODULE.match(/_secAttr\('(\w+)'\)/g) || []).map(m => /_secAttr\('(\w+)'\)/.exec(m)[1]).sort();
+check('every section is reachable by it', stamped, Object.keys(BLT.SECTIONS).sort());
+check('  and the binder runs after every draw',
+  /sheet\.innerHTML = h;\s*\n\s*_bindOpeners\(\);/.test(MODULE), true);
+// Tapping the QR slot or a +/x must not also open the form.
+check('the controls inside a block are not swallowed',
+  (MODULE.match(/closest\('\.blt-qr, \.blt-x, \.blt-add, \.blt-pen'\)/g) || []).length >= 2, true);
+// A touch screen has no hover, so the pencil would never appear there.
+check('the pencil shows where there is no hover',
+  /@media \(hover: none\) \{ \.blt-pen \{ opacity: \.9; \} \}/.test(SRC), true);
+
+console.log('\nthe form opens in the middle');
+check('centred, not slid up from the bottom',
+  /\.blt-dlg \{[^}]*align-items: center;/.test(SRC), true);
+// Scoped to this card: that radius is used by four other components
+// in the app, so searching the whole file proved nothing.
+check('  with no bottom-sheet corners left on THIS card',
+  /\.blt-dlg__card \{[^}]*border-radius: 16px;/.test(SRC), true);
+check('  and no width-based override putting it back',
+  /@media \(min-width: 640px\) \{\s*\n\s*\.blt-dlg \{ align-items: center; \}/.test(SRC), false);
 
 console.log('\nthe duty labels give their width to the names');
 // table-layout:fixed with no colgroup splits three columns evenly, so

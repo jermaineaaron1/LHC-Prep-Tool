@@ -129843,17 +129843,20 @@ window.LHC_Install = (function() {
 }
 .blt-sec { position: relative; }
 .blt-sec:hover .blt-pen, .blt-pen:focus-visible { opacity: 1; }
+/* No hover on a touch screen, so the pencil would never appear there --
+   which is the one place the double tap most needs announcing. */
+@media (hover: none) { .blt-pen { opacity: .9; } }
 .blt-pen:hover { background: #fff; color: #1e293b; border-color: #94a3b8; }
 .blt-capturing .blt-pen { display: none !important; }
 
 .blt-dlg {
   position: fixed; inset: 0; z-index: 12000; background: rgba(15,23,42,.5);
-  display: flex; align-items: flex-end; justify-content: center;
+  display: flex; align-items: center; justify-content: center; padding: 14px;
 }
 .blt-dlg__card {
-  background: #fff; width: min(620px, 100%); max-height: 88vh;
-  border-radius: 16px 16px 0 0; display: flex; flex-direction: column;
-  box-shadow: 0 -14px 44px rgba(0,0,0,.34);
+  background: #fff; width: min(620px, 100%); max-height: min(86vh, 760px);
+  border-radius: 16px; display: flex; flex-direction: column;
+  box-shadow: 0 18px 54px rgba(0,0,0,.34);
 }
 .blt-dlg__hd {
   display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px;
@@ -129877,7 +129880,7 @@ window.LHC_Install = (function() {
 @media (max-width: 560px) { .blt-dlg__gap { display: none; } }
 .blt-dlg__body { flex: 1 1 auto; overflow: auto; padding: 14px 16px 18px; }
 .blt-dlg__ft {
-  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 16px 12px;
   border-top: 1px solid #e2e8f0; display: flex; gap: 8px; justify-content: flex-end;
 }
 
@@ -129930,22 +129933,24 @@ window.LHC_Install = (function() {
 .blt-dlg__qr .blt-qr--empty i { font-size: 22px; }
 .blt-dlg__qr-note { flex: 1 1 auto; font-size: .78rem; color: #64748b; line-height: 1.45; }
 
-@media (min-width: 640px) {
-  .blt-dlg { align-items: center; }
-  .blt-dlg__card { border-radius: 16px; }
-}
+
 
 /* ---- editing ---- */
 /* A field is only outlined while the sheet is being edited, and never
    while it is being captured for the PDF -- `.blt-capturing` is what the
    capture adds, so the picture is of the bulletin and not of the editor. */
 .blt-ed { outline: none; }
-.blt-sheet:not(.blt-capturing) .blt-ed:hover { background: rgba(37,99,235,.07); border-radius: 3px; }
-.blt-sheet:not(.blt-capturing) .blt-ed:focus { background: rgba(37,99,235,.10); box-shadow: 0 0 0 2px rgba(37,99,235,.45); border-radius: 3px; }
+/* The sheet shows; the dialogue edits. A block lights up as a whole,
+   because the whole block is what a double tap opens -- lighting up one
+   word would promise an edit that is not there. */
+.blt-view { outline: none; }
+.blt-sheet:not(.blt-capturing) .blt-sec { border-radius: 3px; transition: box-shadow .12s; cursor: pointer; }
+.blt-sheet:not(.blt-capturing) .blt-sec:hover { box-shadow: 0 0 0 2px rgba(37,99,235,.35); }
+.blt-sheet:not(.blt-capturing) .blt-sec:hover { box-shadow: 0 0 0 2px rgba(37,99,235,.35); }
 /* A placeholder belongs to the editor, not to the page. Unscoped, a
    bulletin with an empty theme verse PRINTED the words "The theme
    verse" and "REFERENCE" across its masthead. */
-.blt-sheet:not(.blt-capturing) .blt-ed:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
+.blt-sheet:not(.blt-capturing) .blt-view:empty::before { content: attr(data-ph); color: #94a3b8; font-style: italic; }
 
 .blt-x, .blt-add {
   font-family: 'Poppins', sans-serif; border: 1px solid #cbd5e1; background: #ffffff;
@@ -130306,8 +130311,12 @@ var BLT = (function() {
   }
 
   // ── drawing the sheet ──────────────────────────────────────────────
+  // On the SHEET a field is shown, never typed into: the page is read,
+  // and changed through its form. Two ways to write one field meant two
+  // code paths for it, and the in-place one was 10px type on a phone.
+  // The dialogue's fields are the editable ones -- see _dlgField.
   function _ed(path, value, ph, cls, style) {
-    return '<span class="blt-ed ' + (cls || '') + '" contenteditable="plaintext-only" ' +
+    return '<span class="blt-view ' + (cls || '') + '" ' +
       'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '"' +
       (style ? ' style="' + style + '"' : '') + '>' + _esc(value || '') + '</span>';
   }
@@ -130357,12 +130366,12 @@ var BLT = (function() {
   }
 
   function _edRich(path, value, ph, cls) {
-    return '<span class="blt-ed blt-ed--rich ' + (cls || '') + '" contenteditable="true" data-rich="1" ' +
+    return '<span class="blt-view ' + (cls || '') + '" ' +
       'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '">' + _richClean(value) + '</span>';
   }
 
   function _edBlock(path, value, ph, cls) {
-    return '<div class="blt-ed ' + (cls || '') + '" contenteditable="plaintext-only" ' +
+    return '<div class="blt-view ' + (cls || '') + '" ' +
       'data-p="' + _esc(path) + '" data-ph="' + _esc(ph || '') + '">' + _esc(value || '') + '</div>';
   }
   // Room for the QR code the congregation scans. Kept as a data URL on
@@ -130517,7 +130526,7 @@ var BLT = (function() {
     h +=       '<div class="blt-addr">37, JALAN SS 4C/5,<br>TAMAN RASA SAYANG, PJ</div>';
     h +=       '<div class="blt-time">Sunday Service at 9.30am</div>';
     h +=     '</div>';
-    h +=     '<div class="blt-head__right blt-sec">';
+    h +=     '<div class="blt-head__right blt-sec"' + _secAttr('verse') + '>';
     h +=       '<div class="blt-welcome">WELCOME</div>';
     h +=       '<div class="blt-when blt-when--first">' + _esc(longDate) + '</div>';
     h +=       '<div class="blt-when">' + _esc(dayName) + '</div>';
@@ -130531,13 +130540,13 @@ var BLT = (function() {
     h += '<div class="blt-body"><div class="blt-col">';
 
     // Prayer
-    h += '<div class="blt-block blt-block--prayer blt-sec">' + _pen('prayer');
+    h += '<div class="blt-block blt-block--prayer blt-sec"' + _secAttr('prayer') + '>' + _pen('prayer');
     h +=   '<div class="blt-h">PRAYER OF THE DAY</div>';
     h +=   '<div class="blt-p">' + _edRich('prayer', d.prayer, 'The prayer of the day') + '</div>';
     h += '</div>';
 
     // Announcements -- a numbered list the admin adds to and takes from.
-    h += '<div class="blt-block blt-block--notice blt-sec">' + _pen('notices');
+    h += '<div class="blt-block blt-block--notice blt-sec"' + _secAttr('notices') + '>' + _pen('notices');
     h +=   '<div class="blt-h">ANNOUNCEMENTS</div>';
     h +=   '<ol class="blt-notices">';
     d.notices.forEach(function(n, i) {
@@ -130551,7 +130560,7 @@ var BLT = (function() {
     h += '</div>';
 
     // Giving
-    h += '<div class="blt-block blt-block--give blt-sec">' + _pen('giving');
+    h += '<div class="blt-block blt-block--give blt-sec"' + _secAttr('giving') + '>' + _pen('giving');
     h +=   '<div class="blt-h">' + _ed('giving.title', d.giving.title, 'Online giving') + '</div>';
     d.giving.entries.forEach(function(g, i) {
       h += '<div class="blt-give">';
@@ -130570,7 +130579,7 @@ var BLT = (function() {
     h += '</div>';
 
     // Attendance and offering
-    h += '<div class="blt-block blt-block--figs blt-sec">' + _pen('figures');
+    h += '<div class="blt-block blt-block--figs blt-sec"' + _secAttr('figures') + '>' + _pen('figures');
     h +=   '<div class="blt-h">ATTENDANCE &middot; ' + _ed('attendance.asAt', d.attendance.asAt, 'DATE') + '</div>';
     h +=   '<div class="blt-figs">';
     d.attendance.figures.forEach(function(f, i) {
@@ -130619,7 +130628,7 @@ var BLT = (function() {
     h += '</div></div>';
 
     // Footer contacts.
-    h += '<div class="blt-foot blt-sec">' + _pen('contacts');
+    h += '<div class="blt-foot blt-sec"' + _secAttr('contacts') + '>' + _pen('contacts');
     d.contacts.forEach(function(c, i) {
       h += '<div class="blt-foot__c">';
       h +=   '<div class="blt-foot__role">' + _ed('contacts.' + i + '.role', c.role, 'Role:') +
@@ -130632,6 +130641,7 @@ var BLT = (function() {
     h += '</div>';
 
     sheet.innerHTML = h;
+    _bindOpeners();
     _fit();
     _warnIfLong();
   }
@@ -130944,9 +130954,48 @@ var BLT = (function() {
   function dlgAdd(what) { addItem(what); _dlgRefresh(); }
   function dlgRemove(what, i) { removeItem(what, i); _dlgRefresh(); }
 
+  // Double click, or double TAP, anywhere on a block opens its form.
+  //
+  // `dblclick` never fires on a phone: the page allows zooming, so a
+  // double tap is a zoom and the browser keeps it (CLAUDE.md gotcha 28).
+  // The roster hit this same wall and grew RosterEngine._bindDoubleTap;
+  // this is the same two-taps-inside-400ms idea, bound per block. Every
+  // block gets BOTH, because a tablet with a mouse has both.
+  var _tapEl = null, _tapAt = 0;
+
+  function _bindOpeners() {
+    var sheet = _$('bltSheet');
+    if (!sheet) return;
+    sheet.querySelectorAll('[data-blt-sec]').forEach(function(el) {
+      var key = el.getAttribute('data-blt-sec');
+      el.ondblclick = function(e) {
+        if (e.target && e.target.closest && e.target.closest('.blt-qr, .blt-x, .blt-add, .blt-pen')) return;
+        e.preventDefault();
+        openSection(key);
+      };
+      if (el._bltTapBound) return;
+      el._bltTapBound = true;
+      el.addEventListener('touchend', function(e) {
+        if (e.target && e.target.closest && e.target.closest('.blt-qr, .blt-x, .blt-add, .blt-pen')) return;
+        var now = Date.now();
+        if (_tapEl === el && (now - _tapAt) < 400) {
+          e.preventDefault();          // or the second tap is a zoom
+          _tapEl = null;
+          openSection(el.getAttribute('data-blt-sec'));
+        } else {
+          _tapEl = el; _tapAt = now;
+        }
+      }, { passive: false });
+    });
+  }
+
+  // Put on the BLOCK, not on the pencil: it is what _bindOpeners reads
+  // to know which form a double tap should open.
+  function _secAttr(key) { return ' data-blt-sec="' + _esc(key) + '"'; }
+
   function _pen(key) {
     return '<button type="button" class="blt-pen" onclick="BLT.openSection(\'' + key + '\')" ' +
-      'title="Open this to edit it" aria-label="Edit ' + _esc(SECTIONS[key].title) + '">' +
+      'title="Double tap the box, or press this, to edit it" aria-label="Edit ' + _esc(SECTIONS[key].title) + '">' +
       '<i class="fa-solid fa-pen"></i></button>';
   }
 
@@ -131061,26 +131110,6 @@ var BLT = (function() {
     var sheet = _$('bltSheet');
     if (!sheet || sheet._bltBound) return;
     sheet._bltBound = true;
-    sheet.addEventListener('input', function(e) {
-      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
-      if (!el || !el.dataset.p) return;
-      if (_applying) return;          // _applyCmd writes it the moment the command returns
-      _noteTyping();
-      _setPath(_cur.data, el.dataset.p, el.dataset.rich ? _richOf(el) : _textOf(el));
-      _queueSave();
-    });
-    // A paste carries the page it came from. Plain text only, even into
-    // a rich field: formatting is applied here, never inherited from
-    // whatever site the words were copied off.
-    sheet.addEventListener('paste', function(e) {
-      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
-      if (!el) return;
-      e.preventDefault();
-      var t = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
-      _noteTyping();
-      document.execCommand('insertText', false, t);
-    });
-
     sheet.addEventListener('keydown', function(e) {
       var k = (e.key || '').toLowerCase();
       if ((e.ctrlKey || e.metaKey) && k === 'z') {
@@ -131088,17 +131117,7 @@ var BLT = (function() {
         if (e.shiftKey) redo(); else undo();
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
-      // Backspace on an announcement with nothing left in it takes the
-      // whole item away, rather than leaving an empty number behind.
-      if (e.key !== 'Backspace') return;
-      var el = e.target.closest ? e.target.closest('.blt-ed') : null;
-      var m = el && el.dataset.p ? /^notices\.(\d+)\./.exec(el.dataset.p) : null;
-      if (!m) return;
-      var li = el.closest('li');
-      if (!li || li.innerText.replace(/\s+/g, '') !== '') return;
-      e.preventDefault();
-      removeItem('notice', parseInt(m[1], 10));
+      if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); }
     });
 
     document.addEventListener('selectionchange', _noteSelection);
@@ -131380,7 +131399,7 @@ var BLT = (function() {
     zoomBy: zoomBy, zoomFit: zoomFit,
     undo: undo, redo: redo, fmt: fmt, fmtColour: fmtColour, fmtFont: fmtFont,
     pickQr: pickQr, clearQr: clearQr, dropQr: dropQr,
-    openSection: openSection, closeSection: closeSection,
+    openSection: openSection, closeSection: closeSection, _bindOpeners: _bindOpeners,
     dlgAdd: dlgAdd, dlgRemove: dlgRemove,
     SECTIONS: SECTIONS, _dlgOpen: function() { return _dlgKey; },
     _qrAccept: _qrAccept, _qrShrink: _qrShrink,

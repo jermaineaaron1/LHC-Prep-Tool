@@ -758,8 +758,6 @@ const CASES = [
     s => s.replace('var UNDO_MAX = 60;', 'var UNDO_MAX = Infinity;')],
   ['bulletin-harness.js', 'another bulletin inherits the last one\'s history',
     s => s.replace('      _undo.length = 0; _redo.length = 0; _typeSnap = null;', '')],
-  ['bulletin-harness.js', 'backspace leaves an empty numbered announcement behind',
-    s => s.replace("      removeItem('notice', parseInt(m[1], 10));", '')],
   // A QR travels inside the bulletin row, so what goes in must be an
   // image and nothing else.
   // The slot opened a picker all along; nobody could tell it was a button.
@@ -771,6 +769,41 @@ const CASES = [
     s => s.replace('<col style="width:28%"><col style="width:36%"><col style="width:36%">',
                    '<col style="width:50%"><col style="width:25%"><col style="width:25%">')],
   // The dialogue is the whole point: the sheet is 10px type.
+  // Two ways to write one field is two code paths for it, and the
+  // in-place one was 10px type nobody could aim at on a phone.
+  ['bulletin-harness.js', 'the sheet becomes editable again',
+    s => s.replace('    return \'<span class="blt-view \' + (cls || \'\') + \'" \' +',
+                   '    return \'<span class="blt-view \' + (cls || \'\') + \'" contenteditable="true" \' +')],
+  ['bulletin-harness.js', 'the form\'s own fields stop being editable',
+    s => s.replace('contenteditable="\' + (f.rich ? \'true\' : \'plaintext-only\') + \'"',
+                   'data-was-editable="\' + (f.rich ? \'true\' : \'plaintext-only\') + \'"')],
+  // dblclick never fires on a phone: a double tap is a zoom and the
+  // browser keeps it. Desktop-only here leaves the form unreachable on
+  // the phones this is mostly read on.
+  ['bulletin-harness.js', 'the form is unreachable on a phone',
+    s => s.replace("      el.addEventListener('touchend', function(e) {", '      if (1) return; el.addEventListener(\'touchend\', function(e) {')],
+  ['bulletin-harness.js', 'the second tap zooms the page instead of opening the form',
+    s => s.replace('          e.preventDefault();          // or the second tap is a zoom', '')],
+  ['bulletin-harness.js', 'the tap listener is passive and cannot stop the zoom',
+    s => s.replace('      }, { passive: false });', '      });')],
+  ['bulletin-harness.js', 'two taps a second apart count as a double tap',
+    s => s.replace('(now - _tapAt) < 400', '(now - _tapAt) < 4000')],
+  ['bulletin-harness.js', 'a block stops saying which form it opens',
+    s => s.replace("_secAttr('giving')", "''")],
+  ['bulletin-harness.js', 'a redraw leaves every block dead',
+    s => s.replace('    _bindOpeners();', '')],
+  ['bulletin-harness.js', 'tapping the QR slot opens the form over it',
+    s => s.replace("        if (e.target && e.target.closest && e.target.closest('.blt-qr, .blt-x, .blt-add, .blt-pen')) return;\r\n        var now = Date.now();",
+                   '        var now = Date.now();')],
+  ['bulletin-harness.js', 'the pencil never appears on a touch screen',
+    s => s.replace('@media (hover: none) { .blt-pen { opacity: .9; } }', '')],
+  // Asked for explicitly: the middle of the screen, not the bottom.
+  ['bulletin-harness.js', 'the form slides up from the bottom again',
+    s => s.replace('  display: flex; align-items: center; justify-content: center; padding: 14px;',
+                   '  display: flex; align-items: flex-end; justify-content: center;')],
+  ['bulletin-harness.js', 'the form keeps its bottom-sheet corners',
+    s => s.replace('  border-radius: 16px; display: flex; flex-direction: column;',
+                   '  border-radius: 16px 16px 0 0; display: flex; flex-direction: column;')],
   ['bulletin-harness.js', 'a section can no longer be opened to edit it',
     s => s.replace('    verse: { title: ', '    zz_verse: { title: ')],
   ['bulletin-harness.js', 'the dialogue adds items its own way',
@@ -844,8 +877,8 @@ const CASES = [
   ['bulletin-harness.js', 'the announcement title goes back beside its words',
     s => s.replace("      h += '<li><div class=\"blt-notices__t\">' +", "      h += '<li><span class=\"blt-notices__t\"><b>' +")],
   ['bulletin-harness.js', 'empty fields print their placeholder text',
-    s => s.replace('.blt-sheet:not(.blt-capturing) .blt-ed:empty::before { content: attr(data-ph)',
-                   '.blt-ed:empty::before { content: attr(data-ph)')],
+    s => s.replace('.blt-sheet:not(.blt-capturing) .blt-view:empty::before { content: attr(data-ph)',
+                   '.blt-view:empty::before { content: attr(data-ph)')],
   // Centred overflow runs off both sides: the left of a zoomed page
   // could then never be scrolled to.
   ['bulletin-harness.js', 'a zoomed page cannot be scrolled back to its left edge',
