@@ -95,6 +95,10 @@ function liftProjFn(name) {
   return out.join('\n');
 }
 
+// The projected base size, in vw. 6.5vw = 124.8px at 1920 -- the "125px"
+// asked for on 2026-11-10. Declared once so the checks cannot drift from it.
+const VW = 6.5;
+
 console.log('The projected words wrap; they do not shrink to fit a line');
 
 const projFitSrc = liftProjFn('_fitProjectionText');
@@ -127,12 +131,12 @@ if (projFitSrc) {
   // One line far too wide for the zone, but only one line tall.
   const wide = runFit({ zoneH: 972, zoneW: 1728, width: 9999, heightAt: () => 150 });
   check('a line too wide for the screen is NOT shrunk -- it wraps instead',
-    wide.px === 5 && wide.steps === 0, JSON.stringify(wide));
+    wide.px === VW && wide.steps === 0, JSON.stringify(wide));
 
   // Too tall at the base size; shrinks until it fits.
   const tall = runFit({ zoneH: 972, zoneW: 1728, width: 100, heightAt: f => f * 300 });
   check('a slide taller than the safe zone IS still shrunk, so no line is lost',
-    tall.px < 5 && tall.px * 300 <= 972, JSON.stringify(tall));
+    tall.px < VW && tall.px * 300 <= 972, JSON.stringify(tall));
 
   // The floor holds even when nothing will ever fit.
   const huge = runFit({ zoneH: 100, zoneW: 1728, width: 100, heightAt: () => 99999 });
@@ -155,7 +159,8 @@ check('...wraps at spaces, and breaks a word that has none',
 check('...and reads at the presenter view\'s line spacing',
   /line-height: 1\.6/.test(projCss), projCss);
 check('the base size still scales with the projector, and is still the operator\'s to set',
-  /font-size: 5vw/.test(projCss) && has(/s\.fontSize \|\| 5\) \+ "vw;"/), projCss);
+  new RegExp('font-size: ' + VW + 'vw').test(projCss) &&
+  new RegExp('s\\.fontSize \\|\\| ' + VW + '\\) \\+ "vw;"').test(SRC), projCss);
 
 // ---------------------------------------------------------------------------
 // The presenter overlay, under the same rule
@@ -172,6 +177,61 @@ check('.wofs-inner breaks a word with no space in it',
 check('the overlay keeps its 2·8rem base and Georgia, which the projection is matched to',
   has(/\.wo-fullscreen-overlay \{[^}]*font-family: Georgia, serif; font-size: 2\.8rem; line-height: 1\.6/) &&
   /var fs = 2\.8;/.test(fsFit));
+
+// ---------------------------------------------------------------------------
+// 125px on the projector (2026-11-10)
+// ---------------------------------------------------------------------------
+console.log('\nThe projected words are 125px on a 1080p projector');
+
+// Said in vw rather than px, because the operator chose the day before to keep
+// the projected size scaling with the screen. 6.5vw is both answers at once.
+check('6.5vw is 125px at 1920 wide, within half a pixel',
+  Math.abs(VW * 1920 / 100 - 125) <= 0.5, (VW * 1920 / 100) + 'px');
+check('...and lands exactly on a stop of the existing 2-10vw slider',
+  has(/id="woFontSize" min="2" max="10" step="0\.5" value="6\.5"/) &&
+  (VW * 10) % 5 === 0);
+check('the projection stylesheet starts there',
+  has(/'\.projection-text \{ font-size: 6\.5vw;/));
+check('...and so do both fallbacks inside the projection window',
+  has(/'  var fs = s\.fontSize \|\| 6\.5;' \+/) &&
+  has(/\(s\.fontSize \|\| 6\.5\) \+ "vw;"/));
+check('...and the setting the dialog starts from, and resets to',
+  (SRC.match(/fontSize: 6\.5,/g) || []).length === 2 &&
+  has(/<span id="woFontSizeValue">6\.5<\/span>vw/));
+check('no 5vw default is left behind anywhere',
+  !has(/font-size: 5vw/) && !has(/fontSize \|\| 5\b/) && !has(/fontSize: 5,/));
+
+// ---------------------------------------------------------------------------
+// Nothing of the app's own on a screen the room can see
+// ---------------------------------------------------------------------------
+console.log('\nThe presenter view is bare when it is the live output');
+
+// The operator projects through the Project button's own window, which carries
+// none of this -- but goFullscreen falls back to this overlay when that window
+// cannot be opened, and then the operator's view IS what the room sees.
+// Verified in the browser by applying this rule's declarations: every one of
+// them goes to display:none, over .wofs-filmstrip's own display:flex and the
+// hover rules, and the cursor goes with them.
+const fsRule = (SRC.match(/\.wo-fullscreen-overlay:fullscreen \.wofs-nav-btn,[^}]*\}/) || [''])[0];
+['wofs-nav-btn', 'wofs-filmstrip', 'wofs-filmstrip-trigger', 'wo-close-fullscreen'].forEach(c => {
+  check('  .' + c + ' goes when the view is full screen',
+    new RegExp(':fullscreen \\.' + c + '[,\\s]').test(fsRule), fsRule.slice(0, 200));
+});
+check('...with !important, since .wofs-filmstrip sets display:flex of its own',
+  /display: none !important;/.test(fsRule), fsRule);
+check('...and Safari, which still wants the prefix',
+  /:-webkit-full-screen \.wofs-nav-btn/.test(fsRule) &&
+  /:-webkit-full-screen \.wofs-filmstrip/.test(fsRule), fsRule);
+check('the mouse pointer goes too, or it sits on the wall all service',
+  has(/\.wo-fullscreen-overlay:fullscreen,\s*\r?\n\s*\.wo-fullscreen-overlay:-webkit-full-screen \{ cursor: none; \}/));
+// Esc still exits, both natively and through the app's own handler, so losing
+// the close button costs nothing.
+check('Esc still closes it, so hiding the close button strands nobody',
+  has(/e\.key === 'Escape'/) && has(/closeFullscreen/));
+// Windowed, it is the operator's own view and must be untouched.
+check('windowed, the arrows and filmstrip still appear on hover as before',
+  has(/\.wo-fullscreen-overlay:hover \.wofs-nav-btn \{ opacity: 1; \}/) &&
+  has(/\.wofs-filmstrip \{[^}]*transform: translateY\(100%\)/));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {

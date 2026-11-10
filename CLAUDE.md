@@ -2670,6 +2670,29 @@ the anon key -- verify as `postgres`, not as the app.
       text-shadow, which is for legibility over a lit background.
     - The small Program / Live preview is NOT in this: it has no fit function
       (it already wraps) and its sizing is tuned per phone width. Leave it.
+    - **The projected size is 6.5vw** (2026-11-10, "please increase it to
+      125px"): 124.8px on a 1080p projector, and one exact stop of the
+      dialog's 2—10vw slider. Said in vw rather than px because the operator
+      chose the day before to keep the projected words scaling with the
+      screen, so a bigger projector gives bigger letters rather than the same
+      ones further off; 6.5vw is both answers at once. It is the DEFAULT only:
+      the dialog saves per device under `TEXT_SETTINGS_KEY`, so a machine that
+      has already stored a size keeps it until the slider moves or Reset is
+      pressed. At 125px a four-line slide is the most that fits a 1080p safe
+      zone at full size; more than that still shrinks on height.
+    - **Nothing of the app's own goes on a screen the room can see.** The
+      operator projects through the Project button's own window, which carries
+      no chrome — but `goFullscreen` falls back to the presenter OVERLAY
+      whenever that window cannot be opened (no extension, popups blocked),
+      and then the operator's working view IS the output, with the app header
+      over the words and the filmstrip under them. So in true browser
+      fullscreen — the one state this view is put into to BE a display — the
+      nav arrows, the filmstrip, its hover strip, the close button and the
+      mouse pointer all go. Windowed it is unchanged, chrome on hover as
+      before. `display: none !important` is needed, not laziness:
+      `.wofs-filmstrip` sets `display: flex` of its own. Esc still exits, so
+      hiding the close button strands nobody. Both the standard and
+      `-webkit-full-screen` forms are written, per gotcha 71.
     `tools/projection-text-wrap-harness.js` checks it, and lifts the
     projector's fit loop out of the HTML string it is written into so the loop
     itself is run, not just matched.

@@ -1608,11 +1608,28 @@ const CASES = [
     s => s.replace("'  while (textEl.scrollHeight > maxH && fs > 1.2) {' +",
                    "'  while (false && fs > 1.2) {' +")],
   ['projection-text-wrap-harness.js', 'the projected text loses its width cap, so a long word runs off both edges',
-    s => s.replace("font-size: 5vw; line-height: 1.6; max-width: 100%;", "font-size: 5vw; line-height: 1.6;")],
+    s => s.replace("font-size: 6.5vw; line-height: 1.6; max-width: 100%;", "font-size: 6.5vw; line-height: 1.6;")],
   ['projection-text-wrap-harness.js', 'a word with no space in it stops breaking',
     s => s.replace("max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word;", "max-width: 100%; white-space: pre-wrap;")],
   ['projection-text-wrap-harness.js', 'the presenter view stops wrapping at the safe zone',
     s => s.replace("    textEl.style.maxWidth = Math.round(maxW) + 'px';\r\n", '')],
+  // 125px on the projector, and nothing of the app's own on a screen the
+  // room can see (2026-11-10). 6.5vw is 124.8px at 1920 and one stop of the
+  // existing slider; the fullscreen rule needs !important to beat
+  // .wofs-filmstrip's own display:flex.
+  ['projection-text-wrap-harness.js', 'the projected words drop back to 5vw, two thirds of what was asked',
+    s => s.replace("'.projection-text { font-size: 6.5vw;", "'.projection-text { font-size: 5vw;")],
+  ['projection-text-wrap-harness.js', 'the projection window falls back to the old size when nothing is stored',
+    s => s.replace("'  var fs = s.fontSize || 6.5;' +", "'  var fs = s.fontSize || 5;' +")],
+  ['projection-text-wrap-harness.js', 'the Text settings dialog still starts at 5vw',
+    s => s.replace('    fontSize: 6.5,', '    fontSize: 5,')],
+  ['projection-text-wrap-harness.js', 'the arrows stay on the wall when the view goes full screen',
+    s => s.replace('  .wo-fullscreen-overlay:fullscreen .wofs-nav-btn,\r\n', '')],
+  ['projection-text-wrap-harness.js', 'the filmstrip is hidden without !important, so its display:flex wins',
+    s => s.replace('    display: none !important;\r\n  }\r\n  /* ...and the pointer',
+                   '    display: none;\r\n  }\r\n  /* ...and the pointer')],
+  ['projection-text-wrap-harness.js', 'the mouse pointer is left sitting on the wall',
+    s => s.replace('  .wo-fullscreen-overlay:-webkit-full-screen { cursor: none; }', '')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick

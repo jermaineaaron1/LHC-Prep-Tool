@@ -76,9 +76,49 @@ The presenter overlay was checked in the live app: the same Collect line
 renders at the full 44.8px over two lines, with `max-width` at the barrier's
 1369px.
 
+### Then: 125px, and nothing of the app's own on the wall
+
+Two more asks on the same branch, from an annotated copy of the presenter-view
+screenshot above: "please increase it to 125px", and "please do not show those
+parts when projecting live" — circled on the app header, the prev/next arrows
+and the filmstrip.
+
+**125px is 6.5vw**, which is 124.8px on a 1080p projector and one exact stop of
+the dialog's existing 2—10vw slider. Said in vw, not px, because the choice
+the day before was to keep the projected words scaling with the screen; 6.5vw
+is both answers at once. Measured in the real projection document at
+1920x1080: 124.8px on a short line, a typical two-line slide, the long Collect
+(four lines) and an unbreakable word (three lines), every one inside the safe
+zone; seven lines still shrinks to 86.4px rather than losing any.
+
+It is the DEFAULT only — the dialog saves per device under `TEXT_SETTINGS_KEY`.
+A machine that has already stored a size keeps it until the slider moves or
+Reset is pressed. Worth saying to the operator rather than letting them find
+it.
+
+**The chrome.** Asked which window reaches the projector, the operator said
+the Project button's own — which carries none of it, so nothing they circled
+is on their wall today. But `goFullscreen` falls back to the presenter overlay
+when that window cannot be opened (no extension, popups blocked), and then the
+operator's working view IS the output. That is the hole, and the screenshot is
+what it looks like. So in true browser fullscreen the arrows, the filmstrip,
+its hover strip, the close button and the mouse pointer all go; windowed, it
+behaves exactly as before. Esc still exits either way.
+
+`display: none !important` is required rather than tidy: `.wofs-filmstrip` sets
+`display: flex` of its own and the arrows have hover rules.
+
+**What could not be verified here, and how it was covered instead.** The
+Fullscreen API refuses a synthetic gesture ("TypeError: not granted"), so true
+element fullscreen is out of reach from the automation. `:fullscreen` matching
+is a browser primitive; what could actually fail is the cascade. So the rule's
+own declarations were cloned onto a plain class and applied to the live
+overlay: arrows, filmstrip, trigger and close button all went to
+`display: none` over their own rules, and the cursor to `none`.
+
 Green: `python tools/check-inline-scripts.py --check Index.html`, `npm run
-check` (460 mutation cases, 0 missed, 0 stale — 5 new), and the new harness
-against the previous master with `--expect-broken` (6 passed, 8 failed).
+check` (466 mutation cases, 0 missed, 0 stale — 11 new), and the harness
+against the previous master with `--expect-broken` (8 passed, 21 failed).
 
 ---
 
