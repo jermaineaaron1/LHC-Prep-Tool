@@ -827,7 +827,7 @@
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Lato:wght@300;400;600;700&family=Poppins:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Lato:wght@300;400;600;700&family=Poppins:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -1279,16 +1279,18 @@
     .home-nav-orders .home-nav-icon { color: #d97706; background: rgba(217,119,6,0.12); }
     .home-nav-liturgy .home-nav-icon { color: #0b7644; background: rgba(11,118,68,0.12); }
     .home-nav-practice .home-nav-icon { color: #059669; background: rgba(5,150,105,0.12); }
+    /* The name of the feature, and now the only words on the card.
+       0.88rem + 6px, at the heaviest Cinzel the page loads: the second
+       line under each name ("Service duties & assignments") said what the
+       name already said, and six of them made a page of grey small print
+       that had to be read rather than glanced at. The card is no taller
+       for it -- the 38px icon still sets the row on a phone. */
     .home-nav-label {
-      font-size: 0.88rem;
-      font-weight: 700;
+      font-size: 1.25rem;
+      font-weight: 800;
       color: var(--ink);
-      letter-spacing: 0.04em;
-    }
-    .home-nav-desc {
-      font-size: 0.7rem;
-      color: #6b7280;
-      line-height: 1.4;
+      letter-spacing: 0.02em;
+      line-height: 1.2;
     }
     .home-nav-stat {
       font-size: 0.62rem;
@@ -1336,7 +1338,7 @@
        count, so the row stays within a few pixels of its old height. */
     @media (min-width: 769px) {
       .home-nav-card { padding: 20px 14px; }
-      .home-nav-card.has-recent .home-nav-desc, .home-nav-card.has-recent .home-nav-stat { display: none; }
+      .home-nav-card.has-recent .home-nav-stat { display: none; }
       .home-nav-card.has-recent .home-nav-recent { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; margin-top: 2px; }
       .home-nav-card.has-recent .home-recent-chip { justify-content: center; }
     }
@@ -1800,6 +1802,21 @@
     }
     @media (max-width: 500px) {
       .home-nav-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ---- six cards, and a band where auto-fit orphans the last ----
+       (2026-11-10) minmax(180px, 1fr) packs in as many as will fit, which
+       for six cards means four or five to a row once the grid is between
+       about 760 and 1160px wide -- measured at a 1280px window: five
+       across and Sunday Bulletin alone underneath. Three and three is the
+       only balanced way to lay six out there, and at that width no name
+       has to wrap either (371px a card against 217px).
+
+       Only that band. Narrower, auto-fit already settles on three; wider,
+       it already gives one clean row of six, which is better than three
+       of 584px. Both of those are left exactly as they were. */
+    @media (min-width: 901px) and (max-width: 1310px) {
+      .home-nav-grid { grid-template-columns: repeat(3, 1fr); }
     }
 
     /* ==================== PRACTICE GAME VIEW ==================== */
@@ -5240,7 +5257,7 @@
       .home-nav-card {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
-        grid-template-areas: "icon label stat" "icon desc stat";
+        grid-template-areas: "icon label stat";
         align-items: center;
         column-gap: 12px; row-gap: 1px;
         padding: 9px 14px; border-radius: 14px; text-align: left;
@@ -5250,12 +5267,11 @@
         width: 38px; height: 38px; margin-bottom: 0; font-size: 1.05rem;
       }
       .home-nav-card i { font-size: 1.05rem; }
-      .home-nav-label { grid-area: label; font-size: 0.78rem; letter-spacing: 0.02em; line-height: 1.2; }
-      .home-nav-desc { grid-area: desc; font-size: 0.63rem; line-height: 1.25; }
+      .home-nav-label { grid-area: label; font-size: 1.15rem; letter-spacing: 0.01em; line-height: 1.2; }
       .home-nav-stat { grid-area: stat; margin-top: 0; padding: 1px 8px; font-size: 0.58rem; }
       /* A card with recent books or orders takes a third row for them, under
          the words. They keep to one line, each shrinking to fit. */
-      .home-nav-card.has-recent { grid-template-areas: "icon label stat" "icon desc stat" ". recent recent"; }
+      .home-nav-card.has-recent { grid-template-areas: "icon label stat" ". recent recent"; }
       .home-nav-card.has-recent .home-nav-recent {
         grid-area: recent; justify-content: flex-start; flex-wrap: nowrap; margin-top: 6px;
       }
@@ -5275,7 +5291,7 @@
        there whole. Otherwise (.recent-below, set by _homeRecentFit) they keep
        the row under the words, which is twice as wide. */
     @media (min-width: 600px) and (max-width: 768px) {
-      .home-nav-card.has-recent:not(.recent-below) { grid-template-areas: "icon label recent" "icon desc stat"; }
+      .home-nav-card.has-recent:not(.recent-below) { grid-template-areas: "icon label recent" "icon . stat"; }
       .home-nav-card.has-recent:not(.recent-below) .home-nav-recent { justify-content: flex-end; flex-wrap: nowrap; margin-top: 0; max-width: 340px; justify-self: end; }
       .home-nav-card.has-recent:not(.recent-below) .home-nav-stat { justify-self: end; }
       /* No icon beside the words: the card's own says what they are. */
@@ -6759,7 +6775,6 @@
             <button type="button" class="home-nav-hit" aria-label="Songs and songbooks"></button>
             <div class="home-nav-icon"><i class="fa-solid fa-music"></i></div>
             <div class="home-nav-label font-cinzel">Songs / Songbooks</div>
-            <div class="home-nav-desc">Browse songs &amp; open songbooks</div>
             <div class="home-nav-stat" id="homeStatSongs">-- songs</div>
             <!-- The three newest songbooks, each opening its book (renderHomeRecent) -->
             <div class="home-nav-recent" id="homeRecentSongbooks" aria-label="Newest songbooks"></div>
@@ -6767,14 +6782,12 @@
           <button class="home-nav-card home-nav-roster" data-view="worshipRosterView">
             <div class="home-nav-icon"><i class="fa-solid fa-table"></i></div>
             <div class="home-nav-label font-cinzel">Worship Roster</div>
-            <div class="home-nav-desc">Service duties & assignments</div>
             <div class="home-nav-stat" id="homeStatRoster">-- services</div>
           </button>
           <div class="home-nav-card home-nav-orders" data-view="worshipOrderView">
             <button type="button" class="home-nav-hit" aria-label="Worship orders"></button>
             <div class="home-nav-icon"><i class="fa-solid fa-calendar-days"></i></div>
             <div class="home-nav-label font-cinzel">Worship Orders</div>
-            <div class="home-nav-desc">Plan & organize services</div>
             <div class="home-nav-stat" id="homeStatOrders">-- orders</div>
             <!-- The three orders edited last, each opening its order (renderHomeRecent) -->
             <div class="home-nav-recent" id="homeRecentOrders" aria-label="Orders edited last"></div>
@@ -6782,19 +6795,16 @@
           <button class="home-nav-card home-nav-liturgy" data-view="liturgyView">
             <div class="home-nav-icon"><i class="fa-solid fa-book-bible"></i></div>
             <div class="home-nav-label font-cinzel">Liturgy Library</div>
-            <div class="home-nav-desc">Prayers, readings & liturgy</div>
             <div class="home-nav-stat" id="homeStatLiturgy">-- items</div>
           </button>
           <button class="home-nav-card home-nav-practice" onclick="setActiveView('practiceGameView')">
             <div class="home-nav-icon"><i class="fa-solid fa-microphone"></i></div>
             <div class="home-nav-label font-cinzel">Practice Game</div>
-            <div class="home-nav-desc">Sing along &amp; match pitch</div>
             <div class="home-nav-stat" id="homeStatPractice">Vocal Hero</div>
           </button>
           <button class="home-nav-card home-nav-bulletin" onclick="setActiveView('bulletinView')">
             <div class="home-nav-icon"><i class="fa-solid fa-newspaper"></i></div>
             <div class="home-nav-label font-cinzel">Sunday Bulletin</div>
-            <div class="home-nav-desc">Announcements, figures &amp; both services</div>
             <div class="home-nav-stat" id="homeStatBulletin">This Sunday</div>
           </button>
         </div>
@@ -28150,7 +28160,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     });
     var dateCount = Object.keys(rosterDates).length;
     var el = $('homeStatRoster');
-    if (el) el.textContent = dateCount + ' service' + (dateCount !== 1 ? 's' : '') + ' this month';
+    if (el) el.textContent = dateCount + ' service' + (dateCount !== 1 ? 's' : '');
   }
 
   // ---- The three newest songbooks and orders, on their cards ----
