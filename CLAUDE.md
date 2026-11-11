@@ -2859,6 +2859,31 @@ the anon key -- verify as `postgres`, not as the app.
     its LEFT edge once -- centred, a phone would open in the middle of
     the duty table.
 
+75. **A reading that skips verses comes from the ESV in pieces, and every
+    piece is read.** From the operator (2026-11-11): "Isaiah 61:1-4, 8-11"
+    was put into the service as verses 1-4. The ESV answers a reference in
+    pieces ("Isaiah 61:1–4; Isaiah 61:8–11") with ONE PASSAGE PER PIECE, and
+    `app/api/bible-passage` read only `passages[0]`; it now reads them all,
+    in order (`esvVerseLines`), a line a verse, the verse numbers showing
+    where it skips. The free WEB service already answered such a reference
+    whole, and a reading that runs into the next chapter ("Isaiah
+    61:10–62:3") was always one piece. Readings saved cut short before the
+    fix (four upcoming on 2026-11-11: Zephaniah 1:7, 12-18; Ezekiel 34:11-16,
+    20-24; Isaiah 61:1-4, 8-11; John 1:6-8, 19-28) mend themselves: an
+    upcoming order opened in the builder checks each reading's words against
+    its reference (`_woRefPieces`, `_woReadingGaps`: each piece's first
+    verse among the "[n]" numbers; it cannot tell for one piece, a psalm --
+    whose numbers `_woScriptureSlides` takes out -- or a numbering that
+    matches nothing, and then leaves it alone), fetches again any that lack
+    a piece, and puts the passage in only when it is WHOLE
+    (`_woReadingWhole`) -- through `_woScriptureSlides`, keeping its title,
+    slot, Alleluia and each slide's background by place -- in one
+    `_lbdChange` with Undo (`_woMendReadings`, after the roster fill in
+    `_woAutoReadings('liturgy')`; once an order a session, and not while
+    LCD Projection is in the page, gotcha 35). A past order is a record of
+    what was read and is never touched. `tools/reading-pieces-harness.js`
+    checks the route and all of it.
+
 ## Quick Commands for Claude Code
 
 ```bash
