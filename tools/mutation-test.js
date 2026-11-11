@@ -739,6 +739,45 @@ const CASES = [
   // gone -- and only on paper, where nobody looks before Sunday.
   // Placeholders belong to the editor. Unscoped, an un-typed theme verse
   // printed the words "The theme verse" across the masthead.
+  // ── A change reaching a projection already running ───────────────
+  // Every one of these is a screen a congregation is looking at.
+  ['live-projection-harness.js', 'projecting stands the sync down again, as it did',
+    s => s.replace('    if (_lbdIsActive()) return true;', '    if (_orderSyncProjecting()) return true;\r\n    if (_lbdIsActive()) return true;')],
+  // The worse of the two failures: the operator's list says it is done
+  // while the wall keeps the old words.
+  ['live-projection-harness.js', 'the schedule updates but the wall does not',
+    s => s.replace('        try { _lcdReproject(); } catch (e) { console.warn(\'[OrderSync] reproject:\', e); }', '')],
+  ['live-projection-harness.js', 'a half-typed line goes up in front of the church',
+    s => s.replace("    if (content.querySelector('textarea')) return false;", '')],
+  ['live-projection-harness.js', 'the wall is re-sent words it is already showing',
+    s => s.replace('    if (text === _lcdProjected) return false;', '')],
+  // The operator projects through the Project button's own window, which
+  // leaves this page out of fullscreen entirely.
+  ['live-projection-harness.js', 'only fullscreen counts as being on air',
+    s => s.replace('      if (typeof projectionWindow !== \'undefined\' && projectionWindow && !projectionWindow.closed) return true;', '')],
+  ['live-projection-harness.js', 'a device in LCD Projection never subscribes',
+    s => s.replace('      try { sbStartRealtimeSync(); } catch (e) { /* the poll still covers it */ }', '')],
+  ['live-projection-harness.js', 'a second channel is opened over a live one',
+    s => s.replace("        typeof sbRealtimeChannel !== 'undefined' && !sbRealtimeChannel) {", '        true) {')],
+  ['live-projection-harness.js', 'a save no longer tells the other devices',
+    s => s.replace('        try { if (window._orderTouchSend) window._orderTouchSend(id); } catch (e) {}', '')],
+  ['live-projection-harness.js', 'the nudge is not listened for',
+    s => s.replace("      .on('broadcast', { event: 'order_touch' }, function(msg) {", "      .on('broadcast', { event: 'zz_never' }, function(msg) {")],
+  // A tick must see a difference twice before it trusts it, so one nudge
+  // alone would only ever arm the check.
+  ['live-projection-harness.js', 'a nudge only arms the check and never fires it',
+    s => s.replace('          setTimeout(function() { _orderSyncTick(); }, 700);', '')],
+  ['live-projection-harness.js', 'the poll fallback is taken away',
+    s => s.replace('var ORDER_SYNC_MS = 4000;', 'var ORDER_SYNC_MS = 400000;')],
+  // The editor's own placeholder once went up in front of a church.
+  ['live-projection-harness.js', 'the editor placeholder can reach the wall again',
+    s => s.replace("           el.textContent.trim() !== 'Double-click to add content';", '           true;')],
+  ['live-projection-harness.js', 'the rail preview and the wall disagree about what counts',
+    s => s.replace('      .filter(_lcdIsSlideLine)\r\n      .map(function(l) { return l.textContent.trim(); })', '      .map(function(l) { return l.textContent.trim(); })')],
+  // The app's own chrome must never appear on a projected screen.
+  ['live-projection-harness.js', 'a banner shows over a live projection',
+    s => s.replace('    if (_orderSyncProjecting()) return;', '')],
+
   // An auto LEFT margin against a fixed RIGHT one pushes a box right, so
   // the bulletin sat off-centre at every zoom.
   ['bulletin-harness.js', 'the page is pushed off centre again',

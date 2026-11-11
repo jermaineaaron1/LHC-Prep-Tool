@@ -205,8 +205,14 @@ check('...and an ungrouped row is left exactly as it was',
   /: \('<div class="lcd-rail-item-title">' \+ _flag \+ escapeHtml\(groupTitle\)/.test(rowSrc));
 check('the row carries its part as an attribute, for the colour edge',
   /var _partAttr = _kind \? ' data-part="' \+ _kind \+ '"' : '';/.test(rowSrc));
+// The test moved into a predicate the rail and the projector SHARE, so
+// the rail's preview and what goes on the wall cannot drift apart about
+// what counts as a line. Checked in both halves.
 check('"Double-click to add content" is not mistaken for a line of the slide',
-  /wo-slide-empty-hint/.test(rowSrc) && /Double-click to add content/.test(rowSrc));
+  /\.filter\(_lcdIsSlideLine\)/.test(rowSrc));
+check('...and the predicate it shares makes both tests',
+  /function _lcdIsSlideLine[^]*?wo-slide-empty-hint[^]*?Double-click to add content/
+    .test(SRC));
 check('every row offers the tag button that adds a heading',
   /lcd-rail-slide-tag[^]*WO\.lcdSetSlideHeader/.test(rowSrc));
 
