@@ -1418,6 +1418,9 @@ the anon key -- verify as `postgres`, not as the app.
     reader sees `&#39;`), and remember `customConfirm` writes its TITLE as
     HTML (escaped there now) but its message as text.
     `tools/wo-escape-harness.js` checks all of this against the source.
+    The same rule outside WO: the Songbooks list's rows build theirs with
+    `jsq`, and RosterEngine's Enablers directory with `_jsArg` (a member
+    named O'Neil had a profile whose buttons did nothing until 2026-11-11).
     Elsewhere: the global `escapeHtml` escapes all five; the `esc()` helpers
     (~lines 19,700 and 20,100) and `escOrAttr` escape `"` but not `'`, so they
     are safe in double-quoted attributes and not in a JS string; the
