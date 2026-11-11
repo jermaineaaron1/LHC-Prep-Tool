@@ -1418,6 +1418,9 @@ the anon key -- verify as `postgres`, not as the app.
     reader sees `&#39;`), and remember `customConfirm` writes its TITLE as
     HTML (escaped there now) but its message as text.
     `tools/wo-escape-harness.js` checks all of this against the source.
+    The same rule outside WO: the Songbooks list's rows build theirs with
+    `jsq`, and RosterEngine's Enablers directory with `_jsArg` (a member
+    named O'Neil had a profile whose buttons did nothing until 2026-11-11).
     Elsewhere: the global `escapeHtml` escapes all five; the `esc()` helpers
     (~lines 19,700 and 20,100) and `escOrAttr` escape `"` but not `'`, so they
     are safe in double-quoted attributes and not in a JS string; the
@@ -3026,7 +3029,78 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/live-projection-harness.js` checks it, running `_wofsKeys`
     itself rather than matching it.
 
-83. **A section is dragged by its heading, on a phone too, and the numbers
+83. **A half-written line waits for the green tick.** The operator,
+    2026-11-11, pointing at Done on the phone's key bar: "when the liturgy
+    builder is being edited, the changes should take effect after the user
+    hits the green tick button to confirm." Once gotcha 81 began applying
+    changes to a running projection, every keystroke in the builder was a
+    last-minute change -- the builder writes the data as it types (gotcha
+    41) and autosaves two seconds later -- so half a line went up in front
+    of the congregation.
+    - **What is held is the SHARING, never the save.** The words keep
+      saving exactly as before, so a phone that locks mid-sentence loses
+      nothing. What changes is that the order carries
+      `template.lbdTyping = { at, by }`, and a receiving device leaves it
+      alone while that mark is fresh.
+    - **The mark is written at SAVE TIME** (`_lbdMarkTyping`, called by
+      `saveCurrentOrder`) from whether a words field is focused right now,
+      not kept as state. Every save while the typing goes on stamps it
+      afresh, so it needs no timer to stay alive and no path can leave it
+      behind. A words field is `slide` or `content-text` only
+      (`_lbdTypingNow`): a section title, a search box or a note is not
+      the congregation's words.
+    - **Done is a blur.** The tick calls `blur()`, and on a desk clicking
+      away does the same, so `_lbdSyncTyping` is the one place that
+      notices (`_lbdWasTyping`). It calls `_lbdConfirmTyping`, which saves
+      AT ONCE rather than through `autoSaveOrder` -- until that save lands
+      every other screen is still holding the words back, so a two-second
+      debounce would be two seconds of the wall being wrong on purpose.
+    - **The receiver asks before the diff** (`_lbdTypingHeld`, pure), so
+      there is no banner either and `_orderSyncSeen` stays where it was:
+      the first tick after Done sees the whole change at once. A mark
+      older than `LBD_TYPING_HOLD` (3 minutes) is let go, or a liturgist
+      called away from an open field would freeze the order for everybody;
+      a device never holds for its own `_edClientId`.
+    `tools/live-projection-harness.js` checks it, running `_lbdTypingHeld`
+    rather than matching it.
+
+84. **The LCD projects `slides`, and the Songbook's editors never rebuilt
+    them.** The operator, 2026-11-11: "editing the lyrics from the songbook
+    doesn't change the LCD." Measured before anything was changed, on a
+    real order of 64 song slides: the edit pad's save returned success, the
+    words were stored -- and the schedule's slide boxes still read the old
+    text, and the save payload's `slides[0].content` with them. The lyric
+    fields and `slides` are separate (the same split that let junk survive
+    two rounds of lyric tidying), so the words changed everywhere except
+    the one place a congregation reads them.
+    - `refreshSongSlidesInOrder` already did the job and was called by the
+      old inline page editor, the LCD's own editor and the lyrics
+      importer. `_sbSetCopyWords` -- the funnel for the edit pad, the
+      notepad (gotcha 65) and the few-lines transpose bar -- simply never
+      called it. One call fixes all three.
+    - **The chord lines must not go with them.** The pad is the Lyrics AND
+      Chords editor, so its text carries them, and `_sbSetCopyWords` puts
+      that text in `song.lyrics` as well as `customLyrics`. The slides are
+      built from `_sbProjectionWords(lyrics)`, which drops chord lines and
+      keeps everything else -- blank lines above all, since
+      `parseLyricsIntoSlides` breaks on them. It goes through the GLOBAL
+      `isChordLineGlobal`, which knows "Am" is also the word "am" ("the
+      Great I Am", "Am I not still the same"); the two module-local
+      `sbIsChordLine` copies do not.
+    - `refreshSongSlidesInOrder` overwrites `song.lyrics`, which here is
+      the Songbook's own words, chords and all -- hence
+      `opts.keepLyrics`, which is what lets the projected words and the
+      sung words differ on purpose in this one place.
+    - It also took the newly parsed `header` and dropped whatever was
+      there, so a heading the operator typed on a slide (gotcha 73) was
+      lost on every re-split. The song's own `[Verse 1]` marker still
+      wins; a slide the parse gives no header keeps the one it had, by
+      position, exactly as its background is kept.
+    `tools/live-projection-harness.js` checks it, running
+    `_sbProjectionWords` over the real `isChordLineGlobal` chain rather
+    than matching its source.
+
+85. **A section is dragged by its heading, on a phone too, and the numbers
     follow it as it goes.** From the operator (2026-11-11), on a phone
     screenshot of the builder: "Allow the user to drag and drop sections to
     rearrange, make sure the numbering follows order too". The page's

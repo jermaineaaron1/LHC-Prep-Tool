@@ -4,7 +4,7 @@
 // drop sections to rearrange, make sure the numbering follows order too".
 //
 // A heading could be dragged only by a grip, and the phone hid the grip. Now
-// (CLAUDE.md gotcha 83):
+// (CLAUDE.md gotcha 85):
 //   1. The grip shows on a phone, and the number drags too, at once.
 //   2. A finger holds a heading anywhere else and drags it; a finger that
 //      moves first scrolls; held and let go, it opens the section's menu.

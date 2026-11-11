@@ -35778,6 +35778,10 @@ var WO = (function() {
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
+    typingHeld: function(m, me, now) { return _lbdTypingHeld(m, me, now); },
+    typingHold: function() { return LBD_TYPING_HOLD; },
+    markTyping: function() { return _lbdMarkTyping(); },
+    projectionWords: function(t) { return _sbProjectionWords(t); },
     wofsKeys: function(l) { return _wofsKeys(l); },
     wofsRefresh: function() { return _wofsRefresh(); },
     rememberLive: function() { return _orderSyncRememberLive(); },
@@ -35867,6 +35871,12 @@ var WO = (function() {
       _orderSyncBusy = false;
       if (!res || !res.items) return;
       if (!currentOrderData || currentOrderData.id !== oid) return;
+      // Somebody is typing in the Liturgy Builder on another device. Their
+      // words are saved, so nothing is lost; they are simply not finished.
+      // Before the diff, so there is no notice either, and the baseline stays
+      // where it was -- the next tick after Done sees the whole change at once.
+      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;
+
       var live = _orderSyncFingerprint(res.items);
 
       var seen = _orderSyncSeen[oid];
@@ -37013,6 +37023,13 @@ var WO = (function() {
         _domOwner, 'but currentOrderData is', currentOrderData.id);
       return;
     }
+
+    // Somebody is typing in the Liturgy Builder: say so in the order itself,
+    // so another device does not put a half-written line on the wall. Written
+    // HERE, from the live focus, rather than kept as state -- every save while
+    // the typing goes on stamps it afresh, so it needs no timer to stay alive
+    // and cannot be left behind. Taken off by the save that Done triggers.
+    _lbdMarkTyping();
 
     // Flush any open slide editor before collecting — editSlideBox replaces .wo-slide-line
     // elements with a textarea (content.innerHTML = ''), so collectOrderItems() would capture
@@ -68572,7 +68589,11 @@ var WO = (function() {
   }
 
   // Update Service Order slide boxes when songbook lyrics are edited
-  function refreshSongSlidesInOrder(songId, newLyrics) {
+  // opts.keepLyrics: build the slides from `newLyrics` but do not make them
+  // the song's words. The Songbook's editors keep chords in song.lyrics and
+  // project the same words with the chord lines dropped, so the two differ
+  // on purpose there and only there.
+  function refreshSongSlidesInOrder(songId, newLyrics, opts) {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
 
@@ -68582,12 +68603,17 @@ var WO = (function() {
     // uses the new lyrics even when the service section DOM isn't currently rendered
     // (e.g. when the Songbook is opened from the Song Order tab).
     var newSavedSlides = newSlides.map(function(slide, idx) {
-      var oldBg = ((song.savedSlides || [])[idx] || {}).background || '';
-      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: oldBg };
+      var was = (song.savedSlides || [])[idx] || {};
+      // The song's own [Verse 1] marker wins. Where the parse gives a slide no
+      // header, the one that was there is kept -- the operator may have typed
+      // it themselves (gotcha 73), and a re-split used to throw it away. Same
+      // rule, and the same by-position limit, as the background beside it.
+      return { index: idx, content: slide.lines.join('\n'),
+               header: slide.header || was.header || '', background: was.background || '' };
     });
     song.savedSlides = newSavedSlides;
     song.slides = newSavedSlides;
-    song.lyrics = newLyrics;
+    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;
     _lcdSyncEditorIfShowing(songId, newLyrics);
 
     // DOM update — only runs when the Service Order tab is currently visible
@@ -69052,6 +69078,18 @@ var WO = (function() {
     }, function() { commit(); if (typeof closeLyricsEditor === 'function') closeLyricsEditor(); });
     return false;   // the editor closes when the check is done
   }
+  // The Songbook's words with the chord lines taken out. The pad is the
+  // Lyrics AND CHORDS editor, and a chord line on the wall is somebody else's
+  // sheet music in front of the congregation. isChordLineGlobal is the shared
+  // one -- it knows "Am" is also the word "am", which a looser test does not.
+  function _sbProjectionWords(text) {
+    var lines = String(text == null ? '' : text).split('\n');
+    if (typeof isChordLineGlobal !== 'function') return lines.join('\n');
+    return lines.filter(function(line) {
+      return !line.trim() || !isChordLineGlobal(line);
+    }).join('\n');
+  }
+
   // This copy's words replaced and saved: the editor's Save, and a few lines
   // transposed on their own.
   function _sbSetCopyWords(song, lyrics) {
@@ -69072,6 +69110,18 @@ var WO = (function() {
       // The printed page shows them in the key they are sung in.
       if (sbTransposeSteps[sid]) sbTranspose(sid, 0);
     }
+    // The LCD projects `slides`, which is a separate array from any of the
+    // lyric fields above -- so without this the words changed everywhere
+    // except the one place a congregation reads them. Before the saves: a
+    // save serialises the schedule's DOM whenever it is on the page
+    // (gotcha 35), and this is what brings that DOM into line.
+    if (typeof refreshSongSlidesInOrder === 'function') {
+      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });
+    }
+    // Projecting on THIS device: the schedule has just changed under a
+    // running projection, so send the slide again (gotcha 82).
+    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }
+
     // Saved both ways, as a version chosen is: the quick sync, and the full
     // save that keeps the words (a standalone book reads them from it).
     sbAutoSave();
@@ -77945,7 +77995,7 @@ var WO = (function() {
   function lbdRender() {
     var host = $('woLiturgyBuilder');
     if (!host || !_lbdIsActive() || !currentOrderData) return;
-    // A section being dragged: the drop redraws (gotcha 83).
+    // A section being dragged: the drop redraws (gotcha 85).
     if (_lbdPD && _lbdPD.on) return;
     if (!_lbdPrefsRead) { _lbdPrefsRead = true; _lbdPrefs(); }
     _lbdBind(host);
@@ -78499,7 +78549,7 @@ var WO = (function() {
       return '<button type="button" class="lbw-kb-b" data-act="' + act + '" aria-label="' + _lbdEsc(label) + '" title="' + _lbdEsc(label) + '"' + (extra || '') + '>' + inner + '</button>';
     }
     return '<div class="lbw-kb" role="toolbar" aria-label="Editing">' +
-      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done') +
+      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done - share these words with the other screens') +
       '<span class="lbw-kb-scroll">' +
         kb('fmt-role', '<span class="lbw-kb-role">L·C</span>', 'Who says this line', ' data-need="words"') +
         kb('ins-line', '<span class="lbw-nl" aria-hidden="true">&#8629;</span>', 'New line', ' data-need="words"') +
@@ -78527,6 +78577,59 @@ var WO = (function() {
   }
 
   // Whether the cursor is in words, which tells the formatting what it can do.
+  // How long a receiver believes a typing mark. It refreshes on every save,
+  // and a save follows every change, so this only runs out when somebody
+  // stops typing with the field still open -- a liturgist called away
+  // mid-sentence. Their last words then go out rather than the order staying
+  // frozen for everybody else.
+  var LBD_TYPING_HOLD = 180000;
+  var _lbdWasTyping = false;
+
+  // Is a words field in the builder focused right now? The same question
+  // _lbdSyncTyping asks to show the formatting keys, and the same answer: a
+  // title, a search box or a note is not the congregation's words.
+  function _lbdTypingNow() {
+    var host = $('woLiturgyBuilder');
+    var ae = document.activeElement;
+    if (!host || !ae || !host.contains(ae) || !ae.isContentEditable) return false;
+    var f = ae.getAttribute('data-field');
+    return f === 'slide' || f === 'content-text';
+  }
+
+  // Stamp the order with "being typed in", or take the stamp off. Called by
+  // every save, so the stamp is always as old as the last one.
+  function _lbdMarkTyping() {
+    if (!currentOrderData) return false;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var t = currentOrderData.template;
+    if (_lbdTypingNow()) {
+      t.lbdTyping = { at: Date.now(), by: _edClientId };
+      return true;
+    }
+    if (t.lbdTyping) delete t.lbdTyping;
+    return false;
+  }
+
+  // What a receiving device asks of an order it has just read. The words are
+  // stored -- nothing is ever held back from the database -- but they are not
+  // the words to put in front of a congregation until Done is pressed.
+  // Pure, so the harness can run it: the mark, who is asking, and the time.
+  function _lbdTypingHeld(mark, me, now) {
+    if (!mark || !mark.at) return false;
+    if (mark.by && me && mark.by === me) return false;   // our own typing
+    return (now - mark.at) < LBD_TYPING_HOLD;
+  }
+
+  // Done. Nothing to decide: the mark comes off because the field is no longer
+  // focused, and this is only here to stop the words waiting out the autosave.
+  function _lbdConfirmTyping() {
+    if (!currentOrderData || _sbStandaloneId) return;
+    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = null;
+    saveCurrentOrder(true);
+  }
+
   function _lbdSyncTyping() {
     var host = $('woLiturgyBuilder');
     var w = host && host.querySelector('.lbw');
@@ -78537,6 +78640,17 @@ var WO = (function() {
     w.classList.toggle('lbw--rich', f === 'slide');
     w.classList.toggle('lbw--words', f === 'slide' || f === 'content-text');
     document.documentElement.classList.toggle('wo-lbd-typing', !!f && _lbdPhone() && _lbdIsActive());
+    // Leaving the words IS the confirmation -- the green tick on a phone's key
+    // bar blurs the field, and clicking away does the same on a desk. Save now
+    // rather than two seconds from now: the save is what takes the typing mark
+    // off, and until it lands the other screens are still holding.
+    // _lbdTypingNow, not f: f is any editable field, and the mark is set for
+    // the WORDS alone. Asking the other question here meant moving from a
+    // slide straight to a section title left the mark on until the next
+    // autosave took it off -- two seconds of the other screens still holding.
+    var typingNow = _lbdTypingNow();
+    if (_lbdWasTyping && !typingNow) { _lbdWasTyping = false; _lbdConfirmTyping(); }
+    else if (typingNow) _lbdWasTyping = true;
     _lbdFmtState();
     _lbdKbPlace();
   }
@@ -81594,7 +81708,7 @@ var WO = (function() {
 
   // ── Dragging ────────────────────────────────────────────────────────────
   // A section is dragged to a new place, in the outline or on the page, by
-  // the mouse or a finger: pointer events, so a phone too (gotcha 83).
+  // the mouse or a finger: pointer events, so a phone too (gotcha 85).
   //  - Its grip, or its number on the page, picks it up at once: both are
   //    touch-action: none, so a finger on them drags and never scrolls.
   //  - The mouse picks up a heading from anywhere on it that is not a
@@ -114042,7 +114156,7 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-sec.is-dragging { opacity: 0.45; }
 .lbw-sec.drop-before > .lbw-h { box-shadow: 0 -4px 0 -1px var(--lbw-green); }
 .lbw-sec.drop-after > .lbw-h { box-shadow: 0 4px 0 -1px var(--lbw-green); }
-/* Dragging a section (gotcha 83): the heading is picked up, not selected;
+/* Dragging a section (gotcha 85): the heading is picked up, not selected;
    its name is still typed in. A finger on its number drags it at once. */
 .lbw-page .lbw-h { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .lbw-page .lbw-h-title { -webkit-user-select: text; user-select: text; }
@@ -123228,7 +123342,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
             html += '<td style="padding:8px 10px;"><span class="enabler-status-'+effStatus+'" style="font-size:11px;padding:2px 7px;border-radius:10px;font-weight:600;">'+(sm.labels[effStatus]||effStatus)+'</span></td>';
             html += '<td style="padding:8px 6px;text-align:center;font-weight:700;color:#0d9488;">'+(freq.month||0)+'</td>';
             html += '<td style="padding:8px 6px;text-align:center;font-weight:700;color:#0d9488;">'+(freq.year||0)+'</td>';
-            html += '<td style="padding:8px 6px;text-align:center;"><button onclick="RosterEngine._openEnablerFromDuty(\''+self.escapeHtml(name)+'\')" style="border:none;background:none;color:#14b8a6;cursor:pointer;" title="View profile"><i class="fa-solid fa-arrow-right"></i></button></td>';
+            html += '<td style="padding:8px 6px;text-align:center;"><button onclick="RosterEngine._openEnablerFromDuty(\''+self._jsArg(name)+'\')" style="border:none;background:none;color:#14b8a6;cursor:pointer;" title="View profile"><i class="fa-solid fa-arrow-right"></i></button></td>';
             html += '</tr>';
           });
           html += '</tbody></table>';
@@ -123293,7 +123407,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       if (cats.length) { html += '<div style="margin-top:6px;">'; cats.forEach(function(c){html+='<span style="font-size:10px;background:#e3f6ec;color:#15803d;border-radius:4px;padding:1px 5px;margin-right:3px;">'+(sm.cats[c]||c)+'</span>';}); html += '</div>'; }
       html += '</div>';
       // PDF share button
-      html += '<button onclick="RosterEngine._printEnablerProfile(\''+self.escapeHtml(selectedName)+'\')" title="Share / Print profile card" style="flex-shrink:0;padding:6px 10px;background:#0d9488;color:#fff;border:none;border-radius:7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-file-pdf"></i> PDF</button>';
+      html += '<button onclick="RosterEngine._printEnablerProfile(\''+self._jsArg(selectedName)+'\')" title="Share / Print profile card" style="flex-shrink:0;padding:6px 10px;background:#0d9488;color:#fff;border:none;border-radius:7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-file-pdf"></i> PDF</button>';
       html += '</div>';
 
       // Appointed services breakdown
@@ -123421,7 +123535,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += '<option value="'+t[0]+'"'+((meta.team||'')===t[0]?' selected':'')+'>'+t[1]+'</option>';
       });
       html += '</select></div>';
-      html += '<button onclick="RosterEngine._saveEnablerStatus(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Save Status</button>';
+      html += '<button onclick="RosterEngine._saveEnablerStatus(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Save Status</button>';
       html += '</div>';
 
       // Tab 2: Prayer Requests
@@ -123440,8 +123554,8 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += '<div style="text-align:center;padding:16px 0;color:#9ca3af;font-size:12px;"><i class="fa-solid fa-hands-praying" style="font-size:22px;display:block;margin-bottom:6px;opacity:0.3;"></i>No prayer requests yet</div>';
       }
       html += '</div>';
-      html += '<button onclick="RosterEngine._addPrayerRow(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:7px;border:1.5px dashed #14b8a6;border-radius:7px;background:transparent;color:#0d9488;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;"><i class="fa-solid fa-plus" style="margin-right:4px;"></i>Add Prayer Request</button>';
-      html += '<button onclick="RosterEngine._savePrayerRequests(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;">Save Prayer Requests</button>';
+      html += '<button onclick="RosterEngine._addPrayerRow(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:7px;border:1.5px dashed #14b8a6;border-radius:7px;background:transparent;color:#0d9488;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;"><i class="fa-solid fa-plus" style="margin-right:4px;"></i>Add Prayer Request</button>';
+      html += '<button onclick="RosterEngine._savePrayerRequests(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;">Save Prayer Requests</button>';
       html += '</div>';
 
       // Tab 3: Interesting Facts (uses module-level _ef emoji set)
@@ -123464,7 +123578,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += 'style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;background:#fff;">';
         html += '</div>';
       });
-      html += '<button onclick="RosterEngine._saveInterestingFacts(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px;">Save Interesting Facts</button>';
+      html += '<button onclick="RosterEngine._saveInterestingFacts(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px;">Save Interesting Facts</button>';
       html += '</div>';
 
       html += '</div></div>';
@@ -126553,6 +126667,14 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     },
 
     escapeHtml: function(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); },
+    // A value inside an inline handler's JS string, onclick="f('<here>')":
+    // escaped for the JS string first, then for the attribute. escapeHtml
+    // alone gives &#039;, which the attribute decodes back to ' -- so a member
+    // named O'Neil had a profile whose buttons did nothing (2026-11-11).
+    _jsArg: function(v) {
+      return this.escapeHtml(String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'));
+    },
     showToast: function(message, type) { var el = document.getElementById('toastNotification'); if (!el) return; el.textContent = message; el.className = 'toast-notification show ' + (type || ''); clearTimeout(this._toastTimer); this._toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3500); },
     showLoader: function(show) { var el = document.getElementById('loadingIndicator'); if (el) el.classList.toggle('show', show); },
     callGAS: function(functionName, args) { return new Promise(function(resolve, reject) { if (typeof google === 'undefined' || !google.script || !google.script.run) { reject(new Error('GAS not available')); return; } var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject); if (typeof runner[functionName] !== 'function') { reject(new Error('Function not found: ' + functionName)); return; } runner[functionName].apply(runner, args || []); }); },
