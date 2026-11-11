@@ -116694,7 +116694,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot .sbm-score .vl-score > .vl-section:first-child { margin-top: 0; }
 #sbmRoot .sbm-score .vl-score .vl-sys { padding: 0; margin: 0 0 10px; border: 0; }
 #sbmRoot .sbm-score .vl-score .vl-sys-lines { border-left: 0; padding-left: 0; gap: 0; }
-#sbmRoot .sbm-score .vl-score .vl-ln { padding: 1px 4px; row-gap: 0; background: transparent; }
+#sbmRoot .sbm-score .vl-score .vl-ln { padding: 1px 4px 1px 9px; row-gap: 0; background: transparent; }
 #sbmRoot .sbm-score .vl-score .vl-ln--same > .vl-who { visibility: hidden; }
 #sbmRoot .sbm-score .vl-score .vl-who { height: 20px; line-height: 20px; padding: 0 7px; margin: 0; font-size: 10px; border-radius: 4px; }
 #sbmRoot .sbm-score .vl-score .vl-body { font-size: var(--vl-text); line-height: 1.4; color: #000; }
@@ -116723,21 +116723,28 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot.sbm--wide .sbm-score .vl-score .vl-rec-btn { width: 28px; height: 28px; font-size: 11px; }
 #sbmRoot.sbm--wide .sbm-score .vl-score .vl-rec-list { height: 28px; padding: 0 9px; font-size: 12px; }
 
-/* a phone: the label where the part changes, at the start of its line, and
-   the words from the left edge everywhere else -- a line that wraps runs
-   back to the edge, under the label. The recorder sits at the top right
-   and only the first line makes room for it (the float). */
+/* a phone: the label where the part changes, on a row of its own ABOVE its
+   line (the operator, 2026-11-11, gotcha 87: it sat at the start of the
+   line, and the words beside it wrapped early), and the words from the
+   left edge everywhere. The recorder sits at the top right: on the label's
+   row when there is one, else on the first line, which makes room for it
+   (the float). */
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score { --vl-text: calc(17px * var(--sbm-lyrics-scale, 1)); --vl-rec-w: 82px; --vl-lh: 1.5; }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln { display: flow-root; position: relative; min-height: 30px; padding: 1px 0; }
+/* 10px at the left: a line with takes is marked by a 3px bar there
+   (vl-ln--has-take), and the label and words sat on it -- now a clear gap
+   (the operator, 2026-11-11, gotcha 87). The desk keeps the same gap. */
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln { display: flow-root; position: relative; min-height: 30px; padding: 1px 0 1px 10px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--rest { min-height: 0; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln > .vl-body { display: block; width: auto; min-width: 0; padding-top: 0; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-words { line-height: var(--vl-lh); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln:has(> .vl-rec) > .vl-body::before { content: ""; float: right; width: calc(var(--vl-rec-w) + 6px); height: 1.2em; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln > .vl-who {
-  float: left; position: static; flex: none; width: 58px; height: 18px; line-height: 18px; padding: 0 5px; font-size: 9px;
-  margin: calc((var(--vl-text) * var(--vl-lh) - 18px) / 2) 8px 0 0; }
+  display: block; float: none; position: static; flex: none; box-sizing: border-box;
+  width: -webkit-fit-content; width: fit-content; min-width: 44px; max-width: calc(100% - var(--vl-rec-w) - 8px);
+  height: 18px; line-height: 18px; padding: 0 8px; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin: 6px 0; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--same > .vl-who { display: none; }
-#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--rest > .vl-who { margin-top: 1px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--rest > .vl-who { margin: 3px 0 2px; }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln > .vl-rec {
   position: absolute; right: 0; top: calc(1px + (var(--vl-text) * var(--vl-lh) - 30px) / 2);
   width: var(--vl-rec-w); justify-content: flex-end; margin: 0; padding: 0; gap: 5px; }
@@ -116747,6 +116754,15 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl { --vl-lh: 1.95; padding-top: calc(1px + var(--vl-text) * 0.6); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl > .vl-rec { top: calc(1px + var(--vl-text) * 0.6 + (var(--vl-text) * 1.95 - 30px) / 2); }
 #sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-w__c { color: #04756f; font-weight: 700; }
+/* Under a label (gotcha 87): the recorder rides on the label's 30px row, so
+   the words keep no room for it and use the whole width; chords riding on
+   the first line get their band between the label and the words, not
+   above the label. */
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln:not(.vl-ln--same) > .vl-rec { top: 0; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln:not(.vl-ln--same) > .vl-body::before { content: none; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl:not(.vl-ln--same) { padding-top: 1px; }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl:not(.vl-ln--same) > .vl-body { padding-top: calc(var(--vl-text) * 0.6); }
+#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln--inl:not(.vl-ln--same) > .vl-rec { top: 0; }
 /* Parts singing AT ONCE against parts TAKING TURNS. A moment where two parts
    or more have words (vl-sys--together) is joined by a purple bar on a soft
    panel, the way a score braces the staves that sound together; a moment
@@ -116767,6 +116783,16 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   box-shadow: 0 1px 3px rgba(76, 29, 149, 0.3); pointer-events: none; }
 #sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-no { top: 12px; }
 #sbmRoot .sbm-score .vl-score .vl-sys--together:has(> .vl-sys-lines > .vl-chords:not(.vl-chords--empty):first-child) > .vl-no { top: calc(var(--vl-text) * 1.3 + 12px); }
+/* Each numbered moment in a thin dark border (the operator, 2026-11-11,
+   gotcha 87), so one reads apart from the next: a verse line, or a Sing
+   together group round its soft panel. Inside, a little room all round;
+   the number beside it moves down by the border and that room. */
+#sbmRoot .sbm-score .vl-score .vl-sys > .vl-sys-lines { border: 1px solid #1f2937; border-radius: 8px; padding-right: 4px; }
+#sbmRoot .sbm-score .vl-score .vl-sys:not(.vl-sys--together) > .vl-sys-lines { padding-top: 4px; padding-bottom: 4px; }
+#sbmRoot .sbm-score .vl-score .vl-sys:not(.vl-sys--together) > .vl-no { top: 10px; }
+#sbmRoot .sbm-score .vl-score .vl-sys:not(.vl-sys--together):has(> .vl-sys-lines > .vl-chords:not(.vl-chords--empty):first-child) > .vl-no { top: calc(var(--vl-text) * 1.3 + 10px); }
+#sbmRoot .sbm-score .vl-score .vl-sys--together > .vl-no { top: 13px; }
+#sbmRoot .sbm-score .vl-score .vl-sys--together:has(> .vl-sys-lines > .vl-chords:not(.vl-chords--empty):first-child) > .vl-no { top: calc(var(--vl-text) * 1.3 + 13px); }
 /* Edit Parts: a box is one moment, and two parts or more with words in it
    sing at the same time -- the box says so, as the score will */
 .sbm-ed__together { display: none; align-self: flex-start; padding: 3px 8px; border-radius: 999px; background: #7c3aed; color: #fff; font: 800 9.5px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; }

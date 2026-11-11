@@ -1881,9 +1881,11 @@ the anon key -- verify as `postgres`, not as the app.
     weight and chord colour (`#04756f`); an empty chord row has no height
     and its "+ chords" hint is hidden there (a double-tap draws, gotcha 69).
     A desk keeps label | words | recorder, the repeated label
-    `visibility: hidden` in its column; a phone floats the label in at the start of its line,
-    drops a repeated one (`display: none`) so the words use the full width,
-    and puts the recorder at the top right (absolute) with a float in the
+    `visibility: hidden` in its column; a phone puts the label on a row of
+    its own ABOVE its line (it floated in at the start of the line until
+    2026-11-11, gotcha 87), drops a repeated one (`display: none`) so the
+    words use the full width, and puts the recorder at the top right
+    (absolute): on the label's row, or, under no label, with a float in the
     words making room on their first line only. A part filter can leave a
     label showing that the line above already said -- never one missing,
     since a part's lines are all shown or all hidden. `_sbmEvenRows` skips a
@@ -3221,6 +3223,33 @@ the anon key -- verify as `postgres`, not as the app.
       `#sbmRoot`, so dispatch on the line element itself; and a hold left
       running while a screenshot is taken reaches its 2 seconds.
     `tools/songbook-hold-edit-harness.js` checks it.
+
+87. **A phone's choir label sits above its line, and each moment is boxed.** From the operator
+    (2026-11-11), on two phone screenshots of the choir score -- "ALL",
+    "MELODY", "1ST PART" floated in at the start of their lines, and the
+    words beside them wrapping early ("Is there room in your / heart"):
+    "I want the badges to sit above the lyric line". On a phone
+    (`#sbmRoot:not(.sbm--wide)`) `.vl-who` is a block the width of its name
+    (`fit-content`, 44px at least, never under the recorder), on a 30px row
+    of its own: 18px with 6px above and below. The recorder rides on that
+    row (`top: 0`), so the words under a label keep no room for it
+    (`::before { content: none }`) and have the whole width; a chord
+    riding on the first line gets its band between the label and the words
+    (`.vl-ln--inl:not(.vl-ln--same)`: the padding moves from the line to the
+    body). A line that carries on the same part has no label
+    (`vl-ln--same`), so it is as it was: the recorder beside its first line
+    and the float making room for it. Every line starts clear of the 3px
+    teal bar that marks a line with takes (`vl-ln--has-take`) -- 10px in
+    on a phone, 9px on a desk -- where the label and words used to sit on
+    it (the operator: "a small gap between the green line and the text").
+    **Each numbered moment is boxed** (asked: each moment, not each whole
+    section): `.vl-sys > .vl-sys-lines` has a 1px `#1f2937` border, radius
+    8px, a Sing together group's round its soft panel with the badge on
+    its top edge; the moment's number (`.vl-no`) moves down by the border
+    and the room inside it (10px, or 13px beside a Sing together group).
+    The desk keeps its label column. `_sbmEvenRows` now finds every
+    labelled system stacked, which changes nothing on a phone, where the
+    lines are not flex. `tools/choir-chord-sheet-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

@@ -2152,6 +2152,11 @@ const CASES = [
     s => s.replace("    modal.classList.add('lyrics-editor-modal--sb');\r\n", '')],
   ['songbook-hold-edit-harness.js', 'a double-tap opens the editor at its top, not the line tapped',
     s => s.replace('      if (at && at.line != null) _sbLyrGoTo(richEditor, _sbLyrLineFor(given ? null : _sbmLinesOf(s), storedLines, at.line), at.col || 0);\r\n', '')],
+  // The phone's choir label above its line (2026-11-11, gotcha 87).
+  ['choir-chord-sheet-harness.js', 'a phone\'s label floats beside the words again',
+    s => s.replace('  display: block; float: none; position: static; flex: none; box-sizing: border-box;\r\n', '  float: left; position: static; flex: none; box-sizing: border-box;\r\n')],
+  ['choir-chord-sheet-harness.js', 'the words under a label keep room for the recorder',
+    s => s.replace('#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln:not(.vl-ln--same) > .vl-body::before { content: none; }\r\n', '')],
   ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
     s => s.replace("if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {", 'if (window.lhcVoiceEdit) {')],
   ['songbook-reading-view-harness.js', 'a time set while paused is forgotten when the take plays',
