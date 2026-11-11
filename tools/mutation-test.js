@@ -2178,6 +2178,14 @@ const CASES = [
                    "        if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = { day: r.value }; } }")],
   ['enablers-calendar-harness.js', 'a liturgical cell is matched by its stored text, missing an ISO-dated one',
     s => s.replace("        var sv = (at && saved[at.key]) || {};", "        var sv = saved[day.dateStr] || {};")],
+  // The Songbooks list's rows (home-look-harness).
+  ['home-look-harness.js', 'a songbook row puts its buttons under its name again on a phone',
+    s => s.replace("      .sb-list-item { flex-wrap: nowrap; gap: 10px; align-items: center; padding: 5px 10px; }",
+                   "      .sb-list-item { flex-wrap: wrap; gap: 6px 12px; align-items: flex-start; padding: 10px 12px; }")],
+  ['home-look-harness.js', 'a row of six buttons is not marked, and squeezes its name to nothing',
+    s => s.replace("(isOrder ? '' : ' sb-list-item--many')", "''")],
+  ['home-look-harness.js', 'a long name in a row of six drops under its icon',
+    s => s.replace("      .sb-list-item.sb-list-item--many .sb-list-body { flex: 1 1 0; min-width: 0; }\r\n", '')],
   // A title in Chinese or Tamil is letters, not something to skip.
   ['home-songs-search-harness.js', 'a title in another script is stripped away and matches everything',
     s => s.replace("    return t.toLowerCase().replace(/\\s+/g, ' ').replace(_SF_LEAD, '');", "    return t.toLowerCase().replace(/\\s+/g, ' ').replace(/^[^a-z0-9]+/, '');")],

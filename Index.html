@@ -1267,14 +1267,17 @@
                   0 20px 40px rgba(9,42,21,0.15);
     }
     .home-nav-card:active { transform: translateY(-1px); }
-    .home-nav-songs { background: linear-gradient(145deg, #ffffff 0%, #f0f4ff 100%); }
-    .home-nav-songs:hover { background: linear-gradient(145deg, #f0f4ff 0%, #dbe4ff 100%); }
-    .home-nav-roster { background: linear-gradient(145deg, #ffffff 0%, #e8faf8 100%); }
-    .home-nav-roster:hover { background: linear-gradient(145deg, #e8faf8 0%, #ccf0eb 100%); }
+    /* (2026-11-11) Each card faintly its own: Songs / Songbooks green, the
+       Roster blue, the Liturgy Library purple -- they were blue, teal and
+       green, three of the six looking alike. */
+    .home-nav-songs { background: linear-gradient(145deg, #ffffff 0%, #eaf8ef 100%); }
+    .home-nav-songs:hover { background: linear-gradient(145deg, #eaf8ef 0%, #d3f0dd 100%); }
+    .home-nav-roster { background: linear-gradient(145deg, #ffffff 0%, #eaf3ff 100%); }
+    .home-nav-roster:hover { background: linear-gradient(145deg, #eaf3ff 0%, #d6e6fe 100%); }
     .home-nav-orders { background: linear-gradient(145deg, #ffffff 0%, #fef7e8 100%); }
     .home-nav-orders:hover { background: linear-gradient(145deg, #fef7e8 0%, #fcedc7 100%); }
-    .home-nav-liturgy { background: linear-gradient(145deg, #ffffff 0%, #e5f4ed 100%); }
-    .home-nav-liturgy:hover { background: linear-gradient(145deg, #e5f4ed 0%, #c0e7d5 100%); }
+    .home-nav-liturgy { background: linear-gradient(145deg, #ffffff 0%, #f3eefd 100%); }
+    .home-nav-liturgy:hover { background: linear-gradient(145deg, #f3eefd 0%, #e5dafb 100%); }
     .home-nav-practice { background: linear-gradient(145deg, #ffffff 0%, #ecfdf5 100%); }
     .home-nav-practice:hover { background: linear-gradient(145deg, #ecfdf5 0%, #d1fae5 100%); border-color: rgba(5,150,105,0.45); }
     /* Sunday Bulletin had no rule of any kind -- no tint, no icon
@@ -1286,10 +1289,10 @@
 
     /* The edge takes the card's own accent, so the division is the
        card saying which one it is rather than a grey rule. */
-    .home-nav-songs    { --nav-edge: rgba(24,142,68,0.32); }
-    .home-nav-roster   { --nav-edge: rgba(20,184,166,0.34); }
+    .home-nav-songs    { --nav-edge: rgba(24,142,68,0.34); }
+    .home-nav-roster   { --nav-edge: rgba(37,99,235,0.30); }
     .home-nav-orders   { --nav-edge: rgba(217,119,6,0.34); }
-    .home-nav-liturgy  { --nav-edge: rgba(11,118,68,0.30); }
+    .home-nav-liturgy  { --nav-edge: rgba(124,58,237,0.28); }
     .home-nav-practice { --nav-edge: rgba(5,150,105,0.32); }
     .home-nav-bulletin { --nav-edge: rgba(71,85,105,0.28); }
     .home-nav-icon {
@@ -1303,9 +1306,9 @@
       margin-bottom: 4px;
     }
     .home-nav-songs .home-nav-icon { color: var(--brand); background: rgba(24,142,68,0.12); }
-    .home-nav-roster .home-nav-icon { color: var(--roster-teal); background: rgba(20,184,166,0.12); }
+    .home-nav-roster .home-nav-icon { color: #2563eb; background: rgba(37,99,235,0.12); }
     .home-nav-orders .home-nav-icon { color: #d97706; background: rgba(217,119,6,0.12); }
-    .home-nav-liturgy .home-nav-icon { color: #0b7644; background: rgba(11,118,68,0.12); }
+    .home-nav-liturgy .home-nav-icon { color: #7c3aed; background: rgba(124,58,237,0.12); }
     .home-nav-practice .home-nav-icon { color: #059669; background: rgba(5,150,105,0.12); }
     .home-nav-bulletin .home-nav-icon { color: #475569; background: rgba(71,85,105,0.12); }
     /* The name of the feature, and now the only words on the card.
@@ -2312,9 +2315,11 @@
     }
 
     /* ==================== SONGBOOKS LIST ==================== */
+    /* (2026-11-11) Half the room above and below each row, and its buttons
+       on its name's line. */
     .sb-list-item {
       display: flex; align-items: center; gap: 12px;
-      padding: 11px 14px; border-bottom: 1px solid #f1f5f9;
+      padding: 6px 14px; border-bottom: 1px solid #f1f5f9;
       transition: background 0.15s; cursor: pointer;
     }
     .sb-list-item:last-child { border-bottom: none; }
@@ -2327,21 +2332,40 @@
     .sb-list-meta { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
     .sb-list-source { font-size: 0.72rem; background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
     .sb-list-source.order { background: #bbfadc; border-color: #06db77; color: #12653e; }
-    .sb-list-actions { display: flex; gap: 6px; flex-shrink: 0; }
-    .sb-list-btn { background: none; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 9px; font-size: 0.75rem; cursor: pointer; color: #64748b; transition: all 0.15s; }
-    .sb-list-btn:hover { background: #d4f3e7; border-color: #7fd9b8; color: #0b7a53; }
-    .sb-list-btn.share { border-color: #a7f3d0; color: #059669; }
-    .sb-list-btn.share:hover { background: #d1fae5; }
-    .sb-list-btn.rename { border-color: #bdedcd; color: #188e44; }
-    .sb-list-btn.rename:hover { background: #f0faf3; }
-    .sb-list-btn.delete { border-color: #fca5a5; color: #dc2626; }
-    .sb-list-btn.delete:hover { background: #fee2e2; }
-    .sb-list-btn.play { border-color: #6ee7b7; color: #059669; }
-    .sb-list-btn.play:hover { background: #d1fae5; }
-    .sb-list-btn.wa { border-color: #86efac; color: #16a34a; }
-    .sb-list-btn.wa:hover { background: #dcfce7; }
-    .sb-list-btn.add-songs { border-color: #7fd9b8; color: #0e9f6e; }
-    .sb-list-btn.add-songs:hover { background: #d4f3e7; border-color: #34c48f; color: #0b7a53; }
+    .sb-list-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    /* Each button a soft tile in its action's colour, filled when pointed at:
+       add green, play blue, WhatsApp green, open indigo, rename amber,
+       delete red. */
+    .sb-list-btn {
+      width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center;
+      border-radius: 9px; border: 1px solid #e2e8f0; cursor: pointer; font-size: 0.8rem; color: #475569;
+      background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+      box-shadow: 0 1px 2px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.9);
+      transition: transform .12s ease, box-shadow .15s ease, background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    .sb-list-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 12px rgba(15,23,42,.16); color: #fff; background: #475569; border-color: #475569; }
+    .sb-list-btn:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(15,23,42,.12); }
+    .sb-list-btn:focus-visible { outline: 2px solid #188e44; outline-offset: 2px; }
+    .sb-list-btn.add-songs { color: #047857; border-color: #a7f3d0; background: linear-gradient(180deg, #f2fdf8 0%, #d1fae5 100%); }
+    .sb-list-btn.add-songs:hover { color: #fff; background: #059669; border-color: #059669; }
+    .sb-list-btn.play { color: #1d4ed8; border-color: #bfdbfe; background: linear-gradient(180deg, #f5f9ff 0%, #dbeafe 100%); }
+    .sb-list-btn.play:hover { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .sb-list-btn.wa, .sb-list-btn.share { color: #15803d; border-color: #bbf7d0; background: linear-gradient(180deg, #f3fdf6 0%, #dcfce7 100%); }
+    .sb-list-btn.wa i { font-size: 0.95rem; }
+    .sb-list-btn.wa:hover, .sb-list-btn.share:hover { color: #fff; background: #22c55e; border-color: #22c55e; }
+    .sb-list-btn.open { color: #4338ca; border-color: #c7d2fe; background: linear-gradient(180deg, #f7f8ff 0%, #e0e7ff 100%); }
+    .sb-list-btn.open:hover { color: #fff; background: #4f46e5; border-color: #4f46e5; }
+    .sb-list-btn.rename { color: #b45309; border-color: #fde68a; background: linear-gradient(180deg, #fffcf2 0%, #fef3c7 100%); }
+    .sb-list-btn.rename:hover { color: #fff; background: #d97706; border-color: #d97706; }
+    .sb-list-btn.delete { color: #b91c1c; border-color: #fecaca; background: linear-gradient(180deg, #fff7f7 0%, #fee2e2 100%); }
+    .sb-list-btn.delete:hover { color: #fff; background: #dc2626; border-color: #dc2626; }
+    /* A row with six buttons (one of My Songbooks) puts them under its name
+       only where a phone leaves the name no room beside them. */
+    @media (max-width: 479px) {
+      .sb-list-item.sb-list-item--many { flex-wrap: wrap; row-gap: 4px; }
+      .sb-list-item.sb-list-item--many .sb-list-body { flex: 1 1 0; min-width: 0; }
+      .sb-list-item.sb-list-item--many .sb-list-actions { order: 3; width: 100%; justify-content: flex-end; padding-bottom: 3px; }
+    }
     /* Add Songs Modal */
     .add-songs-modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.18s ease; }
     .add-songs-modal { background:#fff;border-radius:16px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.28);animation:slideUp 0.22s ease; }
@@ -4440,12 +4464,13 @@
       #songFinderView.mobile-books-mode #sfSongListCard,
       #songFinderView.mobile-books-mode #sfResultsGrid { display: none !important; }
 
-      /* Songbook rows: wrap so rename/delete buttons appear below on narrow screens */
-      .sb-list-item { flex-wrap: wrap; gap: 6px 12px; align-items: flex-start; padding: 10px 12px; }
+      /* Songbook rows: the buttons on the name's line (2026-11-11). They
+         used to wrap to a line of their own under every row; only a row of
+         six on a narrow phone does now (.sb-list-item--many). */
+      .sb-list-item { flex-wrap: nowrap; gap: 10px; align-items: center; padding: 5px 10px; }
       .sb-list-icon { align-self: center; }
-      .sb-list-body { flex: 1 1 120px; }
-      .sb-list-actions { order: 3; width: 100%; display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; padding-bottom: 2px; }
-      .sb-list-btn { padding: 5px 9px; font-size: 0.73rem; }
+      .sb-list-body { flex: 1 1 auto; min-width: 0; }
+      .sb-list-actions { gap: 4px; }
 
       /* Song list: single column */
       .all-songs-columns { flex-direction: column; }
@@ -6836,7 +6861,7 @@
           </button>
           <button class="home-nav-card home-nav-bulletin" onclick="setActiveView('bulletinView')">
             <div class="home-nav-icon"><i class="fa-solid fa-newspaper"></i></div>
-            <div class="home-nav-label font-cinzel">Sunday Bulletin</div>
+            <div class="home-nav-label font-cinzel">Bulletin</div>
             <div class="home-nav-stat" id="homeStatBulletin">This Sunday</div>
           </button>
         </div>
@@ -23946,7 +23971,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         var eid = escapeHtml(item.id);
         var ename = escapeHtml(item.name);
         var openFn = isOrder ? 'openSongbookFromOrder(\'' + escapeHtml(item.orderId) + '\')' : 'openStandaloneSongbook(\'' + eid + '\')';
-        return '<div class="sb-list-item" onclick="' + openFn + '">' +
+        return '<div class="sb-list-item' + (isOrder ? '' : ' sb-list-item--many') + '" onclick="' + openFn + '">' +
           '<div class="sb-list-icon ' + iconClass + '"><i class="' + iconI + '"></i></div>' +
           '<div class="sb-list-body">' +
             '<div class="sb-list-name" title="' + ename + '">' + ename + '</div>' +
@@ -23956,7 +23981,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
             '<button class="sb-list-btn add-songs" onclick="event.stopPropagation();openAddSongsModal(\'' + (isOrder ? 'order' : 'songbook') + '\',\'' + (isOrder ? escapeHtml(item.orderId) : eid) + '\',\'' + ename.replace(/'/g, '&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i></button>' +
             '<button class="sb-list-btn play" onclick="event.stopPropagation();window.playSongbookPlaylist(\'' + eid + '\')" title="Play playlist"><i class="fa-solid fa-circle-play"></i></button>' +
             '<button class="sb-list-btn wa" onclick="event.stopPropagation();window.shareSongbookWhatsApp(\'' + eid + '\')" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>' +
-            '<button class="sb-list-btn" onclick="event.stopPropagation();' + openFn + '" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
+            '<button class="sb-list-btn open" onclick="event.stopPropagation();' + openFn + '" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
             (!isOrder ? '<button class="sb-list-btn rename" onclick="event.stopPropagation();renameSongbook(\'' + eid + '\',\'' + ename.replace(/\'/g, '&#39;') + '\')" title="Rename"><i class="fa-solid fa-pen"></i></button>' : '') +
             (!isOrder ? '<button class="sb-list-btn delete" onclick="event.stopPropagation();deleteStandaloneSongbook(\'' + eid + '\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' : '') +
           '</div>' +
