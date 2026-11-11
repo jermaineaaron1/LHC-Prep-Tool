@@ -1358,8 +1358,10 @@
       font: 600 0.64rem/1.35 "Poppins", sans-serif; white-space: nowrap;
       box-shadow: 0 1px 2px rgba(15,23,42,.06); transition: background .15s, border-color .15s;
     }
-    .home-recent-chip i { font-size: .62rem; opacity: .75; flex-shrink: 0; }
-    .home-recent-chip span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    /* .home-nav-card in front: the phone rules size a card's every icon and
+       span (.home-nav-card i / span, up to 1.3rem), which overrode these. */
+    .home-nav-card .home-recent-chip i { font-size: .62rem; opacity: .75; flex-shrink: 0; }
+    .home-nav-card .home-recent-chip span { font-size: inherit; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .home-recent-chip:hover { background: #ecfdf3; border-color: rgba(24,142,68,.5); }
     .home-recent-chip:focus-visible { outline: 2px solid #188e44; outline-offset: 1px; }
     .home-nav-orders .home-recent-chip { border-color: rgba(217,119,6,.32); color: #92400e; }
@@ -5338,7 +5340,7 @@
       .home-nav-card.has-recent .home-nav-recent { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 1px; }
       .home-nav-card.has-recent .home-nav-recent::-webkit-scrollbar { display: none; }
       .home-nav-card.has-recent .home-recent-chip { flex: 0 0 auto; max-width: 78%; }
-      .home-nav-card.has-recent .home-recent-chip i { display: none; }
+      .home-nav-card.has-recent .home-recent-chip i { display: none !important; }
     }
     /* Wide enough for them beside the words, as drawn: the chips at the top
        right of the card and its count under them -- when every name fits
@@ -5350,7 +5352,7 @@
       .home-nav-card.has-recent:not(.recent-below) .home-nav-stat { justify-self: end; }
       /* No icon beside the words: the card's own says what they are. */
       .home-nav-card.has-recent:not(.recent-below) .home-recent-chip { flex: 0 1 auto; padding: 3px 9px; max-width: none; }
-      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip i { display: none; }
+      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip i { display: none !important; }
     }
 
     /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
@@ -23397,14 +23399,27 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // own. Case, accents, spacing and a leading quote or bracket are ignored.
   // The list (applyFiltersAndSort) and the suggestions under the box
   // (renderSearchSuggestions) both go through _sfTitleStarts.
+  // What is skipped at the front of a title and of what was typed: spaces,
+  // punctuation and symbols (a quote, a bracket, an emoji) -- never a letter
+  // of any script. It was "anything but a-z and 0-9", which took the whole of
+  // a title in Chinese or Tamil away, so typing one matched every song.
+  // Unicode classes where the browser has them, built at run time so an old
+  // one cannot fail to parse the script; else ASCII punctuation.
+  var _SF_LEAD = (function() {
+    try { return new RegExp('^[\\s\\p{P}\\p{S}\\p{Cf}\\uFE0F]+', 'u'); } catch (e) { return /^[^a-z0-9\u00c0-\uffff]+/i; }
+  })();
   function _sfTitleKey(text) {
     var t = String(text == null ? '' : text);
     try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
-    return t.toLowerCase().replace(/\s+/g, ' ').replace(/^[^a-z0-9]+/, '');
+    return t.toLowerCase().replace(/\s+/g, ' ').replace(_SF_LEAD, '');
   }
   function _sfTitleStarts(song, query) {
     var q = _sfTitleKey(query);
-    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;
+    if (q) return _sfTitleKey(song && song.title).indexOf(q) === 0;
+    // Nothing left once the front is skipped -- "(", "#", an emoji: the title
+    // must begin with exactly that, not every song be a match.
+    var raw = String(query == null ? '' : query).trim().toLowerCase();
+    return !raw || String((song && song.title) || '').trim().toLowerCase().indexOf(raw) === 0;
   }
 
   function applyFiltersAndSort() {
@@ -25845,7 +25860,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // glowing, and an example from the library typed into the bubble. Only
   // when the box is empty and on screen (on a phone the Songbooks tab hides
   // it). It goes after five seconds, or the moment the box is touched.
+  var _sfHintEnd = null;
   function _sfSearchHint() {
+    // One at a time: an earlier hint still running is ended now, timer and
+    // listeners with it, or its timer would take the glow and the lift off
+    // the next one halfway through.
+    if (_sfHintEnd) _sfHintEnd(true);
     var inp = $('searchInput');
     var hv = $('songFinderView');
     if (!inp || inp.value || inp.offsetParent === null || !hv || hv.style.display === 'none') return;
@@ -25871,15 +25891,18 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var typed = hint.querySelector('.sf-hint-typed'), letters = ex.slice(0, 2), k = 0, typer = 0;
     if (typed) typer = setInterval(function() { if (k >= letters.length) { clearInterval(typer); return; } typed.textContent += letters.charAt(k++); }, 450);
     var timer = 0, gone = false;
-    var end = function() {
+    var end = function(now) {
       if (gone) return;
       gone = true;
+      if (_sfHintEnd === end) _sfHintEnd = null;
       clearTimeout(timer); clearInterval(typer);
       inp.removeEventListener('focus', end); inp.removeEventListener('input', end); inp.removeEventListener('pointerdown', end);
       field.classList.remove('sf-search-flash');
+      if (now === true) { if (hint.parentNode) hint.parentNode.removeChild(hint); return; }
       hint.classList.add('is-out');
       setTimeout(function() { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 320);
     };
+    _sfHintEnd = end;
     timer = setTimeout(end, 5000);
     inp.addEventListener('focus', end);
     inp.addEventListener('input', end);
@@ -25929,8 +25952,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var raw = String(text == null ? '' : text);
     // Skip what _sfTitleKey skips at the front, then mark as many characters
     // as were typed.
-    var lead = (raw.match(/^[^A-Za-z0-9\u00C0-\u024F]*/) || [''])[0].length;
-    var n = String(query).replace(/^[^A-Za-z0-9\u00C0-\u024F]+/, '').length;
+    var lead = (raw.match(_SF_LEAD) || [''])[0].length;
+    var n = String(query).replace(_SF_LEAD, '').length;
     if (!n || !_sfTitleStarts({ title: raw }, query)) return escapeHtml(raw);
     return escapeHtml(raw.slice(0, lead)) +
       '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">' + escapeHtml(raw.slice(lead, lead + n)) + '</mark>' +
@@ -28046,6 +28069,11 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       if (typeof renderHomeUpcomingServices === 'function') {
         renderHomeUpcomingServices();
       }
+      // And the cards: Home draws them before this read comes back, so the
+      // orders edited last (and a service book opened from a link, whose
+      // order is checked against this list) lagged one visit behind.
+      var _hv = $('homeView');
+      if (_hv && _hv.style.display !== 'none') renderHomeNavStats();
       // Refresh songbooks list in case it's visible
       if (typeof renderSongbooksList === 'function') renderSongbooksList();
     }).catch(function(err) {
@@ -28259,11 +28287,24 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   }
   // "Service - Nov 8" is what a new order is called, so cut short it reads
   // "Service - ..." three times over: such an order is shown by its date.
-  // An order someone named ("Carols by Candlelight") keeps its name.
+  // Only that name: "Service - <a date>". One someone chose keeps itself,
+  // "Service of Lessons and Carols" included.
   function _homeOrderChipName(o) {
     var title = String((o && o.title) || '').trim();
-    if ((!title || /^service\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);
+    var m = title.match(/^service\s*[-\u2013\u2014:]\s*(.*)$/i);
+    var dated = !!m && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(m[1]) && /\d/.test(m[1]);
+    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);
     return title || 'Service Order';
+  }
+  // Two chips that would read alike say which service each is.
+  function _homeTellApart(items) {
+    var count = {};
+    items.forEach(function(it) { count[it.name] = (count[it.name] || 0) + 1; });
+    return items.map(function(it) {
+      if (count[it.name] < 2 || !it.type) return it;
+      var t = String(it.type);
+      return { id: it.id, kind: it.kind, t: it.t, type: it.type, name: it.name + ' \u00B7 ' + t.charAt(0).toUpperCase() + t.slice(1) };
+    });
   }
   // Newest first by .t, an ISO date; undated last. The first n.
   function _homeNewest(items, n) {
@@ -28314,9 +28355,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var orders = (STATE.orders || []).filter(function(o) {
       return o && o.id && String(o.id).indexOf('standalone_') !== 0;
     }).map(function(o) {
-      return { id: o.id, name: _homeOrderChipName(o), t: o.lastEdited || o.createdDate || '' };
+      return { id: o.id, name: _homeOrderChipName(o), type: o.type || '', t: o.lastEdited || o.createdDate || '' };
     });
-    orders = _homeNewest(orders, 3);
+    orders = _homeTellApart(_homeNewest(orders, 3));
     _homeRecentChips('homeRecentOrders', orders, 'order');
 
     // The songbooks opened on this device (_sbRememberOpened, WO module).
@@ -31453,6 +31494,9 @@ var SBQ = {
           });
       })
       .then(function(res) {
+        // One place, so every path that saves an order tells the other
+        // devices -- rather than each caller remembering to.
+        try { if (window._orderTouchSend) window._orderTouchSend(id); } catch (e) {}
         if (res && res.__itemsPreserved) {
           return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
         }
@@ -35395,7 +35439,12 @@ var WO = (function() {
   // Conditions about the screen rather than any one item. While one of these
   // holds, nothing is applied at all.
   function _orderSyncScreenBusy() {
-    if (_orderSyncProjecting()) return true;
+    // Projecting USED to stand this down, which made the one state the
+    // operator cares about -- a service running on the wall -- the one
+    // state last-minute changes never reached. They now apply, and
+    // _lcdReproject puts the changed slide up. The guards below stay:
+    // they are about not destroying words somebody here is typing,
+    // which is a different thing from not interrupting a service.
     if (_lbdIsActive()) return true;
     if (typeof editingSlideBox !== 'undefined' && editingSlideBox) return true;
     if (typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) return true;
@@ -35657,6 +35706,13 @@ var WO = (function() {
   var _orderSyncResumeTarget = null; // ...carried through the reload it asks for
   var ORDER_SYNC_MS = 4000;
 
+  window._lcdLiveTest = {
+    slideText: function(c) { return _lcdSlideText(c); },
+    onAir: function() { return _lcdOnAir(); },
+    reproject: function() { return _lcdReproject(); },
+    busy: function() { return _orderSyncScreenBusy(); }
+  };
+
   function _orderSyncNote(orderId, items) {
     if (!orderId || !items) return;
     _orderSyncSeen[orderId] = _orderSyncFingerprint(items);
@@ -35668,7 +35724,29 @@ var WO = (function() {
   function _orderSyncStart() {
     _orderSyncStop();
     _orderSyncTimer = setInterval(_orderSyncTick, ORDER_SYNC_MS);
+    // The realtime channel used to be started only by the songbook's own
+    // open paths, so a device sitting in LCD Projection was never
+    // subscribed and everything reached it through this 4-second poll.
+    // An order being open is the condition; the songbook is one way in.
+    if (typeof sbStartRealtimeSync === 'function' &&
+        typeof sbRealtimeChannel !== 'undefined' && !sbRealtimeChannel) {
+      try { sbStartRealtimeSync(); } catch (e) { /* the poll still covers it */ }
+    }
   }
+
+  // Every save says so, and every other device looks at once rather than
+  // waiting out the poll. The payload is the order id and nothing else:
+  // what changed is worked out by the reader, which already knows how.
+  function _orderTouchSend(orderId) {
+    if (!orderId) return;
+    try {
+      if (typeof sbRealtimeChannel !== 'undefined' && sbRealtimeChannel) {
+        sbRealtimeChannel.send({ type: 'broadcast', event: 'order_touch',
+                                 payload: { orderId: orderId, at: Date.now() } });
+      }
+    } catch (e) { /* the poll still covers it */ }
+  }
+  window._orderTouchSend = _orderTouchSend;
 
   // A hidden tab does not poll, so someone returning after a while is looking
   // at whatever was true when they left. Check on the way back in rather than
@@ -35744,6 +35822,11 @@ var WO = (function() {
         applied = null;
       }
       if (applied && applied.applied && applied.applied.length) {
+        // The schedule has just been redrawn under a running projection.
+        // Without this the operator's list would show the change while
+        // the wall kept the old words -- the worse of the two failures,
+        // because the screen they read from would say it was done.
+        try { _lcdReproject(); } catch (e) { console.warn('[OrderSync] reproject:', e); }
         // Only the items this pass actually drew move forward. Anything it
         // deferred stays as it was, so the next tick finds it again and
         // either applies it or -- if it is still blocked -- asks.
@@ -65703,6 +65786,20 @@ var WO = (function() {
         if (!p || p.orderId !== (currentOrderData && currentOrderData.id)) return;
         if (typeof _lb2ApplyPatch === 'function') _lb2ApplyPatch(p);
       })
+      // Another device saved. Look now instead of waiting out the poll:
+      // _orderSyncTick already works out what changed and whether it can
+      // be applied, so this only changes WHEN it asks.
+      .on('broadcast', { event: 'order_touch' }, function(msg) {
+        var p = msg && msg.payload;
+        if (!p || p.orderId !== (currentOrderData && currentOrderData.id)) return;
+        if (typeof _orderSyncTick === 'function') {
+          // Twice: a tick must see a difference on two passes before it
+          // trusts it (a save is upsert-then-prune, gotcha in the poll),
+          // so one nudge alone would only ever arm it.
+          _orderSyncTick();
+          setTimeout(function() { _orderSyncTick(); }, 700);
+        }
+      })
       .on('broadcast', { event: 'sb_typing' }, function(msg) {
         var p = msg.payload;
         if (!p || !p.songId) return;
@@ -86787,13 +86884,10 @@ var WO = (function() {
   }
 
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass, part) {
-    // "Double-click to add content" is editor furniture, not words -- the
-    // same two tests selectSlideBox makes before it projects a slide.
+    // The same test the projector makes, from the same place, so the
+    // rail's preview and the wall can never disagree about what counts.
     var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line'))
-      .filter(function(l) {
-        return !l.classList.contains('wo-slide-empty-hint') &&
-               l.textContent.trim() !== 'Double-click to add content';
-      })
+      .filter(_lcdIsSlideLine)
       .map(function(l) { return l.textContent.trim(); }).filter(Boolean);
     var preview = lines.length ? lines[0] : '';
     var isSelected = slideBoxEl.classList.contains('selected');
@@ -89169,6 +89263,83 @@ var WO = (function() {
     _lcdRailObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   }
 
+  // The words of one slide, read off the schedule. Lifted out of
+  // selectSlideBox so that re-sending a slide to the projector and
+  // selecting it cannot disagree about what is on the wall -- a second
+  // copy of this would be a second answer to "what is being projected".
+  // Is this line of a slide something a congregation should see?
+  // "Double-click to add content" is editor furniture, and projecting it
+  // once put that instruction up in front of a church. The class is
+  // checked first, but some slides carry the placeholder as ordinary
+  // line text with no hint class, so the string is matched too.
+  //
+  // The projector and the rail's preview are different readers -- one
+  // wants the whole slide, the other its first line -- but they must
+  // never disagree about what counts, so that part is here and not in
+  // each of them.
+  function _lcdIsSlideLine(el) {
+    return !!el && !el.classList.contains('wo-slide-empty-hint') &&
+           el.textContent.trim() !== 'Double-click to add content';
+  }
+
+  function _lcdSlideText(content) {
+    if (!content) return '';
+    // A slide being edited HERE reads from the box being typed in.
+    var activeTextarea = content.querySelector('textarea');
+    if (activeTextarea) return activeTextarea.value;
+
+    var lines = Array.prototype.slice.call(content.querySelectorAll('.wo-slide-line'))
+      .filter(_lcdIsSlideLine);
+    var text = lines.map(function(line) { return line.textContent; }).join('\n');
+
+    // For scripture slides: include title (first slide) or footnote (other slides)
+    var scriptureTitle = content.querySelector('.wo-slide-scripture-title');
+    var scriptureFootnote = content.querySelector('.wo-slide-scripture-footnote');
+    if (scriptureTitle) {
+      text = '≡ ' + scriptureTitle.textContent + ' ≡\n\n' + text;
+    } else if (scriptureFootnote) {
+      text = text + '\n— ' + scriptureFootnote.textContent;
+    }
+    return text;
+  }
+
+  // What the wall is showing, so an unchanged slide is not re-sent.
+  var _lcdProjected = null;
+
+  // Is anything in front of a congregation right now? The operator
+  // projects through the Project button's own WINDOW, which leaves this
+  // page out of fullscreen entirely -- so asking about fullscreen alone
+  // (as the sync guard did) answers "no" during most real services.
+  function _lcdOnAir() {
+    try {
+      if (typeof projectionWindow !== 'undefined' && projectionWindow && !projectionWindow.closed) return true;
+    } catch (e) { /* a closed cross-origin window throws */ }
+    if (document.fullscreenElement) return true;
+    var fs = document.getElementById('sbFsOverlay');
+    if (fs && fs.style.display && fs.style.display !== 'none') return true;
+    return false;
+  }
+
+  // Send the selected slide to the projector again. Called after anything
+  // redraws the schedule underneath a running projection: the operator
+  // chose (2026-11-11) that a change made on another device reaches the
+  // congregation at once rather than waiting to be advanced past.
+  function _lcdReproject() {
+    if (!_lcdOnAir()) return false;
+    var sel = document.querySelector('.wo-slide-box.selected');
+    if (!sel) return false;
+    var content = sel.querySelector('.wo-slide-content');
+    if (!content) return false;
+    // Being typed on THIS device: the operator's own half-written line
+    // must not go up, and they are about to save it themselves anyway.
+    if (content.querySelector('textarea')) return false;
+    var text = _lcdSlideText(content);
+    if (text === _lcdProjected) return false;
+    _lcdProjected = text;
+    updateProjectionPreview(text, true);
+    return true;
+  }
+
   function selectSlideBox(box) {
     // Not while "Save your changes?" is waiting: a clicker, the keyboard or
     // the projection window would otherwise save the words under it.
@@ -89327,35 +89498,10 @@ var WO = (function() {
     // Pass true to skip background update since we already set it above
     var content = box.querySelector('.wo-slide-content');
     if (content) {
-      var text;
-      // If this slide is currently in edit mode, read from the textarea
-      var activeTextarea = content.querySelector('textarea');
-      if (activeTextarea) {
-        text = activeTextarea.value;
-      } else {
-        var lines = Array.from(content.querySelectorAll('.wo-slide-line'));
-        // "Double-click to add content" is editor furniture, not slide content,
-        // and projecting it put that instruction on the congregation's screen.
-        // The class is checked first, but some slides carry the placeholder as
-        // ordinary line text with no hint class -- so the string is matched too.
-        // It is never legitimate slide content either way.
-        lines = lines.filter(function(line) {
-          return !line.classList.contains('wo-slide-empty-hint') &&
-                 line.textContent.trim() !== 'Double-click to add content';
-        });
-        text = lines.map(function(line) { return line.textContent; }).join('\n');
-
-        // For scripture slides: include title (first slide) or footnote (other slides)
-        var scriptureTitle = content.querySelector('.wo-slide-scripture-title');
-        var scriptureFootnote = content.querySelector('.wo-slide-scripture-footnote');
-        if (scriptureTitle) {
-          text = '≡ ' + scriptureTitle.textContent + ' ≡\n\n' + text;
-        } else if (scriptureFootnote) {
-          text = text + '\n— ' + scriptureFootnote.textContent;
-        }
-      }
+      var text = _lcdSlideText(content);
 
       updateProjectionPreview(text, true); // Skip background update - already handled
+      _lcdProjected = text;
     }
 
     // Update BG indicators on all slide boxes

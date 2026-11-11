@@ -2372,6 +2372,20 @@ the anon key -- verify as `postgres`, not as the app.
     seconds as the page opens, gone on focus, typing or a tap; it lifts the
     field to z-index 60 while it shows, because `#sfCommandHeader > *` puts
     every child of the search header at 1 and the filters come later.
+    From the review of #401 (2026-11-07): what a title's front is stripped
+    of is `_SF_LEAD` -- spaces, punctuation and symbols, by Unicode class
+    (built at run time, with an ASCII fallback) -- never a letter of any
+    script: "anything but a-z0-9" took a Chinese or Tamil title away whole,
+    and typing one listed every song. A box of only punctuation or an emoji
+    matches titles that begin with exactly that. Only the name the app gives
+    an order, "Service - <a date>", is shown as its date ("Service of Lessons
+    and Carols" keeps itself), and two chips that would read alike add the
+    service type (`_homeTellApart`). `loadOrders` draws the home cards again
+    when Home is showing: Home draws them before that read returns. A second
+    `_sfSearchHint` ends the first (`_sfHintEnd`) -- its timer used to take
+    the glow and the z-index lift off the next one. The chips' icon and name
+    sizes are `.home-nav-card .home-recent-chip ...`: the phone rules for a
+    card's every `i` and `span` overrode them.
     `tools/home-songs-search-harness.js` checks it.
 
 71. **Every phone and browser, not only Chrome.** Every iOS browser is
@@ -2864,7 +2878,7 @@ the anon key -- verify as `postgres`, not as the app.
     its LEFT edge once -- centred, a phone would open in the middle of
     the duty table.
 
-75. **A reading that skips verses comes from the ESV in pieces, and every
+80. **A reading that skips verses comes from the ESV in pieces, and every
     piece is read.** From the operator (2026-11-11): "Isaiah 61:1-4, 8-11"
     was put into the service as verses 1-4. The ESV answers a reference in
     pieces ("Isaiah 61:1–4; Isaiah 61:8–11") with ONE PASSAGE PER PIECE, and
@@ -2888,6 +2902,50 @@ the anon key -- verify as `postgres`, not as the app.
     LCD Projection is in the page, gotcha 35). A past order is a record of
     what was read and is never touched. `tools/reading-pieces-harness.js`
     checks the route and all of it.
+
+81. **A change made on one device reaches a projection already running
+    on another, at once.** The operator asked for it (2026-11-11) and,
+    asked directly, chose that the words change in front of the
+    congregation rather than wait to be advanced past. Four things were
+    in the way, and only the first is obvious:
+    - `_orderSyncScreenBusy` returned true while PROJECTING, so the one
+      state the operator cares about was the one state last-minute
+      changes never reached. It no longer asks. The other guards stay --
+      a slide being edited here, held unsaved words, an open slide
+      editor, the Liturgy Builder -- because those are about not
+      destroying words somebody is typing, which is a different thing
+      from not interrupting a service.
+    - Applying a change redraws the SCHEDULE; nothing re-sent the slide.
+      The operator's list would have updated while the wall kept the old
+      words -- worse than not updating, because the screen they read from
+      would say it was done. `_lcdReproject()` runs after every applied
+      delta: it re-sends the SELECTED slide (the one on the wall), does
+      nothing when the words have not changed (`_lcdProjected`), and
+      nothing when that slide is being typed on HERE.
+    - "On air" is NOT `document.fullscreenElement`. The operator
+      projects through the Project button's own WINDOW, which leaves
+      this page out of fullscreen entirely, so the old guard answered
+      "no" during most real services. `_lcdOnAir()` asks about
+      `projectionWindow` first (in a try, since a closed cross-origin
+      window throws), then fullscreen, then the presenter overlay.
+    - The realtime channel (`sb-<orderId>`) was started only by the
+      songbook's open paths, so a device sitting in LCD Projection was
+      never subscribed. `_orderSyncStart` now starts it too -- an open
+      ORDER is the condition; the songbook is one way in -- and every
+      save sends `order_touch` from inside `SBQ.saveOrder`, the one
+      place every path goes through. A receiver ticks TWICE (now, then
+      700ms): a tick must see a difference on two passes before it
+      trusts it, since a save is upsert-then-prune, so one nudge alone
+      would only ever arm the check. The 4-second poll stays as the
+      fallback when the channel is down.
+    What a congregation sees is still protected in two ways: the sync
+    BANNER still refuses to draw over a projection (`_orderSyncShowBanner`
+    keeps its `_orderSyncProjecting()` guard), and the editor's own
+    placeholder cannot reach the wall -- `_lcdIsSlideLine` is the one
+    test for whether a line of a slide is something a congregation should
+    see, called by both the projector (`_lcdSlideText`) and the rail's
+    preview, which previously each had their own copy of it.
+    `tools/live-projection-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

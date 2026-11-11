@@ -739,6 +739,45 @@ const CASES = [
   // gone -- and only on paper, where nobody looks before Sunday.
   // Placeholders belong to the editor. Unscoped, an un-typed theme verse
   // printed the words "The theme verse" across the masthead.
+  // ── A change reaching a projection already running ───────────────
+  // Every one of these is a screen a congregation is looking at.
+  ['live-projection-harness.js', 'projecting stands the sync down again, as it did',
+    s => s.replace('    if (_lbdIsActive()) return true;', '    if (_orderSyncProjecting()) return true;\r\n    if (_lbdIsActive()) return true;')],
+  // The worse of the two failures: the operator's list says it is done
+  // while the wall keeps the old words.
+  ['live-projection-harness.js', 'the schedule updates but the wall does not',
+    s => s.replace('        try { _lcdReproject(); } catch (e) { console.warn(\'[OrderSync] reproject:\', e); }', '')],
+  ['live-projection-harness.js', 'a half-typed line goes up in front of the church',
+    s => s.replace("    if (content.querySelector('textarea')) return false;", '')],
+  ['live-projection-harness.js', 'the wall is re-sent words it is already showing',
+    s => s.replace('    if (text === _lcdProjected) return false;', '')],
+  // The operator projects through the Project button's own window, which
+  // leaves this page out of fullscreen entirely.
+  ['live-projection-harness.js', 'only fullscreen counts as being on air',
+    s => s.replace('      if (typeof projectionWindow !== \'undefined\' && projectionWindow && !projectionWindow.closed) return true;', '')],
+  ['live-projection-harness.js', 'a device in LCD Projection never subscribes',
+    s => s.replace('      try { sbStartRealtimeSync(); } catch (e) { /* the poll still covers it */ }', '')],
+  ['live-projection-harness.js', 'a second channel is opened over a live one',
+    s => s.replace("        typeof sbRealtimeChannel !== 'undefined' && !sbRealtimeChannel) {", '        true) {')],
+  ['live-projection-harness.js', 'a save no longer tells the other devices',
+    s => s.replace('        try { if (window._orderTouchSend) window._orderTouchSend(id); } catch (e) {}', '')],
+  ['live-projection-harness.js', 'the nudge is not listened for',
+    s => s.replace("      .on('broadcast', { event: 'order_touch' }, function(msg) {", "      .on('broadcast', { event: 'zz_never' }, function(msg) {")],
+  // A tick must see a difference twice before it trusts it, so one nudge
+  // alone would only ever arm the check.
+  ['live-projection-harness.js', 'a nudge only arms the check and never fires it',
+    s => s.replace('          setTimeout(function() { _orderSyncTick(); }, 700);', '')],
+  ['live-projection-harness.js', 'the poll fallback is taken away',
+    s => s.replace('var ORDER_SYNC_MS = 4000;', 'var ORDER_SYNC_MS = 400000;')],
+  // The editor's own placeholder once went up in front of a church.
+  ['live-projection-harness.js', 'the editor placeholder can reach the wall again',
+    s => s.replace("           el.textContent.trim() !== 'Double-click to add content';", '           true;')],
+  ['live-projection-harness.js', 'the rail preview and the wall disagree about what counts',
+    s => s.replace('      .filter(_lcdIsSlideLine)\r\n      .map(function(l) { return l.textContent.trim(); })', '      .map(function(l) { return l.textContent.trim(); })')],
+  // The app's own chrome must never appear on a projected screen.
+  ['live-projection-harness.js', 'a banner shows over a live projection',
+    s => s.replace('    if (_orderSyncProjecting()) return;', '')],
+
   // An auto LEFT margin against a fixed RIGHT one pushes a box right, so
   // the bulletin sat off-centre at every zoom.
   ['bulletin-harness.js', 'the page is pushed off centre again',
@@ -2093,7 +2132,7 @@ const CASES = [
     s => s.replace("      result = result.filter(function(s) { return _sfTitleStarts(s, f.q); });",
                    "      result = result.filter(function(s) { return String(s.title || '').toLowerCase().indexOf(f.q.toLowerCase()) >= 0; });")],
   ['home-songs-search-harness.js', 'a title matches wherever the letters fall in it',
-    s => s.replace("    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;", "    return !q || _sfTitleKey(song && song.title).indexOf(q) >= 0;")],
+    s => s.replace("    if (q) return _sfTitleKey(song && song.title).indexOf(q) === 0;", "    if (q) return _sfTitleKey(song && song.title).indexOf(q) >= 0;")],
   ['home-songs-search-harness.js', 'the hint stays three times as long',
     s => s.replace("    timer = setTimeout(end, 5000);", "    timer = setTimeout(end, 15000);")],
   ['home-songs-search-harness.js', 'the hint paints under the filters',
@@ -2101,7 +2140,7 @@ const CASES = [
   ['home-songs-search-harness.js', 'a chip opens the whole page as well as its book',
     s => s.replace("        e.stopPropagation();\r\n        var id = chip.getAttribute('data-id');", "        var id = chip.getAttribute('data-id');")],
   ['home-songs-search-harness.js', 'every order chip reads "Service - ..."',
-    s => s.replace("    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
+    s => s.replace("    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
   ['home-songs-search-harness.js', 'the Roster card says 0 services again',
     s => s.replace("        HOME_STATE.rosterNext = results[1] || [];\r\n        _homeRosterStat();\r\n", "        HOME_STATE.rosterNext = results[1] || [];\r\n")],
   // The Songs card: the songbooks opened last, of either kind.
@@ -2147,6 +2186,22 @@ const CASES = [
     s => s.replace("(isOrder ? '' : ' sb-list-item--many')", "''")],
   ['home-look-harness.js', 'a long name in a row of six drops under its icon',
     s => s.replace("      .sb-list-item.sb-list-item--many .sb-list-body { flex: 1 1 0; min-width: 0; }\r\n", '')],
+  // A title in Chinese or Tamil is letters, not something to skip.
+  ['home-songs-search-harness.js', 'a title in another script is stripped away and matches everything',
+    s => s.replace("    return t.toLowerCase().replace(/\\s+/g, ' ').replace(_SF_LEAD, '');", "    return t.toLowerCase().replace(/\\s+/g, ' ').replace(/^[^a-z0-9]+/, '');")],
+  // From the review of #401 (2026-11-07).
+  ['home-songs-search-harness.js', 'a box of only punctuation or an emoji lists every song',
+    s => s.replace("    return !raw || String((song && song.title) || '').trim().toLowerCase().indexOf(raw) === 0;", "    return true;")],
+  ['home-songs-search-harness.js', 'the home cards are not drawn again once the orders are read',
+    s => s.replace("      if (_hv && _hv.style.display !== 'none') renderHomeNavStats();\r\n", '')],
+  ['home-songs-search-harness.js', 'a second hint leaves the first one\'s timer running',
+    s => s.replace("    if (_sfHintEnd) _sfHintEnd(true);\r\n", '')],
+  ['home-songs-search-harness.js', '"Service of Lessons and Carols" is shown as a date',
+    s => s.replace("    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);", "    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);")],
+  ['home-songs-search-harness.js', 'two services on one date read alike',
+    s => s.replace("      if (count[it.name] < 2 || !it.type) return it;", "      return it;")],
+  ['home-songs-search-harness.js', 'the phone rules size the chips\' icons again',
+    s => s.replace("    .home-nav-card .home-recent-chip i { font-size: .62rem;", "    .home-recent-chip i { font-size: .62rem;")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
