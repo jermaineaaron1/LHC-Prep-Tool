@@ -188,6 +188,69 @@ check('a nudge asks twice, because one pass only arms the check',
 check('the 4-second poll is still there as the fallback',
   /ORDER_SYNC_MS = 4000;/.test(SRC), true);
 
+console.log('\nand the tick can actually run during a projection');
+// Reported by the operator, who tried it: nothing reached the laptop and
+// the banner was waiting on the way out of Full Screen. Three things
+// blocked the path and the previous change had removed only the last.
+const tick = extractFn('_orderSyncTick');
+// #worshipOrderView is `position: fixed !important` in Full Screen, and
+// offsetParent is NULL for a fixed element -- so the test meant to ask
+// "is the editor on screen" answered "no" for every projected service,
+// three lines in. Measured on the live page: offsetParent null in Full
+// Screen, an element otherwise; getClientRects().length is 1 in both.
+check('the editor is found by what is laid out, not by offsetParent',
+  /!view \|\| !view\.getClientRects\(\)\.length/.test(tick), true);
+// The word still appears in the comment saying why it is not used; what
+// must be gone is the TEST.
+check('  and offsetParent is no longer what it asks',
+  /view\.offsetParent/.test(tick), false);
+// Right when nobody is looking; wrong when a congregation is.
+check('a hidden tab still syncs while something is on the wall',
+  /visibilityState !== 'visible' &&[\s\S]{0,120}?_lcdOnAir\(\)\)\) return;/.test(tick), true);
+check('  and that call cannot throw if the blocks are ever split',
+  /typeof _lcdOnAir === 'function' && _lcdOnAir\(\)/.test(tick), true);
+check('the 4-second poll and the Songbook hand-off are untouched',
+  /ORDER_SYNC_MS/.test(SRC) && /songbookLiveModal/.test(tick), true);
+
+console.log('\nthe slide on the wall is the one that may change');
+const delta = extractFn('_orderSyncApplyDelta');
+// The selected item IS the projected item, so deferring it made the
+// operator's exact case the one case that could never apply.
+const redrawBranch = delta.slice(delta.indexOf('redrawIds.forEach'), delta.indexOf('// Removals this pass'));
+check('an edit to the projecting slide is no longer deferred',
+  /selKey/.test(redrawBranch), false);
+// A removal is different: yanking the projecting slide out leaves
+// nothing on the wall, and it applies the moment they move off it.
+const removeBranch = delta.slice(delta.indexOf('// Removals this pass'), delta.indexOf('// Which sections need'));
+check('  but removing it still waits until they move off it',
+  /selKey && loc\.domKey === selKey/.test(removeBranch), true);
+
+console.log('\nand the projection survives the redraw');
+// A redraw replaces the item's nodes, and the selected slide is one of
+// them -- so what is on the wall would be lost with the markup.
+check('the projecting slide is remembered before the redraw',
+  /var liveSel = _orderSyncRememberLive\(\);/.test(delta), true);
+check('  and put back after everything is on the page again',
+  /_orderSyncRestoreLive\(liveSel\);/.test(delta), true);
+check('  in that order', delta.indexOf('_orderSyncRememberLive()') < delta.indexOf('_orderSyncRestoreLive('), true);
+const restore = extractFn('_orderSyncRestoreLive');
+// Selecting a slide is what projects it, so going through selectSlideBox
+// is what puts the new words on the wall -- one path, not a second one.
+check('putting it back goes through the same path a click takes',
+  /selectSlideBox\(box\)/.test(restore), true);
+check('  and does nothing when it is already the selected one',
+  /box\.classList\.contains\('selected'\)/.test(restore), true);
+const remember = extractFn('_orderSyncRememberLive');
+// A reading's slides carry no data-slide-idx (gotcha 60), so the place
+// is counted rather than read off an attribute that may not be there.
+check('the slide is remembered by its place, not by an element',
+  /indexOf\(sel\)/.test(remember) && /data-slide-idx/.test(remember), false);
+check('  by the key its item carries',
+  /data-song-id.*data-liturgy-id/.test(remember), true);
+// The rail is rebuilt from the DOM below, and clamps to the top (gotcha 73).
+check('the rail is told to hold its place first',
+  /_lcdRailHoldScroll/.test(delta), true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

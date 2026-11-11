@@ -2945,6 +2945,30 @@ the anon key -- verify as `postgres`, not as the app.
     test for whether a line of a slide is something a congregation should
     see, called by both the projector (`_lcdSlideText`) and the rail's
     preview, which previously each had their own copy of it.
+    Three things blocked this path and only the last was obvious; the
+    first two were found after the operator tried it and nothing moved:
+    - **The tick never ran.** `#worshipOrderView` is `position: fixed
+      !important` in Full Screen and `offsetParent` is NULL for a fixed
+      element, so `if (!view || view.offsetParent === null) return;`
+      answered "no" for the whole of every projected service, three lines
+      into `_orderSyncTick`. It asks `getClientRects().length` now, which
+      is 0 only for something not laid out.
+    - **A hidden tab did not poll.** Right when nobody is looking, wrong
+      when a congregation is. It syncs while anything is on air, through
+      `typeof _lcdOnAir === 'function' && _lcdOnAir()` -- a bare call
+      would throw every tick if those two script blocks were ever split.
+    - **The selected item was deferred** (`selKey && loc.domKey ===
+      selKey`), and the selected slide IS the projected slide, so the
+      one case the operator cared about was the one case excluded. An
+      EDIT to it applies now; a REMOVAL still waits, because a slide
+      yanked out from under a projection leaves nothing on the wall.
+    A redraw replaces the item's nodes and the selection goes with them,
+    so `_orderSyncRememberLive` / `_orderSyncRestoreLive` hold the
+    projecting slide across it -- by the item's key and the slide's PLACE
+    among that item's slides, since a reading's slides carry no
+    `data-slide-idx` (gotcha 60) -- and put it back through
+    `selectSlideBox`, because selecting a slide is what projects it.
+    `_lcdRailHoldScroll` first, per gotcha 73.
     `tools/live-projection-harness.js` checks it.
 
 ## Quick Commands for Claude Code

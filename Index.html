@@ -35452,6 +35452,40 @@ var WO = (function() {
     return false;
   }
 
+  // The slide on the wall, by the key its item carries and its place among
+  // that item's slides. Not by element: the element is about to be replaced.
+  // A reading's slides carry no data-slide-idx (gotcha 60), so the place is
+  // counted rather than read.
+  function _orderSyncRememberLive() {
+    var sel = document.querySelector('.wo-slide-box.selected');
+    if (!sel) return null;
+    var key = sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '';
+    if (!key) return null;
+    var all = _orderSyncSlidesOf(key);
+    return { key: key, idx: Math.max(0, all.indexOf(sel)) };
+  }
+
+  function _orderSyncSlidesOf(key) {
+    return Array.prototype.slice.call(document.querySelectorAll('.wo-slide-box'))
+      .filter(function(b) {
+        return (b.getAttribute('data-song-id') || b.getAttribute('data-liturgy-id') || '') === key;
+      });
+  }
+
+  // Put the selection back on the redrawn slide. selectSlideBox is what
+  // projects a slide, so going through it is what puts the new words on
+  // the wall -- the same path a click takes, not a second one.
+  function _orderSyncRestoreLive(mem) {
+    if (!mem || !mem.key) return false;
+    var all = _orderSyncSlidesOf(mem.key);
+    if (!all.length) return false;
+    var box = all[mem.idx] || all[all.length - 1];
+    if (!box || box.classList.contains('selected')) return false;
+    if (typeof selectSlideBox !== 'function') return false;
+    try { selectSlideBox(box); } catch (e) { return false; }
+    return true;
+  }
+
   // The item whose slide the operator is looking at, by the key its nodes carry.
   function _orderSyncSelectedKey() {
     var sel = document.querySelector('.wo-slide-box.selected');
@@ -35561,9 +35595,13 @@ var WO = (function() {
     redrawIds.forEach(function(id) {
       var it = byId[id];
       var loc = _orderSyncLocate(id);
+      // The SELECTED item used to be deferred here, and the selected item
+      // is the one being projected -- so a change to the slide on the wall
+      // was the one change that could never arrive. That was right while a
+      // change was something to announce; the operator has since asked for
+      // it to be performed. The selection is put back afterwards.
       if (!it || !_ORDER_SYNC_ADDABLE[it.itemType] ||
-          (loc && (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable)) ||
-          (selKey && loc && loc.domKey === selKey)) {
+          (loc && (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable))) {
         defer(id, [it && it.sectionId, loc && loc.sectionId]);
         return;
       }
@@ -35621,6 +35659,13 @@ var WO = (function() {
 
     if (!applied.length) return null;
 
+    // A redraw replaces the item's nodes, and the selected slide is one of
+    // them -- so what is being projected would be lost with the markup.
+    var liveSel = _orderSyncRememberLive();
+    // The rail is rebuilt from the DOM below; without this it clamps to the
+    // top and then reveals the selected row (gotcha 73).
+    if (typeof _lcdRailHoldScroll === 'function') _lcdRailHoldScroll();
+
     var scroller = document.getElementById('woWorshipOrder');
     var keepTop = scroller ? scroller.scrollTop : null;
     var outer = scroller && typeof _scrollParentOf === 'function' ? _scrollParentOf(scroller) : null;
@@ -35659,6 +35704,10 @@ var WO = (function() {
     reorderSections.forEach(function(sec) {
       if (wantOrder[sec]) _orderSyncReorderSection(sec, wantOrder[sec]);
     });
+
+    // Back to the slide that was on the wall, which re-sends it: selecting
+    // a slide is what projects it, so this is the same path a click takes.
+    _orderSyncRestoreLive(liveSel);
 
     // The rail is rebuilt from the DOM on every structural change already, so
     // this is the same refresh a local edit causes.
@@ -35707,6 +35756,9 @@ var WO = (function() {
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
+    rememberLive: function() { return _orderSyncRememberLive(); },
+    restoreLive: function(m) { return _orderSyncRestoreLive(m); },
+    slidesOf: function(k) { return _orderSyncSlidesOf(k).length; },
     slideText: function(c) { return _lcdSlideText(c); },
     onAir: function() { return _lcdOnAir(); },
     reproject: function() { return _lcdReproject(); },
@@ -35763,12 +35815,23 @@ var WO = (function() {
 
   function _orderSyncTick() {
     if (_orderSyncBusy) return;
-    if (document.visibilityState !== 'visible') return;
+    // A hidden tab does not poll -- unless something is on the wall. The
+    // operator may be looking at the projection window or at the room;
+    // the congregation is looking at the slide either way.
+    // typeof, not a bare call: these two live in one script block today,
+    // and a bare call would throw every tick if anyone ever split them --
+    // taking the whole sync down rather than this one allowance.
+    if (document.visibilityState !== 'visible' &&
+        !(typeof _lcdOnAir === 'function' && _lcdOnAir())) return;
     var oid = currentOrderData && currentOrderData.id;
     if (!oid) return;
-    // Only while the order editor is the thing on screen.
+    // Only while the order editor is the thing on screen. NOT offsetParent:
+    // that is null for a POSITION:FIXED element, and #worshipOrderView is
+    // fixed in Full Screen -- so this test answered "no" for the whole of
+    // every projected service and the sync never ran at all. getClientRects
+    // is 0 only for something not laid out, which is the actual question.
     var view = document.getElementById('worshipOrderView');
-    if (!view || view.offsetParent === null) return;
+    if (!view || !view.getClientRects().length) return;
     // The Songbook runs its own 2-second sync over the same rows; two polls on
     // one order is waste, and the Songbook applies changes rather than
     // announcing them, which is the better behaviour where it can be had.

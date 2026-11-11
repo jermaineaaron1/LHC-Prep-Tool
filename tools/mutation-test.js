@@ -741,6 +741,33 @@ const CASES = [
   // printed the words "The theme verse" across the masthead.
   // ── A change reaching a projection already running ───────────────
   // Every one of these is a screen a congregation is looking at.
+  // The tick never ran at all: #worshipOrderView is position:fixed in Full
+  // Screen, and offsetParent is null for a fixed element.
+  ['live-projection-harness.js', 'the sync never runs during a projection at all',
+    s => s.replace('    if (!view || !view.getClientRects().length) return;', '    if (!view || view.offsetParent === null) return;')],
+  ['live-projection-harness.js', 'a hidden tab stops syncing while the wall is lit',
+    s => s.replace("        !(typeof _lcdOnAir === 'function' && _lcdOnAir())) return;", '        true) return;')],
+  ['live-projection-harness.js', 'the on-air call throws if the blocks are split',
+    s => s.replace("!(typeof _lcdOnAir === 'function' && _lcdOnAir())", '!_lcdOnAir()')],
+  // The selected item IS the projected one, so deferring it made the
+  // operator's exact case the one case that could never apply.
+  ['live-projection-harness.js', 'an edit to the projecting slide is deferred again',
+    s => s.replace('          (loc && (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable))) {',
+                   '          (loc && (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable)) ||\r\n          (selKey && loc && loc.domKey === selKey)) {')],
+  // Removing the slide on the wall is different: it would leave nothing.
+  ['live-projection-harness.js', 'the projecting slide can be yanked out from under the wall',
+    s => s.replace('          (selKey && loc.domKey === selKey)) {', '          false) {')],
+  // A redraw replaces the nodes, and the selection goes with them.
+  ['live-projection-harness.js', 'the projection is lost when its slide is redrawn',
+    s => s.replace('    _orderSyncRestoreLive(liveSel);', '')],
+  ['live-projection-harness.js', 'nothing is remembered to put back',
+    s => s.replace('    var liveSel = _orderSyncRememberLive();', '    var liveSel = null;')],
+  ['live-projection-harness.js', 'the slide is put back without being projected',
+    s => s.replace('    try { selectSlideBox(box); } catch (e) { return false; }', "    try { box.classList.add('selected'); } catch (e) { return false; }")],
+  ['live-projection-harness.js', 'the same slide is re-selected over and over',
+    s => s.replace("    if (!box || box.classList.contains('selected')) return false;", '    if (!box) return false;')],
+  ['live-projection-harness.js', 'the rail jumps to the top on every change',
+    s => s.replace("    if (typeof _lcdRailHoldScroll === 'function') _lcdRailHoldScroll();", '')],
   ['live-projection-harness.js', 'projecting stands the sync down again, as it did',
     s => s.replace('    if (_lbdIsActive()) return true;', '    if (_orderSyncProjecting()) return true;\r\n    if (_lbdIsActive()) return true;')],
   // The worse of the two failures: the operator's list says it is done
