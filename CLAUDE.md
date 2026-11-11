@@ -307,8 +307,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      for EVERY song: one with no parts yet shows its words with every line
      sung by All (`lhcVoiceLines.fromLyrics`), and Set up choir parts
      (`sbmChoirStart`) writes that as its arrangement through the parts
-     editor's own save (`_sbVoiceWrite`) and shows it in Choir; Edit there is
-     Edit Parts. The printed pages keep their own Choir / Lyrics / Both
+     editor's own save (`_sbVoiceWrite`) -- for the rest of its medley too --
+     and shows it in Choir on every open device at once (gotcha 89); Edit
+     there is Edit Parts. The choir score's chords are the words Chords +
+     Lyrics shows, so a chord changed there is changed in Choir too. The printed pages keep their own Choir / Lyrics / Both
      (`_sbChoirViewToggleHtml`), where Both is both sets of pages.
      **A few lines transposed on their own** (a last verse up a tone): select
      them in the words, and a bar at the bottom (`#sbmXpSel`) moves their
@@ -320,7 +322,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
      and the Lyrics editor all see it. The lines are read from what the card
      is drawn from -- its `richLyrics` when it has them, else its words --
      one block per line (`_sbmXpSource`); a card that is not refuses rather
-     than guesses. Lyrics card only: the choir score's chords are the song's.
+     than guesses. Lyrics card only -- and since the choir score reads its
+     chords from those same words (gotcha 89), its chords follow.
      A take's delete asks in the app's own look (`window.lhcAskDelete`,
      z-index 10060: the take, its part, time and length, Keep it or a red
      Delete take), never the browser's `confirm()`.
@@ -3346,6 +3349,54 @@ the anon key -- verify as `postgres`, not as the app.
       alone is 7.3 MB.
     `tools/offline-service-harness.js` checks it, running `_swRoute` and
     `urlsIn` themselves rather than matching their source.
+
+89. **Set up choir parts reaches the medley and everyone, and a song has
+    one set of chords.** From the operator (2026-11-11), on a screenshot of
+    "No choir parts yet ... Set up choir parts": "if one user hits on the Set
+    Up Choir Parts then everyone will have the choir parts already"; "in a
+    medley, when that button is hit, then all the songs in the medley will
+    be choir part as well"; "direct all users to choir part after it's
+    creation"; and musicians who change chords in Chords + Lyrics want "the
+    choir part and other view" to show them.
+    - **Set up** (`sbmChoirStart`) takes the song in front and every other
+      song of its medley that has words and no parts
+      (`_sbmChoirStartTargets`, over `_woMedleys`), one after the other
+      (`_sbmChoirSetUp`: the edit hold, `_sbVoiceWrite` with `onlyIfEmpty`,
+      a song set up elsewhere meanwhile counted as done; a song somebody is
+      editing is left and named). Then every copy of those songs in the book
+      is shown in Choir (`_sbmChoirShow`: `choirView = 'choir'`), saved for
+      everyone -- `sbAutoSave` for a service's book, `_sbPersistChoirViews`
+      for a standalone one, ONE read and one write for all the songs (the
+      single-song `_sbPersistChoirView` called three times would write the
+      book back over itself) -- and announced.
+    - **Every open copy gets them at once.** A `choir` broadcast on the
+      book's live channel (`sbm-live-<key>`, gotcha 44; `_sbmChoirAnnounce`)
+      makes every other device read the new parts (`_sbmChoirArrived`:
+      `voiceLayout`, the prefetch flags cleared, `forSong`), show those songs
+      in Choir and say so when it is the song in front, then take what it
+      sees as seen. A device that missed the broadcast finds the parts on
+      its 30-second check: the fingerprint now carries which songs have
+      parts (`parts`, from the same read as the lines' hash), and songs that
+      have them now and had none (`_sbmPartsArrived`, pure) go through the
+      same arrival, with no banner -- the lines and songs hashes adopted.
+      Someone opening the book later gets them from the database, in Choir.
+    - **One set of chords.** A choir score has no chords of its own: each
+      moment takes its from the lyrics it is given (`chordIndex` /
+      `chordFor`). `_sbChoirBodyHtml` gave it the LIBRARY song's lyrics while
+      Chords + Lyrics shows and edits the book's copy, so a chord changed
+      there never reached Choir. Both now read `_sbChoirChordWords(song)`:
+      the copy's own words when it has them, else the song's. Every chord
+      written from the choir side goes into those same words
+      (`_sbChoirChordSave`: `_sbSetCopyWords` for a copy with words of its
+      own, else `SBQ_SONGS.updateLyrics` as before) -- the Overview pad and
+      Edit Parts (`_sbmPadSaveChords(base, rows, chords, sid)`), Book Mode's
+      choir notepad and its Undo, and the printed page's chord row, whose
+      `lyricAt` counts lines in the words its page was drawn from
+      (`lhcVoiceEdit.bind(..., { chordWords })`, read in `editChord`): a
+      write to the library's lyrics with a copy's line numbers would put the
+      chord on the wrong line. The song library's own Choir parts tab keeps
+      the library song's lyrics.
+    `tools/songbook-choir-setup-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

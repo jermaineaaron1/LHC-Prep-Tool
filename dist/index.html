@@ -15659,11 +15659,15 @@ function applyTranspose() {
 window.lhcVoiceEdit = {
   _busy: false,
 
-  bind: function(root, songId, onSaved) {
+  // opts.chordWords(): { lyrics, save(updated) } -- the words this page took
+  // its chords from, and how to write them (the songbook's copy, gotcha 89);
+  // without it, the library song's lyrics.
+  bind: function(root, songId, onSaved, opts) {
     if (!root || root._vlEditBound) return;
     root._vlEditBound = true;
     root.__vlEditSong = songId;
     root.__vlEditSaved = onSaved || null;
+    root.__vlEditChordWords = (opts && typeof opts.chordWords === 'function') ? opts.chordWords : null;
     root.addEventListener('dblclick', function(e) {
       var chip = e.target.closest ? e.target.closest('.vl-who') : null;
       var line = e.target.closest ? e.target.closest('.vl-ln[data-line-id]') : null;
@@ -15787,6 +15791,21 @@ window.lhcVoiceEdit = {
       done = true;
       var next = inp.value.replace(/\s+$/, '');
       if (!save || next === original.replace(/\s+$/, '')) { cell.innerHTML = shown; return; }
+      var cw = (typeof root.__vlEditChordWords === 'function') ? root.__vlEditChordWords() : null;
+      if (cw) {
+        E._busy = true;
+        inp.disabled = true;
+        var mine = window.lhcVoiceLines.withChord(cw.lyrics || '', lyricAt, chordAt, next);
+        Promise.resolve(cw.save(mine)).then(function() {
+          if (typeof root.__vlEditSaved === 'function') root.__vlEditSaved();
+          showToast(next.trim() ? 'Chords saved' : 'Chords cleared', 'success');
+        }).catch(function(err) {
+          console.error(err);
+          showToast('Could not save those chords', 'error');
+          cell.innerHTML = shown;
+        }).finally(function() { E._busy = false; });
+        return;
+      }
       var song = (typeof STATE !== 'undefined' && STATE.songs)
         ? STATE.songs.find(function(s) { return s && s.id === songId; }) : null;
       if (!song) { cell.innerHTML = shown; showToast('Could not find that song', 'error'); return; }
@@ -53602,6 +53621,9 @@ var WO = (function() {
       try {
         _sbmLive.channel = sup.channel('sbm-live-' + key, { config: { broadcast: { self: false } } })
           .on('broadcast', { event: 'changed' }, function() { _sbmLiveCheck(false); })
+          // Choir parts set up on another device: read them, show them in
+          // Choir, no Refresh (gotcha 89).
+          .on('broadcast', { event: 'choir' }, function(m) { _sbmChoirArrived(((m && m.payload) || {}).bases); })
           // Somebody is showing the rest of us something. `self: false`
           // above means the sender never hears its own, which is why it
           // opens its own copy directly.
@@ -53703,13 +53725,21 @@ var WO = (function() {
     var book = _sbStandaloneId
       ? hashOf(sup.from('songbooks').select('song_ids,items').eq('id', _sbStandaloneId), function(d) { return _sbmLiveBookOf(d[0] || {}); })
       : Promise.resolve('');
+    // The lines read once, for their hash and for which songs have parts.
+    var lines = sup.from('song_voice_lines').select('song_id,sort_order,part,section,text,sustained').in('song_id', ids).order('song_id').order('sort_order')
+      .then(function(r) {
+        if (r.error) return { lines: 'na', parts: 'na' };
+        var d = r.data || [], has = {};
+        d.forEach(function(x) { if (x && x.song_id) has[x.song_id] = true; });
+        return { lines: _sbmHash(_sbmLiveLinesOf(d)), parts: Object.keys(has).sort().join(',') };
+      }).catch(function() { return { lines: 'na', parts: 'na' }; });
     return Promise.all([
       latest('song_marks', 'created_at'),
       latest('song_recordings', 'created_at'),
-      hashOf(sup.from('song_voice_lines').select('song_id,sort_order,part,section,text,sustained').in('song_id', ids).order('song_id').order('sort_order'), _sbmLiveLinesOf),
+      lines,
       hashOf(sup.from('songs').select('id,title,key,lyrics,voice_layout').in('id', ids), _sbmLiveSongsOf),
       book
-    ]).then(function(a) { return { marks: a[0], recs: a[1], lines: a[2], songs: a[3], book: a[4] }; });
+    ]).then(function(a) { return { marks: a[0], recs: a[1], lines: a[2].lines, parts: a[2].parts, songs: a[3], book: a[4] }; });
   }
   // What a change of fingerprint means. Kept pure for the harness: marks
   // and takes reload quietly; lines, words, settings and the book itself
@@ -53727,6 +53757,14 @@ var WO = (function() {
       L.busy = false;
       if (!fp) return;
       if (adopt || !L.seen || Date.now() - _sbmLiveOwnAt < 15000) { L.seen = fp; L.pendingAt = 0; _sbmLiveBanner(false); return; }
+      // Songs that have parts now and had none (set up on a device whose
+      // broadcast this one missed): shown in Choir at once, no banner, and
+      // the lines and songs taken as seen (gotcha 89).
+      var arrived = _sbmPartsArrived(L.seen.parts, fp.parts);
+      if (arrived.length) {
+        L.seen.lines = fp.lines; L.seen.songs = fp.songs; L.seen.parts = fp.parts;
+        _sbmChoirArrived(arrived);
+      }
       var d = _sbmLiveDiff(L.seen, fp), song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
       if (d.marks) { L.seen.marks = fp.marks; if (song) { delete _sbmMarksAt[base]; _sbmLoadMarks(song, true); } }
       if (d.recs) { L.seen.recs = fp.recs; if (base) _sbmRecRefresh(base); }
@@ -57958,12 +57996,15 @@ var WO = (function() {
   // Write the pad's chord lines into the song's lyrics, one moment at a
   // time in reading order, re-indexing after each write: a chord line
   // added above a lyric moves every line below it.
-  function _sbmPadSaveChords(base, rows, chords) {
+  // sid: the book's copy (gotcha 89) -- the chords go into the words the
+  // score reads them from.
+  function _sbmPadSaveChords(base, rows, chords, sid) {
     var V = window.lhcVoiceLines;
     var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
-    if (!lib || !chords || !chords.length) return Promise.resolve({ written: false, orphans: [] });
+    var copy = _sbCopyById(sid);
+    if ((!lib && !copy) || !chords || !chords.length) return Promise.resolve({ written: false, orphans: [] });
     var isChord = _sbmIsChord();
-    var lyrics = lib.lyrics || '', changed = false, orphans = [];
+    var lyrics = _sbChoirChordWords(copy, base), changed = false, orphans = [];
     var groups = V.group(rows), ci = 0, used = {}, wrote = {};
     groups.forEach(function(g) {
       var want = V.leadText(g);
@@ -57991,9 +58032,7 @@ var WO = (function() {
     });
     chords.forEach(function(c, x) { if (!used[x]) orphans.push(c.words); });
     if (!changed) return Promise.resolve({ written: false, orphans: orphans });
-    // updateLyrics, not update(): the lyrics column alone, announced so an
-    // open order repaints with it.
-    return SBQ_SONGS.updateLyrics(base, lyrics).then(function() { lib.lyrics = lyrics; return { written: true, orphans: orphans }; });
+    return _sbChoirChordSave(copy, base, lyrics).then(function() { return { written: true, orphans: orphans }; });
   }
   // opts.parts: the song's part names (labelOf); opts.mapChords(chords):
   // the chord lines as they are to be stored (the choir notepad shows them
@@ -58006,7 +58045,7 @@ var WO = (function() {
     var chords = o.mapChords ? o.mapChords(split.chords) : split.chords;
     if (typeof showLoader === 'function') showLoader(true);
     return _sbVoiceWrite(base, sid, parsed, { openSig: openSig }).then(function() {
-      return _sbmPadSaveChords(base, _sbVoiceLines[base], chords);
+      return _sbmPadSaveChords(base, _sbVoiceLines[base], chords, sid);
     }).then(function(r) {
       return _sbPartColoursSave(base, colours).then(function() { return r; });
     }).then(function(r) {
@@ -58209,8 +58248,7 @@ var WO = (function() {
     var V = window.lhcVoiceLines;
     var rows = _sbVoiceLines[base] || [];
     var openSig = _sbLinesSig(rows);   // what is stored as it opens, before any seed
-    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
-    var lyrics = (lib && lib.lyrics) || '';
+    var lyrics = _sbChoirChordWords(_sbCopyById(sid), base);   // gotcha 89
     if (!rows.length) {
       // An ordinary song: its own words, everyone singing, as the editor does.
       var seed = (typeof V.fromLyrics === 'function') ? V.fromLyrics(lyrics) : [];
@@ -58246,8 +58284,7 @@ var WO = (function() {
     var f = secId ? _sbmEdFind(secId) : null;
     if (secId && (!f || !f.sec)) return;
     var V = window.lhcVoiceLines, isChord = _sbmIsChord();
-    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === ed.base; }) : null;
-    var lyrics = (lib && lib.lyrics) || '';
+    var lyrics = _sbChoirChordWords(_sbCopyById(ed.sid), ed.base);   // gotcha 89
     var rowsAll = V.parseVoiceText(_sbmEdToText(ed));
     var name = f ? (f.sec.name || '') : null;
     var nk = String(name || '').trim().toLowerCase();
@@ -59466,36 +59503,113 @@ var WO = (function() {
   // A song with no choir parts given them: its words, every line sung by
   // All, saved as its arrangement and shown in Choir. Changed from there
   // like any song's.
-  function sbmChoirStart() {
-    var song = _sbmSong(), V = window.lhcVoiceLines;
-    if (!song || !V || !window.SBQ_VOICE_LINES || _sbSongHasChoir(song)) return;
-    var rows = V.fromLyrics(song.customLyrics || song.lyrics || '');
-    if (!rows.length) { showToast('This song has no words yet to make parts from', 'info'); return; }
-    if (!_sbEditClaim(song)) return;
-    var base = _sbBaseSongId(song);
-    if (typeof showLoader === 'function') showLoader(true);
-    _sbVoiceWrite(base, song.id, rows, { onlyIfEmpty: true }).then(function() {
-      song.sbmLyricsMode = '';
-      sbSetChoirView(song.id, 'choir');   // shown in Choir, for everyone with the book
-      _sbmLiveSend();
-      showToast('Choir parts set up: every line is All. Edit Parts, or a line\u2019s part chip, to say who sings what.', 'success', { duration: 7000 });
-    }).catch(function(err) {
+  // Set up choir parts (the operator, 2026-11-11, gotcha 89): the song in
+  // front and the rest of its medley -- every song in it with words and no
+  // parts yet -- each every line All, and each then shown in Choir for
+  // everyone with the book: saved so (choirView, as the view buttons save
+  // it), and sent at once to every open copy (the 'choir' broadcast,
+  // _sbmChoirArrived), which reads the new parts and goes to Choir with no
+  // Refresh to press.
+  function _sbmChoirStartTargets(song) {
+    var V = window.lhcVoiceLines, out = [song], seen = {};
+    seen[_sbBaseSongId(song)] = true;
+    var md = (_woMedleys() || []).filter(function(m) { return (m.songs || []).indexOf(song.id) !== -1; })[0];
+    (md ? md.songs : []).forEach(function(id) {
+      var c = _sbCopyById(id), b = c ? _sbBaseSongId(c) : '';
+      if (!c || !b || seen[b] || _sbSongHasChoir(c)) return;
+      if (!V.fromLyrics(c.customLyrics || c.lyrics || '').length) return;
+      seen[b] = true;
+      out.push(c);
+    });
+    return out;
+  }
+  // One song's parts written; true once it has parts (written here, or
+  // found set up elsewhere meanwhile), false when it could not be.
+  function _sbmChoirSetUp(c) {
+    var V = window.lhcVoiceLines, base = _sbBaseSongId(c);
+    var rows = V.fromLyrics(c.customLyrics || c.lyrics || '');
+    if (!rows.length || !_sbEditClaim(c)) return Promise.resolve(false);
+    return _sbVoiceWrite(base, c.id, rows, { onlyIfEmpty: true }).then(function() { return true; }, function(err) {
       if (err && err.code === 'has-parts') {
-        // Set up somewhere else meanwhile: show those, write nothing.
+        // Set up somewhere else meanwhile: those are shown, nothing written.
         _sbVoiceLines[base] = err.rows || [];
         var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
         if (lib) lib.voiceLayout = 'two-part';
-        song.voiceLayout = 'two-part';
-        renderSongbookLive();
-        showToast('This song already has choir parts (set up on another device), so nothing was changed. Showing them now.', 'info', { duration: 7000 });
-        return;
+        c.voiceLayout = 'two-part';
+        return true;
       }
       console.error(err);
+      return false;
+    }).then(function(ok) { _sbEditRelease(base); return ok; });
+  }
+  // Every copy of these songs in the book shown in Choir (pure on the list).
+  function _sbmChoirShow(bases) {
+    var copies = (songOrderSections || []).filter(function(x) { return x && bases.indexOf(_sbBaseSongId(x)) !== -1; });
+    copies.forEach(function(x) { x.voiceLayout = 'two-part'; x.sbmLyricsMode = ''; x.choirView = 'choir'; });
+    return copies;
+  }
+  function sbmChoirStart() {
+    var song = _sbmSong(), V = window.lhcVoiceLines;
+    if (!song || !V || !window.SBQ_VOICE_LINES || _sbSongHasChoir(song)) return;
+    if (!V.fromLyrics(song.customLyrics || song.lyrics || '').length) { showToast('This song has no words yet to make parts from', 'info'); return; }
+    var targets = _sbmChoirStartTargets(song), done = [], missed = [];
+    if (typeof showLoader === 'function') showLoader(true);
+    targets.reduce(function(p, c) {
+      return p.then(function() { return _sbmChoirSetUp(c); }).then(function(ok) { (ok ? done : missed).push(c); });
+    }, Promise.resolve()).then(function() {
+      if (!done.length) { showToast('Could not set up the choir parts', 'error'); return; }
+      var bases = done.map(_sbBaseSongId);
+      _sbmChoirShow(bases);
+      sbAutoSave();                          // the view, for a service's book
+      _sbPersistChoirViews(bases, 'choir');  // ...and for a standalone one, in one write
+      renderSongbookLive();
+      _sbmLiveSend();
+      _sbmChoirAnnounce(bases);
+      var n = done.length;
+      showToast((n > 1 ? 'Choir parts set up for ' + n + ' songs of the medley' : 'Choir parts set up') +
+        ': every line is All, shown in Choir for everyone. Edit Parts says who sings what.' +
+        (missed.length ? ' Not set up: ' + missed.map(function(x) { return x.title || 'a song'; }).join(', ') + '.' : ''),
+        missed.length ? 'info' : 'success', { duration: 8000 });
+    }).catch(function(err) {
+      console.error(err);
       showToast('Could not set up the choir parts' + (err && err.message ? ': ' + err.message : ''), 'error');
-    }).finally(function() {
-      _sbEditRelease(base);
-      if (typeof showLoader === 'function') showLoader(false);
+    }).finally(function() { if (typeof showLoader === 'function') showLoader(false); });
+  }
+  // Every open copy of the book hears of it at once.
+  function _sbmChoirAnnounce(bases) {
+    if (!_sbmLive || !_sbmLive.channel || !bases.length) return;
+    try { _sbmLive.channel.send({ type: 'broadcast', event: 'choir', payload: { bases: bases, at: Date.now() } }); } catch (e) {}
+  }
+  // ...and, hearing of it (or finding parts on the 30-second check that were
+  // not there before), reads them and shows those songs in Choir.
+  function _sbmChoirArrived(bases) {
+    bases = (bases || []).filter(Boolean);
+    var copies = bases.length ? (songOrderSections || []).filter(function(x) { return x && bases.indexOf(_sbBaseSongId(x)) !== -1; }) : [];
+    if (!copies.length || !window.SBQ_VOICE_LINES) return Promise.resolve(false);
+    bases.forEach(function(b) {
+      var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === b; }) : null;
+      if (lib) lib.voiceLayout = 'two-part';
+      delete _sbVoiceWanted[b]; delete _sbVoiceRetryAt[b];
     });
+    _sbmChoirShow(bases);
+    return Promise.all(bases.map(function(b) {
+      return window.SBQ_VOICE_LINES.forSong(b).then(function(rows) { if (rows && rows.length) _sbVoiceLines[b] = rows; });
+    })).then(function() {
+      if (!_sbmBookOpen()) return true;
+      renderSongbookLive();
+      var cur = _sbmSong();
+      if (cur && bases.indexOf(_sbBaseSongId(cur)) !== -1) showToast('Choir parts were set up on another device: showing them in Choir', 'info', { duration: 6000 });
+      if (_sbmLive) _sbmLiveCheck(true);
+      return true;
+    }).catch(function() { return false; });
+  }
+  // The songs that have parts now and had none when last looked at (pure):
+  // ids in cur not in seen, both lists of song ids joined by ','.
+  function _sbmPartsArrived(seen, cur) {
+    if (seen == null || cur == null || seen === 'na' || cur === 'na') return [];
+    var had = {};
+    String(seen).split(',').forEach(function(x) { if (x) had[x] = true; });
+    return String(cur).split(',').filter(function(x) { return x && !had[x]; });
   }
   function sbmEdSave() {
     var ed = _sbmEd; if (!ed) return;
@@ -59511,7 +59625,7 @@ var WO = (function() {
       // library's Choir parts tab, which has its own pending-conversion
       // state to settle. Nothing is written from here.
       var text = _sbmEdToText(ed), done = ed.onSave;
-      if (ed.pendingChords && ed.pendingChords.length) _sbmPadSaveChords(ed.base, parsed, ed.pendingChords).catch(function(e) { console.error(e); });
+      if (ed.pendingChords && ed.pendingChords.length) _sbmPadSaveChords(ed.base, parsed, ed.pendingChords, ed.sid).catch(function(e) { console.error(e); });
       if (ed.pendingColours) _sbPartColoursSave(ed.base, ed.pendingColours).catch(function(e) { console.error(e); });
       ed.dirty = false; _sbmEdClose();
       done(text, parsed);
@@ -59523,7 +59637,7 @@ var WO = (function() {
       // Chords typed on the pad go into the song's lyrics now that the
       // rows they sit over are saved; colours go onto the song.
       var after = [];
-      if (ed.pendingChords && ed.pendingChords.length) after.push(_sbmPadSaveChords(ed.base, _sbVoiceLines[ed.base], ed.pendingChords));
+      if (ed.pendingChords && ed.pendingChords.length) after.push(_sbmPadSaveChords(ed.base, _sbVoiceLines[ed.base], ed.pendingChords, ed.sid));
       if (ed.pendingColours) after.push(_sbPartColoursSave(ed.base, ed.pendingColours));
       return Promise.all(after).then(function() {
         _sbmEdClose();
@@ -65254,12 +65368,16 @@ var WO = (function() {
       // patched in the DOM. Not in the song view: there a double-tap draws
       // (the operator, 2026-11-07; _sbmDblBind).
       if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {
+        var pageSid = page.getAttribute('data-song-id') || '';
         window.lhcVoiceEdit.bind(page, songId, function() {
           window.SBQ_VOICE_LINES.forSong(songId).then(function(fresh) {
             _sbVoiceLines[songId] = fresh || [];
             renderSongbookLive();
           });
-        });
+        }, { chordWords: function() {
+          var copy = _sbCopyById(pageSid);
+          return { lyrics: _sbChoirChordWords(copy, songId), save: function(t) { return _sbChoirChordSave(copy, songId, t); } };
+        } });
       }
       if (window.lhcVoiceRec.loaded(songId)) {
         window.lhcVoiceRec.paintAll(page);
@@ -74675,8 +74793,7 @@ var WO = (function() {
   function _sbChNpRowHtml(l) { return '<div class="sbm-chnp__ln">' + (l ? escapeHtml(l) : '<br>') + '</div>'; }
   function _sbChNpOpen(card, song, base, rows, anchor) {
     var V = window.lhcVoiceLines, isChord = _sbmIsChord();
-    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
-    var lyrics = (lib && lib.lyrics) || '', parts = V.lanes(rows), steps = _sbmStepsOf(song);
+    var lyrics = _sbChoirChordWords(song, base), parts = V.lanes(rows), steps = _sbmStepsOf(song);   // gotcha 89
     var fn = (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null;
     var lineOf = function(ln) { return _sbChNpLine(ln, parts); }, at = [];
     var text = _sbmPadText(rows, lyrics, null, isChord, null, { line: lineOf, parts: parts, at: at,
@@ -74853,7 +74970,6 @@ var WO = (function() {
     var finish = function() { if (_sbNp === N) _sbNp = null; _sbEditRelease(N.base); _sbBkRebuild(); };
     if (!save || _sbChNpSame(text, N.text)) { finish(); return; }
     if (!_sbEditMayWrite(N.base)) { if (_sbNp === N) _sbNp = null; return; }   // what was typed stays on the page, to copy
-    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === N.base; }) : null;
     // _sbNp stays this one while it saves, so the book is not drawn again under the save.
     N.saving = true;
     el.classList.add('is-saving');
@@ -74861,7 +74977,7 @@ var WO = (function() {
       mapChords: function(ch) { return _sbChNpChords(ch, N.shownChords, N.storedChords, N.steps, N.fn); } })
     .then(function(r) {
       N.saving = false;
-      var sigAfter = _sbLinesSig(_sbVoiceLines[N.base] || []), lyrAfter = lib ? String(lib.lyrics || '') : '';
+      var sigAfter = _sbLinesSig(_sbVoiceLines[N.base] || []), lyrAfter = String(_sbChoirChordWords(N.song, N.base) || '');
       finish();
       var n = (r && r.orphans) ? r.orphans.length : 0;
       showToast(n ? 'Choir parts saved \u2014 ' + n + ' chord line' + (n === 1 ? ' has' : 's have') + ' no words to sit over' : 'Choir parts saved', n ? 'info' : 'success',
@@ -74883,13 +74999,12 @@ var WO = (function() {
   }
   function _sbChNpUndo(N, sigAfter, lyrAfter) {
     var V = window.lhcVoiceLines, base = N.base;
-    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
     if (_sbLinesSig(_sbVoiceLines[base] || []) !== sigAfter) { showToast('The choir parts were changed since, so this was not undone.', 'info'); return; }
     if (!_sbEditMayWrite(base)) return;
     var back = V.parseVoiceText(V.toVoiceText(N.rows), { parts: N.parts });
     if (typeof showLoader === 'function') showLoader(true);
     _sbVoiceWrite(base, N.sid, back, { openSig: sigAfter }).then(function() {
-      if (lib && String(lib.lyrics || '') === lyrAfter && lyrAfter !== N.lyrics) return SBQ_SONGS.updateLyrics(base, N.lyrics).then(function() { lib.lyrics = N.lyrics; });
+      if (String(_sbChoirChordWords(N.song, base) || '') === lyrAfter && lyrAfter !== N.lyrics) return _sbChoirChordSave(N.song, base, N.lyrics);
     }).then(function() {
       renderSongbookLive();
       _sbBkRebuild();
@@ -75017,6 +75132,26 @@ var WO = (function() {
     });
   }
 
+  // Several songs at once (Set up choir parts on a medley, gotcha 89): one
+  // read and one write, or each would write the book back over the others.
+  function _sbPersistChoirViews(bases, view) {
+    if (!_sbStandaloneId || !window.SBQ_SONGBOOKS || !bases || !bases.length) return;
+    SBQ_SONGBOOKS.loadAll().then(function(list) {
+      var sb = (list || []).find(function(x) { return x.id === _sbStandaloneId; });
+      if (!sb) return;
+      var items = Array.isArray(sb.items) ? sb.items.slice() : [];
+      bases.forEach(function(b) {
+        var row = items.find(function(it) { return it && it.songId === b; });
+        if (row) row.choirView = view; else items.push({ songId: b, choirView: view });
+      });
+      sb.items = items;
+      _sbmLiveSend();
+      return SBQ_SONGBOOKS.save(sb).then(function(r) { _sbmLiveSend(); return r; });
+    }).catch(function(err) {
+      console.error(err);
+      showToast('The view changed here but could not be saved for everyone', 'error');
+    });
+  }
   function _sbChoirViewToggleHtml(song, sid) {
     if (!_sbSongHasChoir(song)) return '';
     var v = _sbChoirView(song);
@@ -75236,16 +75371,45 @@ var WO = (function() {
     if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // ---- One set of chords for every view of a song (gotcha 89) ----
+  // The operator, 2026-11-11: musicians change chords in Chords + Lyrics, and
+  // the choir view (and every other) should show them. The choir score has
+  // no chords of its own -- it takes each moment's from the lyrics it is
+  // given (lhcVoiceLines.chordIndex / chordFor) -- but it was given the
+  // LIBRARY song's lyrics while Chords + Lyrics shows and edits this book's
+  // copy. Now both read the copy's own words when it has them, else the
+  // song's; and a chord changed from the choir side (Overview edit, Edit
+  // Parts, Book Mode's choir notepad, the printed page's chord row) is
+  // written into those same words, or it would stop showing where it was
+  // typed.
+  function _sbCopyById(sid) {
+    return (sid && typeof songOrderSections !== 'undefined') ? (songOrderSections.find(function(x) { return x && x.id === sid; }) || null) : null;
+  }
+  function _sbChoirChordWords(song, base) {
+    if (song && String(song.customLyrics || '').trim()) return String(song.customLyrics);
+    var b = base || (song ? _sbBaseSongId(song) : '');
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === b; }) : null;
+    return (lib && lib.lyrics) || (song && song.lyrics) || '';
+  }
+  function _sbChoirChordSave(song, base, lyrics) {
+    if (song && String(song.customLyrics || '').trim() && songOrderSections.indexOf(song) !== -1) {
+      _sbSetCopyWords(song, lyrics);
+      return Promise.resolve();
+    }
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    // updateLyrics, not update(): the lyrics column alone, announced so an
+    // open order repaints with it.
+    return SBQ_SONGS.updateLyrics(base, lyrics).then(function() { if (lib) lib.lyrics = lyrics; });
+  }
   function _sbChoirBodyHtml(song, live, inline) {
     var rows = _sbVoiceRowsFor(song);
     if (!rows.length || !window.lhcVoiceLines) return '';
-    // The library row carries the lyrics, not the songbook item: the item
-    // may hold a customised copy for this book, but the chords belong to
-    // the song and are shared with every other page that shows them.
-    var lib = (typeof STATE !== 'undefined' && STATE.songs)
-      ? STATE.songs.find(function(s) { return s && s.id === _sbBaseSongId(song); }) : null;
+    // The chords are the words Chords + Lyrics shows: this book's copy's own
+    // when it has them, else the song's (gotcha 89). They were always the
+    // library song's, so a chord a musician changed in Chords + Lyrics never
+    // reached the choir view.
     var chords = window.lhcVoiceLines.chordIndex(
-      (lib && lib.lyrics) || song.lyrics || '',
+      _sbChoirChordWords(song),
       (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
     // Whatever key this song is currently showing in. Read on render as
     // well as repainted on the button, or reopening a transposed songbook

@@ -2157,6 +2157,16 @@ const CASES = [
     s => s.replace('  display: block; float: none; position: static; flex: none; box-sizing: border-box;\r\n', '  float: left; position: static; flex: none; box-sizing: border-box;\r\n')],
   ['choir-chord-sheet-harness.js', 'the words under a label keep room for the recorder',
     s => s.replace('#sbmRoot:not(.sbm--wide) .sbm-score .vl-score .vl-ln:not(.vl-ln--same) > .vl-body::before { content: none; }\r\n', '')],
+  // Set up choir parts for the medley and for everyone; one set of chords
+  // (2026-11-11, gotcha 89).
+  ['songbook-choir-setup-harness.js', 'Set up leaves the rest of the medley without parts',
+    s => s.replace('    (md ? md.songs : []).forEach(function(id) {', '    ([]).forEach(function(id) {')],
+  ['songbook-choir-setup-harness.js', 'the other devices are never told the parts are there',
+    s => s.replace('      _sbmLiveSend();\r\n      _sbmChoirAnnounce(bases);\r\n', '      _sbmLiveSend();\r\n')],
+  ['songbook-choir-setup-harness.js', 'the choir score reads the library song\'s chords again',
+    s => s.replace('      _sbChoirChordWords(song),\r\n', "      (song.lyrics || ''),\r\n")],
+  ['songbook-choir-setup-harness.js', 'a chord from the choir side goes to the library while the copy has its own words',
+    s => s.replace("    if (song && String(song.customLyrics || '').trim() && songOrderSections.indexOf(song) !== -1) {", '    if (false) {')],
   ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
     s => s.replace("if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {", 'if (window.lhcVoiceEdit) {')],
   ['songbook-reading-view-harness.js', 'a time set while paused is forgotten when the take plays',

@@ -100,6 +100,11 @@ const WANTED = [
   [/^  function _sbmPadReplaceSection\(/, '_sbmPadReplaceSection'],
   [/^  function _sbmPadHighlight\(/, '_sbmPadHighlight'],
   [/^  function _sbmPadSaveChords\(/, '_sbmPadSaveChords'],
+  // the words the score reads its chords from, and where a chord is written
+  // (gotcha 89): with no copy, the library song's lyrics, as before
+  [/^  function _sbCopyById\(/, '_sbCopyById'],
+  [/^  function _sbChoirChordWords\(/, '_sbChoirChordWords'],
+  [/^  function _sbChoirChordSave\(/, '_sbChoirChordSave'],
   [/^  function _sbmIsChord\(/, '_sbmIsChord']
 ];
 

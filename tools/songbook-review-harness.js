@@ -106,7 +106,7 @@ function fakeDb(marks, songRow) {
     has(/_sbVoiceWrite\(ed\.base, ed\.sid, parsed, \{ openSig: ed\.openSig \}\)/) &&
     has(/return _sbVoiceWrite\(base, sid, parsed, \{ openSig: openSig \}\)\.then\(function\(\) \{/) &&
     has(/_sbVoiceWrite\(baseSongId, item \? item\.id : null, parsed, \{ openSig: openSig \}\)/) &&
-    has(/_sbVoiceWrite\(base, song\.id, rows, \{ onlyIfEmpty: true \}\)/) &&
+    has(/_sbVoiceWrite\(base, c\.id, rows, \{ onlyIfEmpty: true \}\)/) &&
     has(/openSig: _sbLinesSig\(Array\.isArray\(o\.openRows\) \? o\.openRows : rows\),/));
 
   console.log('\nS6  drawn remarks follow their lines when the moments are regrouped');
