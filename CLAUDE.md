@@ -2817,11 +2817,28 @@ the anon key -- verify as `postgres`, not as the app.
     block has no quiet zone and will not scan, and JPEG has no alpha at
     all.
 
+    **The sheet is READ; the dialogue is where it changes.** Nothing on
+    the page is `contenteditable` any more -- `_ed` / `_edRich` /
+    `_edBlock` render `.blt-view` spans, and only `_dlgField` makes an
+    editable one. Two ways to write one field meant two code paths for
+    it, and the in-place one was 10px type nobody could aim at on a
+    phone. A block opens on a double click AND on a double TAP: the page
+    allows zooming, so a double tap is a zoom and the browser keeps it
+    (gotcha 28), which is the same wall the roster hit --
+    `_bindOpeners` is the two-taps-inside-400ms shim, bound per block,
+    `passive: false` so the second tap can be stopped from zooming, and
+    re-bound after every draw. The controls inside a block (the QR slot,
+    the +/x, the pencil) are excluded, or tapping them would open the
+    form over what was just pressed. The pencil is `opacity: .9` under
+    `@media (hover: none)`, since a touch screen never hovers and that
+    is the one place the double tap most needs announcing. The dialogue
+    opens CENTRED at every width.
+
     **Every block opens a DIALOGUE** (`SECTIONS`, one spec per block;
     `openSection`). An A4 page set at 10px can be typed on, but it is
-    squinting work, so a pencil on each block opens the same fields at a
-    readable size with the formatting bar inside the dialogue rather
-    than in the toolbar -- undo and redo stay there, being about the
+    squinting work, so a double tap on each block opens the same fields
+    at a readable size with the formatting bar inside the dialogue
+    rather than in the toolbar -- undo and redo stay there, being about the
     whole bulletin. A dialogue's fields carry the SAME `.blt-ed` classes
     as the sheet's, so `_applyCmd` and `_noteSelection` reach them
     unchanged, and its lists add and remove through the same `addItem` /
