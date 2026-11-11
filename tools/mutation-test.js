@@ -2197,6 +2197,16 @@ const CASES = [
     s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
   ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
     s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
+  // Dragging a section (2026-11-11): the numbers follow the drag, a finger
+  // that moves first scrolls, the phone shows its grip, the songs follow.
+  ['builder-section-drag-harness.js', 'the numbers stay put while a section is dragged',
+    s => s.replace('nextSibling);\r\n    _lbdDragNumber(d);\r\n  }', 'nextSibling);\r\n  }')],
+  ['builder-section-drag-harness.js', 'a finger scrolling the page picks up the heading',
+    s => s.replace('    if (d.hold && !d.armed) {\r\n', '    if (false) {\r\n')],
+  ['builder-section-drag-harness.js', 'the phone hides the heading\'s grip again',
+    s => s.replace('.lbw--sm .lbw-tb[data-act="sec-up"], .lbw--sm .lbw-tb[data-act="sec-down"],', '.lbw--sm .lbw-h .lbw-grip,\r\n.lbw--sm .lbw-tb[data-act="sec-up"], .lbw--sm .lbw-tb[data-act="sec-down"],')],
+  ['builder-section-drag-harness.js', 'a dropped section leaves the songs in the old order',
+    s => s.replace('      lay.splice(after ? to + 1 : to, 0, moved);\r\n      _lbdSortSongsByService();\r\n', '      lay.splice(after ? to + 1 : to, 0, moved);\r\n')],
   // The phone's bar, the songbook's font, the master copy (2026-11-09).
   ['phone-bar-font-master-harness.js', 'the phone\'s bar loses its Save',
     s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],
