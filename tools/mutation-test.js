@@ -2373,6 +2373,65 @@ const CASES = [
     s => s.replace("      return this.escapeHtml(String(v == null ? '' : v).replace(", "      return this.escapeHtml(String(v == null ? '' : v)); void (String(v).replace(")],
   ['enablers-calendar-harness.js', 'one profile button takes the name escaped for HTML only',
     s => s.replace("RosterEngine._printEnablerProfile(\\''+self._jsArg(selectedName)+'\\')", "RosterEngine._printEnablerProfile(\\''+self.escapeHtml(selectedName)+'\\')")],
+
+  // ---------------------------------------------------------------------
+  // Offline for a live service (offline-service-harness).
+  //
+  // This runner mutates Index.html and nothing else, so the checks that read
+  // public/sw.js -- the routing table, the strategies -- have no case here.
+  // They are run for real by the harness, which lifts _swRoute out of that
+  // file and executes it; what is missing is a proof that those checks BITE,
+  // and nothing below supplies it.
+  // ---------------------------------------------------------------------
+  ['offline-service-harness.js', 'createClient is bare again, so an offline boot loses every deep link',
+    s => s.replace("      if (window.supabase && window.supabase.createClient) {\r\n        _db = window.supabase.createClient(SUPA_URL, SUPA_ANON);\r\n      } else {",
+                   "      _db = window.supabase.createClient(SUPA_URL, SUPA_ANON);\r\n      if (false) {")],
+  ['offline-service-harness.js', 'the banner is driven by navigator.onLine again',
+    s => s.replace("      var off = window.LHC_Net ? LHC_Net.offline() : !navigator.onLine;",
+                   "      var off = !navigator.onLine;")],
+  ['offline-service-harness.js', '...and claims it is showing data it has not got',
+    s => s.replace("      if (off) offDiv.innerHTML = _offText();",
+                   "      offDiv.innerHTML = '<i class=\"fa-solid fa-wifi-slash\"></i> You' + String.fromCharCode(39) + 're offline';")],
+  ['offline-service-harness.js', 'a dead uplink is only noticed once the device says it has no network',
+    s => s.replace("      offline: function () { return reachable === false || navigator.onLine === false; },",
+                   "      offline: function () { return navigator.onLine === false; },")],
+  ['offline-service-harness.js', 'a refused write is counted as the internet being down',
+    s => s.replace("      var watch = String(method).toUpperCase() === 'GET' && String(url).indexOf(SUPA) !== -1;",
+                   "      var watch = String(url).indexOf(SUPA) !== -1;")],
+  ['offline-service-harness.js', 'a failed silent autosave blanks the indicator again, so it reads as saved',
+    s => s.replace("        _soSetSaveStatus('failed');\r\n        /* A save that threw",
+                   "        _soSetSaveStatus('');\r\n        /* A save that threw")],
+  ['offline-service-harness.js', 'the lock rebuild gives away the song it is still holding',
+    s => s.replace("    _edLockChannel = null; _edLockReady = false; _edLockOrderId = null;\r\n    _edSongChannel = null; _edSongReady = false;",
+                   "    _edTeardownLocks();\r\n    _edSongChannel = null; _edSongReady = false;")],
+  ['offline-service-harness.js', 'a closed order leaves a relock timer rebuilding nothing for ever',
+    s => s.replace("    if (!(currentOrderData && currentOrderData.id)) return;\r\n    _edRelockTimer = setTimeout", "    _edRelockTimer = setTimeout")],
+  ['offline-service-harness.js', 'a deliberate teardown triggers a pointless rebuild that drops the locks',
+    s => s.replace("      if (_edLockReady && _edSongReady) { _edRelockDelay = 5000; return; }\r\n", '')],
+  ['offline-service-harness.js', 'a background that will not load leaves a broken image on the wall',
+    s => s.replace("        el.style.background = '#000';\r\n        _lcdBgBlackOnFail(el);\r\n      }", "        el.style.background = '#000';\r\n      }")],
+  ['offline-service-harness.js', '...and the guess from the network flag is back, blanking a cached one',
+    s => s.replace("    m.addEventListener('error', function() {", "    if (window.LHC_Net && LHC_Net.offline()) return;\r\n    m.addEventListener('error', function() {")
+          .replace("  function _lcdBgUnresolvable(background) {\r\n    if (!background) return false;", "  function _lcdBgUnresolvable(background) {\r\n    if (window.LHC_Net && LHC_Net.offline()) return true;\r\n    if (!background) return false;")],
+  ['offline-service-harness.js', 'the projector stops probing its background-image, which fires no error',
+    s => s.replace("      '      bgEl.setAttribute(\"data-bg\", bg.value);' +\r\n", '')],
+  ['offline-service-harness.js', 'urlsIn stops walking, so a nested slide background is never downloaded',
+    s => s.replace("      if (v == null || depth > 14) return;", "      if (v == null || depth > 0) return;")],
+  ['offline-service-harness.js', '...or it takes the YouTube links too, filling the cache with other people\'s video',
+    s => s.replace("    var need = want || '/storage/v1/object/public/';", "    var need = want || '';")],
+  ['offline-service-harness.js', 'the Phone view installs the worker, racing the desk that owns it',
+    s => s.replace("    if (window.__SBM_PREVIEW) return Promise.resolve(null);\r\n    if (!('serviceWorker' in navigator))", "    if (!('serviceWorker' in navigator))")],
+  ['offline-service-harness.js', 'the download builds its own REST url instead of replaying the app\'s read',
+    s => s.replace("    return SBQ.loadOrder(orderId).then(function (res) {", "    return Promise.resolve({ order: {}, items: [] }).then(function (res) {")],
+  ['offline-service-harness.js', 'the marks query is shaped differently, so the cached answer is never read',
+    s => s.replace("        jobs.push(sup.from('song_marks').select('*').eq('song_id', sid)", "        jobs.push(sup.from('song_marks').select('id,anchor').eq('song_id', sid)")],
+  ['offline-service-harness.js', 'the song id is looked for where it is not, so no song is downloaded at all',
+    s => s.replace("        var sid = it.sourceId || it.songId || String(it.id || '').split('--')[0];",
+                   "        var sid = it.songId || (it.content && it.content.songId);")],
+  ['offline-service-harness.js', 'a liturgy id is queried as though it were a song',
+    s => s.replace("        if (it.itemType !== 'song') return;\r\n", '')],
+  ['offline-service-harness.js', 'a write is queued to be replayed later, which is how slides get deleted',
+    s => s.replace("  var STORE = 'lhc_offline_ready';", "  var STORE = 'lhc_offline_ready', QUEUE = 'lhc_offline_queue';")],
 ];
 
 let caught = 0, missed = 0, stale = 0;
