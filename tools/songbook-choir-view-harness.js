@@ -64,7 +64,10 @@ if (vStart >= 0 && vEnd > vStart) {
     seed[0].text === 'Joy to the world', JSON.stringify(seed));
 } else check('...the choir parts module is there to seed from', false);
 check('Set up writes that arrangement the way the parts editor saves one, and shows it in Choir',
-  has(/function sbmChoirStart\(\) \{[^]*?if \(!_sbEditClaim\(song\)\) return;[^]*?_sbVoiceWrite\(base, song\.id, rows, \{ onlyIfEmpty: true \}\)\.then\(function\(\) \{[^]*?sbSetChoirView\(song\.id, 'choir'\);[^]*?_sbEditRelease\(base\);/) &&
+  // Since 2026-11-11 (gotcha 89) each song of a medley goes through
+  // _sbmChoirSetUp, and the view is saved for all of them at once.
+  has(/function _sbmChoirSetUp\(c\) \{[^]*?if \(!rows\.length \|\| !_sbEditClaim\(c\)\) return Promise\.resolve\(false\);[^]*?_sbVoiceWrite\(base, c\.id, rows, \{ onlyIfEmpty: true \}\)[^]*?_sbEditRelease\(base\);/) &&
+  has(/function sbmChoirStart\(\) \{[^]*?_sbmChoirShow\(bases\);\s*sbAutoSave\(\);[^]*?_sbPersistChoirViews\(bases, 'choir'\);/) &&
   has(/_sbVoiceWrite\(ed\.base, ed\.sid, parsed, \{ openSig: ed\.openSig \}\)\.then\(function\(\) \{/));
 check('...and in Choir, Edit edits the parts of any song',
   has(/if \(_sbSongHasChoir\(song\) \? _sbChoirView\(song\) === 'choir' : song\.sbmLyricsMode === 'choir'\) \{ sbmEditParts\(\); return; \}/) &&

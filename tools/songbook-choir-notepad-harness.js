@@ -187,12 +187,12 @@ async function E(o) {
   const env = { _sbNp: N };
   const save = (base, sid, text, colours, sig, opts) => { log.saved = { base, sid, text, sig, opts }; return o.fail ? Promise.reject(o.fail) : Promise.resolve({ orphans: [] }); };
   const run = new Function('env', 'window', 'STATE', '_sbChNpListen', '_sbNpBarOff', '_sbNpLines', '_sbChNpSame', '_sbEditRelease', '_sbBkRebuild', '_sbEditMayWrite',
-    '_sbmPadSaveSong', '_sbChNpChords', '_sbLinesSig', '_sbVoiceLines', 'showToast', '_sbBkOpen', '_sbNpBar', '_sbChNpUndo',
+    '_sbmPadSaveSong', '_sbChNpChords', '_sbLinesSig', '_sbVoiceLines', 'showToast', '_sbBkOpen', '_sbNpBar', '_sbChNpUndo', '_sbChoirChordWords',
     'var _sbNp = env._sbNp;\n' + endSrc + '\nenv.end = function(N, s) { _sbChNpEnd(N, s); }; env.cur = function() { return _sbNp; };');
   const ST = { songs: [] };
   run(env, { STATE: ST }, ST, (e, on) => log.listen.push(on), () => {}, () => o.typed.split('\n'), P.same,
     () => { log.released++; }, () => { log.rebuilt++; }, () => o.may !== false, save, (c) => c, () => 'SIG2', {}, (m, k, x) => log.toast.push([m, x]),
-    () => true, () => { log.bar++; }, () => {});
+    () => true, () => { log.bar++; }, () => {}, () => '');
   env.end(N, o.save !== false);
   if (o.again) env.end(N, true);
   await new Promise(r => setTimeout(r, 0));
