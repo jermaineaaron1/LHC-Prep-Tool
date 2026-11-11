@@ -2328,7 +2328,13 @@
     .sb-list-icon.from-order { background: #d4f3e7; color: #0b7a53; }
     .sb-list-icon.from-songs { background: #fef3c7; color: #d97706; }
     .sb-list-body { flex: 1; min-width: 0; }
-    .sb-list-name { font-size: 0.9rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Up to two lines, then cut: on a desk the two columns leave a name
+       130px beside four buttons, and one line cut "Service - 15 Nov 2026". */
+    .sb-list-name {
+      font-size: 0.9rem; font-weight: 600; color: #1e293b; line-height: 1.3;
+      overflow: hidden; overflow-wrap: anywhere;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    }
     .sb-list-meta { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
     .sb-list-source { font-size: 0.72rem; background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
     .sb-list-source.order { background: #bbfadc; border-color: #06db77; color: #12653e; }
@@ -2362,6 +2368,14 @@
     /* A row with six buttons (one of My Songbooks) puts them under its name
        only where a phone leaves the name no room beside them. */
     @media (max-width: 479px) {
+      .sb-list-item.sb-list-item--many { flex-wrap: wrap; row-gap: 4px; }
+      .sb-list-item.sb-list-item--many .sb-list-body { flex: 1 1 0; min-width: 0; }
+      .sb-list-item.sb-list-item--many .sb-list-actions { order: 3; width: 100%; justify-content: flex-end; padding-bottom: 3px; }
+    }
+    /* And wherever its COLUMN is that narrow -- on a desk the two columns
+       share the page, and at 1024px a row of six left its name 60px. */
+    .sb-two-col > div { container-type: inline-size; container-name: sbcol; }
+    @container sbcol (max-width: 459px) {
       .sb-list-item.sb-list-item--many { flex-wrap: wrap; row-gap: 4px; }
       .sb-list-item.sb-list-item--many .sb-list-body { flex: 1 1 0; min-width: 0; }
       .sb-list-item.sb-list-item--many .sb-list-actions { order: 3; width: 100%; justify-content: flex-end; padding-bottom: 3px; }
@@ -23970,7 +23984,15 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         ].filter(Boolean).join(' · ');
         var eid = escapeHtml(item.id);
         var ename = escapeHtml(item.name);
-        var openFn = isOrder ? 'openSongbookFromOrder(\'' + escapeHtml(item.orderId) + '\')' : 'openStandaloneSongbook(\'' + eid + '\')';
+        // A value inside an inline handler's JS string: escaped for the string
+        // first, then for the attribute. escapeHtml alone turned "Mother's Day"
+        // into &#039;, which the attribute decodes back to ' -- ending the string,
+        // so Add Songs and Rename threw on any name with an apostrophe.
+        var jsq = function(v) {
+          return escapeHtml(String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'));
+        };
+        var openFn = isOrder ? 'openSongbookFromOrder(\'' + jsq(item.orderId) + '\')' : 'openStandaloneSongbook(\'' + jsq(item.id) + '\')';
         return '<div class="sb-list-item' + (isOrder ? '' : ' sb-list-item--many') + '" onclick="' + openFn + '">' +
           '<div class="sb-list-icon ' + iconClass + '"><i class="' + iconI + '"></i></div>' +
           '<div class="sb-list-body">' +
@@ -23978,12 +24000,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
             (meta ? '<div class="sb-list-meta">' + escapeHtml(meta) + '</div>' : '') +
           '</div>' +
           '<div class="sb-list-actions">' +
-            '<button class="sb-list-btn add-songs" onclick="event.stopPropagation();openAddSongsModal(\'' + (isOrder ? 'order' : 'songbook') + '\',\'' + (isOrder ? escapeHtml(item.orderId) : eid) + '\',\'' + ename.replace(/'/g, '&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i></button>' +
-            '<button class="sb-list-btn play" onclick="event.stopPropagation();window.playSongbookPlaylist(\'' + eid + '\')" title="Play playlist"><i class="fa-solid fa-circle-play"></i></button>' +
-            '<button class="sb-list-btn wa" onclick="event.stopPropagation();window.shareSongbookWhatsApp(\'' + eid + '\')" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>' +
+            '<button class="sb-list-btn add-songs" onclick="event.stopPropagation();openAddSongsModal(\'' + (isOrder ? 'order' : 'songbook') + '\',\'' + (isOrder ? jsq(item.orderId) : jsq(item.id)) + '\',\'' + jsq(item.name) + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i></button>' +
+            '<button class="sb-list-btn play" onclick="event.stopPropagation();window.playSongbookPlaylist(\'' + jsq(item.id) + '\')" title="Play playlist"><i class="fa-solid fa-circle-play"></i></button>' +
+            '<button class="sb-list-btn wa" onclick="event.stopPropagation();window.shareSongbookWhatsApp(\'' + jsq(item.id) + '\')" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>' +
             '<button class="sb-list-btn open" onclick="event.stopPropagation();' + openFn + '" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
-            (!isOrder ? '<button class="sb-list-btn rename" onclick="event.stopPropagation();renameSongbook(\'' + eid + '\',\'' + ename.replace(/\'/g, '&#39;') + '\')" title="Rename"><i class="fa-solid fa-pen"></i></button>' : '') +
-            (!isOrder ? '<button class="sb-list-btn delete" onclick="event.stopPropagation();deleteStandaloneSongbook(\'' + eid + '\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' : '') +
+            (!isOrder ? '<button class="sb-list-btn rename" onclick="event.stopPropagation();renameSongbook(\'' + jsq(item.id) + '\',\'' + jsq(item.name) + '\')" title="Rename"><i class="fa-solid fa-pen"></i></button>' : '') +
+            (!isOrder ? '<button class="sb-list-btn delete" onclick="event.stopPropagation();deleteStandaloneSongbook(\'' + jsq(item.id) + '\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' : '') +
           '</div>' +
         '</div>';
       }
