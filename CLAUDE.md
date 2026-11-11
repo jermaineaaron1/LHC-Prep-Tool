@@ -3029,6 +3029,41 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/live-projection-harness.js` checks it, running `_wofsKeys`
     itself rather than matching it.
 
+83. **A half-written line waits for the green tick.** The operator,
+    2026-11-11, pointing at Done on the phone's key bar: "when the liturgy
+    builder is being edited, the changes should take effect after the user
+    hits the green tick button to confirm." Once gotcha 81 began applying
+    changes to a running projection, every keystroke in the builder was a
+    last-minute change -- the builder writes the data as it types (gotcha
+    41) and autosaves two seconds later -- so half a line went up in front
+    of the congregation.
+    - **What is held is the SHARING, never the save.** The words keep
+      saving exactly as before, so a phone that locks mid-sentence loses
+      nothing. What changes is that the order carries
+      `template.lbdTyping = { at, by }`, and a receiving device leaves it
+      alone while that mark is fresh.
+    - **The mark is written at SAVE TIME** (`_lbdMarkTyping`, called by
+      `saveCurrentOrder`) from whether a words field is focused right now,
+      not kept as state. Every save while the typing goes on stamps it
+      afresh, so it needs no timer to stay alive and no path can leave it
+      behind. A words field is `slide` or `content-text` only
+      (`_lbdTypingNow`): a section title, a search box or a note is not
+      the congregation's words.
+    - **Done is a blur.** The tick calls `blur()`, and on a desk clicking
+      away does the same, so `_lbdSyncTyping` is the one place that
+      notices (`_lbdWasTyping`). It calls `_lbdConfirmTyping`, which saves
+      AT ONCE rather than through `autoSaveOrder` -- until that save lands
+      every other screen is still holding the words back, so a two-second
+      debounce would be two seconds of the wall being wrong on purpose.
+    - **The receiver asks before the diff** (`_lbdTypingHeld`, pure), so
+      there is no banner either and `_orderSyncSeen` stays where it was:
+      the first tick after Done sees the whole change at once. A mark
+      older than `LBD_TYPING_HOLD` (3 minutes) is let go, or a liturgist
+      called away from an open field would freeze the order for everybody;
+      a device never holds for its own `_edClientId`.
+    `tools/live-projection-harness.js` checks it, running `_lbdTypingHeld`
+    rather than matching it.
+
 84. **The LCD projects `slides`, and the Songbook's editors never rebuilt
     them.** The operator, 2026-11-11: "editing the lyrics from the songbook
     doesn't change the LCD." Measured before anything was changed, on a
