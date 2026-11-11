@@ -128,25 +128,39 @@ async function fetchEsvPassage(reference: string): Promise<Passage | Failure> {
     return { error: 'No passage found for "' + reference + '". Check the book, chapter and verses.' };
   }
 
-  const rawText: string = data.passages[0].trim();
-  const parts = rawText.split(/\[(\d+)\]\s*/);
-  const lines: string[] = [];
-  let verseCount = 0;
-  for (let i = 1; i < parts.length; i += 2) {
-    const verseNum = parts[i];
-    const verseText = (parts[i + 1] || '').trim().replace(/\s+/g, ' ');
-    if (verseText) {
-      lines.push('[' + verseNum + '] ' + verseText);
-      verseCount++;
-    }
-  }
+  const raws: string[] = data.passages.map((p: unknown) => String(p == null ? '' : p).trim()).filter(Boolean);
+  const read = esvVerseLines(raws);
 
   return {
     reference: data.canonical || reference,
-    text: lines.length > 0 ? lines.join('\n') : rawText,
+    text: read.lines.length > 0 ? read.lines.join('\n') : raws.join('\n\n'),
     translation: 'English Standard Version (ESV)',
-    verseCount: verseCount || lines.length,
+    verseCount: read.verseCount || read.lines.length,
   };
+}
+
+// A reading in pieces -- "Isaiah 61:1-4, 8-11", "John 1:6-8; 19-28" -- comes
+// back from the ESV as ONE PASSAGE PER PIECE, and only the first used to be
+// read: Isaiah 61:1-4, 8-11 was put in front of the congregation as 1-4, and
+// every reading that skips verses lost all but its first part (found
+// 2026-11-11; the free WEB service already answered such a reference whole).
+// Every piece is read, in order, a line a verse ("[8] ..."); the verse numbers
+// show where it skips.
+function esvVerseLines(passages: string[]): { lines: string[]; verseCount: number } {
+  const lines: string[] = [];
+  let verseCount = 0;
+  for (const rawText of passages) {
+    const parts = rawText.split(/\[(\d+)\]\s*/);
+    for (let i = 1; i < parts.length; i += 2) {
+      const verseNum = parts[i];
+      const verseText = (parts[i + 1] || '').trim().replace(/\s+/g, ' ');
+      if (verseText) {
+        lines.push('[' + verseNum + '] ' + verseText);
+        verseCount++;
+      }
+    }
+  }
+  return { lines, verseCount };
 }
 
 export async function GET(req: NextRequest) {

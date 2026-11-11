@@ -2018,6 +2018,14 @@ const CASES = [
     s => s.replace("return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id);", "return o && o.id && !(currentOrderData && o.id === currentOrderData.id);")],
   ['builder-load-liturgy-harness.js', 'a past service brings its sermon slides along',
     s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
+  // Readings that skip verses (2026-11-11): a cut-short one is seen, only a
+  // whole passage replaces it, and a past order is never touched.
+  ['reading-pieces-harness.js', 'a missing piece goes unseen',
+    s => s.replace("var miss = pieces.filter(function(p) { return !nums[String(p.verse)]; });", "var miss = [];")],
+  ['reading-pieces-harness.js', 'a fetch numbered some other way replaces the reading',
+    s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
+  ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
+    s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
   // The phone's bar, the songbook's font, the master copy (2026-11-09).
   ['phone-bar-font-master-harness.js', 'the phone\'s bar loses its Save',
     s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],

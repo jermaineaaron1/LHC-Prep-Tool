@@ -77146,8 +77146,117 @@ var WO = (function() {
       if (step === 'service' && !_woLcdInPage()) { if (++tries < 40) setTimeout(go, 150); return; }
       if (step === 'liturgy' && !_lbdIsActive()) return;
       _woAutoReadingsDone[key] = true;
-      fillReadingsFromRoster({ quiet: true, auto: true });
+      var filled = fillReadingsFromRoster({ quiet: true, auto: true });
+      // ...and a reading saved cut short is fetched whole, after the fill.
+      if (step === 'liturgy') Promise.resolve(filled).then(_woMendReadings, _woMendReadings);
     })();
+  }
+
+  // ── A reading cut short, fetched whole (2026-11-11) ──────────────────────
+  //
+  // Until 2026-11-11 the passage service kept only the FIRST piece of a
+  // reading that skips verses (app/api/bible-passage, the ESV's one passage
+  // per piece): "Isaiah 61:1-4, 8-11" was put in as 1-4, "Zephaniah 1:7,
+  // 12-18" as verse 7. Those readings are saved in orders. So an upcoming
+  // order opened in the builder looks at each reading's words against its
+  // reference (_woReadingGaps) and fetches again any that lack verses the
+  // reference asks for, putting the whole passage in as a reading added now
+  // is (_woScriptureSlides): its title and slot, its Alleluia if it had one,
+  // each slide's background by place. One step, with Undo. Once per order a
+  // session -- unless LCD Projection was drawn while it fetched (gotcha 35),
+  // when it is left for the next opening.
+  //
+  // The pieces of a reference (pure): "Isaiah 61:1-4, 8-11" is [1:... 61:1,
+  // 61:8], each with the first verse it asks for; a piece with no colon after
+  // one with a chapter is a verse of that chapter; a bare chapter ("Psalm 23")
+  // asks for verse 0, which is never looked for. Dashes and spacing as people
+  // write them, and partial verses ("4b"), are read as bbNormaliseReference
+  // reads them.
+  function _woRefPieces(ref) {
+    var s = String(ref == null ? '' : ref).replace(/[\u2010-\u2015\u2212]/g, '-')
+      .replace(/(\d)[a-cA-C]\b/g, '$1').replace(/\s*([:,;-])\s*/g, '$1').trim();
+    var m = /^(.*[A-Za-z.])\s*(\d[\d:,;\- ]*)$/.exec(s);
+    if (!m) return [];
+    var out = [], chap = 0, named = false;
+    m[2].split(/[,;]/).forEach(function(p) {
+      p = p.trim();
+      if (!p) return;
+      var cv = /^(\d+):(\d+)/.exec(p), v = /^(\d+)/.exec(p);
+      if (cv) { chap = +cv[1]; named = true; out.push({ text: p, chapter: chap, verse: +cv[2] }); }
+      else if (v && named) out.push({ text: p, chapter: chap, verse: +v[1] });
+      else if (v) out.push({ text: p, chapter: +v[1], verse: 0 });
+    });
+    return out;
+  }
+  // The pieces of the reference the words do not reach (pure), by each
+  // piece's first verse among the words' verse numbers ("[8]"). [] when it
+  // cannot tell: a reference in one piece, words with no verse numbers (a
+  // psalm's are taken out), or no piece found at all -- that is a numbering
+  // it does not know, never a reason to replace a reading.
+  function _woReadingGaps(ref, text) {
+    var pieces = _woRefPieces(ref).filter(function(p) { return p.verse > 0; });
+    if (pieces.length < 2) return [];
+    var nums = {};
+    (String(text == null ? '' : text).match(/\[(\d+)\]/g) || []).forEach(function(x) { nums[x.slice(1, -1)] = true; });
+    if (!Object.keys(nums).length) return [];
+    var miss = pieces.filter(function(p) { return !nums[String(p.verse)]; });
+    return miss.length === pieces.length ? [] : miss.map(function(p) { return p.text; });
+  }
+  // Every piece of the reference is there, by its first verse (pure): what a
+  // passage fetched again must be before it replaces the one saved. Not the
+  // same as no gaps -- a numbering that matches nothing is "cannot tell"
+  // above, and is never whole here.
+  function _woReadingWhole(ref, text) {
+    var pieces = _woRefPieces(ref).filter(function(p) { return p.verse > 0; });
+    var nums = {};
+    (String(text == null ? '' : text).match(/\[(\d+)\]/g) || []).forEach(function(x) { nums[x.slice(1, -1)] = true; });
+    return pieces.length > 0 && pieces.every(function(p) { return nums[String(p.verse)]; });
+  }
+  function _woReadingRef(it) { return String((it && it.content && it.content.reference) || (it && it.title) || '').trim(); }
+  function _woReadingText(it) {
+    return ((it && Array.isArray(it.slides)) ? it.slides : []).map(function(sl) { return (sl && sl.content) || ''; }).join('\n');
+  }
+  var _woMendDone = {};
+  function _woMendReadings() {
+    var order = currentOrderData;
+    if (!order || !order.id || _sbStandaloneId || String(order.id).indexOf('standalone_') === 0) return Promise.resolve(0);
+    if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);
+    if (typeof LiturgyModule === 'undefined' || !LiturgyModule.fetchPassage) return Promise.resolve(0);
+    var short = (order.allItems || []).filter(function(it) {
+      return it && it.itemType === 'scripture' && _woReadingGaps(_woReadingRef(it), _woReadingText(it)).length > 0;
+    });
+    if (!short.length) { _woMendDone[order.id] = true; return Promise.resolve(0); }
+    var got = [];
+    function step(i) {
+      if (i >= short.length || currentOrderData !== order) return Promise.resolve();
+      var ref = _woReadingRef(short[i]);
+      return LiturgyModule.fetchPassage(ref, 'esv').then(function(p) {
+        // Only a passage that now has every piece replaces the one saved.
+        if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push({ id: short[i].id, text: p.text });
+      }).catch(function() {}).then(function() {
+        return new Promise(function(res) { setTimeout(res, 350); });
+      }).then(function() { return step(i + 1); });
+    }
+    return step(0).then(function() {
+      if (currentOrderData !== order || _woLcdInPage()) return 0;
+      _woMendDone[order.id] = true;
+      if (!got.length) return 0;
+      var names = [];
+      _lbdChange(function() {
+        got.forEach(function(g) {
+          var it = (currentOrderData.allItems || []).filter(function(x) { return x && x.id === g.id; })[0];
+          if (!it) return;
+          var old = Array.isArray(it.slides) ? it.slides : [];
+          var alleluia = old.some(function(sl) { return _woScriptureSlideKind(sl && sl.content).kind === 'pre'; });
+          var plan = _woScriptureSlides((it.content && it.content.subLabel) || '', it.title, g.text, alleluia);
+          it.slides = plan.map(function(sl, k) { return { index: k, content: sl.text, background: (old[k] && old[k].background) || '' }; });
+          names.push(it.title);
+        });
+        if (!names.length) return false;
+      });
+      if (names.length) showToast('Put in the verses missing from ' + names.join(' and ') + ' (only the first part had been fetched)', 'success', _woUndoOpts());
+      return names.length;
+    });
   }
 
   // ── Drawing ─────────────────────────────────────────────────────────────
