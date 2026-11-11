@@ -35781,6 +35781,7 @@ var WO = (function() {
     typingHeld: function(m, me, now) { return _lbdTypingHeld(m, me, now); },
     typingHold: function() { return LBD_TYPING_HOLD; },
     markTyping: function() { return _lbdMarkTyping(); },
+    projectionWords: function(t) { return _sbProjectionWords(t); },
     wofsKeys: function(l) { return _wofsKeys(l); },
     wofsRefresh: function() { return _wofsRefresh(); },
     rememberLive: function() { return _orderSyncRememberLive(); },
@@ -68588,7 +68589,11 @@ var WO = (function() {
   }
 
   // Update Service Order slide boxes when songbook lyrics are edited
-  function refreshSongSlidesInOrder(songId, newLyrics) {
+  // opts.keepLyrics: build the slides from `newLyrics` but do not make them
+  // the song's words. The Songbook's editors keep chords in song.lyrics and
+  // project the same words with the chord lines dropped, so the two differ
+  // on purpose there and only there.
+  function refreshSongSlidesInOrder(songId, newLyrics, opts) {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
 
@@ -68598,12 +68603,17 @@ var WO = (function() {
     // uses the new lyrics even when the service section DOM isn't currently rendered
     // (e.g. when the Songbook is opened from the Song Order tab).
     var newSavedSlides = newSlides.map(function(slide, idx) {
-      var oldBg = ((song.savedSlides || [])[idx] || {}).background || '';
-      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: oldBg };
+      var was = (song.savedSlides || [])[idx] || {};
+      // The song's own [Verse 1] marker wins. Where the parse gives a slide no
+      // header, the one that was there is kept -- the operator may have typed
+      // it themselves (gotcha 73), and a re-split used to throw it away. Same
+      // rule, and the same by-position limit, as the background beside it.
+      return { index: idx, content: slide.lines.join('\n'),
+               header: slide.header || was.header || '', background: was.background || '' };
     });
     song.savedSlides = newSavedSlides;
     song.slides = newSavedSlides;
-    song.lyrics = newLyrics;
+    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;
     _lcdSyncEditorIfShowing(songId, newLyrics);
 
     // DOM update — only runs when the Service Order tab is currently visible
@@ -69068,6 +69078,18 @@ var WO = (function() {
     }, function() { commit(); if (typeof closeLyricsEditor === 'function') closeLyricsEditor(); });
     return false;   // the editor closes when the check is done
   }
+  // The Songbook's words with the chord lines taken out. The pad is the
+  // Lyrics AND CHORDS editor, and a chord line on the wall is somebody else's
+  // sheet music in front of the congregation. isChordLineGlobal is the shared
+  // one -- it knows "Am" is also the word "am", which a looser test does not.
+  function _sbProjectionWords(text) {
+    var lines = String(text == null ? '' : text).split('\n');
+    if (typeof isChordLineGlobal !== 'function') return lines.join('\n');
+    return lines.filter(function(line) {
+      return !line.trim() || !isChordLineGlobal(line);
+    }).join('\n');
+  }
+
   // This copy's words replaced and saved: the editor's Save, and a few lines
   // transposed on their own.
   function _sbSetCopyWords(song, lyrics) {
@@ -69088,6 +69110,18 @@ var WO = (function() {
       // The printed page shows them in the key they are sung in.
       if (sbTransposeSteps[sid]) sbTranspose(sid, 0);
     }
+    // The LCD projects `slides`, which is a separate array from any of the
+    // lyric fields above -- so without this the words changed everywhere
+    // except the one place a congregation reads them. Before the saves: a
+    // save serialises the schedule's DOM whenever it is on the page
+    // (gotcha 35), and this is what brings that DOM into line.
+    if (typeof refreshSongSlidesInOrder === 'function') {
+      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });
+    }
+    // Projecting on THIS device: the schedule has just changed under a
+    // running projection, so send the slide again (gotcha 82).
+    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }
+
     // Saved both ways, as a version chosen is: the quick sync, and the full
     // save that keeps the words (a standalone book reads them from it).
     sbAutoSave();

@@ -404,6 +404,79 @@ check('the tick asks whether somebody is typing',
 // put -- the tick after Done then sees the whole change at once.
 check('  before it works out what changed',
   tick2.indexOf('_lbdTypingHeld(') < tick2.indexOf('_orderSyncFingerprint(res.items)'), true);
+console.log('\nwords edited in the Songbook reach the wall');
+// Measured before anything was changed, on a real order of 64 song
+// slides: the edit pad's save returned success, the words were stored,
+// and both the schedule's slide boxes and the saved slides[0].content
+// still read the old text. The LCD projects `slides`, a separate array
+// from the lyric fields, and nothing rebuilt it.
+const setWords = extractFn('_sbSetCopyWords');
+check('saving the words rebuilds the slides',
+  /refreshSongSlidesInOrder\(sid, _sbProjectionWords\(lyrics\)/.test(setWords), true);
+// A save serialises the schedule's DOM whenever it is on the page
+// (gotcha 35), and the rebuild is what brings that DOM into line.
+check('  before the saves, not after',
+  setWords.indexOf('refreshSongSlidesInOrder(') < setWords.indexOf('sbAutoSave();'), true);
+// Projecting on this device: the schedule just changed underneath it.
+check('  and the slide on the wall is sent again',
+  /_lcdReproject\(\)/.test(setWords), true);
+// song.lyrics here is the Songbook's own words, chords and all.
+check('the rebuild does not take the Songbook\'s words away',
+  /\{ keepLyrics: true \}/.test(setWords), true);
+const slideRebuild = extractFn('refreshSongSlidesInOrder');
+check('  and that is what keepLyrics means',
+  /if \(!\(opts && opts\.keepLyrics\)\) song\.lyrics = newLyrics;/.test(slideRebuild), true);
+// A heading the operator typed on a slide (gotcha 73) used to be thrown
+// away by every re-split; the song's own [Verse 1] marker still wins.
+check('a heading typed on a slide survives a re-split',
+  /slide\.header \|\| was\.header \|\| ''/.test(slideRebuild), true);
+check('  and the background still does too',
+  /background: was\.background \|\| ''/.test(slideRebuild), true);
+
+console.log('\nand the chords stay off it');
+// The pad is the Lyrics AND CHORDS editor. A chord line on the wall is
+// sheet music in front of a congregation.
+function topFn(name) {
+  const i = lines.findIndex(l => new RegExp('^function ' + name + '\\s*\\(').test(l));
+  if (i < 0) throw new Error('not found: ' + name);
+  let depth = 0, started = false, out = [];
+  for (let k = i; k < lines.length; k++) {
+    out.push(lines[k].replace(/\r$/, ''));
+    for (const ch of lines[k]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return out.join('\n');
+  }
+  throw new Error('no close for ' + name);
+}
+const chordRe = SRC.split('\n').find(l => /^var CHORD_TOKEN_RE = /.test(l));
+check('the shared chord pattern is there', !!chordRe, true);
+// The real chain, run: the filter, the line test and the token test.
+const _sbProjectionWords = new Function(
+  chordRe.replace(/\r$/, '') + '\n' + topFn('isChordToken') + '\n' +
+  topFn('isChordLineGlobal') + '\n' + extractFn('_sbProjectionWords') +
+  '\nreturn _sbProjectionWords;')();
+check('a chord line is dropped',
+  _sbProjectionWords('G    D\nAmazing grace\nEm   C\nhow sweet'),
+  'Amazing grace\nhow sweet');
+// The blank lines are the stanza breaks parseLyricsIntoSlides works from.
+check('  blank lines are kept, so the slides still break where they did',
+  _sbProjectionWords('one\n\ntwo'), 'one\n\ntwo');
+check('  and so are the section markers',
+  _sbProjectionWords('[Verse 1]\nG\nwords'), '[Verse 1]\nwords');
+// The trap the shared detector exists for: "Am" is also the word "am",
+// and both of these are real worship lyrics.
+check('"the Great I Am" is a lyric, not a chord',
+  _sbProjectionWords('You are the Great I Am'), 'You are the Great I Am');
+check('  and so is "Am I not still the same"',
+  _sbProjectionWords('Am I not still the same'), 'Am I not still the same');
+check('nothing at all does not throw', _sbProjectionWords(null), '');
+check('  nor an empty string', _sbProjectionWords(''), '');
+// Without the detector it must hand back the words rather than nothing:
+// a projection with no words is worse than one with a chord line.
+check('with no detector it keeps every line',
+  /typeof isChordLineGlobal !== 'function'/.test(extractFn('_sbProjectionWords')), true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

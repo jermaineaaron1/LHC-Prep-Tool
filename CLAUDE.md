@@ -3064,6 +3064,42 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/live-projection-harness.js` checks it, running `_lbdTypingHeld`
     rather than matching it.
 
+84. **The LCD projects `slides`, and the Songbook's editors never rebuilt
+    them.** The operator, 2026-11-11: "editing the lyrics from the songbook
+    doesn't change the LCD." Measured before anything was changed, on a
+    real order of 64 song slides: the edit pad's save returned success, the
+    words were stored -- and the schedule's slide boxes still read the old
+    text, and the save payload's `slides[0].content` with them. The lyric
+    fields and `slides` are separate (the same split that let junk survive
+    two rounds of lyric tidying), so the words changed everywhere except
+    the one place a congregation reads them.
+    - `refreshSongSlidesInOrder` already did the job and was called by the
+      old inline page editor, the LCD's own editor and the lyrics
+      importer. `_sbSetCopyWords` -- the funnel for the edit pad, the
+      notepad (gotcha 65) and the few-lines transpose bar -- simply never
+      called it. One call fixes all three.
+    - **The chord lines must not go with them.** The pad is the Lyrics AND
+      Chords editor, so its text carries them, and `_sbSetCopyWords` puts
+      that text in `song.lyrics` as well as `customLyrics`. The slides are
+      built from `_sbProjectionWords(lyrics)`, which drops chord lines and
+      keeps everything else -- blank lines above all, since
+      `parseLyricsIntoSlides` breaks on them. It goes through the GLOBAL
+      `isChordLineGlobal`, which knows "Am" is also the word "am" ("the
+      Great I Am", "Am I not still the same"); the two module-local
+      `sbIsChordLine` copies do not.
+    - `refreshSongSlidesInOrder` overwrites `song.lyrics`, which here is
+      the Songbook's own words, chords and all -- hence
+      `opts.keepLyrics`, which is what lets the projected words and the
+      sung words differ on purpose in this one place.
+    - It also took the newly parsed `header` and dropped whatever was
+      there, so a heading the operator typed on a slide (gotcha 73) was
+      lost on every re-split. The song's own `[Verse 1]` marker still
+      wins; a slide the parse gives no header keeps the one it had, by
+      position, exactly as its background is kept.
+    `tools/live-projection-harness.js` checks it, running
+    `_sbProjectionWords` over the real `isChordLineGlobal` chain rather
+    than matching its source.
+
 ## Quick Commands for Claude Code
 
 ```bash
