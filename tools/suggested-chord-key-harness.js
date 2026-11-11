@@ -64,6 +64,9 @@ const parts = {
   CHORD_NOTES:   (raw.match(/var CHORD_NOTES = [^\n]+/) || [])[0],
   FLAT_TO_SHARP: (raw.match(/var FLAT_TO_SHARP = [^\n]+/) || [])[0],
   CHORD_TOKEN_RE:    (raw.match(/var CHORD_TOKEN_RE = [^\n]+/) || [])[0],
+  // isChordToken and transposeChord both read a chord through this, so a
+  // sandbox without it throws rather than quietly testing the old shape.
+  chordAscii:        fnSrc('function lhcChordAscii(text) {'),
   isChordToken:      fnSrc('function isChordToken(tok) {'),
   isChordLineGlobal: fnSrc('function isChordLineGlobal(line, nextLine) {'),
   transposeChord:    fnSrc('function transposeChord(chord, semitones) {'),

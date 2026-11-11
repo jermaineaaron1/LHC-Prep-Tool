@@ -282,22 +282,31 @@ check('Book Mode keeps its own: a double-tap draws, holding types', /function _s
 
 const open = fn('sbOpenLyricsEditor');
 check('from the Songbook the editor is dressed as it: the class, the songbook\'s chord-grid face, the outline',
-  /modal\.classList\.add\('lyrics-editor-modal--sb'\);/.test(open) && /richEditor\.style\.fontFamily = _sbmFontGrid\(\);/.test(open) && /window\._lyricsRenderOutline\(lyrics\)/.test(open));
+  /modal\.classList\.add\('lyrics-editor-modal--sb'\);/.test(open) &&
+  /modal\.classList\.add\('lyrics-editor-modal--sheet'\);/.test(open) &&
+  /richEditor\.style\.fontFamily = _sbmFontGrid\(\);/.test(open) && /window\._lyricsRenderOutline\(lyrics\)/.test(open));
 check('...opened at a double-tap\'s line', /if \(at && at\.line != null\) _sbLyrGoTo\(richEditor, _sbLyrLineFor\(given \? null : _sbmLinesOf\(s\), storedLines, at\.line\), at\.col \|\| 0\);/.test(open));
-check('the song form\'s editor is the plain one again', /if \(modal\) modal\.classList\.remove\('lyrics-editor-modal--sb'\);\n\s*if \(richEditor\) richEditor\.style\.fontFamily = '';/.test(fn('openLyricsEditor')));
+// The operator asked (2026-11-12) for the song form's pad to read like the
+// Songbook's, which reverses the line this check used to hold. It takes the
+// LOOK (--sheet) and still refuses the HIDING (--sb), which would take its
+// slide preview away -- the half that must not change.
+check('the song form takes the Songbook look, not its hiding',
+  /classList\.remove\('lyrics-editor-modal--sb'\)/.test(fn('openLyricsEditor')) &&
+  /classList\.add\('lyrics-editor-modal--sheet'\)/.test(fn('openLyricsEditor')) &&
+  /if \(richEditor\) richEditor\.style\.fontFamily = '';/.test(fn('openLyricsEditor')));
 check('the dead controls are named so they can be hidden (font, size, bold: they styled a hidden textarea)',
   has(/<div class="format-group lyr-fg-font">\n\s*<select id="lyricsFontFamily"/) && has(/<div class="format-group lyr-fg-style">\n\s*<button type="button" class="format-btn" onclick="applyLyricsFormat\('bold'\)"/));
 check('...hidden, with the slide preview, from the Songbook',
   has(/\.lyrics-editor-modal--sb \.lyrics-editor-right,\n\.lyrics-editor-modal--sb \.lyr-fg-font,\n\.lyrics-editor-modal--sb \.lyr-fg-style \{ display: none !important; \}/));
-check('a white card', has(/\.lyrics-editor-modal--sb \.lyrics-rich-editor \{ background: #fff; color: #0f172a;[^}]*font-size: 18px;/));
-check('each section its gold tag, as the song view\'s', has(/\.lyrics-editor-modal--sb \.lyrics-rich-editor \.editor-section-header \{[^}]*border-left: 3px solid #d4a853;[^}]*color: #7f5d20;[^}]*text-transform: uppercase;/));
+check('a white card', has(/\.lyrics-editor-modal--sheet \.lyrics-rich-editor \{ background: #fff; color: #0f172a;[^}]*font-size: 18px;/));
+check('each section its gold tag, as the song view\'s', has(/\.lyrics-editor-modal--sheet \.lyrics-rich-editor \.editor-section-header \{[^}]*border-left: 3px solid #d4a853;[^}]*color: #7f5d20;[^}]*text-transform: uppercase;/));
 check('the chords teal and bold, the words black and bold, spaced as the song view', has(/\.editor-chord-line \{ margin-top: 1em; color: #04756f; font-weight: 700; \}/) &&
-  has(/\.lyrics-editor-modal--sb \.lyrics-rich-editor \.editor-lyric-line \{ margin-bottom: 0\.5em; color: #000; font-weight: 700; \}/));
+  has(/\.lyrics-editor-modal--sheet \.lyrics-rich-editor \.editor-lyric-line \{ margin-bottom: 0\.5em; color: #000; font-weight: 700; \}/));
 check('a blank line is a short gap -- and a line of words once typed into', /editor-lyric-line editor-empty-line/.test(fn('renderRichEditor')) &&
-  has(/\.lyrics-editor-modal--sb \.lyrics-rich-editor \.editor-empty-line \{ height: auto; margin: 0; font-size: 0\.6em;/) &&
+  has(/\.lyrics-editor-modal--sheet \.lyrics-rich-editor \.editor-empty-line \{ height: auto; margin: 0; font-size: 0\.6em;/) &&
   /_ln\.classList\.contains\('editor-empty-line'\) && _ln\.textContent\.trim\(\)\) _ln\.classList\.remove\('editor-empty-line'\);/.test(fn('onRichEditorInput')));
-check('the line tapped is lit, then fades', has(/\.lyrics-editor-modal--sb \.lyr-hit \{ animation: lyrHit 3\.6s ease-out forwards;/) && has(/@keyframes lyrHit \{/));
-check('a phone\'s editor at its size', has(/@media \(max-width: 640px\) \{\n\s*\.lyrics-editor-modal--sb \.lyrics-rich-editor \{ font-size: 15px;/));
+check('the line tapped is lit, then fades', has(/\.lyrics-editor-modal--sheet \.lyr-hit \{ animation: lyrHit 3\.6s ease-out forwards;/) && has(/@keyframes lyrHit \{/));
+check('a phone\'s editor at its size', has(/@media \(max-width: 640px\) \{\n\s*\.lyrics-editor-modal--sheet \.lyrics-rich-editor \{ font-size: 15px;/));
 check('the drawing hint and the Draw chip say hold, not double-tap',
   /<b>Hold<\/b> the words 2 seconds to draw/.test(fn('_sbmCoachDraw')) && has(/a breath mark\. Or hold the words for 2 seconds\. /) && !/double-tap the words\. /.test(LF));
 

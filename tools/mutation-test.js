@@ -813,6 +813,43 @@ const CASES = [
     s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !line.trim() || !/^[A-G]/.test(line.trim());')],
   ['live-projection-harness.js', 'with no detector the words are dropped instead of kept',
     s => s.replace("    if (typeof isChordLineGlobal !== 'function') return lines.join('\\n');", '')],
+  // The operator's own report: a chord written with the MUSIC SHARP SIGN
+  // was not recognised at all.
+  ['lyrics-editor-harness.js', 'the sharp sign is not read as a sharp',
+    s => s.replace("  return String(text == null ? '' : text).replace(/\\u266f/g, '#').replace(/\\u266d/g, 'b');", "  return String(text == null ? '' : text);")],
+  ['lyrics-editor-harness.js', 'the flat sign is left alone',
+    s => s.replace(".replace(/\\u266d/g, 'b');", ';')],
+  // Worse than not recognising it: recognising it and moving it wrongly.
+  ['lyrics-editor-harness.js', 'a sharp-sign chord transposes a semitone out',
+    s => s.replace('  chord = lhcChordAscii(chord);\r\n  var match = chord.match', '  var match = chord.match')],
+  ['lyrics-editor-harness.js', 'the token test reads the raw token',
+    s => s.replace("  var t = lhcChordAscii(tok).replace(/[()|\\-:.]/g, '');", "  var t = (tok || '').replace(/[()|\\-:.]/g, '');")],
+  // The pad: --sb was doing the look AND the hiding, so the song form
+  // could not have one without the other.
+  ['lyrics-editor-harness.js', 'the song form goes back to the plain dark pad',
+    s => s.replace("    modal.classList.add('lyrics-editor-modal--sheet');\r\n  }", '  }')],
+  ['lyrics-editor-harness.js', 'the Songbook loses the look it had',
+    s => s.replace("    modal.classList.add('lyrics-editor-modal--sb');\r\n    modal.classList.add('lyrics-editor-modal--sheet');",
+                   "    modal.classList.add('lyrics-editor-modal--sb');")],
+  ['lyrics-editor-harness.js', 'the look goes back onto --sb, hiding the preview with it',
+    s => s.replace('.lyrics-editor-modal--sheet .lyrics-rich-editor', '.lyrics-editor-modal--sb .lyrics-rich-editor')],
+  // The preview: a second opinion about where a slide ends.
+  ['lyrics-editor-harness.js', 'the preview cuts its own slides again',
+    s => s.replace('  var fromLcd = _lyrSlidesFromLcd(text, getSectionType);', '  var fromLcd = null;')],
+  ['lyrics-editor-harness.js', 'the splitter is not lent out',
+    s => s.replace('\r\n    parseLyricsIntoSlides: parseLyricsIntoSlides,', '')],
+  ['lyrics-editor-harness.js', 'the renderer is not lent out',
+    s => s.replace('\r\n    projectionHtml: _projectionHtml,', '')],
+  ['lyrics-editor-harness.js', 'the words are drawn by a copy of the rules',
+    s => s.replace('    ? WO.projectionHtml(words)\r\n    : esc(words);', '    ? esc(words)\r\n    : esc(words);')],
+  // A heading is never projected (gotcha 73).
+  ['lyrics-editor-harness.js', 'the heading is drawn inside the slide',
+    s => s.replace("'<div class=\"wo-preview-inner\">' + body + '</div>' +",
+                   "'<div class=\"wo-preview-inner\"><span class=\"slide-header\"></span>' + body + '</div>' +")],
+  // A long word with no space ran off the wall before gotcha 75.
+  ['lyrics-editor-harness.js', 'a long word can run off the preview screen',
+    s => s.replace('  .lyr-preview-screen .wo-preview-inner { max-width: 100%; overflow-wrap: break-word; text-align: center; }',
+                   '  .lyr-preview-screen .wo-preview-inner { text-align: center; }')],
   // Presenting from the overlay was not counted as being on air at all --
   // measured: overlayShown true, fullscreenElement false, _lcdOnAir() false.
   ['live-projection-harness.js', 'presenting from the overlay is not on air',

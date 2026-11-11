@@ -10002,6 +10002,10 @@
     flex-direction: column;
     min-height: 400px;
   }
+  /* The preview is the projector's own markup, so it takes the projector's
+     own rules: words wrap and are never shrunk to fit a line (gotcha 75). */
+  .lyr-preview-screen { width: 100%; max-width: 100%; display: flex; align-items: center; justify-content: center; }
+  .lyr-preview-screen .wo-preview-inner { max-width: 100%; overflow-wrap: break-word; text-align: center; }
   .lyrics-preview-panel {
     flex: 1;
     overflow: hidden;
@@ -20824,9 +20828,13 @@ function openLyricsEditor(mode) {
   var modal = document.getElementById('lyricsEditorModal');
   var textarea = document.getElementById('lyricsEditorTextarea');
   var richEditor = document.getElementById('lyricsRichEditor');
-  // The Songbook dresses this editor as itself (sbOpenLyricsEditor, gotcha
-  // 86); the song form's is the plain one.
-  if (modal) modal.classList.remove('lyrics-editor-modal--sb');
+  // The songbook's look -- a white sheet, teal chords, black bold words --
+  // for every way into this editor. --sb stays the Songbook's alone: it also
+  // hides the preview, which the song form wants.
+  if (modal) {
+    modal.classList.remove('lyrics-editor-modal--sb');
+    modal.classList.add('lyrics-editor-modal--sheet');
+  }
   if (richEditor) richEditor.style.fontFamily = '';
   var lyrics = songData[mode].lyrics || '';
 
@@ -21290,6 +21298,25 @@ var currentSlideIndex = 0;
 var originalLyrics = '';
 var currentTransposeSemitones = 0;
 
+// The slides this text really makes, from the one function that cuts them
+// for the wall. Null when Worship Orders has not loaded, and then the caller
+// falls back to its own paragraph split rather than showing nothing.
+function _lyrSlidesFromLcd(text, typeOf) {
+  if (!window.WO || typeof WO.parseLyricsIntoSlides !== 'function') return null;
+  var cut;
+  try { cut = WO.parseLyricsIntoSlides(text); } catch (e) { return null; }
+  if (!cut || !cut.length) return [];
+  return cut.map(function(s) {
+    var head = (s.header || '').replace(/^\[|\]$/g, '');
+    return {
+      header: head,
+      headerType: typeOf ? typeOf(head) : 'other',
+      lines: (s.lines || []).slice(),
+      startLine: 0
+    };
+  });
+}
+
 function updateLyricsLivePreview() {
   var textarea = document.getElementById('lyricsEditorTextarea');
   var preview = document.getElementById('lyricsLivePreview');
@@ -21324,6 +21351,17 @@ function updateLyricsLivePreview() {
   // Check if line is a section header without brackets
   function isSectionHeaderNoBrackets(line) {
     return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(line.trim());
+  }
+
+  // The LCD's own splitter decides where a slide ends, so this preview and
+  // the wall cannot disagree. The hand-rolled paragraph split below is kept
+  // only for the case where the Worship Orders module has not loaded.
+  var fromLcd = _lyrSlidesFromLcd(text, getSectionType);
+  if (fromLcd) {
+    lyricsSlides = fromLcd;
+    if (currentSlideIndex >= fromLcd.length) currentSlideIndex = Math.max(0, fromLcd.length - 1);
+    renderCurrentSlide(esc);
+    return;
   }
 
   // Parse into slides: each paragraph (separated by blank lines) is a slide
@@ -21432,17 +21470,27 @@ function renderCurrentSlide(esc) {
   var slide = lyricsSlides[currentSlideIndex];
   var html = '';
 
-  // Section header with colored background
+  // The heading is NOT part of the slide: a heading is never projected
+  // (gotcha 73), so it sits above the screen rather than on it, the way the
+  // rail carries a heading row the wall never sees.
   if (slide.header) {
     html += '<div class="slide-header ' + slide.headerType + '">' + esc(slide.header) + '</div>';
   }
 
-  // Slide content - lyrics only (no chords)
-  html += '<div class="slide-content">';
-  slide.lines.forEach(function(line) {
-    html += '<div class="lyric-line">' + esc(line) + '</div>';
-  });
-  html += '</div>';
+  // The words, in the projection's own markup, so this reads as the wall
+  // will: one pre-wrap block, centred, wrapping rather than shrinking
+  // (gotcha 75). .wo-preview-content / .wo-preview-inner are the LCD's.
+  // Through the projector's OWN renderer, not a second copy of its rules: it
+  // drops chord lines and bracketed headers, strips parentheticals like "(2x)"
+  // that the congregation never sees, and trims the blank lines at each end.
+  // It returns escaped HTML, so it is not escaped again here.
+  var words = slide.lines.join('\n');
+  var body = (window.WO && typeof WO.projectionHtml === 'function')
+    ? WO.projectionHtml(words)
+    : esc(words);
+  html += '<div class="wo-preview-content lyr-preview-screen">' +
+            '<div class="wo-preview-inner">' + body + '</div>' +
+          '</div>';
 
   preview.innerHTML = html;
 
@@ -22218,8 +22266,19 @@ var FLAT_TO_SHARP = { 'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#'
 // Covers: C, Am, G7, Cmaj7, Dm7, G7sus4, Cadd9, Bm7b5, C#m7, Fmaj9, G13, Bb, Eb/G …
 var CHORD_TOKEN_RE = /^[A-G][#b]?(?:(?:m(?:aj|in|M)?|M(?:aj)?|dim|aug|sus|add|dom|no|alt)(?:[0-9]{0,2})?|[0-9]{1,2})?(?:[#b][0-9]{0,2})?(?:sus[24]?)?(?:\/[A-G][#b]?(?:m(?:aj)?)?[0-9]{0,2})?$/;
 
+// A chord written with the real musical signs is the same chord. U+266F
+// and U+266D are what a phone keyboard, Word and some chord sites give,
+// and the patterns below only ever knew ASCII '#' and 'b'. One place, so
+// that reading a chord and MOVING a chord can never disagree: detection
+// alone would turn "F♯m" from a chord nobody could adjust into one that
+// adjusts wrongly, since transposeChord reads its root as plain F.
+function lhcChordAscii(text) {
+  return String(text == null ? '' : text).replace(/\u266f/g, '#').replace(/\u266d/g, 'b');
+}
+window.lhcChordAscii = lhcChordAscii;
+
 function isChordToken(tok) {
-  var t = (tok || '').replace(/[()|\-:.]/g, '');
+  var t = lhcChordAscii(tok).replace(/[()|\-:.]/g, '');
   return t.length > 0 && CHORD_TOKEN_RE.test(t);
 }
 
@@ -22279,6 +22338,10 @@ function isChordLineGlobal(line, nextLine) {
 }
 
 function transposeChord(chord, semitones) {
+  // Normalised first: "F♯m" read raw gives the root F and the suffix
+  // "♯m", so moving it up a semitone produced "G♯m" -- a semitone
+  // sharp of the truth, with nothing to show it had gone wrong.
+  chord = lhcChordAscii(chord);
   var match = chord.match(/^([A-G][#b]?)(.*)/);
   if (!match) return chord;
   var root = match[1];
@@ -69545,6 +69608,7 @@ var WO = (function() {
     // Dressed as the songbook (gotcha 86): its look, its chord-grid face, the
     // song's name and the key it is shown in, and the outline of its sections.
     modal.classList.add('lyrics-editor-modal--sb');
+    modal.classList.add('lyrics-editor-modal--sheet');
     var titleEl = document.getElementById('lyricsEditorSongTitle');
     if (titleEl) {
       var sung = steps ? _sbSungKey(s) : '';
@@ -97204,6 +97268,10 @@ var WO = (function() {
     sbChordZoneBlur: sbChordZoneBlur,
     sbOpenLyricsEditor: sbOpenLyricsEditor,
     sbSaveLyricsFromModal: sbSaveLyricsFromModal,
+    // Lent to the Lyrics & Chords editor's preview, so the form and the wall
+    // cut a song into slides the same way.
+    parseLyricsIntoSlides: parseLyricsIntoSlides,
+    projectionHtml: _projectionHtml,
     sbLyricsEditorClosed: sbLyricsEditorClosed,
     sbGetEditingSid: sbGetEditingSid,
     sbClearEditingSid: sbClearEditingSid,
@@ -116730,25 +116798,25 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .lyrics-editor-modal--sb .lyrics-editor-right,
 .lyrics-editor-modal--sb .lyr-fg-font,
 .lyrics-editor-modal--sb .lyr-fg-style { display: none !important; }
-.lyrics-editor-modal--sb .lyrics-editor-wrapper { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
-.lyrics-editor-modal--sb .lyrics-rich-editor { background: #fff; color: #0f172a; padding: 16px 20px 48px; font-size: 18px; line-height: 1.45; caret-color: #04756f; }
-.lyrics-editor-modal--sb .lyrics-rich-editor:empty::before { color: #94a3b8; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header {
+.lyrics-editor-modal--sheet .lyrics-editor-wrapper { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+.lyrics-editor-modal--sheet .lyrics-rich-editor { background: #fff; color: #0f172a; padding: 16px 20px 48px; font-size: 18px; line-height: 1.45; caret-color: #04756f; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor:empty::before { color: #94a3b8; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-section-header {
   width: -webkit-fit-content; width: fit-content; max-width: 100%; box-sizing: border-box;
   margin: 24px 0 12px; padding: 5px 10px; border-left: 3px solid #d4a853; border-radius: 4px;
   background: linear-gradient(90deg, rgba(212, 168, 83, 0.18), rgba(0, 0, 0, 0)); color: #7f5d20;
   font: 700 12.8px/1.45 Georgia, 'Times New Roman', serif; letter-spacing: 0.5px; text-transform: uppercase;
 }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header:first-child { margin-top: 0; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-chord-line { margin-top: 1em; color: #04756f; font-weight: 700; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header + .editor-chord-line { margin-top: 0; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-lyric-line { margin-bottom: 0.5em; color: #000; font-weight: 700; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-empty-line { height: auto; margin: 0; font-size: 0.6em; line-height: 1.2; }
-.lyrics-editor-modal--sb .lyrics-rich-editor .editor-chord { color: inherit; background: none; font-weight: inherit; }
-.lyrics-editor-modal--sb .lyr-hit { animation: lyrHit 3.6s ease-out forwards; border-radius: 4px; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-section-header:first-child { margin-top: 0; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-chord-line { margin-top: 1em; color: #04756f; font-weight: 700; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-section-header + .editor-chord-line { margin-top: 0; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-lyric-line { margin-bottom: 0.5em; color: #000; font-weight: 700; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-empty-line { height: auto; margin: 0; font-size: 0.6em; line-height: 1.2; }
+.lyrics-editor-modal--sheet .lyrics-rich-editor .editor-chord { color: inherit; background: none; font-weight: inherit; }
+.lyrics-editor-modal--sheet .lyr-hit { animation: lyrHit 3.6s ease-out forwards; border-radius: 4px; }
 @keyframes lyrHit { 0%, 55% { background-color: #fde68a; box-shadow: 0 0 0 4px #fde68a; } 100% { background-color: transparent; box-shadow: 0 0 0 4px transparent; } }
 @media (max-width: 640px) {
-  .lyrics-editor-modal--sb .lyrics-rich-editor { font-size: 15px; padding: 12px 14px 40px; }
+  .lyrics-editor-modal--sheet .lyrics-rich-editor { font-size: 15px; padding: 12px 14px 40px; }
 }
 /* The editor's close button is icon-only: a very small phone's rule that
    drops the icons from pill buttons (max-width: 400px) left it an empty pill. */
