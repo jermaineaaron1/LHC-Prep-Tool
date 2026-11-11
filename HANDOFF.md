@@ -1,6 +1,125 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-11-10 by Claude Code_
+_Last updated: 2026-11-11 by Claude Code_
+
+---
+
+## 2026-11-11 — Working offline through a service (branch `feat/offline-service`)
+
+"Can you establish a way to work offline, in the event the internet is down,
+especially half way through the service." Scope agreed with the operator:
+survive a dropout **and** pre-download a service, covering the LCD console and
+the Songbook.
+
+### What was actually true before
+
+Measured, not assumed:
+
+- **There was no service worker anywhere.** `pwa-shell/sw.js` is for a retired
+  GitHub Pages deployment (`BASE = '/LHC-Worship-App'`) and is never served.
+- `/` is a **dynamic** Next route with no `Cache-Control`, so the browser kept
+  nothing, and boot needs four render-blocking third-party resources. One
+  refresh mid-service was a blank screen.
+- `Index.html:249` **threw with no network**: `window.supabase.createClient(...)`
+  was bare, so with the library absent it took the remaining ~575 lines of that
+  block with it — the URL-param deep-link reader and the `window.google` shim
+  included. An offline load lost `?order=`, `?view=`, `?song=`, `?playlist=`
+  and every Web Share Target arrival, in silence.
+- The banner said *"You're offline — showing last loaded data"*. There was no
+  store of any kind, so on a cold load that sentence sat over an empty app —
+  and it was driven by `navigator.onLine`, which reports **true** on church
+  Wi-Fi whose uplink has died, which is the failure the church actually has.
+- A failed **silent** autosave called `_soSetSaveStatus('')`, which blanks the
+  indicator. Every LCD edit goes through the silent path, so mid-service the
+  operator got nothing saved and nothing said.
+
+### What there is now
+
+`public/sw.js`, plus `window.LHC_Net` (is the database reachable?) and
+`window.LHC_Offline` (register, and "Download for Sunday" from the order
+card's `…` menu).
+
+The shell is **network-first** with a 3s fallback. That is the rule everything
+else follows from: the shell is one 7.3 MB file that redeploys on every push,
+and a worker that serves a stale app is worse than no worker. Immutables — the
+CDN files, Storage objects whose paths carry a timestamp — are cache-first.
+
+**No write queue, and that is the decision, not an omission.** `SBQ.saveOrder`
+upserts and then PRUNES every row the payload does not contain, and its rails
+(`_knownItems`, `_lastWritten`, `allowClearTypes`) live in page memory, derived
+from what this screen drew. A stored payload replayed later is detached from
+all three: it would re-assert deletion authority the client no longer has — the
+9:58 snapshot deleting the four slides somebody added at 10:04. So offline
+refuses writes and says so.
+
+### The two things the plan got wrong, found by building it
+
+- **A remote background is not "unresolvable while offline".** The plan said to
+  make `_lcdBgUnresolvable` consult the health flag. That is wrong the moment
+  the worker has the file cached — it would blank a background that works. The
+  honest fix is to ask the element whether it loaded: an `error` listener on
+  the `<img>`/`<video>`, and in the projection popup, which paints with
+  `background-image` and so has no error event, an `Image()` probe on the same
+  url. Right online too, for a file somebody deleted from Storage.
+- **Removing the `document.write` unpkg fallback would break the bridge.** The
+  plan said to replace it with `onerror`, which is async — and the bridge at
+  `:249` needs the library synchronously. Guarding the bridge was the smaller
+  and safer change; the `document.write` stays as a documented last resort.
+  Hoisting the deep-link reader turned out to be unnecessary for the same
+  reason: once the throw is guarded, everything after it in that IIFE runs.
+
+### And one real bug, found only by running it
+
+The download reported **"0 songs in this service"** on an order with six of
+them, and fetched no choir parts, no drawings and no takes — while looking
+like it had worked. A stored song row's own id is `wo-song-<ts>-<rand>` and
+neither `content` nor `customizations` carries the song: **the library id is
+`sourceId`**. Nothing in the diff would have shown this.
+
+### A captive portal is the failure that would have survived the fix
+
+A guest network's sign-in page answers a REST read with 200 and an HTML form.
+Cached, that becomes "the order" until the cache is cleared, and it would
+outlive the network coming back. So a response has to smell right before it is
+kept or served — JSON for data, HTML for the shell — and a non-ok answer falls
+back to what is cached.
+
+### Verified for real, because this is the one feature a diff cannot show
+
+Against the read-only preview server on `localhost:3021` (a secure context, so
+a worker registers), driving the real `public/sw.js`:
+
+| what | result |
+|---|---|
+| registration + install | activated, claimed; shell cached (7,089 KB of real HTML), 23 assets across all four CDN hosts incl. `fonts.gstatic.com` |
+| data cache fills from ordinary use | 21 REST responses over 14 tables, all `application/json`, the orders read holding 15 real rows |
+| **origin stopped, page reloaded** | **the app painted fully** — styled, icons, Tailwind's JIT ran, supabase-js from cache — and the deep link `?order=…&view=builder` was read and opened that order |
+| data fallback end to end | network said **401** for a cached REST url; the worker served the cached **200** |
+| no stale app | changed the served bytes with the worker in control → new bytes served **and** the cache refreshed |
+| writes refused throughout | `REFUSED: The phone view only reads.`, and 0 rows found on read-back |
+| Download for Sunday | 5 songs found, 4 media files / 10.1 MB into the media cache, 18 new data rows incl. `song_marks`, `song_recordings`, `song_voice_lines`, nothing missed, 3.4s |
+| banner | quiet at boot; offline-with-nothing vs offline-with-a-download say different things; hidden again on recovery; z-index 9998, under the presenter overlay's 10000 |
+
+**At the operator's own 1158 CSS px**, "Download for Sunday" wrapped to two
+lines in the 168px `…` menu and stood 59px tall beside three 39px rows. The
+menu is 200px now: four rows of 40, right edge at 1098. At 375px the menu is
+still fully on screen (134→334) and the sheet is 343×426.
+
+The service worker and its caches were unregistered and deleted from
+`localhost:3021` afterwards, and the test tab closed.
+
+### What was NOT verified, and why
+
+Supabase itself was never made unreachable — only the origin was. The data
+**fallback** is proven by the 401-vs-cache test above, and the hard-failure
+path (`fetch` rejects) is the same `_networkFirst` the shell runs, which the
+stopped-origin reload proves end to end. Simulating a dead Supabase would mean
+editing the machine's hosts file, which was not worth doing.
+
+Green: `python tools/check-inline-scripts.py --check Index.html` (19 blocks),
+`npm run check` (662 mutation cases, 0 missed, 0 stale — 20 new), the new
+harness at 89 passed / 0 failed, and against the previous master with
+`--expect-broken` (33 passed, 38 failed).
 
 ---
 

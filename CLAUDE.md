@@ -3251,6 +3251,102 @@ the anon key -- verify as `postgres`, not as the app.
     labelled system stacked, which changes nothing on a phone, where the
     lines are not flex. `tools/choir-chord-sheet-harness.js` checks it.
 
+88. **Offline is READ-ONLY, the shell is network-first, and "offline" means a
+    read actually failed.** From the operator (2026-11-11): "can you establish
+    a way to work offline, in the event the internet is down, especially half
+    way through the service". Scope, confirmed with them: survive a dropout
+    AND pre-download a service; the LCD console and the Songbook.
+    - **There was no service worker at all.** `pwa-shell/sw.js` is for a
+      retired GitHub Pages deployment (`BASE = '/LHC-Worship-App'`) and is
+      never served. `/` is a DYNAMIC Next route (`app/route.ts`) with no
+      Cache-Control, so the browser kept nothing, and boot needs four
+      render-blocking third-party resources. One refresh mid-service was a
+      blank screen. `public/sw.js` is the new one.
+    - **A worker that serves a stale app is worse than no worker.** The shell
+      is one 7.3 MB file that redeploys on every push, so it is NETWORK-FIRST
+      with a 3s fallback; the cache is only reached when the network does not
+      answer. Measured: changing the served bytes and reloading gave the new
+      bytes AND refreshed the cache. Immutables (versioned CDN files, Storage
+      objects whose paths carry a timestamp) are cache-first.
+    - **The routing decision is one pure function**, `_swRoute(url, method,
+      isNavigate, origin)`, lifted out of `sw.js` and RUN by the harness --
+      a wrong answer here is silent and only shows on a Sunday. Every
+      navigation is the shell whatever the query string (a deep link must open
+      the same cached document); `/api/*` is never cached (bible-passage is a
+      live lookup); Storage is matched on the `/storage/v1/object/public/`
+      PREFIX, never the bucket, which contains a space and appears both
+      encoded and plain; **no non-GET verb is ever routed to a cache**.
+    - **A captive portal answers a REST read with 200 and an HTML login page.**
+      Cached, that becomes "the order" until the cache is cleared, and it
+      would survive the network coming back. So `_looksRight` requires JSON
+      for `data` and HTML for `shell` before a response is kept OR served, and
+      a non-ok answer falls back to what is cached (proved end to end: the
+      network said 401, the worker served the cached 200).
+    - **NO WRITE QUEUE, deliberately.** `SBQ.saveOrder` upserts the payload and
+      then PRUNES every row the payload does not contain, and its three rails
+      (`_knownItems`, `_lastWritten`, `allowClearTypes`) live in page memory and
+      are derived from what this screen has drawn. A stored payload replayed
+      later is detached from all three, so it would re-assert deletion
+      authority the client no longer has -- the 9:58 snapshot deleting the four
+      slides somebody added at 10:04. Offline refuses writes and says so.
+    - **`Index.html:249` used to throw with no network.**
+      `window.supabase.createClient(...)` was bare, so with the library absent
+      it took the rest of that 575-line block with it -- the URL-param
+      deep-link reader and the `window.google` shim included. An offline load
+      therefore lost `?order=`, `?view=`, `?song=`, `?playlist=` and every Web
+      Share Target arrival, silently. Guarded now; everything downstream
+      already copes with no client.
+    - **`navigator.onLine` is the wrong question.** It answers "is there a
+      network interface", so on church Wi-Fi with a dead uplink it says true.
+      `window.LHC_Net` (the FIRST script, before the supabase-js tag, so the
+      library captures its `fetch` wrapper) watches what happens to Supabase
+      GETs: `reachable()` is null until one has been tried, `offline()` is true
+      only when one has failed or the device says it has no network. Writes are
+      never counted -- a write the phone-view guard refuses is not a dead
+      uplink. The banner reads that, and says WHICH it is: "running from the
+      copy of this service you downloaded" or "cannot reach the database". It
+      is z-index 9998, under the presenter overlay's 10000, so it can never
+      appear on a screen the congregation sees.
+    - **A failed silent autosave used to blank the indicator.** Every LCD edit
+      goes through `saveCurrentOrder(true)`, and both failure paths ended in
+      `_soSetSaveStatus('')` -- indistinguishable from "nothing to save". There
+      is a `failed` state now ("Not saved"), and it stands until a save
+      succeeds.
+    - **"Download for Sunday"** (`LHC_Offline`, the order card's `...` menu)
+      REPLAYS THE APP'S OWN READS -- `SBQ.loadOrder`, `SBQ_PROJECTION.load` /
+      `loadMedia`, `SBQ_SONGS.getAll`, `SBQ_VOICE_LINES.forSong`, and the
+      `song_marks` / `song_recordings` queries copied query for query -- so the
+      worker caches each response keyed exactly as the live request will ask
+      for it. Then it walks the loaded JSON for Storage URLs (`urlsIn`, pure)
+      and posts them to the worker, which files each in the cache `_swRoute`
+      would READ it from. It walks rather than naming fields because
+      backgrounds, sermon pages, inbox files and attachments hold their
+      addresses in different shapes and those shapes move. **The library song
+      id on a stored row is `sourceId`** -- measured: a song row's own id is
+      `wo-song-<ts>-<rand>` and neither `content` nor `customizations` carries
+      the song. Written the other way round first, the download said "0 songs
+      in this service" and fetched no parts, drawings or takes while looking
+      like it had worked. Practice recordings are NOT downloaded (tens of MB,
+      and rehearsal rather than service); the sheet says so.
+    - **The reconnect faults.** A dropped `ed-lock-*` channel stayed dropped --
+      `_edEnsureChannel` returns early while the order id is unchanged -- so
+      locks failed OPEN for the rest of the service with nobody told.
+      `_edRebuildLockChannels` must NOT go through `_edTeardownLocks`, which
+      broadcasts `ed_unlock` for everything we hold; it drops the dead channel
+      objects, keeps `_edMyLocks`, and the new SUBSCRIBED re-asserts them.
+    - **A background that will not load projects black**, hooked on the
+      element (`_lcdBgBlackOnFail`; the popup probes its `background-image`
+      with an `Image()`, which has an error event where CSS has none). The
+      version tried first -- "a remote url is unresolvable while the health
+      flag says we are offline" -- is WRONG the moment the worker has the file
+      cached: it would blank a background that works.
+    - Known limits, stated rather than discovered: realtime cannot work
+      offline (a worker cannot intercept a websocket), `pdf.worker.min.js` is a
+      cross-origin worker so PDF/PPTX import stays online-only, and the shell
+      alone is 7.3 MB.
+    `tools/offline-service-harness.js` checks it, running `_swRoute` and
+    `urlsIn` themselves rather than matching their source.
+
 ## Quick Commands for Claude Code
 
 ```bash

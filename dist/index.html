@@ -111,6 +111,65 @@
     window.__SHARE_INBOX_TEXT  = window.__SHARE_INBOX_TEXT  || '';
   </script>
 
+  <!-- Is the database actually reachable? -->
+  <script>
+  /* navigator.onLine is the wrong question. It answers "is there a network
+     interface", so on church Wi-Fi whose uplink has died -- the most common
+     real failure -- it says true and the app says nothing is wrong. This
+     watches what actually happens to Supabase READS, which is the only signal
+     that matches what the operator sees.
+
+     It is installed HERE, before the supabase-js tag, so the library captures
+     this wrapper as its fetch. The phone-view read-only guard below wraps
+     fetch after it and so stays outermost: a write it refuses never reaches
+     this and is never mistaken for the internet being down. Only GETs are
+     watched, for the same reason. */
+  (function () {
+    var SUPA = 'jypzhumcdifxnazexdcu.supabase.co';
+    /* null, not false: "not asked yet" is not "offline", and the banner must
+       not shout during boot. */
+    var reachable = null, since = 0, lastOk = 0, lastFail = 0;
+
+    function mark(ok) {
+      var was = reachable;
+      reachable = !!ok;
+      if (ok) lastOk = Date.now(); else lastFail = Date.now();
+      if (was !== reachable) {
+        since = Date.now();
+        try {
+          window.dispatchEvent(new CustomEvent('lhc:net', { detail: { reachable: reachable } }));
+        } catch (e) {}
+      }
+    }
+
+    window.LHC_Net = {
+      reachable: function () { return reachable; },
+      /* True only when a read has actually failed, or the device says it has
+         no network at all -- navigator.onLine is trustworthy in that one
+         direction. */
+      offline: function () { return reachable === false || navigator.onLine === false; },
+      since: function () { return since; },
+      lastOk: function () { return lastOk; },
+      lastFail: function () { return lastFail; },
+      mark: mark
+    };
+
+    var _fetch = window.fetch;
+    if (typeof _fetch !== 'function') return;
+    window.fetch = function (input, init) {
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      var method = (init && init.method) || (input && input.method) || 'GET';
+      var watch = String(method).toUpperCase() === 'GET' && String(url).indexOf(SUPA) !== -1;
+      var p;
+      try { p = _fetch.apply(this, arguments); }
+      catch (e) { if (watch) mark(false); throw e; }
+      if (!watch || !p || !p.then) return p;
+      return p.then(function (res) { mark(true); return res; },
+                    function (err) { mark(false); throw err; });
+    };
+  })();
+  </script>
+
   <!-- Supabase client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
@@ -245,8 +304,32 @@
     var SUPA_URL  = 'https://jypzhumcdifxnazexdcu.supabase.co';
     var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
 
-    // Initialise client (supabase-js v2 UMD exposes window.supabase)
-    var _db = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+    // Initialise client (supabase-js v2 UMD exposes window.supabase).
+    //
+    // GUARDED, and the guard is the point. This line used to be bare, so with
+    // the library unreachable -- no network, or both CDNs blocked -- it threw
+    // and took the rest of this 575-line block with it: the URL-param
+    // deep-link reader below and the window.google shim at the end never ran.
+    // An offline load therefore lost ?order=, ?view=, ?song=, ?playlist= and
+    // every Web Share Target arrival as well, which is a far wider blast
+    // radius than "no data", and it failed in silence.
+    //
+    // Everything downstream already copes with no client: the SBQ_* modules
+    // open with `if (!sb) return Promise.reject(...)`, and the _db uses
+    // further down are inside the dead Apps Script shim the deployed app
+    // never calls.
+    var _db = null;
+    try {
+      if (window.supabase && window.supabase.createClient) {
+        _db = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+      } else {
+        console.warn('[LHC] supabase-js did not load; starting with no database client.');
+        if (window.LHC_Net) LHC_Net.mark(false);
+      }
+    } catch (e) {
+      console.warn('[LHC] could not create the Supabase client:', e);
+      if (window.LHC_Net) LHC_Net.mark(false);
+    }
     window._supabase = _db; // expose for debugging
 
     // ── Deep-link params from URL (replaces GAS template <?= var ?>) ──
@@ -29571,6 +29654,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     } else {
       if (window.LHC_Notif) LHC_Notif.init();
       if (window.LHC_Install) LHC_Install.init();
+      if (window.LHC_Offline) LHC_Offline.register();
     }
 
     // Handle deep-link media parameter
@@ -34595,6 +34679,10 @@ var WO = (function() {
           ? '<div class="wo-order-more-menu" onclick="event.stopPropagation()">' +
               (order.id ? '<button onclick="openAddSongsModal(\'order\',\'' + escapeJsArg(order.id) + '\',\'' + escapeJsArg(order.title || 'Untitled') + '\');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-plus"></i> Add Songs</button>' : '') +
               '<button onclick="WO.editOrderTitle(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-pen"></i> Rename</button>' +
+              (order.id ? '<button onclick="LHC_Offline.open(\'' + escapeJsArg(order.id) + '\',\'' + escapeJsArg(order.title || 'Untitled') + '\');WO._woToggleMoreMenu(' + idx + ')">' +
+                 '<i class="fa-solid fa-cloud-arrow-down"></i> Download for Sunday' +
+                 (window.LHC_Offline && LHC_Offline.readyFor(order.id) ? ' <i class="fa-solid fa-check" style="color:#16a34a;"></i>' : '') +
+               '</button>' : '') +
               '<button class="danger" onclick="WO.deleteOrder(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-trash"></i> Delete</button>' +
             '</div>'
           : '';
@@ -36242,6 +36330,9 @@ var WO = (function() {
 
     currentOrderType = order.type || 'traditional';
     currentOrderData = order;
+    // Lets the offline banner tell "running from the copy you downloaded"
+    // from "cannot reach the database and nothing is stored".
+    if (window.LHC_Offline && order && order.id) LHC_Offline.here(order.id);
     // Baseline for the sync poll. Only when the order really came with its
     // item list -- a cached open has none, and an empty baseline would read
     // every stored row as a change somebody else just made.
@@ -36794,6 +36885,13 @@ var WO = (function() {
     if (!el) return;
     if (!state)              { el.textContent = ''; return; }
     if (state === 'pending') { el.textContent = '● Unsaved'; el.style.color = '#fbbf24'; }
+    /* A save that was TRIED and did not land. Every LCD edit autosaves
+       SILENTLY, and both failure paths used to end in _soSetSaveStatus(''),
+       which blanks the indicator and so reads as "nothing to save". Mid-
+       service with the internet gone that is the worst of both: nothing
+       saved, nothing said. This stands until a save succeeds -- no timer
+       clears it. */
+    if (state === 'failed')  { el.textContent = '⚠ Not saved'; el.style.color = '#f87171'; }
     if (state === 'saving')  { el.textContent = '↑ Saving…'; el.style.color = '#86dfa6'; }
     if (state === 'saved')   { el.textContent = '✓ Saved';   el.style.color = '#86efac';
       setTimeout(function() { el.textContent = ''; }, 3000); }
@@ -37568,7 +37666,7 @@ var WO = (function() {
           sbSetSaveStatus('saved');
         } else {
           if (silent) {
-            _soSetSaveStatus('');
+            _soSetSaveStatus('failed');
           } else {
             showToast('Save failed: ' + (result.error || 'Unknown error'), 'error');
           }
@@ -37595,7 +37693,11 @@ var WO = (function() {
         }
         console.error('Backend save failed:', err);
         if (!silent) showToast('Failed to save. Please try again.', 'error');
-        _soSetSaveStatus('');
+        _soSetSaveStatus('failed');
+        /* A save that threw is the one signal we have that is not a read, and
+           on this path it is almost always the network. Telling LHC_Net
+           raises the banner without waiting for the next read to fail. */
+        if (window.LHC_Net) LHC_Net.mark(false);
       });
   }
 
@@ -44481,6 +44583,22 @@ var WO = (function() {
     return null;
   }
 
+  // A background that will not load must become black, not a broken image
+  // box on the wall. Hooked onto the element rather than guessed from a
+  // network flag, so it is right whether the file is missing, blocked, or
+  // simply not in the offline cache.
+  function _lcdBgBlackOnFail(el) {
+    var m = el && el.querySelector('img, video');
+    if (!m) return;
+    m.addEventListener('error', function() {
+      if (m.parentNode !== el) return;   // already replaced by a later slide
+      console.warn('[LHC] background media would not load; projecting black instead');
+      el.innerHTML = '';
+      el._lcdBgSrc = null;
+      el.style.background = '#000';
+    });
+  }
+
   function _applyBgToDivEl(el, background) {
     if (!el) return;
     background = _lcdBgOrNull(background);
@@ -44505,6 +44623,7 @@ var WO = (function() {
         el.innerHTML = '<img src="' + imgSrc + '" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;">';
         el._lcdBgSrc = null;
         el.style.background = '#000';
+        _lcdBgBlackOnFail(el);
       }
     } else if (background.type === 'video') {
       var bgVid = savedBackgrounds.find(function(b) { return b.id === background.value; });
@@ -44514,6 +44633,7 @@ var WO = (function() {
         if (!_lcdReuseVideo(el, vidSrc)) {
           el.innerHTML = '<video src="' + vidSrc + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
           el._lcdBgSrc = vidSrc;
+          _lcdBgBlackOnFail(el);
           _kickVideo(el);
         }
       }
@@ -47374,6 +47494,17 @@ var WO = (function() {
       '    } else if (bg.type === "image") {' +
       '      bgEl.style.background = "url(" + bg.value + ") center/cover no-repeat";' +
       '      bgEl.innerHTML = "";' +
+      // background-image fires no error event, so the same url is probed with
+      // an Image(). data-bg guards against a slide that has moved on while
+      // the probe was out. A picture the projector cannot fetch would
+      // otherwise leave the wall showing nothing where a background should
+      // be, with no way to tell it from a black one.
+      '      bgEl.setAttribute("data-bg", bg.value);' +
+      '      (function(u) {' +
+      '        var p = new Image();' +
+      '        p.onerror = function() { if (bgEl.getAttribute("data-bg") === u) bgEl.style.background = "#000"; };' +
+      '        p.src = u;' +
+      '      })(bg.value);' +
       '    } else if (bg.type === "video") {' +
       '      bgEl.style.background = "#000";' +
       '      bgEl.innerHTML = "<video autoplay loop muted playsinline><source src=\\"" + bg.value + "\\" type=\\"video/mp4\\">Video not supported</video>";' +
@@ -66242,8 +66373,40 @@ var WO = (function() {
           _edAnnounceMine();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           _edSongReady = false;
+          _edScheduleRelock();
         }
       });
+  }
+
+  // Rebuild the lock channels after they drop. Backs off to a minute so a
+  // long outage does not hammer the socket, and resets once a channel is
+  // subscribed again.
+  var _edRelockTimer = null, _edRelockDelay = 5000;
+  function _edScheduleRelock() {
+    if (_edRelockTimer) return;
+    // Only an open order has locks worth holding, and opening one calls
+    // _edEnsureChannel anyway. Without this the deliberate teardown on close
+    // would leave a timer rebuilding nothing for ever.
+    if (!(currentOrderData && currentOrderData.id)) return;
+    _edRelockTimer = setTimeout(function() {
+      _edRelockTimer = null;
+      // CLOSED also fires when WE take a channel down -- switching order, for
+      // one -- and _edEnsureChannel has already built the new one by now. If
+      // both are up there is nothing to recover.
+      if (_edLockReady && _edSongReady) { _edRelockDelay = 5000; return; }
+      _edRelockDelay = Math.min(60000, _edRelockDelay * 2);
+      _edRebuildLockChannels();
+    }, _edRelockDelay);
+  }
+
+  function _edRebuildLockChannels() {
+    var sb = SBQ._sb();
+    if (!sb) return;
+    if (_edLockChannel) { try { sb.removeChannel(_edLockChannel); } catch (e) {} }
+    if (_edSongChannel) { try { sb.removeChannel(_edSongChannel); } catch (e) {} }
+    _edLockChannel = null; _edLockReady = false; _edLockOrderId = null;
+    _edSongChannel = null; _edSongReady = false;
+    _edEnsureChannel();
   }
 
   function _edEnsureChannel() {
@@ -66262,6 +66425,7 @@ var WO = (function() {
       .subscribe(function(status) {
         if (status === 'SUBSCRIBED') {
           _edLockReady = true;
+          _edRelockDelay = 5000;
           // Ask who already holds what, and re-assert anything we hold, so a
           // client that joins mid-edit sees the locks instead of walking into
           // one. Both directions matter: we may also be the one rejoining.
@@ -66269,6 +66433,7 @@ var WO = (function() {
           _edAnnounceMine();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           _edLockReady = false;
+          _edScheduleRelock();
         }
       });
 
@@ -109621,7 +109786,10 @@ function filterLiturgyItems() {
   .wo-order-more-wrap { position: relative; }
   .wo-order-more-btn { background: #f4f5fb; color: #4a5568; border: 1px solid #e2e8f0; }
   .wo-order-more-btn:hover { background: #eef1f8; transform: none; }
-  .wo-order-more-menu { position: absolute; top: calc(100% + 6px); right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14); min-width: 168px; z-index: 40; overflow: hidden; }
+  /* 200px, not 168: measured at the operator own 1158px screen, "Download for
+     Sunday" wrapped to two lines in a 168px menu and stood 59px tall beside
+     three 39px rows. Every entry fits on one line at 200. */
+  .wo-order-more-menu { position: absolute; top: calc(100% + 6px); right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14); min-width: 200px; z-index: 40; overflow: hidden; }
   .wo-order-more-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 14px; border: none; background: none; text-align: left; font-size: .82rem; color: #334155; cursor: pointer; font-family: 'Poppins',sans-serif; }
   .wo-order-more-menu button:hover { background: #f4f5fb; }
   .wo-order-more-menu button.danger { color: #dc2626; }
@@ -128461,14 +128629,35 @@ window.LHC_Install = (function() {
     // manifest.json is served as a real file from /manifest.json (Vercel static)
     // — share_target and shortcuts are registered there.
 
-    // Offline / online indicator
+    // Offline indicator.
+    //
+    // It used to say "showing last loaded data" off navigator.onLine. Both
+    // halves were wrong: there was no store of any kind behind the app, so on
+    // a cold load that sentence sat over an empty screen; and onLine reports
+    // true on a network whose uplink is dead, which is the failure the church
+    // actually has. It now reads LHC_Net -- what happened to the last read --
+    // and says which of the two situations it is.
+    //
+    // z-index 9998, under the presenter overlay's 10000, so it cannot appear
+    // on a screen the congregation can see.
     var offDiv = document.createElement('div');
     offDiv.id = 'lhcOfflineBanner';
-    offDiv.innerHTML = '<i class="fa-solid fa-wifi-slash"></i> You\'re offline — showing last loaded data';
     document.body.insertBefore(offDiv, document.body.firstChild);
-    function _syncOnline() { offDiv.classList.toggle('show', !navigator.onLine); }
+    function _offText() {
+      var ready = window.LHC_Offline && LHC_Offline.readyHere();
+      return '<i class="fa-solid fa-wifi-slash"></i> '
+        + (ready
+            ? 'Offline — running from the copy of this service you downloaded. Changes cannot be saved.'
+            : 'Offline — cannot reach the database. Nothing new will load and changes cannot be saved.');
+    }
+    function _syncOnline() {
+      var off = window.LHC_Net ? LHC_Net.offline() : !navigator.onLine;
+      if (off) offDiv.innerHTML = _offText();
+      offDiv.classList.toggle('show', !!off);
+    }
     window.addEventListener('online',  _syncOnline);
     window.addEventListener('offline', _syncOnline);
+    window.addEventListener('lhc:net', _syncOnline);
     _syncOnline();
 
     // Chrome / Edge A2HS prompt — intercept and surface it nicely
@@ -128513,6 +128702,406 @@ window.LHC_Install = (function() {
   }
 
   return { init: init, dismiss: dismiss, dismissPermanent: dismissPermanent };
+})();
+</script>
+
+<!-- ==================== OFFLINE: SERVICE WORKER + DOWNLOAD ==================== -->
+<script>
+/* The church runs the service from this app, and until this module there was
+   no service worker at all: a dropped connection mid-service left the operator
+   one refresh away from a blank screen. "/" is a dynamic Next route with no
+   Cache-Control, and the page cannot paint without four third-party resources.
+
+   Offline is READ-ONLY, deliberately. SBQ.saveOrder is not an idempotent
+   patch -- it upserts the payload and then prunes every row the payload does
+   not contain -- and its three safety rails (_knownItems, _lastWritten,
+   allowClearTypes) live in page memory and are derived from what this screen
+   has drawn. A queued payload replayed later is detached from all three, so it
+   would re-assert deletion authority this client no longer has: the 9:58
+   snapshot deleting the four slides somebody added at 10:04. So a write
+   offline fails and says so, and is never stored to be sent later. */
+window.LHC_Offline = (function () {
+  'use strict';
+
+  var STORE = 'lhc_offline_ready';
+  var _reg = null;
+  var _here = null;          // the order on screen, set by openOrderInEditor
+  var _busy = false;
+
+  /* ---------------------------------------------------------------- *
+   * Which URLs does a service need?
+   *
+   * PURE, and exported, so tools/offline-service-worker-harness.js can run it.
+   * It walks the loaded JSON rather than naming fields on purpose: slide
+   * backgrounds, sermon page images, inbox files, song attachments and
+   * recordings all hold their Storage addresses in different shapes, those
+   * shapes move, and a field this missed would be a picture that is simply
+   * absent from the wall on a Sunday. A walk cannot go stale that way.
+   * ---------------------------------------------------------------- */
+  function urlsIn(root, want) {
+    var out = [], seen = {}, RE = /https?:\/\/[^\s"'<>)\\]+/g;
+    var need = want || '/storage/v1/object/public/';
+    function take(s) {
+      var m = s.match(RE);
+      if (!m) return;
+      for (var i = 0; i < m.length; i++) {
+        /* A url read out of prose or JSON often carries the punctuation that
+           followed it. */
+        var u = m[i].replace(/[.,;:!?]+$/, '');
+        if (u.indexOf(need) === -1) continue;
+        if (!seen[u]) { seen[u] = 1; out.push(u); }
+      }
+    }
+    function walk(v, depth) {
+      if (v == null || depth > 14) return;
+      var t = typeof v;
+      if (t === 'string') { take(v); return; }
+      if (t !== 'object') return;
+      if (Array.isArray(v)) {
+        for (var i = 0; i < v.length; i++) walk(v[i], depth + 1);
+        return;
+      }
+      for (var k in v) if (Object.prototype.hasOwnProperty.call(v, k)) walk(v[k], depth + 1);
+    }
+    walk(root, 0);
+    return out;
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Registration
+   * ---------------------------------------------------------------- */
+  function register() {
+    /* The Phone view is a second copy of this page whose whole point is that
+       it writes nothing (gotcha 33). It must not install a worker either: the
+       worker is shared per origin, and a copy racing the desk to register it
+       is a copy changing the desk's state. */
+    if (window.__SBM_PREVIEW) return Promise.resolve(null);
+    if (!('serviceWorker' in navigator)) return Promise.resolve(null);
+    /* A worker needs a secure context: https, or localhost for development. */
+    if (!window.isSecureContext) return Promise.resolve(null);
+    return navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then(function (r) {
+        _reg = r;
+        return r;
+      })
+      .catch(function (e) {
+        console.warn('[LHC] offline worker did not register:', e && e.message);
+        return null;
+      });
+  }
+
+  function ready() {
+    return !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+  }
+
+  /* One round trip to the worker over its own port, so a reply cannot be
+     confused with somebody else's. */
+  function _ask(msg, onPart) {
+    var sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw) return Promise.reject(new Error('offline worker not running yet'));
+    return new Promise(function (resolve, reject) {
+      var ch = new MessageChannel();
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        reject(new Error('the offline worker did not answer'));
+      }, 10 * 60 * 1000);
+      ch.port1.onmessage = function (e) {
+        var d = e.data || {};
+        /* Progress messages keep arriving on the same port; only the final
+           one settles it. */
+        if (!d.done && !d.cleared && !d.build) { if (onPart) onPart(d); return; }
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(d);
+      };
+      try { sw.postMessage(msg, [ch.port2]); }
+      catch (e) { clearTimeout(timer); reject(e); }
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
+   * What is downloaded, per order
+   * ---------------------------------------------------------------- */
+  function _store() {
+    try { return JSON.parse(localStorage.getItem(STORE) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+  function _saveStore(m) {
+    try { localStorage.setItem(STORE, JSON.stringify(m)); } catch (e) {}
+  }
+  function readyFor(orderId) {
+    if (!orderId) return null;
+    return _store()[orderId] || null;
+  }
+  function here(orderId) { _here = orderId || null; }
+  function readyHere() { return !!(_here && readyFor(_here)); }
+  function forget(orderId) {
+    var m = _store();
+    delete m[orderId];
+    _saveStore(m);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * The download
+   *
+   * It REPLAYS THE APP'S OWN READS rather than building URLs by hand. The
+   * worker caches each REST GET as it passes, so what is stored is keyed
+   * exactly as the live request will ask for it -- the download and the
+   * service can never disagree about where something lives. The two reads
+   * that live inside modules (song_marks, song_recordings) are reproduced
+   * query for query, for the same reason.
+   * ---------------------------------------------------------------- */
+  function download(orderId, title, onStep) {
+    if (!orderId) return Promise.reject(new Error('no order'));
+    if (_busy) return Promise.reject(new Error('a download is already running'));
+    if (!ready()) {
+      return register().then(function () {
+        throw new Error('The offline store is still starting up. Try again in a moment.');
+      });
+    }
+    _busy = true;
+    var sup = window._supabase;
+    var seen = {}, media = [], notes = [];
+    var step = function (msg) { if (onStep) onStep({ note: msg }); };
+
+    function collect(x) {
+      urlsIn(x).forEach(function (u) { if (!seen[u]) { seen[u] = 1; media.push(u); } });
+    }
+
+    step('Reading the order');
+    return SBQ.loadOrder(orderId).then(function (res) {
+      collect(res);
+      var songIds = {};
+      (res.items || []).forEach(function (it) {
+        if (it.itemType !== 'song') return;
+        /* MEASURED on a real order rather than assumed: a stored song row's
+           own id is `wo-song-<ts>-<rand>` and neither `content` nor
+           `customizations` carries the song at all -- the library id is
+           `sourceId`. Written the other way round first, the download fetched
+           no choir parts, no drawings and no takes for any song, and reported
+           "0 songs in this service" while looking like it had worked.
+           `songId` and the `--` split are the forms _sbBaseSongId reads, kept
+           for an item that reached here as a Songbook object. */
+        var sid = it.sourceId || it.songId || String(it.id || '').split('--')[0];
+        if (sid && String(sid).indexOf('song_') === 0) songIds[String(sid)] = 1;
+      });
+
+      step('Reading the slides and pictures');
+      var jobs = [
+        SBQ_PROJECTION.load(orderId).then(collect, function () { notes.push('projection versions'); }),
+        SBQ_PROJECTION.loadMedia(orderId).then(collect, function () { notes.push('projection pictures'); })
+      ];
+
+      step('Reading the song library');
+      jobs.push(SBQ_SONGS.getAll().then(collect, function () { notes.push('the song library'); }));
+
+      var ids = Object.keys(songIds);
+      step(ids.length + (ids.length === 1 ? ' song' : ' songs') + ' in this service');
+      ids.forEach(function (sid) {
+        jobs.push(SBQ_VOICE_LINES.forSong(sid).then(collect, function () {}));
+        if (!sup) return;
+        /* Exactly the query _sbmLoadMarks makes, so the cached response is
+           the one the reading view will ask for. */
+        jobs.push(sup.from('song_marks').select('*').eq('song_id', sid)
+          .order('created_at').then(function () {}, function () {}));
+        /* ...and the one lhcVoiceRec.load makes. The ROWS only: a song's
+           practice takes run to tens of megabytes, and they are rehearsal,
+           not the service. Said out loud in the sheet rather than guessed at. */
+        jobs.push(sup.from('song_recordings').select('*').eq('song_id', sid)
+          .order('created_at', { ascending: true }).then(function () {}, function () {}));
+      });
+
+      return Promise.all(jobs);
+    }).then(function () {
+      if (!media.length) {
+        return { kept: 0, bytes: 0, failed: [] };
+      }
+      step(media.length + ' picture' + (media.length === 1 ? '' : 's') + ' and file'
+           + (media.length === 1 ? '' : 's'));
+      return _ask({ type: 'lhc-precache', urls: media }, function (p) {
+        if (onStep && p && p.total) onStep({ at: p.progress, of: p.total });
+      });
+    }).then(function (r) {
+      var rec = {
+        at: Date.now(),
+        title: title || '',
+        media: media.length,
+        kept: (r && r.kept) || 0,
+        bytes: (r && r.bytes) || 0,
+        missed: (r && r.failed && r.failed.length) || 0,
+        notes: notes
+      };
+      var m = _store();
+      m[orderId] = rec;
+      _saveStore(m);
+      _busy = false;
+      return rec;
+    }).catch(function (e) {
+      _busy = false;
+      throw e;
+    });
+  }
+
+  function clearAll() {
+    return _ask({ type: 'lhc-clear-offline' }).then(function () {
+      _saveStore({});
+      return true;
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
+   * The sheet
+   *
+   * Built in script with its own styles rather than added to the app's CSS:
+   * it is one small panel, and keeping it out of a 110,000-line stylesheet
+   * keeps it out of every cascade in there.
+   * ---------------------------------------------------------------- */
+  function _mb(n) {
+    if (!n) return '';
+    return n < 1024 * 1024 ? (Math.round(n / 1024) + ' KB')
+                           : ((n / 1048576).toFixed(1) + ' MB');
+  }
+  function _ago(ts) {
+    var s = Math.round((Date.now() - ts) / 1000);
+    if (s < 90) return 'just now';
+    if (s < 5400) return Math.round(s / 60) + ' min ago';
+    if (s < 172800) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' days ago';
+  }
+
+  function _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  var _sheet = null;
+  function close() {
+    if (_sheet && _sheet.parentNode) _sheet.parentNode.removeChild(_sheet);
+    _sheet = null;
+    document.removeEventListener('keydown', _onKey, true);
+  }
+  function _onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+
+  function open(orderId, title) {
+    close();
+    _sheet = document.createElement('div');
+    _sheet.id = 'lhcOfflineSheet';
+    _sheet.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(15,23,42,.55);' +
+      'display:flex;align-items:center;justify-content:center;padding:16px;';
+    _sheet.addEventListener('click', function (e) { if (e.target === _sheet) close(); });
+    document.body.appendChild(_sheet);
+    document.addEventListener('keydown', _onKey, true);
+    _draw(orderId, title);
+  }
+
+  function _draw(orderId, title, busyNote) {
+    if (!_sheet) return;
+    var rec = readyFor(orderId);
+    var state = rec
+      ? '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;padding:10px 12px;' +
+          'font-size:.84rem;color:#065f46;line-height:1.5;">' +
+          '<b><i class="fa-solid fa-circle-check"></i> Ready to run offline</b><br>' +
+          'Downloaded ' + _ago(rec.at) + ' &middot; ' + rec.kept + ' of ' + rec.media +
+          ' picture' + (rec.media === 1 ? '' : 's') + ' and file' + (rec.media === 1 ? '' : 's') +
+          (rec.bytes ? ' &middot; ' + _mb(rec.bytes) : '') +
+          (rec.missed ? '<br><span style="color:#b45309;">' + rec.missed +
+            ' could not be fetched.</span>' : '') +
+        '</div>'
+      : '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;' +
+          'font-size:.84rem;color:#9a3412;line-height:1.5;">' +
+          '<b><i class="fa-solid fa-triangle-exclamation"></i> Not downloaded</b><br>' +
+          'If the internet drops during this service, this order will not open.' +
+        '</div>';
+
+    var prog = busyNote
+      ? '<div style="font-size:.82rem;color:#475569;margin-top:10px;">' +
+          '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + _esc(busyNote) + '</div>'
+      : '';
+
+    _sheet.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:460px;width:100%;' +
+        'box-shadow:0 18px 50px rgba(15,23,42,.3);overflow:hidden;font-family:Lato,system-ui,sans-serif;">' +
+        '<div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">' +
+          '<i class="fa-solid fa-cloud-arrow-down" style="color:#4a6da7;"></i>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-weight:700;color:#1f2933;">Download for Sunday</div>' +
+            '<div style="font-size:.78rem;color:#64748b;overflow:hidden;text-overflow:ellipsis;' +
+              'white-space:nowrap;">' + _esc(title || orderId) + '</div>' +
+          '</div>' +
+          '<button onclick="LHC_Offline.close()" aria-label="Close" style="border:none;background:none;' +
+            'font-size:1.1rem;color:#94a3b8;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:16px 18px;">' +
+          state +
+          '<p style="font-size:.82rem;color:#475569;line-height:1.6;margin:12px 0 0;">' +
+            'Keeps this service on this device: the order, its slides and pictures, ' +
+            'the song library, the choir parts and the drawings. Then the app opens ' +
+            'and runs the service with no internet at all.' +
+          '</p>' +
+          '<p style="font-size:.76rem;color:#64748b;line-height:1.6;margin:8px 0 0;">' +
+            'Offline you can read and project, but nothing can be saved, and the other ' +
+            'devices will not see your changes until you are back on. Practice ' +
+            'recordings are not downloaded.' +
+          '</p>' +
+          prog +
+          '<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">' +
+            '<button id="lhcOffGo" style="flex:1;min-width:150px;background:#4a6da7;color:#fff;' +
+              'border:none;border-radius:9px;padding:11px 14px;font-weight:700;font-size:.88rem;' +
+              'cursor:pointer;">' +
+              '<i class="fa-solid fa-download"></i> ' + (rec ? 'Download again' : 'Download now') +
+            '</button>' +
+            (rec ? '<button id="lhcOffForget" style="background:#f1f5f9;color:#475569;border:none;' +
+              'border-radius:9px;padding:11px 14px;font-weight:600;font-size:.84rem;cursor:pointer;">' +
+              'Forget</button>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var go = _sheet.querySelector('#lhcOffGo');
+    if (go) go.onclick = function () { _run(orderId, title); };
+    var fg = _sheet.querySelector('#lhcOffForget');
+    if (fg) fg.onclick = function () { forget(orderId); _draw(orderId, title); };
+  }
+
+  function _run(orderId, title) {
+    _draw(orderId, title, 'Starting…');
+    download(orderId, title, function (p) {
+      if (!_sheet) return;
+      var note = p.note ? p.note
+        : (p.of ? ('Downloading ' + p.at + ' of ' + p.of) : 'Working…');
+      _draw(orderId, title, note);
+    }).then(function (rec) {
+      _draw(orderId, title);
+      if (typeof showToast === 'function') {
+        showToast('Ready to run offline' + (rec.bytes ? ' — ' + _mb(rec.bytes) : ''), 'success');
+      }
+    }).catch(function (e) {
+      _draw(orderId, title);
+      if (typeof showToast === 'function') {
+        showToast('Could not finish the download: ' + (e && e.message ? e.message : e), 'error');
+      } else {
+        console.error('[LHC] offline download failed', e);
+      }
+    });
+  }
+
+  return {
+    register: register,
+    ready: ready,
+    urlsIn: urlsIn,
+    readyFor: readyFor,
+    readyHere: readyHere,
+    here: here,
+    forget: forget,
+    clearAll: clearAll,
+    download: download,
+    open: open,
+    close: close
+  };
 })();
 </script>
 
