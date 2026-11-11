@@ -741,6 +741,39 @@ const CASES = [
   // printed the words "The theme verse" across the masthead.
   // ── A change reaching a projection already running ───────────────
   // Every one of these is a screen a congregation is looking at.
+  // Presenting from the overlay was not counted as being on air at all --
+  // measured: overlayShown true, fullscreenElement false, _lcdOnAir() false.
+  ['live-projection-harness.js', 'presenting from the overlay is not on air',
+    s => s.replace("    if (ovl && ovl.classList.contains('show')) return true;", '    if (false) return true;')],
+  ['live-projection-harness.js', 'the notice may cross a windowed presenter overlay',
+    s => s.replace("    if (povl && povl.classList.contains('show')) return true;", '    if (false) return true;')],
+  // The overlay reads DOM nodes captured when Project was pressed; the
+  // redraw replaces them, so without a repaint it shows the old words.
+  ['live-projection-harness.js', 'the overlay is left on the nodes it captured',
+    s => s.replace('    if (_wofsRefresh()) return true;\r\n', '')],
+  ['live-projection-harness.js', 'the repaint comes after the already-projected shortcut',
+    s => s.replace('    if (_wofsRefresh()) return true;\r\n', '')
+          .replace('    _lcdProjected = text;\r\n    updateProjectionPreview',
+                   '    _lcdProjected = text;\r\n    if (_wofsRefresh()) return true;\r\n    updateProjectionPreview')],
+  ['live-projection-harness.js', 'the overlay is repainted even while it is closed',
+    s => s.replace("    if (!overlay || !overlay.classList.contains('show')) return false;", '    if (!overlay) return false;')],
+  ['live-projection-harness.js', 'the rebuilt list is never put back',
+    s => s.replace('    _wofsSlides = rebuilt;\r\n', '')],
+  // Landing on the same index jumps the congregation when a slide above
+  // the one being shown was added or removed.
+  ['live-projection-harness.js', 'the overlay lands on the same index, not the same slide',
+    s => s.replace('    var at = wasKey ? _wofsKeys(rebuilt).indexOf(wasKey) : -1;', '    var at = -1;')],
+  ['live-projection-harness.js', 'the slide list is not rebuilt from the page at all',
+    s => s.replace('    var rebuilt = _buildWofsSlides();', '    var rebuilt = _wofsSlides;')],
+  // A key that cannot tell one slide of a song from the next finds the
+  // wrong one; a count that runs across the service never finds it again.
+  ['live-projection-harness.js', 'every slide of one item gets the same key',
+    s => s.replace("      return 'box:' + k + ':' + n;", "      return 'box:' + k;")],
+  ['live-projection-harness.js', 'the slide count runs across the whole service',
+    s => s.replace('      var n = seen[k] = (seen[k] || 0) + 1;', '      var n = seen.__all = (seen.__all || 0) + 1;')],
+  ['live-projection-harness.js', 'a sermon slide forgets which page it is',
+    s => s.replace("      if (e.type === 'ppt') return 'ppt:' + (e.sectionId || '') + ':' + e.slideIndex;",
+                   "      if (e.type === 'ppt') return 'ppt:' + (e.sectionId || '');")],
   // The tick never ran at all: #worshipOrderView is position:fixed in Full
   // Screen, and offsetParent is null for a fixed element.
   ['live-projection-harness.js', 'the sync never runs during a projection at all',

@@ -35756,6 +35756,8 @@ var WO = (function() {
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
+    wofsKeys: function(l) { return _wofsKeys(l); },
+    wofsRefresh: function() { return _wofsRefresh(); },
     rememberLive: function() { return _orderSyncRememberLive(); },
     restoreLive: function(m) { return _orderSyncRestoreLive(m); },
     slidesOf: function(k) { return _orderSyncSlidesOf(k).length; },
@@ -36057,6 +36059,12 @@ var WO = (function() {
     if (document.fullscreenElement) return true;
     var fs = document.getElementById('sbFsOverlay');
     if (fs && fs.style.display && fs.style.display !== 'none') return true;
+    // The LCD's presenter overlay, which may be showing with no browser
+    // fullscreen at all (gotcha 75). This is the one place the notice must
+    // never appear, so it asks about the overlay rather than about the
+    // browser's opinion of it.
+    var povl = document.getElementById('woFullscreenOverlay');
+    if (povl && povl.classList.contains('show')) return true;
     return false;
   }
 
@@ -89378,8 +89386,15 @@ var WO = (function() {
       if (typeof projectionWindow !== 'undefined' && projectionWindow && !projectionWindow.closed) return true;
     } catch (e) { /* a closed cross-origin window throws */ }
     if (document.fullscreenElement) return true;
-    var fs = document.getElementById('sbFsOverlay');
-    if (fs && fs.style.display && fs.style.display !== 'none') return true;
+    // The LCD's OWN presenter overlay. This used to test #sbFsOverlay, which
+    // is the Songbook's book mode -- somebody reading a song, not a
+    // congregation reading a wall -- so presenting was not counted as being
+    // on air at all. It counts even windowed: with one screen, or with window
+    // management not granted, Project falls back to this overlay (gotcha 75),
+    // and a browser that then refuses fullscreen leaves the operator
+    // presenting from it with no document.fullscreenElement to find.
+    var ovl = document.getElementById('woFullscreenOverlay');
+    if (ovl && ovl.classList.contains('show')) return true;
     return false;
   }
 
@@ -89389,6 +89404,12 @@ var WO = (function() {
   // congregation at once rather than waiting to be advanced past.
   function _lcdReproject() {
     if (!_lcdOnAir()) return false;
+    // The presenter overlay keeps its own copy of the slides, so it is
+    // repainted through its own path -- which ends in selectSlideBox and so
+    // sends the projection window the new words too. FIRST, because the
+    // restore below has already moved _lcdProjected on and the text
+    // comparison at the end of this function would return early.
+    if (_wofsRefresh()) return true;
     var sel = document.querySelector('.wo-slide-box.selected');
     if (!sel) return false;
     var content = sel.querySelector('.wo-slide-content');
@@ -92328,6 +92349,50 @@ var WO = (function() {
     // Mirror to the side preview panel and projection window
     selectSlideBox(box);
     _wofsRenderFilmstrip();
+  }
+
+  // What each entry in a fullscreen slide list IS, as a string, so the one
+  // being shown can be found again in a list rebuilt from new nodes. The
+  // INDEX cannot carry that: a change from another device may add or remove
+  // slides above it. A song or liturgy slide is its item plus its place among
+  // that item's slides -- the same pair _orderSyncRememberLive uses, for the
+  // same reason (a reading's slides carry no data-slide-idx, gotcha 60).
+  // Pure: a list in, a list of strings out.
+  function _wofsKeys(list) {
+    var seen = {};
+    return (list || []).map(function(e) {
+      if (!e) return '';
+      if (e.type === 'ppt') return 'ppt:' + (e.sectionId || '') + ':' + e.slideIndex;
+      if (e.nodeType === 1 && e.classList && e.classList.contains('wo-ppt-slide')) {
+        return 'ppt:' + (e.getAttribute('data-section') || '') + ':' +
+               e.getAttribute('data-ppt-idx');
+      }
+      var k = (e.getAttribute && (e.getAttribute('data-song-id') ||
+                                  e.getAttribute('data-liturgy-id'))) || '';
+      var n = seen[k] = (seen[k] || 0) + 1;
+      return 'box:' + k + ':' + n;
+    });
+  }
+
+  // Put the operator's own screen -- and the wall it feeds -- back in step
+  // with the schedule. _wofsSlides is a list of DOM NODES taken when Project
+  // was pressed; applying a change from another device replaces those nodes,
+  // so the overlay was left reading detached markup with the old words on it,
+  // and no path repainted it. That is the "exit the projection and refresh"
+  // the operator described.
+  function _wofsRefresh() {
+    var overlay = $('woFullscreenOverlay');
+    if (!overlay || !overlay.classList.contains('show')) return false;
+    var wasKey = _wofsKeys(_wofsSlides)[_wofsIdx] || '';
+    var rebuilt = _buildWofsSlides();
+    if (!rebuilt.length) return false;
+    _wofsSlides = rebuilt;
+    var at = wasKey ? _wofsKeys(rebuilt).indexOf(wasKey) : -1;
+    // The slide itself is gone: hold the place rather than throwing the
+    // congregation back to the top of the service.
+    _wofsIdx = at >= 0 ? at : Math.min(_wofsIdx, rebuilt.length - 1);
+    _wofsRender();
+    return true;
   }
 
   function wofsNext() {
