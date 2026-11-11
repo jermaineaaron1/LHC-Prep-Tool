@@ -191,6 +191,28 @@ const rosterStat = fn('_homeRosterStat') || '';
 check('  three and three where auto-fit would orphan the last card', /@media \(min-width: 901px\) and \(max-width: 1310px\) \{\r?\n\s*\.home-nav-grid \{ grid-template-columns: repeat\(3, 1fr\); \}/.test(SRC));
 check('  the count drops "this month", which the page around it says', /' service' \+ \(dateCount !== 1 \? 's' : ''\);/.test(rosterStat) && !/this month/.test(rosterStat));
 
+console.log('\na thin lit edge on every card');
+const EDGE_CARDS = ['songs', 'roster', 'orders', 'liturgy', 'practice', 'bulletin'];
+const edgeRe = k => new RegExp('\\.home-nav-' + k + '\\s*\\{ --nav-edge: rgba\\(');
+// Six cards, six edges. One without falls back to the grey default and
+// stops saying which card it is.
+check('every card sets an edge of its own', EDGE_CARDS.every(k => edgeRe(k).test(SRC)),
+  'no --nav-edge for: ' + EDGE_CARDS.filter(k => !edgeRe(k).test(SRC)).join(', '));
+const navCardRule = (SRC.match(/\r?\n    \.home-nav-card \{[\s\S]*?\r?\n    \}/) || [''])[0];
+check('  the border reads it, and the 4%-of-black one is gone from THIS rule',
+  /border: 1px solid var\(--nav-edge, /.test(navCardRule) &&
+  !/border: 1px solid rgba\(/.test(navCardRule), 'card rule: ' + (navCardRule ? navCardRule.length + ' chars' : 'NOT FOUND'));
+check('  a lit ring just inside it, at rest',
+  /box-shadow: inset 0 0 0 1px rgba\(255,255,255,0\.6\)/.test(SRC));
+// The SECOND :hover rule is !important and later, so it is the one that
+// paints. Miss it and the bevel blinks off under the pointer.
+check('  and in BOTH :hover rules, not just the first',
+  (SRC.match(/\.home-nav-card:hover \{\r?\n\s*transform:[^}]*?box-shadow: inset 0 0 0 1px rgba\(255,255,255,0\.75\)/g) || []).length === 2);
+// It had no rule of any kind: no tint, no icon colour, white among five.
+check('  Sunday Bulletin, which had no rule at all, has a tint and an icon colour',
+  /\.home-nav-bulletin \{ background: linear-gradient\(/.test(SRC) &&
+  /\.home-nav-bulletin \.home-nav-icon \{ color: #475569;/.test(SRC));
+
 console.log('\nthe roster count and the room around');
 check('the Roster card counts what Upcoming Services reads, not the retired Apps Script',
   /HOME_STATE\.rosterCurrent = results\[0\] \|\| \[\];\r?\n\s*HOME_STATE\.rosterNext = results\[1\] \|\| \[\];\r?\n\s*_homeRosterStat\(\);/.test(SRC));
