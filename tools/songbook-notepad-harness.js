@@ -182,11 +182,14 @@ check('a tap elsewhere keeps it; the bar\'s buttons keep the focus',
 check('the bar sits above a phone\'s keyboard', /vv\.offsetTop \+ vv\.height/.test(fn('_sbNpPlace')) && /addEventListener\('resize', _sbNpPlace\)/.test(fn('_sbNpBar')));
 
 console.log('\nWhere it starts');
-check('the song view: a Type chip beside Draw, on a card that shows chords',
-  /_sbmDrawChip\(\) \+ _sbmTypeChip\(noChords\) \+ _sbmLayersChip\(\)/.test(SRC) && /if \(noChords\) return '';/.test(fn('_sbmTypeChip')) &&
-  /onclick="WO\.sbmType\(\)"/.test(fn('_sbmTypeChip')) && has(/\n    sbmType: sbmType, sbNpNewLine: sbNpNewLine, sbNpSave: sbNpSave, sbNpCancel: sbNpCancel,\n/));
-check('...pressed again, it saves; in Lyrics view it says to show the chords first',
-  /if \(_sbNp\) \{ _sbNpEnd\(true\); return; \}/.test(fn('sbmType')) && /sbm-lyrics--nochords/.test(fn('sbmType')) && /_sbNpStart\(ly, song, 'view', null, null\)/.test(fn('sbmType')));
+// The song view's Type chip went on 2026-11-11 (gotcha 84): Edit is where it
+// was, and a double-tap on the words opens the editor there. Book Mode keeps
+// its notepad.
+check('the song view: no Type chip any more -- Edit beside Draw, where it was',
+  /_sbmDrawChip\(\) \+ _sbmEditChip\(\) \+ _sbmLayersChip\(\)/.test(SRC) && !/function _sbmTypeChip\(/.test(SRC) && !/function sbmType\(/.test(SRC) &&
+  has(/\n    sbNpNewLine: sbNpNewLine, sbNpSave: sbNpSave, sbNpCancel: sbNpCancel,\n/) && !/sbmType: sbmType/.test(SRC));
+check('...and Edit opens what the Edit tile opens',
+  /onclick="WO\.sbmEdit\(\)"/.test(fn('_sbmEditChip')) && /<i class="fa-solid fa-pen"><\/i>Edit<\/button>/.test(fn('_sbmEditChip')));
 check('Book Mode: holding the words opens the whole song, or says why not (two columns)',
   /_sbNpStart\(wrap, song, 'book', x, y\);/.test(fn('_sbBkHold')) && /two columns/.test(fn('_sbBkHold')) && /_sbBkHold\(line, x, y\);/.test(fn('_sbBkDown')));
 check('drawing keeps what was being typed first, and the line-transpose bar stands down while typing',

@@ -1180,8 +1180,8 @@ const CASES = [
   // Nothing is written until Save Lyrics; seeding must not become
   // overwriting.
   ['share-target-harness.js', 'shared words overwrite the song instead of opening in the editor',
-    s => s.replace("    var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');",
-                   "    var lyrics = s.customLyrics || s.lyrics || '';")],
+    s => s.replace("    var stored = given ? String(seed) : (s.customLyrics || s.lyrics || '');",
+                   "    var stored = s.customLyrics || s.lyrics || '';")],
   ['share-target-harness.js', 'the reader stops noting which song it shows',
     s => s.replace('    _sbmNoteLastSong(sid);\r\n', '')],
   // The book loads asynchronously; a fixed delay attaches to nothing on
@@ -2066,6 +2066,20 @@ const CASES = [
   // wherever its timeline was set, never past its end.
   ['songbook-reading-view-harness.js', 'a double-tap on the words does nothing',
     s => s.replace('    if (!modal || !root) return;\r\n    _sbmDblBind(root);\r\n', '    if (!modal || !root) return;\r\n')],
+  // Hold to draw, double-tap to edit, the editor dressed as the songbook
+  // (2026-11-11, gotcha 84).
+  ['songbook-hold-edit-harness.js', 'a double-click draws again instead of editing',
+    s => s.replace("var c = _sbmDblCard(e.target); if (c) _sbmDblEdit(e, c); });", "var c = _sbmDblCard(e.target); if (c) _sbmHoldDraw(); });")],
+  ['songbook-hold-edit-harness.js', 'the pen comes out after half a second, not two',
+    s => s.replace('var _SBM_HOLD_DRAW_MS = 2000, _SBM_HOLD_RING_MS = 450;', 'var _SBM_HOLD_DRAW_MS = 500, _SBM_HOLD_RING_MS = 450;')],
+  ['songbook-hold-edit-harness.js', 'a finger let go before the pen picks no line',
+    s => s.replace('if (up && H.ringOn && H.pick) return _sbmXpPick(H.card, H.target);', 'if (false) return _sbmXpPick(H.card, H.target);')],
+  ['songbook-hold-edit-harness.js', 'a save stores the chords in the key they were shown in',
+    s => s.replace("if (O && O.steps) lyrics = _sbNpMap(O.shown, O.stored, String(lyrics == null ? '' : lyrics).split('\\n'), O.steps).join('\\n');", '')],
+  ['songbook-hold-edit-harness.js', 'the Songbook\'s editor looks like the song form\'s',
+    s => s.replace("    modal.classList.add('lyrics-editor-modal--sb');\r\n", '')],
+  ['songbook-hold-edit-harness.js', 'a double-tap opens the editor at its top, not the line tapped',
+    s => s.replace('      if (at && at.line != null) _sbLyrGoTo(richEditor, _sbLyrLineFor(given ? null : _sbmLinesOf(s), storedLines, at.line), at.col || 0);\r\n', '')],
   ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
     s => s.replace("if (window.lhcVoiceEdit && !page.closest('#sbmRoot')) {", 'if (window.lhcVoiceEdit) {')],
   ['songbook-reading-view-harness.js', 'a time set while paused is forgotten when the take plays',

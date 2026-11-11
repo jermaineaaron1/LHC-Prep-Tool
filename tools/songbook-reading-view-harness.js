@@ -309,24 +309,26 @@ check('the slider is big enough for a finger', has(/\.sbm-player__range \{[^}]*h
 console.log('\nThe choir score, without the key above it');
 check('no "Sing together / Waiting" key: the badge on each moment says it', !has(/_sbmTogetherKey/) && !has(/sbm-together-key/));
 
-console.log('\nA double-tap on the words draws');
-const bind = fn('_sbmDblBind'), dbl = fn('_sbmDblDraw'), card = fn('_sbmDblCard');
+// It drew until 2026-11-11; now it edits, and a 2-second hold draws
+// (gotcha 84, tools/songbook-hold-edit-harness.js).
+console.log('\nA double-tap on the words edits them, where they were tapped');
+const bind = fn('_sbmDblBind'), dbl = fn('_sbmDblEdit'), card = fn('_sbmDblCard');
 check('bound once on the song view, at every render', has(/if \(!modal \|\| !root\) return;\r?\n\s*_sbmDblBind\(root\);/) && /root\.__sbmDbl = true;/.test(bind));
 check('a double-click, or two taps close in time and place on a phone',
-  /root\.addEventListener\('dblclick', function\(e\) \{ var c = _sbmDblCard\(e\.target\); if \(c\) _sbmDblDraw\(e\); \}\);/.test(bind) &&
-  /if \(T && now - T\.at < 350 && Math\.hypot\(e\.clientX - T\.x, e\.clientY - T\.y\) < 32\) \{ _sbmTap = null; _sbmDblDraw\(e\); \}/.test(bind) &&
-  /e\.pointerType !== 'touch' \|\| !d \|\| d\.moved \|\| Date\.now\(\) - d\.at > 400 \|\| _sbmDraw \|\| _sbNp/.test(bind));
+  /root\.addEventListener\('dblclick', function\(e\) \{ var c = _sbmDblCard\(e\.target\); if \(c\) _sbmDblEdit\(e, c\); \}\);/.test(bind) &&
+  /if \(T && now - T\.at < 350 && Math\.hypot\(e\.clientX - T\.x, e\.clientY - T\.y\) < 32\) \{ _sbmTap = null; _sbmDblEdit\(e, _sbmDblCard\(e\.target\)\); \}/.test(bind) &&
+  /if \(held \|\| e\.pointerType !== 'touch' \|\| !d \|\| d\.moved \|\| Date\.now\(\) - d\.at > 400 \|\| _sbmDraw \|\| _sbNp/.test(bind));
 check('anywhere on a card of words, but not its chips, a button, a field or an instrument strip',
   /t\.closest\('button, a, input, textarea, select, label, \[contenteditable="true"\], \.sbm-label, \.sbm-inst, \.sbm-xpsel'\)/.test(card) &&
   /return \(card && card\.querySelector\('\.sbm-lyrics, \.sbm-score'\)\) \? card : null;/.test(card));
-check('the pen comes out once, however the double-tap arrives, and not over typing',
-  /if \(_sbmDraw \|\| _sbNp \|\| Date\.now\(\) - _sbmDblAt < 600\) return;/.test(dbl) && /if \(!_sbmDraw\) sbmDraw\(true\);/.test(dbl));
+check('the editor opens once, however the double-tap arrives, and not over drawing or typing -- at the line tapped',
+  /if \(!card \|\| _sbmDraw \|\| _sbNp \|\| Date\.now\(\) - _sbmDblAt < 600\) return;/.test(dbl) && /sbmEdit\(_sbmTapLine\(card, e\)\);/.test(dbl));
 check('the song view no longer edits a choir line where it sits; the printed pages still do',
   has(/if \(window\.lhcVoiceEdit && !page\.closest\('#sbmRoot'\)\) \{/));
 check('...so it no longer offers "+ chords" there, and two taps are not a zoom',
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-chord-hint \{ display: none; \}/) && has(/#sbmRoot \.sbm-card \{ touch-action: manipulation; \}/) &&
   !has(/for the double-click that changes the part \*\//));
-check('the Draw chip says so', has(/a ring, an arrow, a breath mark\. Or double-tap the words\. /));
+check('the Draw chip says how else to draw', has(/a ring, an arrow, a breath mark\. Or hold the words for 2 seconds\. /));
 
 // ---------------------------------------------- the third pass, same day
 // One row of tiles with More at its end; More's icons in colour, with Links

@@ -179,7 +179,7 @@ function fakeDb(marks, songRow) {
     /if \(opened != null && _sbNormWords\(song\.customLyrics \|\| ''\) !== opened\) \{/.test(saveLy) &&
     /if \(opened == null \|\| !mine \|\| !mine\.lapsed \|\| !sup\) \{ commit\(\); return true; \}/.test(saveLy) &&
     /from\('order_items'\)\.select\('customizations'\)\.eq\('id', sid\)/.test(saveLy) &&
-    has(/_sbLyrOpened = \{ sid: sid, words: _sbNormWords\(s\.customLyrics \|\| ''\) \};/));
+    has(/_sbLyrOpened = \{ sid: sid, words: _sbNormWords\(s\.customLyrics \|\| ''\)(, steps: steps, shown: shownLines, stored: storedLines)? \};/));
 
   console.log('\nS7  the transpose bar\'s Undo undoes only its own change');
   check('words changed since its last move are not undone, and it says so',

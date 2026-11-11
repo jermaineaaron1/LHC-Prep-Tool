@@ -129,9 +129,12 @@ check('the reader notes the song it is showing',
   /_sbmNoteLastSong\(sid\);/.test(raw), true);
 // Nothing is written until Save Lyrics, so a share of words can be
 // looked at beside the song's own and thrown away.
+// Since 2026-11-11 the editor shows a song's own words in the key sung
+// (gotcha 84); words handed in are shown as they came, never moved.
 check('shared words open the editor, they do not overwrite',
-  /var lyrics = \(seed && String\(seed\)\.trim\(\)\) \? String\(seed\) : \(s\.customLyrics \|\| s\.lyrics \|\| ''\);/
-    .test(raw), true);
+  /var given = !!\(seed && String\(seed\)\.trim\(\)\);/.test(raw) &&
+  /var stored = given \? String\(seed\) : \(s\.customLyrics \|\| s\.lyrics \|\| ''\);/.test(raw) &&
+  /var steps = given \? 0 : _sbmStepsOf\(s\);/.test(raw), true);
 const attach = extract(/^  function sbmShareAttach\(/, 'sbmShareAttach');
 // The book loads asynchronously; a fixed delay would attach to nothing
 // on a slow connection and say it had worked.

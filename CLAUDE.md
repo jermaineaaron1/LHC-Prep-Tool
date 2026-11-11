@@ -276,8 +276,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      picker sits where Reset Layout was, gotcha 74), and so is
      the notice under a song sung twice. A gold floater at the foot of the
      screen points to the words while they are out of sight below and goes
-     once you are there; a double-tap (or double-click) anywhere on the
-     words draws; and Practice Tracks' timeline is dragged to any point of a
+     once you are there; holding the words for 2 seconds draws, and a
+     double-tap (or double-click) opens the editor at the line tapped
+     (gotcha 84); and Practice Tracks' timeline is dragged to any point of a
      take, with ten seconds back and on (gotcha 69). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
      moments, a part's label only where that part takes over, and a purple
@@ -346,10 +347,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
      the arrangement: every line with who sings it ("Women:", "Melody:",
      "Vocals 2:" -- typed labels are recognised), its chords over it in the
      key sung, the lines sung at once on a purple bar, and Sing together /
-     Take turns on the bar for the lines highlighted (gotcha 67). **Type** (a chip beside Draw on the
-     lyrics card, `sbmType`) does the same in the song view: type straight
-     onto the words and chords, Enter saves, Shift+Enter or the bar's New
-     line starts a line, Esc puts it back (gotcha 65) -- no Edit window.
+     Take turns on the bar for the lines highlighted (gotcha 67). The song
+     view's **Type** chip went on 2026-11-11: **Edit** is in its place beside
+     Draw, and the Songbook's Lyrics & Chords editor is dressed as the
+     songbook -- the same white card, gold section tags, teal chords over
+     black words, in the key sung -- and opens at the line double-tapped
+     (gotcha 84).
   3. **LCD Projection** -- the slides, drawn from the same data. The rail
      down the left is chunked: a heading row per song, liturgy item, reading
      and presentation, and under it a coloured heading wherever a part
@@ -2249,7 +2252,8 @@ the anon key -- verify as `postgres`, not as the app.
     floater says what to do: "Scroll down for lyrics / chords" ("...for
     lyrics" in the Lyrics view). The key above the choir score is gone; the
     badge on each such moment says it. **A double-tap anywhere on a card of
-    words draws** (`_sbmDblBind`, on `#sbmRoot` at every render; mouse
+    words draws** (until 2026-11-11: it now edits, and a 2-second hold
+    draws -- gotcha 84) (`_sbmDblBind`, on `#sbmRoot` at every render; mouse
     `dblclick`, or two touch taps within 350ms and 32px; `_sbmDblCard` is
     any `.sbm-card` holding `.sbm-lyrics, .sbm-score`, not its heading row
     of chips, a button, a field or an instrument strip; `_sbmDblDraw`
@@ -3028,6 +3032,70 @@ the anon key -- verify as `postgres`, not as the app.
       `text === _lcdProjected`), never a word that a comment may also use.
     `tools/live-projection-harness.js` checks it, running `_wofsKeys`
     itself rather than matching it.
+
+84. **The song view: hold the words to draw, double-tap them to edit, and
+    the editor looks like the song view.** From the operator (2026-11-11),
+    on a marked-up screenshot: "Hold 2 sec to draw", "Double tap to edit",
+    the Type chip crossed out for Edit, and then: "I want the edit pad to
+    appear and it will highlight and direct (scroll to the part) where the
+    user wants to edit", and the editing window to "look exactly like how
+    we see in the songbook but make it editable". Book Mode keeps its own
+    gestures -- a double-tap draws, holding types (asked: "Leave Book Mode
+    as is").
+    - **The gestures** are on `#sbmRoot` (`_sbmDblBind`), over any card of
+      words (`_sbmDblCard`). A press starts a hold (`_sbmHoldStart`): a ring
+      round the finger at `_SBM_HOLD_RING_MS` (450), the pen at
+      `_SBM_HOLD_DRAW_MS` (2000, `_sbmHoldFire` -> `_sbmHoldDraw` ->
+      `sbmDraw(true)`, "Who's drawing?" first as ever). Moving more than
+      10px lets it go (a scroll, or a mouse selecting). A hold that fired or
+      picked returns true from `_sbmHoldEnd`, so letting go is not counted
+      as a tap. A double-click, or two touch taps within 350ms and 32px,
+      calls `_sbmDblEdit`: a lyrics card -> `sbmEdit(_sbmTapLine(...))`, the
+      line by its block's `l:<i>` anchor and the column by
+      `caretRangeFromPoint`; the choir score -> `sbmEditParts(anchor)`, the
+      moment's `s:` anchor; a medley's following card -> that song's editor.
+    - **A touch screen gives up the phone's own long-press selection on the
+      words** (`user-select: none` and `-webkit-touch-callout: none` under
+      `(hover: none) and (pointer: coarse)`). A phone takes a held finger
+      over after about half a second to select text, and a 2-second hold
+      could not be timed while it did. "Move only these lines" (the
+      `#sbmXpSel` bar) relied on that selection, so a finger held past the
+      ring and let go before the pen PICKS the line it is on
+      (`_sbmXpPick`: a chord line with its words, `_sbmXpPairOf`); a second
+      line held takes in the lines between (`_sbmXpPickJoin`), into the
+      bar's own state (`_sbmXp`). The hint over the key says so on a touch
+      screen (`_sbmTouchUI`). A mouse still drags to select.
+    - **Edit replaces Type** beside Draw (`_sbmEditChip` -> `WO.sbmEdit()`).
+      `sbmType` and its chip are gone; the notepad engine stays for Book
+      Mode (gotcha 65).
+    - **The editor from the Songbook** (`sbOpenLyricsEditor`, the song
+      form's editor borrowed) gets `lyrics-editor-modal--sb`: a white card,
+      each section its gold tag (`#d4a853` border, `#7f5d20`, Georgia,
+      uppercase), chords `#04756f` bold over `#000` bold words, 18px (15px
+      on a phone), in the songbook's chord-grid face (`_sbmFontGrid()`), a
+      blank line a short gap (`editor-empty-line`, which
+      `onRichEditorInput` takes off a blank line typed into). The slide
+      preview and the font / size / B / I / U controls are hidden from it --
+      those controls only ever styled the hidden textarea. The song form's
+      editor is the plain one again (`openLyricsEditor` takes the class and
+      the face off). It shows the words **in the key sung**
+      (`_sbLyrShown`), says so in its title, and the save puts them back in
+      the copy's own key with the notepad's rule (`_sbNpMap` in
+      `sbSaveLyricsFromModal`): every line it showed as it was stored, a
+      chord line typed or changed moved back by the steps.
+    - **Opened at the line**: `_sbLyrLineFor` maps the card's line to the
+      editor's (the same index when the card has one block a line of the
+      words, else the same words nearest), and `_sbLyrGoTo` puts the cursor
+      there at the column, scrolls the line to the middle of the pad and
+      lights it with its chords or words (`lyr-hit`, about 3.5s). The choir
+      editor finds the moment in the lines it was BUILT from -- a song with
+      no parts yet is shown, and seeded, from its words, so stored rows
+      alone found nothing -- opens its section, scrolls to it and lights it
+      through its own markup (`ed.hit`), so a repaint keeps the light.
+    - Testing in the hidden browser pane: `elementFromPoint` lands on
+      `#sbmRoot`, so dispatch on the line element itself; and a hold left
+      running while a screenshot is taken reaches its 2 seconds.
+    `tools/songbook-hold-edit-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

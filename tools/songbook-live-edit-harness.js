@@ -149,7 +149,7 @@ if (lockSrc.every(Boolean)) {
 }
 check('the three whole-song editors take the song as they open',
   has(/\/\/ One editor at a time for a song: refused while somebody else has it\.\r?\n\s*if \(!_sbEditClaim\(s\)\) return;/) &&
-  has(/function sbmEditParts\(\) \{\r?\n\s*var song = _sbmSong\(\); if \(!song\) return;\r?\n\s*if \(!_sbEditClaim\(song\)\) return;/) &&
+  has(/function sbmEditParts\((?:anchor)?\) \{\r?\n\s*var song = _sbmSong\(\); if \(!song\) return;\r?\n\s*if \(!_sbEditClaim\(song\)\) return;/) &&
   has(/if \(!_sbEditClaim\(\{ songId: base, title: title \}\)\) return;/));
 check('...let it go as they close, or when they could not open',
   has(/var base = _sbmPad && _sbmPad\.o \? _sbmPad\.o\.base : '';\r?\n\s*_sbmPad = null;\r?\n\s*_sbEditRelease\(base\);/) &&
