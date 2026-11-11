@@ -741,6 +741,78 @@ const CASES = [
   // printed the words "The theme verse" across the masthead.
   // ── A change reaching a projection already running ───────────────
   // Every one of these is a screen a congregation is looking at.
+  // Every keystroke in the builder reaching a running projection is what
+  // the operator asked to stop: half a line in front of a congregation.
+  ['live-projection-harness.js', 'a half-written line reaches the wall again',
+    s => s.replace('      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n', '')],
+  ['live-projection-harness.js', 'the hold is asked only after the diff is worked out',
+    s => s.replace('      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n', '')
+          .replace('      var seen = _orderSyncSeen[oid];',
+                   '      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n      var seen = _orderSyncSeen[oid];')],
+  // A mark nobody comes back to would freeze the order for everybody.
+  ['live-projection-harness.js', 'a mark left behind holds the order for ever',
+    s => s.replace('    return (now - mark.at) < LBD_TYPING_HOLD;', '    return true;')],
+  ['live-projection-harness.js', 'the hold is cut to a couple of seconds',
+    s => s.replace('  var LBD_TYPING_HOLD = 180000;', '  var LBD_TYPING_HOLD = 2000;')],
+  ['live-projection-harness.js', 'our own typing holds our own screen',
+    s => s.replace('    if (mark.by && me && mark.by === me) return false;   // our own typing', '')],
+  // The mark has to be written by the save, or it goes stale while the
+  // typing is still going on and the words escape mid-sentence.
+  ['live-projection-harness.js', 'the mark is never stamped by a save',
+    s => s.replace('    _lbdMarkTyping();\r\n', '')],
+  ['live-projection-harness.js', 'the mark is never taken off again',
+    s => s.replace('    if (t.lbdTyping) delete t.lbdTyping;', '')],
+  // A section title is not the congregation's words.
+  ['live-projection-harness.js', 'a title or a search box counts as typing',
+    s => s.replace("    return f === 'slide' || f === 'content-text';", '    return !!f;')],
+  ['live-projection-harness.js', 'anything focused anywhere on the page counts',
+    s => s.replace('    if (!host || !ae || !host.contains(ae) || !ae.isContentEditable) return false;',
+                   '    if (!host || !ae) return false;')],
+  // Done has to save at once: until the save lands, every other screen is
+  // still holding the words back.
+  ['live-projection-harness.js', 'Done does not confirm anything',
+    s => s.replace('    if (_lbdWasTyping && !typingNow) { _lbdWasTyping = false; _lbdConfirmTyping(); }', '')],
+  ['live-projection-harness.js', 'leaving the words is decided by a different question',
+    s => s.replace('    var typingNow = _lbdTypingNow();', "    var typingNow = !!f;")],
+  ['live-projection-harness.js', 'the confirmed words wait out the autosave',
+    s => s.replace('    clearTimeout(_autoSaveTimer);\r\n    _autoSaveTimer = null;\r\n    saveCurrentOrder(true);',
+                   '    autoSaveOrder();')],
+  ['live-projection-harness.js', 'a songbook pseudo-order is saved as a service',
+    s => s.replace('    if (!currentOrderData || _sbStandaloneId) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;',
+                   '    if (!currentOrderData) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;')],
+  // The bug itself: the words changed everywhere except the one place a
+  // congregation reads them.
+  ['live-projection-harness.js', 'saving the words leaves the slides as they were',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });', '')],
+  ['live-projection-harness.js', 'the rebuild runs after the save that reads the DOM',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n', '')
+          .replace('    renderSongbookLive();\r\n  }\r\n  // The editor closed',
+                   '    refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n    renderSongbookLive();\r\n  }\r\n  // The editor closed')],
+  ['live-projection-harness.js', 'the wall is not sent the slide again',
+    s => s.replace("    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }", '')],
+  // song.lyrics here is the Songbook's own words, chords and all.
+  ['live-projection-harness.js', 'the rebuild takes the Songbook chords away',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });',
+                   '      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics));')],
+  ['live-projection-harness.js', 'keepLyrics is accepted and ignored',
+    s => s.replace('    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;', '    song.lyrics = newLyrics;')],
+  // A heading the operator typed is not the parser's to throw away.
+  ['live-projection-harness.js', 'a typed heading is lost on every re-split',
+    s => s.replace("               header: slide.header || was.header || '', background: was.background || '' };",
+                   "               header: slide.header || '', background: was.background || '' };")],
+  ['live-projection-harness.js', 'the slide background is lost with it',
+    s => s.replace("               header: slide.header || was.header || '', background: was.background || '' };",
+                   "               header: slide.header || was.header || '', background: '' };")],
+  // A chord line on the wall is sheet music in front of a congregation.
+  ['live-projection-harness.js', 'the chords go up with the words',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return true;')],
+  ['live-projection-harness.js', 'the blank lines go, and the slides break elsewhere',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !!line.trim() && !isChordLineGlobal(line);')],
+  // "Am" is also the word "am", and both of these are real lyrics.
+  ['live-projection-harness.js', 'a looser test eats "Am I not still the same"',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !line.trim() || !/^[A-G]/.test(line.trim());')],
+  ['live-projection-harness.js', 'with no detector the words are dropped instead of kept',
+    s => s.replace("    if (typeof isChordLineGlobal !== 'function') return lines.join('\\n');", '')],
   // Presenting from the overlay was not counted as being on air at all --
   // measured: overlayShown true, fullscreenElement false, _lcdOnAir() false.
   ['live-projection-harness.js', 'presenting from the overlay is not on air',
@@ -2067,7 +2139,7 @@ const CASES = [
   ['songbook-reading-view-harness.js', 'a double-tap on the words does nothing',
     s => s.replace('    if (!modal || !root) return;\r\n    _sbmDblBind(root);\r\n', '    if (!modal || !root) return;\r\n')],
   // Hold to draw, double-tap to edit, the editor dressed as the songbook
-  // (2026-11-11, gotcha 84).
+  // (2026-11-11, gotcha 86).
   ['songbook-hold-edit-harness.js', 'a double-click draws again instead of editing',
     s => s.replace("var c = _sbmDblCard(e.target); if (c) _sbmDblEdit(e, c); });", "var c = _sbmDblCard(e.target); if (c) _sbmHoldDraw(); });")],
   ['songbook-hold-edit-harness.js', 'the pen comes out after half a second, not two',

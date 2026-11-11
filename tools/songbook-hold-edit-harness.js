@@ -1,6 +1,6 @@
 'use strict';
 // Harness for the song view's hold-to-draw and double-tap-to-edit, and the
-// Songbook's editor dressed as the songbook (2026-11-11, CLAUDE.md gotcha 84).
+// Songbook's editor dressed as the songbook (2026-11-11, CLAUDE.md gotcha 86).
 // From the operator, on a marked-up screenshot: "Hold 2 sec to draw",
 // "Double tap to edit", the Type chip crossed out for Edit; the edit pad to
 // "highlight and direct (scroll to the part) where the user wants to edit";

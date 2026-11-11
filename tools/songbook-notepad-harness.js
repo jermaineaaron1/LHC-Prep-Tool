@@ -182,7 +182,7 @@ check('a tap elsewhere keeps it; the bar\'s buttons keep the focus',
 check('the bar sits above a phone\'s keyboard', /vv\.offsetTop \+ vv\.height/.test(fn('_sbNpPlace')) && /addEventListener\('resize', _sbNpPlace\)/.test(fn('_sbNpBar')));
 
 console.log('\nWhere it starts');
-// The song view's Type chip went on 2026-11-11 (gotcha 84): Edit is where it
+// The song view's Type chip went on 2026-11-11 (gotcha 86): Edit is where it
 // was, and a double-tap on the words opens the editor there. Book Mode keeps
 // its notepad.
 check('the song view: no Type chip any more -- Edit beside Draw, where it was',

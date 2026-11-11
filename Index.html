@@ -20723,7 +20723,7 @@ function openLyricsEditor(mode) {
   var textarea = document.getElementById('lyricsEditorTextarea');
   var richEditor = document.getElementById('lyricsRichEditor');
   // The Songbook dresses this editor as itself (sbOpenLyricsEditor, gotcha
-  // 84); the song form's is the plain one.
+  // 86); the song form's is the plain one.
   if (modal) modal.classList.remove('lyrics-editor-modal--sb');
   if (richEditor) richEditor.style.fontFamily = '';
   var lyrics = songData[mode].lyrics || '';
@@ -21001,7 +21001,7 @@ function onRichEditorInput() {
   var text = getPlainTextFromRichEditor();
   textarea.value = text;
   // A blank line typed into is a line of words now: the Songbook's look sets
-  // a blank line short, as a gap (gotcha 84), and the words must not be.
+  // a blank line short, as a gap (gotcha 86), and the words must not be.
   try {
     var _sel = window.getSelection(), _an = _sel && _sel.anchorNode;
     var _ln = _an && (_an.nodeType === 3 ? _an.parentNode : _an);
@@ -35789,6 +35789,10 @@ var WO = (function() {
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
+    typingHeld: function(m, me, now) { return _lbdTypingHeld(m, me, now); },
+    typingHold: function() { return LBD_TYPING_HOLD; },
+    markTyping: function() { return _lbdMarkTyping(); },
+    projectionWords: function(t) { return _sbProjectionWords(t); },
     wofsKeys: function(l) { return _wofsKeys(l); },
     wofsRefresh: function() { return _wofsRefresh(); },
     rememberLive: function() { return _orderSyncRememberLive(); },
@@ -35878,6 +35882,12 @@ var WO = (function() {
       _orderSyncBusy = false;
       if (!res || !res.items) return;
       if (!currentOrderData || currentOrderData.id !== oid) return;
+      // Somebody is typing in the Liturgy Builder on another device. Their
+      // words are saved, so nothing is lost; they are simply not finished.
+      // Before the diff, so there is no notice either, and the baseline stays
+      // where it was -- the next tick after Done sees the whole change at once.
+      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;
+
       var live = _orderSyncFingerprint(res.items);
 
       var seen = _orderSyncSeen[oid];
@@ -37024,6 +37034,13 @@ var WO = (function() {
         _domOwner, 'but currentOrderData is', currentOrderData.id);
       return;
     }
+
+    // Somebody is typing in the Liturgy Builder: say so in the order itself,
+    // so another device does not put a half-written line on the wall. Written
+    // HERE, from the live focus, rather than kept as state -- every save while
+    // the typing goes on stamps it afresh, so it needs no timer to stay alive
+    // and cannot be left behind. Taken off by the save that Done triggers.
+    _lbdMarkTyping();
 
     // Flush any open slide editor before collecting — editSlideBox replaces .wo-slide-line
     // elements with a textarea (content.innerHTML = ''), so collectOrderItems() would capture
@@ -52141,7 +52158,7 @@ var WO = (function() {
 
   // ---- the words: a double-tap edits them, a hold draws on them ----
   //
-  // From the operator (2026-11-11, gotcha 84), on a screenshot of the song
+  // From the operator (2026-11-11, gotcha 86), on a screenshot of the song
   // view: "Hold 2 sec to draw", "Double tap to edit", the Type chip crossed
   // out for Edit -- and the edit pad to "highlight and direct (scroll to the
   // part) where the user wants to edit". It was the other way round (a
@@ -55219,7 +55236,7 @@ var WO = (function() {
       if (slug && sel.querySelector('option[value="' + slug + '"]')) sel.value = slug;
     }
   }
-  // at: { line, col } -- a double-tap on the words (gotcha 84): the editor
+  // at: { line, col } -- a double-tap on the words (gotcha 86): the editor
   // opens there. The tile and the chip pass nothing.
   function sbmEdit(at) {
     var song = _sbmSong(); if (!song) return;
@@ -58733,7 +58750,7 @@ var WO = (function() {
   // The reading surface's entry: the song on screen. Full screen on a
   // phone; on a desk a dialog, with the textarea reachable on the printed
   // page, which is where it lives.
-  // anchor: the score's moment double-tapped ("s:Verse 1|3", gotcha 84) --
+  // anchor: the score's moment double-tapped ("s:Verse 1|3", gotcha 86) --
   // the editor opens at it.
   function sbmEditParts(anchor) {
     var song = _sbmSong(); if (!song) return;
@@ -68789,7 +68806,11 @@ var WO = (function() {
   }
 
   // Update Service Order slide boxes when songbook lyrics are edited
-  function refreshSongSlidesInOrder(songId, newLyrics) {
+  // opts.keepLyrics: build the slides from `newLyrics` but do not make them
+  // the song's words. The Songbook's editors keep chords in song.lyrics and
+  // project the same words with the chord lines dropped, so the two differ
+  // on purpose there and only there.
+  function refreshSongSlidesInOrder(songId, newLyrics, opts) {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
 
@@ -68799,12 +68820,17 @@ var WO = (function() {
     // uses the new lyrics even when the service section DOM isn't currently rendered
     // (e.g. when the Songbook is opened from the Song Order tab).
     var newSavedSlides = newSlides.map(function(slide, idx) {
-      var oldBg = ((song.savedSlides || [])[idx] || {}).background || '';
-      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: oldBg };
+      var was = (song.savedSlides || [])[idx] || {};
+      // The song's own [Verse 1] marker wins. Where the parse gives a slide no
+      // header, the one that was there is kept -- the operator may have typed
+      // it themselves (gotcha 73), and a re-split used to throw it away. Same
+      // rule, and the same by-position limit, as the background beside it.
+      return { index: idx, content: slide.lines.join('\n'),
+               header: slide.header || was.header || '', background: was.background || '' };
     });
     song.savedSlides = newSavedSlides;
     song.slides = newSavedSlides;
-    song.lyrics = newLyrics;
+    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;
     _lcdSyncEditorIfShowing(songId, newLyrics);
 
     // DOM update — only runs when the Service Order tab is currently visible
@@ -69206,7 +69232,7 @@ var WO = (function() {
     // compare with (sbSaveLyricsFromModal).
     var given = !!(seed && String(seed).trim());
     var stored = given ? String(seed) : (s.customLyrics || s.lyrics || '');
-    // Shown in the key it is SUNG in, as the song view shows it (gotcha 84):
+    // Shown in the key it is SUNG in, as the song view shows it (gotcha 86):
     // a double-tap on a D lands on a D. The save puts every line it showed
     // back as it was stored, and moves a chord line typed or changed back
     // into the copy's own key -- the notepad's rule (_sbNpMap).
@@ -69233,7 +69259,7 @@ var WO = (function() {
     if (typeof lyricsHistory !== 'undefined') { lyricsHistory = [lyrics]; lyricsHistoryIndex = 0; }
 
     textarea.value = lyrics;
-    // Dressed as the songbook (gotcha 84): its look, its chord-grid face, the
+    // Dressed as the songbook (gotcha 86): its look, its chord-grid face, the
     // song's name and the key it is shown in, and the outline of its sections.
     modal.classList.add('lyrics-editor-modal--sb');
     var titleEl = document.getElementById('lyricsEditorSongTitle');
@@ -69329,6 +69355,18 @@ var WO = (function() {
     }, function() { commit(); if (typeof closeLyricsEditor === 'function') closeLyricsEditor(); });
     return false;   // the editor closes when the check is done
   }
+  // The Songbook's words with the chord lines taken out. The pad is the
+  // Lyrics AND CHORDS editor, and a chord line on the wall is somebody else's
+  // sheet music in front of the congregation. isChordLineGlobal is the shared
+  // one -- it knows "Am" is also the word "am", which a looser test does not.
+  function _sbProjectionWords(text) {
+    var lines = String(text == null ? '' : text).split('\n');
+    if (typeof isChordLineGlobal !== 'function') return lines.join('\n');
+    return lines.filter(function(line) {
+      return !line.trim() || !isChordLineGlobal(line);
+    }).join('\n');
+  }
+
   // This copy's words replaced and saved: the editor's Save, and a few lines
   // transposed on their own.
   function _sbSetCopyWords(song, lyrics) {
@@ -69349,6 +69387,18 @@ var WO = (function() {
       // The printed page shows them in the key they are sung in.
       if (sbTransposeSteps[sid]) sbTranspose(sid, 0);
     }
+    // The LCD projects `slides`, which is a separate array from any of the
+    // lyric fields above -- so without this the words changed everywhere
+    // except the one place a congregation reads them. Before the saves: a
+    // save serialises the schedule's DOM whenever it is on the page
+    // (gotcha 35), and this is what brings that DOM into line.
+    if (typeof refreshSongSlidesInOrder === 'function') {
+      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });
+    }
+    // Projecting on THIS device: the schedule has just changed under a
+    // running projection, so send the slide again (gotcha 82).
+    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }
+
     // Saved both ways, as a version chosen is: the quick sync, and the full
     // save that keeps the words (a standalone book reads them from it).
     sbAutoSave();
@@ -74279,7 +74329,7 @@ var WO = (function() {
   function sbNpCancel() { _sbNpEnd(false); }
 
   // In the song view: Edit, beside Draw, where Type was (2026-11-11, gotcha
-  // 84): what the Edit tile does, here where the words are. A double-tap on
+  // 86): what the Edit tile does, here where the words are. A double-tap on
   // the words does the same, at the place tapped.
   function _sbmEditChip() {
     return '<button class="sbm-chip sbm-chip--edit" onclick="WO.sbmEdit()" title="Edit the words and chords. Or double-tap the words, to edit them where you tapped."><i class="fa-solid fa-pen"></i>Edit</button>';
@@ -78763,7 +78813,7 @@ var WO = (function() {
       return '<button type="button" class="lbw-kb-b" data-act="' + act + '" aria-label="' + _lbdEsc(label) + '" title="' + _lbdEsc(label) + '"' + (extra || '') + '>' + inner + '</button>';
     }
     return '<div class="lbw-kb" role="toolbar" aria-label="Editing">' +
-      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done') +
+      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done - share these words with the other screens') +
       '<span class="lbw-kb-scroll">' +
         kb('fmt-role', '<span class="lbw-kb-role">L·C</span>', 'Who says this line', ' data-need="words"') +
         kb('ins-line', '<span class="lbw-nl" aria-hidden="true">&#8629;</span>', 'New line', ' data-need="words"') +
@@ -78791,6 +78841,59 @@ var WO = (function() {
   }
 
   // Whether the cursor is in words, which tells the formatting what it can do.
+  // How long a receiver believes a typing mark. It refreshes on every save,
+  // and a save follows every change, so this only runs out when somebody
+  // stops typing with the field still open -- a liturgist called away
+  // mid-sentence. Their last words then go out rather than the order staying
+  // frozen for everybody else.
+  var LBD_TYPING_HOLD = 180000;
+  var _lbdWasTyping = false;
+
+  // Is a words field in the builder focused right now? The same question
+  // _lbdSyncTyping asks to show the formatting keys, and the same answer: a
+  // title, a search box or a note is not the congregation's words.
+  function _lbdTypingNow() {
+    var host = $('woLiturgyBuilder');
+    var ae = document.activeElement;
+    if (!host || !ae || !host.contains(ae) || !ae.isContentEditable) return false;
+    var f = ae.getAttribute('data-field');
+    return f === 'slide' || f === 'content-text';
+  }
+
+  // Stamp the order with "being typed in", or take the stamp off. Called by
+  // every save, so the stamp is always as old as the last one.
+  function _lbdMarkTyping() {
+    if (!currentOrderData) return false;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var t = currentOrderData.template;
+    if (_lbdTypingNow()) {
+      t.lbdTyping = { at: Date.now(), by: _edClientId };
+      return true;
+    }
+    if (t.lbdTyping) delete t.lbdTyping;
+    return false;
+  }
+
+  // What a receiving device asks of an order it has just read. The words are
+  // stored -- nothing is ever held back from the database -- but they are not
+  // the words to put in front of a congregation until Done is pressed.
+  // Pure, so the harness can run it: the mark, who is asking, and the time.
+  function _lbdTypingHeld(mark, me, now) {
+    if (!mark || !mark.at) return false;
+    if (mark.by && me && mark.by === me) return false;   // our own typing
+    return (now - mark.at) < LBD_TYPING_HOLD;
+  }
+
+  // Done. Nothing to decide: the mark comes off because the field is no longer
+  // focused, and this is only here to stop the words waiting out the autosave.
+  function _lbdConfirmTyping() {
+    if (!currentOrderData || _sbStandaloneId) return;
+    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = null;
+    saveCurrentOrder(true);
+  }
+
   function _lbdSyncTyping() {
     var host = $('woLiturgyBuilder');
     var w = host && host.querySelector('.lbw');
@@ -78801,6 +78904,17 @@ var WO = (function() {
     w.classList.toggle('lbw--rich', f === 'slide');
     w.classList.toggle('lbw--words', f === 'slide' || f === 'content-text');
     document.documentElement.classList.toggle('wo-lbd-typing', !!f && _lbdPhone() && _lbdIsActive());
+    // Leaving the words IS the confirmation -- the green tick on a phone's key
+    // bar blurs the field, and clicking away does the same on a desk. Save now
+    // rather than two seconds from now: the save is what takes the typing mark
+    // off, and until it lands the other screens are still holding.
+    // _lbdTypingNow, not f: f is any editable field, and the mark is set for
+    // the WORDS alone. Asking the other question here meant moving from a
+    // slide straight to a section title left the mark on until the next
+    // autosave took it off -- two seconds of the other screens still holding.
+    var typingNow = _lbdTypingNow();
+    if (_lbdWasTyping && !typingNow) { _lbdWasTyping = false; _lbdConfirmTyping(); }
+    else if (typingNow) _lbdWasTyping = true;
     _lbdFmtState();
     _lbdKbPlace();
   }
@@ -116070,10 +116184,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-np-on { outline: 2px solid #0ea5e9; outline-offset: 6px; border-radius: 6px; caret-color: #0369a1; cursor: text; background: rgba(240, 249, 255, 0.55); }
 #sbFsPage .sbm-bk-card .sbm-np-on, #sbFsPage .sbm-bk-card .sbm-np-on * { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .sbm-np-on:focus { outline: 2px solid #0ea5e9; }
-/* Edit, beside Draw, where Type was (gotcha 84). */
+/* Edit, beside Draw, where Type was (gotcha 86). */
 .sbm-chip--edit i { color: #0f766e; }
 /* A finger (or the mouse) held on the words: a ring fills round it, and at
-   the full turn the pen comes out (gotcha 84). */
+   the full turn the pen comes out (gotcha 86). */
 .sbm-holdring { position: fixed; z-index: 3790; width: 0; height: 0; pointer-events: none; }
 .sbm-holdring svg { position: absolute; left: -40px; top: -40px; width: 80px; height: 80px; overflow: visible; transform: rotate(-90deg); }
 .sbm-holdring__bg { fill: rgba(124, 58, 237, 0.10); stroke: rgba(124, 58, 237, 0.30); stroke-width: 5; }
@@ -116086,14 +116200,14 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-holdring.is-below .sbm-holdring__t { top: 50px; }
 @keyframes sbmHoldFill { to { stroke-dashoffset: 0; } }
 /* A touch screen: the words take a held finger, not the phone's own
-   long-press selection, which takes the finger over (gotcha 84). */
+   long-press selection, which takes the finger over (gotcha 86). */
 @media (hover: none) and (pointer: coarse) {
   #sbmRoot .sbm-card .sbm-lyrics, #sbmRoot .sbm-card .sbm-score { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 }
 /* The choir parts editor, opened at a moment double-tapped. */
 #sbmEdit .sbm-ed__moment.is-hit { animation: lyrHit 3.6s ease-out forwards; }
 
-/* ---- The Songbook's Lyrics & Chords editor, dressed as the songbook (gotcha 84) ----
+/* ---- The Songbook's Lyrics & Chords editor, dressed as the songbook (gotcha 86) ----
    The song form's editor, borrowed (sbOpenLyricsEditor); from the Songbook
    it looks like the song view: a white card, each section its gold tag, the
    chords teal and bold over black bold words in the songbook's chord-grid
@@ -116927,7 +117041,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 }
 /* ---- The drawing hint (2026-11-08): on the words themselves, no card ----
    A finger holds a word of the song while a ring fills round it (2 seconds
-   draws, gotcha 84; it was a double-tap), then a red ring draws itself round
+   draws, gotcha 86; it was a double-tap), then a red ring draws itself round
    the word, and purple arrows point up at the Draw chip. Every tap goes
    through. */
 .sbm-hint__ring { position: fixed; overflow: visible; pointer-events: none; }

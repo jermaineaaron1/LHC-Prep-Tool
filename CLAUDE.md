@@ -278,7 +278,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      screen points to the words while they are out of sight below and goes
      once you are there; holding the words for 2 seconds draws, and a
      double-tap (or double-click) opens the editor at the line tapped
-     (gotcha 84); and Practice Tracks' timeline is dragged to any point of a
+     (gotcha 86); and Practice Tracks' timeline is dragged to any point of a
      take, with ten seconds back and on (gotcha 69). The choir score reads like a chord sheet: the words and
      the chords over them as Chords + Lyrics sets them, no rules between
      moments, a part's label only where that part takes over, and a purple
@@ -352,7 +352,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      Draw, and the Songbook's Lyrics & Chords editor is dressed as the
      songbook -- the same white card, gold section tags, teal chords over
      black words, in the key sung -- and opens at the line double-tapped
-     (gotcha 84).
+     (gotcha 86).
   3. **LCD Projection** -- the slides, drawn from the same data. The rail
      down the left is chunked: a heading row per song, liturgy item, reading
      and presentation, and under it a coloured heading wherever a part
@@ -2253,7 +2253,7 @@ the anon key -- verify as `postgres`, not as the app.
     lyrics" in the Lyrics view). The key above the choir score is gone; the
     badge on each such moment says it. **A double-tap anywhere on a card of
     words draws** (until 2026-11-11: it now edits, and a 2-second hold
-    draws -- gotcha 84) (`_sbmDblBind`, on `#sbmRoot` at every render; mouse
+    draws -- gotcha 86) (`_sbmDblBind`, on `#sbmRoot` at every render; mouse
     `dblclick`, or two touch taps within 350ms and 32px; `_sbmDblCard` is
     any `.sbm-card` holding `.sbm-lyrics, .sbm-score`, not its heading row
     of chips, a button, a field or an instrument strip; `_sbmDblDraw`
@@ -3033,7 +3033,78 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/live-projection-harness.js` checks it, running `_wofsKeys`
     itself rather than matching it.
 
-84. **The song view: hold the words to draw, double-tap them to edit, and
+83. **A half-written line waits for the green tick.** The operator,
+    2026-11-11, pointing at Done on the phone's key bar: "when the liturgy
+    builder is being edited, the changes should take effect after the user
+    hits the green tick button to confirm." Once gotcha 81 began applying
+    changes to a running projection, every keystroke in the builder was a
+    last-minute change -- the builder writes the data as it types (gotcha
+    41) and autosaves two seconds later -- so half a line went up in front
+    of the congregation.
+    - **What is held is the SHARING, never the save.** The words keep
+      saving exactly as before, so a phone that locks mid-sentence loses
+      nothing. What changes is that the order carries
+      `template.lbdTyping = { at, by }`, and a receiving device leaves it
+      alone while that mark is fresh.
+    - **The mark is written at SAVE TIME** (`_lbdMarkTyping`, called by
+      `saveCurrentOrder`) from whether a words field is focused right now,
+      not kept as state. Every save while the typing goes on stamps it
+      afresh, so it needs no timer to stay alive and no path can leave it
+      behind. A words field is `slide` or `content-text` only
+      (`_lbdTypingNow`): a section title, a search box or a note is not
+      the congregation's words.
+    - **Done is a blur.** The tick calls `blur()`, and on a desk clicking
+      away does the same, so `_lbdSyncTyping` is the one place that
+      notices (`_lbdWasTyping`). It calls `_lbdConfirmTyping`, which saves
+      AT ONCE rather than through `autoSaveOrder` -- until that save lands
+      every other screen is still holding the words back, so a two-second
+      debounce would be two seconds of the wall being wrong on purpose.
+    - **The receiver asks before the diff** (`_lbdTypingHeld`, pure), so
+      there is no banner either and `_orderSyncSeen` stays where it was:
+      the first tick after Done sees the whole change at once. A mark
+      older than `LBD_TYPING_HOLD` (3 minutes) is let go, or a liturgist
+      called away from an open field would freeze the order for everybody;
+      a device never holds for its own `_edClientId`.
+    `tools/live-projection-harness.js` checks it, running `_lbdTypingHeld`
+    rather than matching it.
+
+84. **The LCD projects `slides`, and the Songbook's editors never rebuilt
+    them.** The operator, 2026-11-11: "editing the lyrics from the songbook
+    doesn't change the LCD." Measured before anything was changed, on a
+    real order of 64 song slides: the edit pad's save returned success, the
+    words were stored -- and the schedule's slide boxes still read the old
+    text, and the save payload's `slides[0].content` with them. The lyric
+    fields and `slides` are separate (the same split that let junk survive
+    two rounds of lyric tidying), so the words changed everywhere except
+    the one place a congregation reads them.
+    - `refreshSongSlidesInOrder` already did the job and was called by the
+      old inline page editor, the LCD's own editor and the lyrics
+      importer. `_sbSetCopyWords` -- the funnel for the edit pad, the
+      notepad (gotcha 65) and the few-lines transpose bar -- simply never
+      called it. One call fixes all three.
+    - **The chord lines must not go with them.** The pad is the Lyrics AND
+      Chords editor, so its text carries them, and `_sbSetCopyWords` puts
+      that text in `song.lyrics` as well as `customLyrics`. The slides are
+      built from `_sbProjectionWords(lyrics)`, which drops chord lines and
+      keeps everything else -- blank lines above all, since
+      `parseLyricsIntoSlides` breaks on them. It goes through the GLOBAL
+      `isChordLineGlobal`, which knows "Am" is also the word "am" ("the
+      Great I Am", "Am I not still the same"); the two module-local
+      `sbIsChordLine` copies do not.
+    - `refreshSongSlidesInOrder` overwrites `song.lyrics`, which here is
+      the Songbook's own words, chords and all -- hence
+      `opts.keepLyrics`, which is what lets the projected words and the
+      sung words differ on purpose in this one place.
+    - It also took the newly parsed `header` and dropped whatever was
+      there, so a heading the operator typed on a slide (gotcha 73) was
+      lost on every re-split. The song's own `[Verse 1]` marker still
+      wins; a slide the parse gives no header keeps the one it had, by
+      position, exactly as its background is kept.
+    `tools/live-projection-harness.js` checks it, running
+    `_sbProjectionWords` over the real `isChordLineGlobal` chain rather
+    than matching its source.
+
+86. **The song view: hold the words to draw, double-tap them to edit, and
     the editor looks like the song view.** From the operator (2026-11-11),
     on a marked-up screenshot: "Hold 2 sec to draw", "Double tap to edit",
     the Type chip crossed out for Edit, and then: "I want the edit pad to

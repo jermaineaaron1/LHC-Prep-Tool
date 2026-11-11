@@ -331,6 +331,153 @@ const shown = _wofsKeys(before)[1];
 check('a slide keeps its identity when another is inserted above it',
   _wofsKeys(after).indexOf(shown), 2);
 
+console.log('\na half-written line waits for the green tick');
+// The operator, pointing at the Done tick on the phone's key bar: changes
+// made in the Liturgy Builder should take effect when they confirm them.
+// Once the sync began applying to a running projection, every keystroke
+// was a last-minute change -- the builder writes as it types (gotcha 41)
+// and autosaves two seconds later, so half a line went up in front of a
+// congregation. What is held is the SHARING. The words still save, always,
+// so a phone that locks mid-sentence loses nothing.
+const ttlM = SRC.match(/var LBD_TYPING_HOLD = (\d+);/);
+check('the hold has a stated length', !!ttlM, true);
+const TTL = ttlM ? Number(ttlM[1]) : 0;
+// Long enough to stop and think mid-sentence; short enough that a
+// liturgist called away from an open field cannot freeze the order.
+check('  minutes, not seconds, and not forever', TTL >= 60000 && TTL <= 600000, true);
+
+const _lbdTypingHeld = new Function(
+  'var LBD_TYPING_HOLD = ' + TTL + ';\n' + extractFn('_lbdTypingHeld') +
+  '\nreturn _lbdTypingHeld;')();
+const NOW = 1762000000000;
+check('somebody is typing: the words wait',
+  _lbdTypingHeld({ at: NOW - 1000, by: 'phone_b' }, 'me', NOW), true);
+check('  our own typing never holds us',
+  _lbdTypingHeld({ at: NOW - 1000, by: 'me' }, 'me', NOW), false);
+// A mark nobody came back to must not freeze the order for everybody.
+check('  a mark older than the hold is let go',
+  _lbdTypingHeld({ at: NOW - TTL - 1, by: 'phone_b' }, 'me', NOW), false);
+check('  and one exactly at the edge is let go too',
+  _lbdTypingHeld({ at: NOW - TTL, by: 'phone_b' }, 'me', NOW), false);
+check('no mark at all holds nothing', _lbdTypingHeld(null, 'me', NOW), false);
+check('  nor a mark with no time on it',
+  _lbdTypingHeld({ by: 'phone_b' }, 'me', NOW), false);
+
+console.log('\nand the mark says what it means');
+// A section title, a search box or a note is not the congregation's words.
+const typingNow = extractFn('_lbdTypingNow');
+check('only the words count as typing',
+  /f === 'slide' \|\| f === 'content-text'/.test(typingNow), true);
+check('  and only a field being typed in', /isContentEditable/.test(typingNow), true);
+check('  inside the builder, not anywhere on the page',
+  /host\.contains\(ae\)/.test(typingNow), true);
+// Written at save time rather than kept as state: every save while the
+// typing goes on stamps it afresh, so it needs no timer to stay alive and
+// cannot be left behind by a path that forgot to clear it.
+check('every save stamps the mark', /_lbdMarkTyping\(\);/.test(extractFn('saveCurrentOrder')), true);
+const mark = extractFn('_lbdMarkTyping');
+check('  set while the words are focused', /t\.lbdTyping = \{ at: Date\.now\(\)/.test(mark), true);
+check('  and taken off when they are not', /delete t\.lbdTyping;/.test(mark), true);
+
+console.log('\nDone is what sends them');
+// Leaving the words IS the confirmation: the tick blurs the field on a
+// phone, clicking away does the same on a desk.
+const syncTyping = extractFn('_lbdSyncTyping');
+check('leaving the words confirms them',
+  /_lbdWasTyping && !typingNow.*_lbdConfirmTyping\(\)/.test(syncTyping), true);
+// One definition of "typing the words", not two: f here is any editable
+// field, and a section title never set the mark in the first place.
+check('  and asks the same question that sets the mark',
+  /var typingNow = _lbdTypingNow\(\);/.test(syncTyping), true);
+const confirm = extractFn('_lbdConfirmTyping');
+// Without this the finished words would wait out the 2s autosave while
+// every other screen was still holding.
+check('  and saves at once instead of waiting for the autosave',
+  /clearTimeout\(_autoSaveTimer\)/.test(confirm) && /saveCurrentOrder\(true\)/.test(confirm), true);
+check('  a songbook\'s pseudo-order is left alone', /_sbStandaloneId/.test(confirm), true);
+
+console.log('\nthe receiver asks before it does anything at all');
+const tick2 = extractFn('_orderSyncTick');
+check('the tick asks whether somebody is typing',
+  /_lbdTypingHeld\(res\.template && res\.template\.lbdTyping/.test(tick2), true);
+// Before the diff: so there is no banner either, and the baseline stays
+// put -- the tick after Done then sees the whole change at once.
+check('  before it works out what changed',
+  tick2.indexOf('_lbdTypingHeld(') < tick2.indexOf('_orderSyncFingerprint(res.items)'), true);
+console.log('\nwords edited in the Songbook reach the wall');
+// Measured before anything was changed, on a real order of 64 song
+// slides: the edit pad's save returned success, the words were stored,
+// and both the schedule's slide boxes and the saved slides[0].content
+// still read the old text. The LCD projects `slides`, a separate array
+// from the lyric fields, and nothing rebuilt it.
+const setWords = extractFn('_sbSetCopyWords');
+check('saving the words rebuilds the slides',
+  /refreshSongSlidesInOrder\(sid, _sbProjectionWords\(lyrics\)/.test(setWords), true);
+// A save serialises the schedule's DOM whenever it is on the page
+// (gotcha 35), and the rebuild is what brings that DOM into line.
+check('  before the saves, not after',
+  setWords.indexOf('refreshSongSlidesInOrder(') < setWords.indexOf('sbAutoSave();'), true);
+// Projecting on this device: the schedule just changed underneath it.
+check('  and the slide on the wall is sent again',
+  /_lcdReproject\(\)/.test(setWords), true);
+// song.lyrics here is the Songbook's own words, chords and all.
+check('the rebuild does not take the Songbook\'s words away',
+  /\{ keepLyrics: true \}/.test(setWords), true);
+const slideRebuild = extractFn('refreshSongSlidesInOrder');
+check('  and that is what keepLyrics means',
+  /if \(!\(opts && opts\.keepLyrics\)\) song\.lyrics = newLyrics;/.test(slideRebuild), true);
+// A heading the operator typed on a slide (gotcha 73) used to be thrown
+// away by every re-split; the song's own [Verse 1] marker still wins.
+check('a heading typed on a slide survives a re-split',
+  /slide\.header \|\| was\.header \|\| ''/.test(slideRebuild), true);
+check('  and the background still does too',
+  /background: was\.background \|\| ''/.test(slideRebuild), true);
+
+console.log('\nand the chords stay off it');
+// The pad is the Lyrics AND CHORDS editor. A chord line on the wall is
+// sheet music in front of a congregation.
+function topFn(name) {
+  const i = lines.findIndex(l => new RegExp('^function ' + name + '\\s*\\(').test(l));
+  if (i < 0) throw new Error('not found: ' + name);
+  let depth = 0, started = false, out = [];
+  for (let k = i; k < lines.length; k++) {
+    out.push(lines[k].replace(/\r$/, ''));
+    for (const ch of lines[k]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return out.join('\n');
+  }
+  throw new Error('no close for ' + name);
+}
+const chordRe = SRC.split('\n').find(l => /^var CHORD_TOKEN_RE = /.test(l));
+check('the shared chord pattern is there', !!chordRe, true);
+// The real chain, run: the filter, the line test and the token test.
+const _sbProjectionWords = new Function(
+  chordRe.replace(/\r$/, '') + '\n' + topFn('isChordToken') + '\n' +
+  topFn('isChordLineGlobal') + '\n' + extractFn('_sbProjectionWords') +
+  '\nreturn _sbProjectionWords;')();
+check('a chord line is dropped',
+  _sbProjectionWords('G    D\nAmazing grace\nEm   C\nhow sweet'),
+  'Amazing grace\nhow sweet');
+// The blank lines are the stanza breaks parseLyricsIntoSlides works from.
+check('  blank lines are kept, so the slides still break where they did',
+  _sbProjectionWords('one\n\ntwo'), 'one\n\ntwo');
+check('  and so are the section markers',
+  _sbProjectionWords('[Verse 1]\nG\nwords'), '[Verse 1]\nwords');
+// The trap the shared detector exists for: "Am" is also the word "am",
+// and both of these are real worship lyrics.
+check('"the Great I Am" is a lyric, not a chord',
+  _sbProjectionWords('You are the Great I Am'), 'You are the Great I Am');
+check('  and so is "Am I not still the same"',
+  _sbProjectionWords('Am I not still the same'), 'Am I not still the same');
+check('nothing at all does not throw', _sbProjectionWords(null), '');
+check('  nor an empty string', _sbProjectionWords(''), '');
+// Without the detector it must hand back the words rather than nothing:
+// a projection with no words is worse than one with a chord line.
+check('with no detector it keeps every line',
+  /typeof isChordLineGlobal !== 'function'/.test(extractFn('_sbProjectionWords')), true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

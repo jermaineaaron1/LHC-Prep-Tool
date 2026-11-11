@@ -310,7 +310,7 @@ console.log('\nThe choir score, without the key above it');
 check('no "Sing together / Waiting" key: the badge on each moment says it', !has(/_sbmTogetherKey/) && !has(/sbm-together-key/));
 
 // It drew until 2026-11-11; now it edits, and a 2-second hold draws
-// (gotcha 84, tools/songbook-hold-edit-harness.js).
+// (gotcha 86, tools/songbook-hold-edit-harness.js).
 console.log('\nA double-tap on the words edits them, where they were tapped');
 const bind = fn('_sbmDblBind'), dbl = fn('_sbmDblEdit'), card = fn('_sbmDblCard');
 check('bound once on the song view, at every render', has(/if \(!modal \|\| !root\) return;\r?\n\s*_sbmDblBind\(root\);/) && /root\.__sbmDbl = true;/.test(bind));
