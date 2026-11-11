@@ -179,8 +179,8 @@ console.log('\nSaved medleys: kept, and brought back');
     check('a gap is no song', M._mdsKey(['s1', '', null, 's2']) === 's1>s2');
     const row = M._mdsRowOf([{ id: 'a', songId: 's1', title: 'Silent Night' }, { id: 'b', songId: 's2', title: 'O Holy Night' }, { id: 'p', title: 'blank page' }],
       e => ({ a: 0, b: '-2' })[e.id], { id: 'order_1', name: 'Christmas Eve' });
-    check('it keeps each song by library id, title and the key it was sung in', JSON.stringify(row.songs) ===
-      JSON.stringify([{ songId: 's1', title: 'Silent Night', transposeSteps: 0 }, { songId: 's2', title: 'O Holy Night', transposeSteps: -2 }]), JSON.stringify(row.songs));
+    check('it keeps each song by library id, title, the key it was sung in and its version', JSON.stringify(row.songs) ===
+      JSON.stringify([{ songId: 's1', title: 'Silent Night', transposeSteps: 0, versionId: '' }, { songId: 's2', title: 'O Holy Night', transposeSteps: -2, versionId: '' }]), JSON.stringify(row.songs));
     check('named for its songs, and for where it was sung', row.title === 'Silent Night \u2192 O Holy Night' && row.song_key === 's1>s2' &&
       row.made_from === 'order_1' && row.made_from_name === 'Christmas Eve');
     const book = [{ id: 'e1', songId: 's1' }, { id: 'e2', songId: 's2' }, { id: 'e3', songId: 's1' }];

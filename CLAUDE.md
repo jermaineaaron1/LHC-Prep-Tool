@@ -50,13 +50,15 @@ The ones worth knowing; there are around 29 in all.
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `song_voice_lines` | A choir arrangement's words. One row per part per passage. A LAYER over an ordinary song -- `songs.lyrics` is the song's own and is never generated from these |
-| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3, up to 30), each named in `display_style.recInstrumentNames` (by slot: Piano, Guitar...). Written by TWO recorders -- see gotcha 21 |
+| `song_recordings` | Practice takes. `line_id` attaches one to a `song_voice_lines` row; `section` (added 2026-10-30, `migrations/2026-10-30_song_recordings_section.sql`) names the whole section a take is of; both null means a run-through of the whole song. The part or category is the slot in the file name (`melody__<ts>.wav`), not a column; an instrument is a slot too (`instrumental` is Instrument 1, then `instrument-2`...), and how many a song offers is `songs.display_style.recInstruments` (default 3, up to 30), each named in `display_style.recInstrumentNames` (by slot: Piano, Guitar...). Written by TWO recorders -- see gotcha 21. `order_id` is the service (or songbook) a take was made for, written by every recorder since 2026-11-08: plain text, NO foreign key, so deleting a service leaves its takes (gotcha 72) |
 | `song_marks` | Remarks DRAWN on a song in the reading view (added 2026-10-30, `migrations/2026-10-30_song_marks.sql`). One row per stroke, kept against an anchor -- a moment of the score or a line of the lyrics -- as fractions of that anchor's box. See gotcha 31. `version_id` (added by `migrations/2026-11-01_song_versions.sql`) says which version of the song a remark is on; null is Standard. `owner`, `owner_name`, `part`, `shared` (`migrations/2026-11-01_song_marks_layers.sql`) say whose it is and whether others see it; see gotcha 50 |
 | `song_versions` | Versions of a song: a name, a key (`transpose_steps`), the words exactly as the service that saved it had them (`lyrics`, `rich_lyrics`). A service's copy of a song names the one it sings in `order_items.customizations.versionId`. `made_from = 'library'` marks an EARLIER MAIN VERSION: the library song as it was before it was replaced, restorable. See gotcha 46 |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
+| `liturgy_occ_folders` | The Liturgy Library's YEAR folders, per occasion (`occasion_id`, `name` -- "2026"); a library item names one in `occasionFolderId`. A save from the Liturgy page deletes only folders removed on that device. See gotcha 51 |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -101,7 +103,28 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Chord transposition in preview
 - Song statistics (most used, recent, newest)
 
-### 2. Worship Roster
+### 2. Sunday Bulletin
+
+- The weekly bulletin, as one A4 sheet edited in place (Home > Sunday
+  Bulletin, `bulletinView`, the `BLT` module).
+- The masthead is FIXED furniture -- the gold circle, the grey sweep, the
+  Luther Rose (`public/lhc-luther-rose.png`), the church name, address and
+  service time. Everything below it is typed on the sheet itself.
+- The duty table is the roster: this Sunday and the next, side by side,
+  seventeen rows read live from `roster` every time the page opens.
+- Typed: theme verse, prayer of the day, numbered announcements, online
+  giving, attendance figures, offering lines, the two footer contacts, and
+  the two duties the roster has no role for (Acolyte, Flower Offering).
+  Every one of those lists can be added to and taken from; **Rows** in the
+  toolbar says which duty rows the bulletin carries.
+- A new bulletin opens from the most recent one, because the giving
+  details, contacts and theme verse are the same most weeks.
+- Out: **Print**, **PDF**, and **Share**, which sends the PDF itself to
+  WhatsApp through `navigator.share({files})` where the device allows it.
+  Drawn on the device (html-to-image into jsPDF) -- never through
+  `/api/render-roster-pdf`, whose quota is the church's and nearly spent.
+
+### 3. Worship Roster
 - Monthly calendar view with service dates
 - Editable cells (double-click to edit)
 - Role categories: Worship Enablers, Scripture, Communion, Music, Tech
@@ -119,7 +142,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
   the WhatsApp message to check before sending, a month at a time. See
   gotcha 68.
 
-### 3. Worship Orders
+### 4. Worship Orders
 - Create orders from roster dates, from a template (Traditional, Contemporary, Special)
 - The Orders menu lists the latest ten orders, the most recently edited first
   (`_woOrderTime`); **See more** lists the rest under an Archived heading
@@ -135,20 +158,40 @@ than a bash heredoc, which quietly eats a level of backslashes.
      grip to reorder), the page under a formatting bar (Speaker L:/P:/C:/All:,
      size, bold, italic, underline, colour), and Add to Order (the library by
      category, your own items, the service templates; click to add where you
-     are, or drag onto a section). A ribbon above inserts songs, liturgy,
-     readings, prayers, text, sections, slide breaks and notes. Sections are
+     are, or drag onto a section). The ribbon's **Add Item** holds what
+     there is to add -- a song, liturgy (the library, what suits the section,
+     or your own), a reading, a prayer, a sacrament, a text slide, a slide
+     break at the cursor, a note, a new section (a blank one, the type's
+     missing sections back, or one from a template -- `_lbdNewSectionItems`,
+     once the Templates button's) -- and no row of buttons sits beside it any
+     more (2026-11-08); the formatting bar keeps its own Slide break. Sections are
      heading bars with move, duplicate and remove; the words are typed on the
      page with "Slide 2, 3" marks between slides (Ctrl/Shift+Enter breaks a
      slide, Backspace at its start joins it back); notes are margin
      comments. On a phone it works like Google Docs: a bottom bar with Add
      in the middle, the outline and the library as sheets from below, and
-     the formatting keys over the keyboard. Compact shows one line per part;
+     the formatting keys over the keyboard; its top bar is the section (at
+     most half the bar) then WhatsApp (the order's link), Save (green), Load
+     (light blue), undo and redo (`_lbdMbarHtml`, 2026-11-09). Load asks:
+     "Load Liturgy for <occasion>" (the ones SAVED in the Liturgy Library)
+     or "Load Liturgy from Past Services". Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
      from Word: headings become sections, the words under them liturgy.
-     **Save / Load** (ribbon, or More / Add on a phone) saves the whole
-     liturgy for its occasion of the church year and a year, and a later
-     year's order loads it whole, then saves over it or keeps a copy
-     (gotcha 51). The ribbon's Liturgy opens a menu: the library, what suits
+     **Save** (green) and **Load** (light blue), two ribbon buttons since
+     2026-11-09 (More / Add on a phone: Save liturgy, Load liturgy, Past
+     services): Save This Liturgy keeps the whole liturgy for its occasion of
+     the church year and a year, and a later year's order loads it whole,
+     then saves over it or keeps a copy; Load offers "Load Liturgy for <this
+     service's occasion>" (Contemporary Service, Traditional Service, Advent,
+     Maundy Thursday...) and "Load Liturgy from Past Services", an earlier
+     liturgist's order; the window filters by service (Good Friday,
+     Traditional, Contemporary...) and year (gotcha 51). The Templates button
+     is gone: it opened the same window, and its section tools are in Add
+     Item › New section.
+     A liturgy saved for a year is filed in the Liturgy Library: the
+     occasion gets that year's folder if it has none, and its page lists
+     the whole liturgies kept for it, a year folder those of its year.
+     Add Item's Liturgy opens a menu: the library, what suits
      this section, or your own written as liturgy (kept in the Liturgy Book's
      liturgy style); Text is a plain slide for this service only. Add to
      Order starts closed (`_lbdLibOn` false; a saved "open" counts only from
@@ -171,7 +214,7 @@ than a bash heredoc, which quietly eats a level of backslashes.
      keydown as key 229; what they would do is caught again at `beforeinput`
      (`_lbdOnBeforeInput`: `insertParagraph` breaks the slide,
      `deleteContentBackward` at a slide's start joins it), never twice for
-     one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save / Load; a
+     one key (`_lbdKeyDoneAt`). **WhatsApp** (ribbon, after Save and Load; a
      phone's More; the Liturgy Book's Share) sends a link to the order of
      service -- the title, the date and a link that opens the order in the
      Liturgy Builder (`?order=<id>&view=builder`), so whoever opens it sees
@@ -209,18 +252,19 @@ than a bash heredoc, which quietly eats a level of backslashes.
      section that already sings the song, or an open LCD schedule, refuses), each song's links hidden for this service or removed,
      **medleys** (gotchas 42-44; a standalone songbook has them too), and
      **versions** of a song -- a key, words and drawings a later service can
-     sing it with, listed as "Saved versions", and "Make this the song's main
-     version", which writes the service's way into the song library and
-     keeps what it replaced under "Earlier main versions", each restorable
+     sing it with, saved from the Versions sheet's "Save as a version", and
+     "Save as the main song", which writes the service's way into the song
+     library and keeps what it replaced as an earlier main song, restorable
      there or from the song's History in the song library -- and Share ›
-     This song, a link that opens the book at that song (gotcha 46).
+     This song, a link that opens the book at that song (gotchas 46, 72).
      Drawings are everyone's unless their drawer says otherwise; the
      **Drawings** tile (after Book Mode) lists every drawing kept on the
      song -- yours, everyone's, each group's and other people's private
      ones, which stay off until switched on -- with Show all and Only mine
      (gotcha 50). The key's flat and sharp are large blue buttons, and a
      key moved on one device redraws every other device's view at once, with
-     a word saying so; the A- / 100% / A+ size buttons are gone, and so is
+     a word saying so; the A- / 100% / A+ size buttons are gone (a Font
+     picker sits where Reset Layout was, gotcha 74), and so is
      the notice under a song sung twice. A gold floater at the foot of the
      screen points to the words while they are out of sight below and goes
      once you are there; a double-tap (or double-click) anywhere on the
@@ -235,9 +279,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      sections run the band's moments -- an Intro, the way into each section,
      an Ending -- each recorded one instrument at a time, by name, as many
      as the song needs (gotcha 53). The song's tiles are one row -- Record,
-     Tracks, YouTube, Book Mode, Drawings, Edit, and More at its end; Links,
-     Browse online, Versions and Medley are in More, every icon there in a
-     colour of its own (gotcha 69). A song's videos are the red YouTube tile
+     Tracks, YouTube, Book Mode, Drawings, Edit, a purple Save / Load
+     Versions, and More at its end; Links, Browse online and Medley are in
+     More, every icon there in a colour of its own (gotchas 69, 72). A song's videos are the red YouTube tile
      (`sbmVideos`: one plays at once, several are listed; a song with none is
      offered Add a link), not a chip in its header. A green
      WhatsApp button -- first of the desk top bar's buttons, before the
@@ -271,9 +315,20 @@ than a bash heredoc, which quietly eats a level of backslashes.
      z-index 10060: the take, its part, time and length, Keep it or a red
      Delete take), never the browser's `confirm()`.
      A song the service sings twice is listed in both sections, each copy
-     its own: **Copy an arrangement** is under More (from the other copy, or
-     from an earlier service), and **Own drawings** in the Drawings window
-     while the copies share their drawings (gotcha 55).
+     its own, and **Own drawings** is in the Drawings window while the
+     copies share their drawings (gotcha 55). **Versions** (the purple
+     Save / Load Versions tile, the "Past versions" badge under the song's
+     title, and More; it was Earlier versions and Versions of this song,
+     two sheets) is one sheet: This
+     service with Save as a version / Save as the main song, then Past
+     versions newest first -- the main song, this service's other copies,
+     earlier services with their drawings and recordings, saved versions,
+     earlier main songs -- each a row to open read-only and a Use button,
+     then the medleys, with Save this medley. A name saved again replaces
+     the version of that name, after a warning toast. A song new to a service that
+     was sung before pulses its badge, and a finger shows where to tap
+     (once a device); every take says which service it was made for,
+     another service's marked (gotcha 72).
      **Book Mode** (a tile after YouTube, `sbmBookMode`) opens the songbook
      full screen at the song in front. A double-click -- a double tap on a
      phone -- on a song's words starts drawing, the song view's own drawings
@@ -286,7 +341,13 @@ than a bash heredoc, which quietly eats a level of backslashes.
      lyrics card, `sbmType`) does the same in the song view: type straight
      onto the words and chords, Enter saves, Shift+Enter or the bar's New
      line starts a line, Esc puts it back (gotcha 65) -- no Edit window.
-  3. **LCD Projection** -- the slides, drawn from the same data.
+  3. **LCD Projection** -- the slides, drawn from the same data. The rail
+     down the left is chunked: a heading row per song, liturgy item, reading
+     and presentation, and under it a coloured heading wherever a part
+     begins -- a song's own `[Verse 1]` markers, carried down the slides
+     that finish the verse, or a heading the operator types on any slide
+     (the tag on a row; the pen and cross on the heading). Never projected.
+     See gotcha 73.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
   reading taken out stays out (gotcha 48).
@@ -1491,6 +1552,68 @@ the anon key -- verify as `postgres`, not as the app.
     is what offers "Save over" beside "Save as a new copy"; both read the
     row back before they report it. Until the migration is run the menu
     says so and nothing is saved.
+    **Past services too** (the operator's team, 2026-11-08: load a past
+    order made by an earlier liturgist -- similar, never quite the same --
+    and reuse it; and Templates loads a WHOLE liturgy for a service and a
+    year, not one item). "Load a whole liturgy" (`lbdServiceLiturgies(occ,
+    kind)`, from Load -- `_lbdOpenLoadMenu`, Templates and Save / Load
+    before 2026-11-09 -- a phone's Load liturgy and Past services tiles and
+    More) lists the saved liturgies and every service's order
+    (`_lldLoadOrders`: not a songbook's `standalone_` pseudo-order, nor this
+    order) as one list (`_svlSources`, pure: newest year first, a year's
+    saved ones before its services), filtered by where from (All / Saved
+    liturgies / Past services), the service (the occasion) and the year
+    (`_svlFilter`, pure), and searched in place by name, date or liturgist
+    (`lbdSvlFind`, never a redraw). A past service shows its date, year
+    (from its title, as `_yearForOrder` reads it, else when it was made),
+    liturgical day, kind and liturgist -- the last two the roster's cells
+    for that date (roles `liturgical` and `liturgist`, one read for its
+    years, `_lldRosterMap`), and its occasion is that day's
+    (`_svlOccasionFor`), as a saved liturgy is filed. It is read whole
+    (`SBQ.loadOrder`) only when previewed or loaded, and kept
+    (`_lldOrderData`), into a saved liturgy's shape
+    (`_lldSnapshotFromOrder`: its sections -- its type's template if it kept
+    no layout -- its liturgy, text and readings, never that day's sermon
+    slides, videos or notes pages; its songs; its service notes). Both kinds
+    load through `_svlApply`: the same one Undo, the same type rule, songs
+    and readings only when asked. The order then notes `serviceLiturgy =
+    { fromOrder }` for a past service (no Save over: there is no saved row)
+    or `{ id }` for a saved one. A read that lands after the window has
+    closed does not reopen it. In the window a past service's liturgist
+    sits beside its name and the line under it (date, day, kind, counts) is
+    2px larger, only its date bold (a saved liturgy's date is its year).
+    `tools/builder-load-liturgy-harness.js` checks it. A preview's PARTS are
+    buttons (`_svlOutlineHtml`, the outline's `ref`: 'i:<n>' into the
+    liturgy's items, 's:<n>' into its songs): a click shows the part's words
+    under its section, in place and one at a time (`_svlItemToggle`), set as
+    the Export sets them (`_svlItemHtml` over `_lbdExportParas`: who speaks,
+    the people's lines bold, verse numbers raised; a song's words from the
+    song library, chords out). The part kept open (`_svlTx`) survives a
+    redraw, a preview opened keeps the window's scroll (`_svlDrawList(true)`),
+    and the window is taller than the builder's other sheets
+    (`lbd-sheet--svl`; `_lbdSheet` gives a sheet its kind's class). The
+    Liturgy Library's outline of a saved liturgy uses the same
+    (`LiturgyModule.occSvlItem`). `tools/svl-item-text-harness.js` checks it.
+    **Filed by year in the Liturgy Library** (the operator, 2026-11-08). A
+    liturgy saved for an occasion and a year gets that year's folder under
+    the occasion -- a `liturgy_occ_folders` row named "2026", the folders
+    the occasion's page shows as Add Year cards -- made if there is none
+    (`LiturgyModule.ensureOccYearFolder`, read from the database, written as
+    one row and read back, called by `_svlYearFolder` after the liturgy is
+    read back; a folder that cannot be made never fails the save), and the
+    toast says where. The occasion's page lists its whole liturgies
+    (`#litOccSvlStrip`, `renderOccSvl` from `renderOccasionItems`, read by
+    `_occSvlLoad` on opening and on Sync): all of them under All, a year
+    folder's under that folder (by its NAME, `_occSvlInYear`), each opening
+    to its outline (`WO.svlOutline`), read only when opened; a folder card
+    counts them beside its files. To USE one, an order loads it from the
+    builder. The Liturgy page's `saveOccFolders` used to delete every row it
+    did not hold, so a device that loaded at nine wiped a year folder made
+    since on another device or by the builder (Good Friday once lost all of
+    its year folders, `tools/refile-occasion-years.js`), and removing the
+    last folder a device held emptied the table. It now deletes only the
+    folders removed on that device (`_occFoldersGone`, set by
+    `deleteOccFolder`). `tools/svl-year-folder-harness.js` checks it.
 
 52. **A line's takes are a badge and a list, on every line with words.**
     A line with none -- left empty, or a dash (`lhcVoiceLines._hasWords`) --
@@ -1629,9 +1752,10 @@ the anon key -- verify as `postgres`, not as the app.
     2026-11-07), and **Own drawings**
     (`sbmOwnVersion`) saves the copy as a version named for its section and
     service through the Versions sheet's own save (`_sbVerSaveAs`), copying
-    the drawings it shows, so what is drawn after stays on it. **Copy an
-    arrangement** (`sbmArrangements`, also in More) lists the other copies in
-    this service and the song's copies in earlier services (`_sbArrEarlier`,
+    the drawings it shows, so what is drawn after stays on it. **Earlier
+    versions** (`sbmArrangements`; Copy an arrangement until gotcha 72)
+    lists the other copies in this service and the song's copies in earlier
+    services (`_sbArrEarlier`,
     newest first, standalone songbooks left out) and puts one's key, words,
     version (if it still exists) and page marks on this copy, with Undo
     (`sbArrCopy`). The playlist plays a video once however many copies carry
@@ -2138,20 +2262,75 @@ the anon key -- verify as `postgres`, not as the app.
     its own (`rows[i][3]`; Playlist's `fa-list-music` is not in Font
     Awesome's free set, so it had no icon -- `fa-circle-play` now). The
     floater is bright yellow (`#ffd60a`) and 10px taller (56px). **The first
-    time on a device** (asked: "First time per device", `lhc_sbm_intro_seen`)
-    the floater's own test brings up a five-second flash instead
-    (`_sbmIntroShow`, on `#songbookLiveModal`): half the screen tall and a
+    songbook opened on a device** (first asked "First time per device"; then
+    "only at the initial opening of a songbook when the app is first opened"
+    -- held in memory -- and phones reopen the app all day, so singers met it
+    again and again; 2026-11-08, "only the first time the songbook is
+    accessed": kept on the device, `lhc_sbm_intro_seen_v2` (`_v2` the same day: the first key had been used up by the card's older versions, so every device was given it once more) through
+    `_sbmSeenHere` / `_sbmSeenMark`, the page's `_sbmIntroDone` standing in
+    where the browser keeps nothing) a flash of 2.5 seconds (it was five)
+    comes whenever the words are not yet up the screen
+    (`_sbmIntroWant`: a desk with a few lines in sight too, the floater after
+    it) (`_sbmIntroShow`, on `#songbookLiveModal`): half the screen tall and a
     cartoon -- a yellow card with a thick outline and a hard shadow,
     wobbling, rays turning behind it, "Scroll down!" in bubble letters, a
     phone whose song scrolls up for ever under a white-gloved finger
     (`_sbmIntroArt`, the lines drawn twice and slid up one set's height,
-    `--sbm-set`), falling arrows and a bar emptying over the five seconds,
+    `--sbm-set`), falling arrows and a bar emptying over the 2.5 seconds,
     the card flashing three times; a tap anywhere or Got it ends it, and
     the floater takes over (`_sbmIntroEnd` -> `_sbmGuideCheck`). It is
-    noted as seen when it shows, and never shown in the desk's Phone view.
+    never shown in the desk's Phone view. The floater does NOT wait for the
+    flash: every song opened -- the book opened or reopened, another song
+    chosen (`_sbmGuideUpdate` arms `_sbmGuideSong` / `_sbmGuideFresh`,
+    `closeSongbook` clears it) -- with its words not yet up the screen
+    (`_sbmIntroWant`) gets it, asked for a second and a half after the
+    render. Once the flash became once a device (#409), a desk -- words
+    halfway down, the band where `_sbmGuideWant` keeps what it was -- had
+    stopped showing the floater after any reload.
     Testing in a hidden browser pane: its animations sit at their first
     frame, so turn them off in the test page to see it.
     `tools/songbook-reading-view-harness.js` checks all of it.
+    **Coach marks** (the operator, the same day, "both for mobile and desktop
+    users"), the recordings sheet's and Tracks' once each time the app is
+    opened, the drawing hint once on each device (`_SBM_COACH_ONCE`:
+    `lhc_sbm_draw_hint_seen_v2`; More > Show the tips again, `sbmReplayTips`, plays the card from the song's top and then the drawing hint on the words, whatever the device has seen), none in the Phone view (`_sbmCoachDue`,
+    `_sbmCoachSeen`): a layer on `<body>` at z-index
+    3800, over the recordings sheet (3750), that lets taps through except on
+    its own buttons, follows what it points at (`__place` every 200ms -- the
+    sheet's list loads under it) and goes by itself (`_sbmCoachOpen` /
+    `_sbmCoachClose`). The recordings sheet (`_sbmCoachRecord`, from
+    `sbOpenRecordings`): four seconds, a ring numbered 1 on the kind of take
+    (`#sbRecCategory`: whole song, an instrument, a voice part; a section has
+    its own mic in the song) and 2 on Record, a gloved finger pressing it;
+    gone when Record is pressed or the sheet closed. A take stopped
+    (`sbToggleRecording`, which the floating Stop pill also calls):
+    `_sbmCoachTracks`, five seconds, the Tracks tile brought into sight above
+    the sheet, a ring on it that opens Tracks and arrows up to it. Ten
+    seconds into a songbook (2026-11-08; it was two minutes:
+    `_SBM_DRAW_HINT_AFTER`, `_sbmCoachClock`, a 1s tick from
+    `_sbmGuideUpdate` counting only while the book is open, in front and not
+    hidden, at most 2s a tick, waiting while `_sbmCoachBusy`, until drawing
+    is known to be there and the song's words are in sight,
+    `_sbmCoachDrawAt`): `_sbmCoachDraw`, seven seconds and NO CARD -- a
+    finger double-tapping a word of the first line of the song wholly on the
+    screen (`_sbmCoachWordBox`: a `.wo-lyrics-lyric-line` or a `.vl-words`,
+    the word found by Range), a red ring drawing itself round it, "Double-tap
+    the words to draw" under it, and while the Draw chip is in sight a ring
+    round it, arrows up to it and "or tap Draw"; the captions stay over the
+    words card. It follows the words as they scroll and hides while they are
+    out of sight (`is-away`); every tap goes through it and takes it away
+    (a capture `pointerdown` listener, which `_sbmCoachClose` removes).
+    `closeSongbook` closes any coach mark.
+    `tools/songbook-coach-harness.js` checks them.
+    **On a phone (2026-11-07, measured, every browser).** The tiles stay one
+    row, but at 10px on one line "Book Mode" was wider than its tile on every
+    phone up to 430px and "YouTube" / "Drawings" up to 390-412px, so each ran
+    into the next: between 360 and 600px a label may break at its space, the
+    tile has no side padding, and the size is `clamp(8.5px, 2.45vw, 10px)`.
+    The four view modes were cut to "Ch...", "Lyri...", "Chords + Ly...",
+    "2 ..." beside the key: under 600px the short ones share a row and
+    Chords + Lyrics (`data-view="both"`) takes the next, in the room the
+    key's hint leaves, so the card is no taller.
 
 70. **The home page's two cards with chips are not buttons, and search is
     by the start of the title.** From the operator (2026-11-07). "Songs /
@@ -2203,6 +2382,565 @@ the anon key -- verify as `postgres`, not as the app.
     sizes are `.home-nav-card .home-recent-chip ...`: the phone rules for a
     card's every `i` and `span` overrode them.
     `tools/home-songs-search-harness.js` checks it.
+
+71. **Every phone and browser, not only Chrome.** Every iOS browser is
+    Safari underneath (Chrome on an iPhone included), and Samsung, Xiaomi
+    and Honor phones ship their own browser on an older Chromium. A review
+    on 2026-11-07 rendered the app in WebKit beside Chromium (Playwright,
+    with every non-GET request to Supabase refused at the network) and
+    found what Chrome forgives and they do not:
+    - **No regex lookbehind**, `(?<=` / `(?<!`: a SyntaxError on Safari
+      before 16.4, and a syntax error takes its whole `<script>` block
+      down. The one in `highlightChordsInLine` sat in a block of about
+      8,000 lines. Match the character and offset by its group instead.
+    - `.at()` (Chrome 92, Safari 15.4) is polyfilled by the FIRST script on
+      the page, ahead of Tailwind's runtime, which calls it too. Treat any
+      API from after about 2021 the same way.
+    - **Prefixes Safari still needs**, written beside the standard property:
+      `-webkit-backdrop-filter` (no blur at all before Safari 18),
+      `-webkit-user-select` (every Safari), `-webkit-mask-image` (Chrome
+      before 120), `-webkit-appearance`. `dvh` / `svh` need a `vh` line
+      before them, `color-mix()` a plain colour before it.
+    - **`getBoundingClientRect()` inside a CSS `zoom`** is what is on screen
+      in Chrome 128+, but the element's own pre-zoom px in Safari and in
+      Chromium before 128; `offsetWidth` is pre-zoom everywhere. Measure the
+      ratio, never assume either: the roster's pinned date header
+      (`_stickyScrollHandler`'s `syncAll`) was 21% too wide over the table
+      on iPhones. It is also on `<body>`, outside `#worshipRosterView`, so it
+      sets its widths `!important` in a fixed layout and checks them against
+      the real header on screen. LCD Projection's Fixed layout has the same
+      ratio (`_k`, `_screenTop`, `_ownRect`).
+    - `webkitRequestFullscreen` returns nothing, so `.catch` on its result
+      threw and stopped Book Mode before it laid out its pages. An iPhone has
+      no element fullscreen at all.
+    - The first script also, on iOS only: holds the viewport's
+      `maximum-scale` at 1 while a field is touched or focused, which stops
+      Safari zooming in on any field under 16px and leaving the page zoomed;
+      and gives a home-screen install `viewport-fit=cover`, without which iOS
+      reports every `env(safe-area-inset-*)` as 0 and the top bar sat under
+      the clock. `html.lhc-ios`, `html.lhc-standalone` say which.
+    - `color-scheme: only light` keeps the forced dark modes of Samsung,
+      Xiaomi, Honor and Chrome off a page that has no dark design.
+    - If jsDelivr cannot be reached, supabase-js comes from unpkg instead;
+      without it the whole app stopped at its first line.
+    - Icons come from Font Awesome's FREE set (6.5.1). A Pro name draws
+      nothing: the bottom bar's More was `fa-grid-2`, an empty square.
+    - Firefox could not be run on the review machine (Windows blocks the
+      Playwright build), so it was checked from the source only.
+    `tools/check-inline-scripts.py` cannot see any of this: Node parses what
+    Safari 15 cannot. `tools/browser-compat-harness.js` can.
+    Still open, by choice: `:has()` (13 rules) and `@container` (8) are
+    dropped by Chromium before 105 and Safari before 16; what they style
+    falls back to the plain layout.
+
+72. **Earlier versions: how a song was sung before, and which service each
+    take was made for.** From the operator (2026-11-08): singers asked
+    whether what a service does to a song overwrites the song in the Songs
+    page. It does not: a service's key, words and chords and the version it
+    sings are its copy's own, and only Overwrite the Master Copy (once Make
+    this the song's main version, gotcha 46) writes the song. What IS shared by every service: the choir
+    parts (`song_voice_lines`), the drawings on a version (Standard too) and
+    the recordings. The sheet says exactly that, first.
+    **Every take says which service it was made for.** `song_recordings.order_id`
+    (plain text, no foreign key -- checked: PostgREST finds no relation, and
+    `deleteOrder` leaves takes alone, so a deleted service's takes stay and
+    say "a service since deleted"). The Record sheet always wrote it; now the
+    line and section recorder does through `lhcVoiceRec.orderId` (a hook set
+    by `_sbRecHooks`, from `_sbmLoadRecs` and `_sbmInstHooks`), answering
+    `_sbRecOrderNow` -- the order or standalone songbook in front, ONLY while
+    the songbook is open, so a take recorded from the song library's Choir
+    parts tab is nobody's service. A cut (`sbmCutSave`) keeps the service of
+    the recording it was cut from. `_sbRecFrom(rec, hereId, names)` (pure)
+    says what a take shows: `here` (teal, "Made for this service" / "in this
+    songbook"), `other` (amber background and bar, "Made for <service> · not
+    this service", by name once `_sbRecOrdersLoad` has read it, each id
+    once, a failed read retried) or `none` (grey, "Earlier take · the service
+    was not noted" -- the takes from before 2026-11-08, never passed off as
+    this service's). Tracks (`_sbmPaintPractice`) and a line's takes
+    (`lhcVoiceRec.paintList`, through `R.fromLabel`) show it;
+    `_sbRecFromNow` answers null while the songbook is shut.
+    **One Versions sheet** (the operator, 2026-11-08: "make it more clearer
+    how we can save a version ... and how to load", "less words", "not too
+    many words and buttons"). `sbmVersions` / `_sbVerRender`; `sbmArrangements`
+    (once Copy an arrangement, then Earlier versions) opens the same sheet,
+    and `_sbArrRender` is gone. On top, **This service**: what it sings now
+    (key, version, drawings), "Changes here stay here unless you save them",
+    and two big buttons -- **Save as a version** (`sbVerSaveAsk`: one
+    `customPrompt` for the name, the service's title offered, then
+    `_sbVerSaveNamed`) and **Save as the main song** (`sbVerMakeMain`), which
+    reads "Same as the main song" instead when the service's way already is
+    (`_sbVerMainOf` against the library song); Update it appears only when
+    the copy has drifted from the version it chose. Then **Past versions**,
+    one list (`_sbVerOrder`, pure): the main song first, this service's
+    other copies, then everything else newest first -- earlier services,
+    saved versions, earlier main songs (kind `kept`, the oldest called
+    Original). A row opens it read-only (`sbEvOpen`); its one button is
+    Use (`sbArrCopy`: `main` -> `sbVerUse('')`, `version`/`kept` ->
+    `sbVerUse(vid)`); the one being sung says Singing now. Rename and
+    Delete (a version) and Make it the main song again (a kept one) are in
+    the read-only view, not the list (`sbVerRename` is `sbVerRenameAsk`, a
+    prompt). Then **Medleys**: Save this medley (`sbVerSaveMedley`,
+    `_mdsKeep`) when the song is in one, and the medleys it was sung in.
+    A saved medley keeps each song's VERSION as well as its key
+    (`_mdsRowOf` writes `versionId`); `mdsUse` collects them and Save medley
+    puts each song on its version (`_mdsApplyVersions`) before its key.
+    It opens from a purple **Save / Load Versions** tile between Edit and
+    More (`vTile` in `_sbmRender`, `.sbm-tile--ver`; 2026-11-09, the
+    operator: "for easier access"), offered wherever More offers it
+    (`_sbmOrderBook() || _sbVerOk === true`), and from More's row of the
+    same name. Eight tiles on a phone measured 1-4px too narrow for
+    "Drawings" and "YouTube" at 375px, so an eight-tile row closes its gap
+    to 2px and sets its labels at `clamp(7.5px, 2.2vw, 10px)` between 360
+    and 600px; under 360px it is two rows of four, as before. The read-only
+    preview (`data-sheet="earlier-open"`) is 470px on a desk, 10px wider
+    than any other sheet.
+    **A name saved twice REPLACES** (the operator, 2026-11-09). Two saves
+    called "Service - Nov 8" of Unto Thee O Lord sat side by side looking
+    the same, and were: the first had been sung since it was saved, so the
+    16 drawings made after it went onto it, and the second copied them.
+    `_sbVerSaveNamed` (both saves, `sbVerSaveAsk` and `sbVerCreate`) reads
+    the versions again (`_sbVerLoad`) and looks for the name
+    (`_sbVerSameName`, pure: case and spacing ignored, an earlier main song
+    never counts, the one this copy sings first, else the newest). None ->
+    `_sbVerSaveAs`. One -> a warning toast (`_sbVerWarnToast`: amber, from
+    the foot of the screen, z-index 10003 over the sheet; "<name> is already
+    saved", "Replace it with this service's key, words and drawings?", how
+    many OTHER services sing it; Cancel has the focus, Esc cancels,
+    `closeSongbook` cancels one left open), and Replace runs
+    `_sbVerReplace`: the row written over in place -- same id, so every
+    service on it stays on it -- with this copy's key and words, read back;
+    when the copy sings another version, that version's drawings are copied
+    onto it FIRST and its own old ones (by the ids this device knew) taken
+    off after. When the copy sings it already, its drawings are its own and
+    only the key and words are written. Rename does not check names.
+    **Recall hints.** A copy is NEW to its service (`_sbEvFresh`) while it
+    is on no version, in the song's own key and has no words of its own --
+    words the same as `masterLyrics` are none, and formatting alone
+    (`richLyrics`) is not a way of its own, since the Songbook writes it by
+    itself. A new copy of a song with past versions pulses its badge
+    (`is-pulsing`, `data-ev-fresh`, set by `_sbEvBadge` and kept by
+    `_sbEvCount`), and the first time on a device (`_SBM_COACH_ONCE.recall`)
+    a finger taps the badge with "Sung before -- tap to use a past version"
+    (`_sbmCoachRecall`, asked again every 1.5s for a while by
+    `_sbmCoachRecallSoon` while something else is up). The first time the
+    sheet opens with past rows (`recallPick`), a finger points at the newest
+    one's Use: "Newest first. Tap Use to sing it that way"
+    (`_sbmCoachRecallPick`). Both are drawn by `_sbmCoachTapHtml` /
+    `_sbmCoachTapPlace`, let every tap through, and go by themselves; More >
+    Show the tips again plays the badge hint after the drawing hint
+    (`_sbmReplayRecall`).
+    What the sheet reads: the song's other copies in this service, its copies in
+    earlier services (`_sbArrEarlier`, standalone songbooks left out as
+    before, each row with its `orderId`, `entryId` and the medleys of that
+    order containing it), its saved versions (`_sbVers`, not the kept main
+    ones) and the medleys it was sung in -- an earlier service's, rebuilt
+    from `template.medleys` entry ids, which ARE `order_items` ids
+    (`_sbEvMedleys`), and saved medleys holding it (`_sbEvSavedMedleys`).
+    Each card counts the drawings on its version (`_sbmMarksOf`, so the
+    reader's layers apply) and, for an earlier service, the recordings made
+    for it; each row opens (**Open**) and has **Use**. Use is `sbArrCopy` --
+    key, words, version, page marks, one step with Undo -- or, for a saved
+    version, `sbVerUse`; for a medley, `sbEvUseMedley` opens the medley
+    editor and runs its own Use (`mdsUse`) on a row made from the medley, so
+    the songs the book lacks are added and Save medley puts each in its key.
+    **Open** is read-only (`_sbEvSongOpen`): the words and chords in its key
+    (`_sbBkLyricsHtml` of a stand-in song, `_sbEvTemp`, id `__sbev__`), on a
+    card of the sheet that carries that stand-in (`card.__sbmSong`, which
+    `_sbmCardSong` reads first), so the reading view's own painter
+    (`_sbmMarksPaint`) draws the drawings of THAT version -- on a canvas made
+    by hand, without `_sbmMarkCanvas`'s pointer handlers, so it cannot be
+    drawn on. A song with choir parts gets a second tab, Choir parts
+    (`sbEvTab`): Book Mode's read-only score (`_sbChoirBodyHtml` +
+    `_sbChoirCss`, in the version's key, once `_sbLinesReady` has the parts)
+    on its own card, whose moments carry the score's `s:` anchors, so the
+    same painter draws the score's drawings there (`_sbEvMountOne` per card;
+    each tab counts its drawings, `_sbEvViewSplit`). The parts are the
+    song's as they are now -- not stored per service -- and the card says
+    so. Under the words, the recordings made for that service,
+    each marked (`_sbEvRecRow`), playable by one player (`sbEvPlay`) with
+    the three ways back to rest (gotcha 23); closing any sheet stops it. A
+    medley opens as its songs (`_sbEvMedleyOpen`), each to open in turn.
+    **The badge** under the song's title (`_sbEvBadge`, in a service's
+    songbook only, like More's entry): earlier services (never this one or a
+    songbook) plus saved versions, counted once a song every five minutes
+    (`_sbEvCount`) and drawn into the badge in place, hidden at nought.
+    `tools/songbook-earlier-versions-harness.js` checks it, the Versions
+    sheet, the recall hints, the tile and the replace too.
+
+73. **A slide's PART is carried down, never written -- and a heading is
+    never projected.** From the operator (2026-11-08), on a marked-up
+    screenshot of the LCD rail: the eighteen slides of one song were a flat
+    run of rows with the song's title on every one, and nothing said where
+    Verse 1 ended and the Chorus began. They wrote "Verse 1" and "Chorus" on
+    it by hand and asked for chunks, coloured badges for a song's parts, and
+    headings they could add themselves to liturgy, which has no markers.
+    - `parseLyricsIntoSlides` hangs `[Verse 1]` on the slide the marker
+      opened and leaves the two or three that finish the verse with nothing.
+      `_lcdSlideParts(headers)` (pure) fills that run in and returns the runs
+      the rail chunks by. It is a READING of the slides: writing the label
+      onto each slide would be the obvious fix and is the wrong one, because
+      of the next point.
+    - **A heading lives in `.wo-slide-section-header`, a SIBLING of
+      `.wo-slide-content`, and `selectSlideBox` projects the text of
+      `.wo-slide-content` and nothing else.** That is the whole reason a
+      heading can be added to any slide at all. Put one INSIDE
+      `.wo-slide-content` and "VERSE 1" goes up in front of the
+      congregation. `_lcdWriteSlideHeader` inserts before, always.
+    - `collectOrderItems` already saved `slides[].header` for songs AND for
+      liturgy, and `addSongToServiceSection` already restored a song's. Only
+      the liturgy LOAD never did, so a heading added to liturgy lived until
+      the next load and then quietly vanished. No new column, no migration.
+    - `_lcdPartKind` is a LIST, not a chain of `indexOf`, because order
+      decides the answer: "pre-chorus" contains "chorus".
+      `getSectionTypeClass` asked about chorus first and so could never
+      return `prechorus` -- that class had never once been applied. Fixed
+      there; the same mis-ordered chain is written out three more times
+      (`getSectionType` twice, `getSectionClass`) for the song preview and
+      the Lyrics Editor, and those are left alone as outside this path.
+    - **The rail does not hold its place by itself.** Replacing its markup
+      clamps its scroller to the top, and `_lcdWatchSelectedRow` then reveals
+      the SELECTED row -- the slide on the screen. Measured at 1158px:
+      labelling slide 4.8 sent the rail from 2072 to 214. Anything that edits
+      the schedule from somewhere other than the projecting slide calls
+      `_lcdRailHoldScroll()` FIRST (the position is only right before the
+      change) and the watcher stands down for a window, not for one reveal:
+      one edit brings several rebuilds -- the render, then the save's own
+      120ms refresh. Revealing the labelled row instead was tried and does
+      not work: at 80ms it is still in view, so the reveal is a no-op.
+    - A row under a heading row shows the WORDS, and drops the item title
+      and the icon that the heading row already carries -- the same "said
+      twice" rule as gotcha 11. A row with no part is unchanged. Measured at
+      the operator's 1158px, where the rail is 252px: the words get 111px,
+      which is tight, and is the width the column has.
+    - **The rows that carry a TITLE are black with white text** (the
+      operator, 2026-11-09): the section band (`#13161b`, keeping its gold
+      left edge) and, a shade lighter, the song / liturgy / reading /
+      presentation it holds (`#1b1f26`), each keeping the icon that says
+      which kind it is. The VERSE / CHORUS badges are NOT in this — asked
+      directly, the operator chose to keep them coloured, and they are the
+      one thing on this rail that is colour-coded on purpose. All of it is
+      scoped by `#lcdCompactRail`, an id, because every one of those
+      selectors is also set by a class-only rule elsewhere in the sheet and
+      source order would otherwise decide it.
+    - **All Slides is on the console, UNDER the projection, not in the
+      controls row.** Asked for "here too" on a screenshot of that toolbar;
+      measured at 1536, the controls row is one line of 44px with 490 of its
+      517px already spent, so a seventh labelled button made it two lines —
+      44px taken out of a 291px projection, on the panel the same operator
+      asked to be the main view two changes before. It sits beside
+      "+ Add Slide" instead, which has the width and is the same kind of
+      action, in a deeper blue than Project: Project is the one control on
+      that panel that puts something in front of the congregation and must
+      not have a twin.
+    `tools/lcd-rail-parts-harness.js` checks all of it.
+
+74. **The songbook's font is the reader's, and a chord sheet only takes a
+    fixed-width one.** From the operator (2026-11-09): a font toolbar in
+    place of Reset Layout (still in More), for the songbook and Book Mode.
+    It is a picker (`_sbmFontPickerHtml`, `sbmFont`) kept on THIS DEVICE
+    (`lhc_sbm_font`), never in the songbook or the order -- one singer's
+    choice must not change another's screen, as the part a singer follows
+    (gotcha 26). A chord sheet places its chords by character column
+    (gotcha 38), so the fonts are two kinds (`_SBM_FONTS`, `mono`): a
+    FIXED-WIDTH one (Roboto Mono, Courier Prime) changes everything --
+    the chord and lyric lines, the choir score's chord rows and a desk's
+    choir words, Book Mode's chord lines -- and any other (Atkinson,
+    Merriweather, Georgia, Lato, Poppins) changes only the words shown
+    without chords: the Lyrics view, a phone's choir words, Book Mode's
+    words. The styles read two variables set on `#songbookLiveModal` at
+    every render (`_sbmFontApply`, after the notepad's guard): `--sbm-words-
+    font` (any font chosen) and `--sbm-grid-font` (a fixed-width one only);
+    every chord grid rule is `font-family: var(--sbm-grid-font, <the
+    standard stack>)` -- the desk's, a phone held upright's late rule, the
+    inline chords, `--vl-mono` -- and Book Mode's styles are built with
+    `_sbmFontWords()` / `_sbmFontGrid()`. A phone held upright set even the
+    Lyrics view in the fixed-width grid; a chosen font for words now
+    reaches it (`.sbm-lyrics--nochords .wo-lyrics-lyric-line`), and with
+    none chosen it is as it was. Web fonts are fetched from Google Fonts
+    the first time they are chosen (`_sbmFontLoad`) and the view drawn again
+    once they are in. Anything new that draws a chord grid must read
+    `--sbm-grid-font` or `_sbmFontGrid()`. **The master copy:** Versions'
+    two saves are "Save this Version" and "Overwrite the Master Copy"; the
+    library's own song is "Master (From Song Library)"; overwriting it --
+    or putting an earlier one back -- first asks through `_sbVerMasterWarn`
+    (`lhcAskDelete` with a warning sign, the song and its key before and
+    after, Keep the master first; `okIcon` lets it carry a crown).
+    `tools/phone-bar-font-master-harness.js` checks all three.
+
+75. **Projected words WRAP; they never shrink to fit a line.** From the
+    operator (2026-11-10), on a screenshot of the full-screen presenter view:
+    the projection should read like that view, and "if the words can't fit in
+    the same line, then push it to the line below automatically, don't shrink
+    the fonts just to fit the line". It was not subtle. Measured in the real
+    projection document at a true 1920x1080, with the default 5vw:
+    "L: Almighty God, to whom all hearts are open, ..." came out at **38.4px**
+    and "C: Amen." at **96px** — two slides of the same prayer, two and a
+    half times apart, because `_fitProjectionText` shrank the whole slide
+    whenever ANY line was too wide.
+    - The fit loop now tests the HEIGHT alone. That test STAYS:
+      `.projection-content` is `overflow: hidden` and a wall has nothing to
+      scroll, so a slide with more lines than the screen holds would otherwise
+      lose its last lines in front of everybody. Slides are broken by hand and
+      rarely reach it, so the size is steady across a service.
+    - **`.projection-text` needs `max-width: 100%`, and that is the piece that
+      is silent when it is lost.** It is a flex item in a centred flex
+      container, so without a cap it sizes to MAX-CONTENT and `overflow-wrap`
+      never gets a line box to break against. Measured, with the shrink
+      removed and before the cap went in: a 75-character word with no space
+      came out 3374px wide in a 1728px safe zone, 823px clipped off the left
+      and the rest off the right — the word simply gone from the wall. The
+      old shrink-to-fit had been hiding that.
+    - The presenter overlay follows the same rule (`_fitFullscreenText`),
+      because it is the view the operator reads from and the two must not
+      disagree on exactly the long line that prompted this. Its safe-zone
+      width goes to the element as a `max-width`, which also keeps the words
+      inside the barrier: `.wofs-inner`'s own max-width is 90% of the overlay,
+      a different boundary. With the default 5% barriers the two coincide, so
+      that part is a no-op until somebody sets an uneven safe zone.
+    - The base size is unchanged and still the operator's: `5vw`, the Text
+      settings slider (2—10vw), scaling with whatever projector is plugged
+      in. Asked directly, the operator chose to keep the size on the wall and
+      fix only the shrinking — matching the presenter view's fixed 44.8px
+      would have roughly halved the words on a 1080p projector. Only the line
+      spacing was matched to it (1.5 -> 1.6). The projector keeps its heavier
+      text-shadow, which is for legibility over a lit background.
+    - The small Program / Live preview is NOT in this: it has no fit function
+      (it already wraps) and its sizing is tuned per phone width. Leave it.
+    - **The projected size is 6.5vw** (2026-11-10, "please increase it to
+      125px"): 124.8px on a 1080p projector, and one exact stop of the
+      dialog's 2—10vw slider. Said in vw rather than px because the operator
+      chose the day before to keep the projected words scaling with the
+      screen, so a bigger projector gives bigger letters rather than the same
+      ones further off; 6.5vw is both answers at once. It is the DEFAULT only:
+      the dialog saves per device under `TEXT_SETTINGS_KEY`, so a machine that
+      has already stored a size keeps it until the slider moves or Reset is
+      pressed. At 125px a four-line slide is the most that fits a 1080p safe
+      zone at full size; more than that still shrinks on height.
+    - **Nothing of the app's own goes on a screen the room can see.** The
+      operator projects through the Project button's own window, which carries
+      no chrome — but `goFullscreen` falls back to the presenter OVERLAY
+      whenever that window cannot be opened (no extension, popups blocked),
+      and then the operator's working view IS the output, with the app header
+      over the words and the filmstrip under them. So in true browser
+      fullscreen — the one state this view is put into to BE a display — the
+      nav arrows, the filmstrip, its hover strip, the close button and the
+      mouse pointer all go. Windowed it is unchanged, chrome on hover as
+      before. `display: none !important` is needed, not laziness:
+      `.wofs-filmstrip` sets `display: flex` of its own. Esc still exits, so
+      hiding the close button strands nobody. Both the standard and
+      `-webkit-full-screen` forms are written, per gotcha 71.
+    `tools/projection-text-wrap-harness.js` checks it, and lifts the
+    projector's fit loop out of the HTML string it is written into so the loop
+    itself is run, not just matched.
+
+76. **The bulletin stores no duties, and that is the whole design.**
+    `bulletins.data` holds only what somebody types. Both Sundays' duties
+    and the four readings come out of `roster` on every open, through the
+    same role ids the roster itself defines -- a bulletin keeping its own
+    copy would quietly disagree with the roster the week a reader swapped,
+    and nobody proof-reads a printed bulletin against the roster on a
+    Sunday morning. The two exceptions are **Acolyte** and **Flower
+    Offering**, which have no roster role at all and so are typed
+    (`data.manual[rowKey][dateStr]`). `tools/bulletin-harness.js` checks
+    every role id the bulletin names against the roster's own list, which
+    is the check that catches a renamed role before it prints blank.
+
+77. **The liturgical cell is JSON, as a STRING.** `roster` keeps
+    `liturgical` as `{"day":"25th Sunday after Pentecost","color":"Green"}`
+    -- text, not an object -- so unwrapping `v.day` alone leaves the braces
+    on the page, which is exactly what the bulletin's masthead printed the
+    first time. Read it with `_litDay`: parse when it parses, keep the raw
+    text when it does not, because a cell typed by hand is plain text and
+    has to show what it says (the same rule `enablers-calendar-harness.js`
+    already guards elsewhere). Two more things the page itself taught:
+    an A4 sheet does not grow, so the bulletin CLIPS and says "Too long
+    for one page" rather than pushing its footer off in silence; and the
+    scale that fits the sheet to the screen goes on the WRAPPER, never on
+    `.blt-sheet` -- html-to-image captures the node at its own size, so a
+    transform on the sheet is baked into the PDF. A third: a PLACEHOLDER
+    belongs to the editor, not to the page -- `.blt-ed:empty::before`
+    unscoped printed the words "The theme verse" and "REFERENCE" across
+    the masthead of any bulletin whose verse had not been typed yet, so
+    it is scoped `.blt-sheet:not(.blt-capturing)` like the hover outline
+    and the add/remove controls. The sheet is scaled to fit and the
+    toolbar zooms it; the stage is centred by AUTO MARGINS, never
+    `justify-content`, because centred overflow runs off both sides and
+    the left of a zoomed page could then never be scrolled to. The
+    announcements are numbered by a CSS counter, not `list-style`:
+    something in the app's own CSS strips list markers, so the `<ol>`
+    numbered nothing.
+
+78. **`.claude/preview-server.js` serves the app READ-ONLY, and fails
+    closed.** The Supabase URL and anon key are in the page, so a local
+    run talks to production (a "throwaway" order once created a real row
+    and six storage files). The server now forces the Phone-view write
+    guard on and strips the SECOND supabase-js tag, which would otherwise
+    replace the wrapped `createClient`; both anchors are matched by REGEX
+    because Index.html is CRLF and a literal with `\n` silently matches
+    nothing. If either anchor moves it refuses to serve rather than
+    serving a writable page. It also falls back to `public/`, since Vercel
+    serves that at the root. `LHC_ALLOW_WRITES=1` turns all of it off --
+    only for work that really is meant to write to production.
+
+79. **The bulletin's prose fields hold sanitised HTML; everything else
+    holds words.** The theme verse, the prayer and both halves of an
+    announcement are `contenteditable="true"` with `data-rich="1"`, read
+    by `_richOf` and drawn through `_richClean`. Only `b/strong/i/em/u/s`,
+    `<br>` and a `<span>` carrying colour, family, weight, style or
+    decoration survive; everything else keeps its WORDS and loses its
+    markup, so a pasted table becomes its text and a `<script>` becomes
+    nothing. Stored HTML is walked again before it is drawn, so a row
+    written by anything but this page still cannot put markup on a
+    bulletin. Every other field stays plain and is read by `_textOf`, and
+    a PASTE is inserted as plain text even into a rich field: formatting
+    is applied here, never inherited from whatever site the words came
+    off. `tools/bulletin-harness.js` parses real HTML into real nodes to
+    run the sanitiser rather than matching its source -- minidom has no
+    text nodes or sibling walks, and a sanitiser asserted on by regex is
+    a sanitiser nobody has tested.
+
+    **Undo is the bulletin's own**, because `render()` replaces the
+    sheet's HTML and takes the browser's stack with it: whole snapshots
+    of the stored data, 60 deep, read back through `_sane` so an undo can
+    never put a shape on the page that a load could not. A RUN of typing
+    is one step (1.4s apart starts a new one), and the snapshot is taken
+    BEFORE the keystroke is written. `execCommand` fires an `input` event
+    of its own, which reached the typing handler and opened a second,
+    typing-shaped step on top of the formatting one -- so undoing a
+    single Bold took two presses. `_applying` stands the handler down
+    while a command runs; `_applyCmd` writes the field itself the moment
+    it returns.
+
+    **The page is centred by a wrapper.** `.blt-stage__box` carries the
+    scaled footprint and `margin: 0 auto`; `.blt-stage__inner` carries
+    the transform. Doing both on one element meant `_fit` setting a
+    negative `marginRight` to size it, which cancelled the centring --
+    an auto LEFT margin against a fixed RIGHT one pushes a box right,
+    and the bulletin sat off-centre at every zoom.
+
+    **The QR takes a picture three ways** -- clicked, dropped, or pasted
+    (one copied out of a banking app is on the clipboard, not in a file;
+    paste reaches the document, so the slot with FOCUS is the one it
+    lands on). All three go through `_qrAccept`, which turns anything
+    that is not an image away and scales the rest to 512px through
+    `_qrShrink`: PNG first, so a plain QR keeps its edges, then JPEG at
+    0.85 and 0.6, because a QR PHOTOGRAPHED against anything patterned
+    is photographic content that PNG cannot compress -- a 512px noisy
+    square is about a megabyte, and refusing it was the old behaviour.
+    Always drawn on a WHITE ground: a transparent PNG over the gold
+    block has no quiet zone and will not scan, and JPEG has no alpha at
+    all.
+
+    **The sheet is READ; the dialogue is where it changes.** Nothing on
+    the page is `contenteditable` any more -- `_ed` / `_edRich` /
+    `_edBlock` render `.blt-view` spans, and only `_dlgField` makes an
+    editable one. Two ways to write one field meant two code paths for
+    it, and the in-place one was 10px type nobody could aim at on a
+    phone. A block opens on a double click AND on a double TAP: the page
+    allows zooming, so a double tap is a zoom and the browser keeps it
+    (gotcha 28), which is the same wall the roster hit --
+    `_bindOpeners` is the two-taps-inside-400ms shim, bound per block,
+    `passive: false` so the second tap can be stopped from zooming, and
+    re-bound after every draw. The controls inside a block (the QR slot,
+    the +/x, the pencil) are excluded, or tapping them would open the
+    form over what was just pressed. The pencil is `opacity: .9` under
+    `@media (hover: none)`, since a touch screen never hovers and that
+    is the one place the double tap most needs announcing. The dialogue
+    opens CENTRED at every width.
+
+    **Every block opens a DIALOGUE** (`SECTIONS`, one spec per block;
+    `openSection`). An A4 page set at 10px can be typed on, but it is
+    squinting work, so a double tap on each block opens the same fields
+    at a readable size with the formatting bar inside the dialogue
+    rather than in the toolbar -- undo and redo stay there, being about the
+    whole bulletin. A dialogue's fields carry the SAME `.blt-ed` classes
+    as the sheet's, so `_applyCmd` and `_noteSelection` reach them
+    unchanged, and its lists add and remove through the same `addItem` /
+    `removeItem` the sheet uses, so there is one definition of what an
+    item is. Typing in it redraws the sheet behind, debounced -- the
+    page is what is being edited, not a separate preview.
+
+    **The duty table declares its columns** (`<colgroup>` 28/36/36).
+    `table-layout: fixed` with no colgroup splits three columns evenly,
+    so short duty labels had as much room as cells holding three names.
+
+    **A phone opens the bulletin at 87%, not fitted.** Fitting A4 to a
+    phone lands near 45%, which is a picture of a bulletin rather than
+    something anybody can read or correct; 87% shows the left-hand
+    column legibly with the duty table starting beside it, and the page
+    scrolls from there. Set only on arrival (`_zoom == null`), so a size
+    the reader chose is not taken off them, and the stage is scrolled to
+    its LEFT edge once -- centred, a phone would open in the middle of
+    the duty table.
+
+80. **A reading that skips verses comes from the ESV in pieces, and every
+    piece is read.** From the operator (2026-11-11): "Isaiah 61:1-4, 8-11"
+    was put into the service as verses 1-4. The ESV answers a reference in
+    pieces ("Isaiah 61:1–4; Isaiah 61:8–11") with ONE PASSAGE PER PIECE, and
+    `app/api/bible-passage` read only `passages[0]`; it now reads them all,
+    in order (`esvVerseLines`), a line a verse, the verse numbers showing
+    where it skips. The free WEB service already answered such a reference
+    whole, and a reading that runs into the next chapter ("Isaiah
+    61:10–62:3") was always one piece. Readings saved cut short before the
+    fix (four upcoming on 2026-11-11: Zephaniah 1:7, 12-18; Ezekiel 34:11-16,
+    20-24; Isaiah 61:1-4, 8-11; John 1:6-8, 19-28) mend themselves: an
+    upcoming order opened in the builder checks each reading's words against
+    its reference (`_woRefPieces`, `_woReadingGaps`: each piece's first
+    verse among the "[n]" numbers; it cannot tell for one piece, a psalm --
+    whose numbers `_woScriptureSlides` takes out -- or a numbering that
+    matches nothing, and then leaves it alone), fetches again any that lack
+    a piece, and puts the passage in only when it is WHOLE
+    (`_woReadingWhole`) -- through `_woScriptureSlides`, keeping its title,
+    slot, Alleluia and each slide's background by place -- in one
+    `_lbdChange` with Undo (`_woMendReadings`, after the roster fill in
+    `_woAutoReadings('liturgy')`; once an order a session, and not while
+    LCD Projection is in the page, gotcha 35). A past order is a record of
+    what was read and is never touched. `tools/reading-pieces-harness.js`
+    checks the route and all of it.
+
+81. **A change made on one device reaches a projection already running
+    on another, at once.** The operator asked for it (2026-11-11) and,
+    asked directly, chose that the words change in front of the
+    congregation rather than wait to be advanced past. Four things were
+    in the way, and only the first is obvious:
+    - `_orderSyncScreenBusy` returned true while PROJECTING, so the one
+      state the operator cares about was the one state last-minute
+      changes never reached. It no longer asks. The other guards stay --
+      a slide being edited here, held unsaved words, an open slide
+      editor, the Liturgy Builder -- because those are about not
+      destroying words somebody is typing, which is a different thing
+      from not interrupting a service.
+    - Applying a change redraws the SCHEDULE; nothing re-sent the slide.
+      The operator's list would have updated while the wall kept the old
+      words -- worse than not updating, because the screen they read from
+      would say it was done. `_lcdReproject()` runs after every applied
+      delta: it re-sends the SELECTED slide (the one on the wall), does
+      nothing when the words have not changed (`_lcdProjected`), and
+      nothing when that slide is being typed on HERE.
+    - "On air" is NOT `document.fullscreenElement`. The operator
+      projects through the Project button's own WINDOW, which leaves
+      this page out of fullscreen entirely, so the old guard answered
+      "no" during most real services. `_lcdOnAir()` asks about
+      `projectionWindow` first (in a try, since a closed cross-origin
+      window throws), then fullscreen, then the presenter overlay.
+    - The realtime channel (`sb-<orderId>`) was started only by the
+      songbook's open paths, so a device sitting in LCD Projection was
+      never subscribed. `_orderSyncStart` now starts it too -- an open
+      ORDER is the condition; the songbook is one way in -- and every
+      save sends `order_touch` from inside `SBQ.saveOrder`, the one
+      place every path goes through. A receiver ticks TWICE (now, then
+      700ms): a tick must see a difference on two passes before it
+      trusts it, since a save is upsert-then-prune, so one nudge alone
+      would only ever arm the check. The 4-second poll stays as the
+      fallback when the channel is down.
+    What a congregation sees is still protected in two ways: the sync
+    BANNER still refuses to draw over a projection (`_orderSyncShowBanner`
+    keeps its `_orderSyncProjecting()` guard), and the editor's own
+    placeholder cannot reach the wall -- `_lcdIsSlideLine` is the one
+    test for whether a line of a slide is something a congregation should
+    see, called by both the projector (`_lcdSlideText`) and the rail's
+    preview, which previously each had their own copy of it.
+    `tools/live-projection-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

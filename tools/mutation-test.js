@@ -34,8 +34,14 @@
 // app/api is beyond it however many cases are listed below:
 //
 //   calendar-pending-harness   reads app/api/calendar/route.ts
+//   route-url-guard-harness    reads route files too
 //   scan-text-tests            reads app/api/parse-song-sheet/route.ts
 //   multipage-scan-harness     its route section, for the same reason
+//
+// Three more have no case here and are not in `npm run check` either, so
+// nothing runs them at all, let alone mutates them: autosuggest-skip,
+// duty-pairing and duty-settings-audit. That is a different gap from this
+// one and is not fixed by adding cases.
 //
 // Those assertions are not worthless -- they bite on a real edit to the
 // route, and the multipage ones were proved by hand -- but nothing here
@@ -165,6 +171,15 @@ const PREFILL =
   '        if (titleInput) titleInput.value = bbSuggestedTitle(result.reference || reference);';
 const SUGGEST_BODY =
   "    return String(ref == null ? '' : ref).replace(/^(\\s*)Psalms(\\s+\\d)/, '$1Psalm$2');";
+
+// Four harnesses that ran on every commit with nothing proving they could
+// fail. Each anchor below is the one line carrying the behaviour its harness
+// is there to defend, so breaking it breaks a check rather than a signature.
+const BRAND_GREEN = '--brand: #188e44;';
+const WATCHNIGHT_KEY = "dateStr:'Dec 31 PM'";
+const SHUFFLE_SALT = 'var _shuffleSalt = Math.random()';
+const SHUFFLE_HASH = 'var h = 2166136261 ^ Math.floor(_shuffleSalt * 4294967295);';
+const PAIRING_ANSWERED = '      if (answered) return;';
 
 const CASES = [
   ['share-link-song-harness.js', 'titles differing only by a comma in a number stop matching',
@@ -717,6 +732,286 @@ const CASES = [
                    "    return [String((song && song.title) || '').trim(), 'chords']")],
   ['songbook-live-harness.js', 'an absent artist leaves a gap in the search',
     s => s.replace('      .filter(Boolean).join(\' \');', "      .join(' ');")],
+  // ── The Sunday bulletin ──────────────────────────────────────────
+  // It is printed, handed out, and never checked against the roster
+  // again, so every one of these is a wrong name on a real page.
+  // The page is a fixed A4 box, so anything that does not fit is simply
+  // gone -- and only on paper, where nobody looks before Sunday.
+  // Placeholders belong to the editor. Unscoped, an un-typed theme verse
+  // printed the words "The theme verse" across the masthead.
+  // ── A change reaching a projection already running ───────────────
+  // Every one of these is a screen a congregation is looking at.
+  ['live-projection-harness.js', 'projecting stands the sync down again, as it did',
+    s => s.replace('    if (_lbdIsActive()) return true;', '    if (_orderSyncProjecting()) return true;\r\n    if (_lbdIsActive()) return true;')],
+  // The worse of the two failures: the operator's list says it is done
+  // while the wall keeps the old words.
+  ['live-projection-harness.js', 'the schedule updates but the wall does not',
+    s => s.replace('        try { _lcdReproject(); } catch (e) { console.warn(\'[OrderSync] reproject:\', e); }', '')],
+  ['live-projection-harness.js', 'a half-typed line goes up in front of the church',
+    s => s.replace("    if (content.querySelector('textarea')) return false;", '')],
+  ['live-projection-harness.js', 'the wall is re-sent words it is already showing',
+    s => s.replace('    if (text === _lcdProjected) return false;', '')],
+  // The operator projects through the Project button's own window, which
+  // leaves this page out of fullscreen entirely.
+  ['live-projection-harness.js', 'only fullscreen counts as being on air',
+    s => s.replace('      if (typeof projectionWindow !== \'undefined\' && projectionWindow && !projectionWindow.closed) return true;', '')],
+  ['live-projection-harness.js', 'a device in LCD Projection never subscribes',
+    s => s.replace('      try { sbStartRealtimeSync(); } catch (e) { /* the poll still covers it */ }', '')],
+  ['live-projection-harness.js', 'a second channel is opened over a live one',
+    s => s.replace("        typeof sbRealtimeChannel !== 'undefined' && !sbRealtimeChannel) {", '        true) {')],
+  ['live-projection-harness.js', 'a save no longer tells the other devices',
+    s => s.replace('        try { if (window._orderTouchSend) window._orderTouchSend(id); } catch (e) {}', '')],
+  ['live-projection-harness.js', 'the nudge is not listened for',
+    s => s.replace("      .on('broadcast', { event: 'order_touch' }, function(msg) {", "      .on('broadcast', { event: 'zz_never' }, function(msg) {")],
+  // A tick must see a difference twice before it trusts it, so one nudge
+  // alone would only ever arm the check.
+  ['live-projection-harness.js', 'a nudge only arms the check and never fires it',
+    s => s.replace('          setTimeout(function() { _orderSyncTick(); }, 700);', '')],
+  ['live-projection-harness.js', 'the poll fallback is taken away',
+    s => s.replace('var ORDER_SYNC_MS = 4000;', 'var ORDER_SYNC_MS = 400000;')],
+  // The editor's own placeholder once went up in front of a church.
+  ['live-projection-harness.js', 'the editor placeholder can reach the wall again',
+    s => s.replace("           el.textContent.trim() !== 'Double-click to add content';", '           true;')],
+  ['live-projection-harness.js', 'the rail preview and the wall disagree about what counts',
+    s => s.replace('      .filter(_lcdIsSlideLine)\r\n      .map(function(l) { return l.textContent.trim(); })', '      .map(function(l) { return l.textContent.trim(); })')],
+  // The app's own chrome must never appear on a projected screen.
+  ['live-projection-harness.js', 'a banner shows over a live projection',
+    s => s.replace('    if (_orderSyncProjecting()) return;', '')],
+
+  // An auto LEFT margin against a fixed RIGHT one pushes a box right, so
+  // the bulletin sat off-centre at every zoom.
+  ['bulletin-harness.js', 'the page is pushed off centre again',
+    s => s.replace("      box.style.width = Math.round(A4_W * scale) + 'px';",
+                   "      stage.style.marginRight = (A4_W * scale - A4_W) + 'px';")],
+  // The sanitiser is the only thing between a stored row and the page.
+  ['bulletin-harness.js', 'an image is allowed back into a typed field',
+    s => s.replace('var RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, SPAN: 1 };',
+                   'var RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, SPAN: 1, IMG: 1 };')],
+  ['bulletin-harness.js', 'typed text is written back as markup, not words',
+    s => s.replace('if (c.nodeType === 3) { out += _esc(c.nodeValue); continue; }',
+                   'if (c.nodeType === 3) { out += c.nodeValue; continue; }')],
+  ['bulletin-harness.js', 'any style at all survives a save',
+    s => s.replace("  var RICH_STYLES = ['color', 'fontFamily', 'fontWeight', 'fontStyle', 'textDecoration'];",
+                   "  var RICH_STYLES = ['color', 'fontFamily', 'fontWeight', 'fontStyle', 'textDecoration', 'background', 'fontSize'];")],
+  ['bulletin-harness.js', 'a pasted block becomes a block on the bulletin',
+    s => s.replace("      if (tag === 'DIV' || tag === 'P') {", "      if (false) {")],
+  // Undo: a run of typing has to be one step, and what comes back off
+  // the stack has to go through the same reader as a stored row.
+  ['bulletin-harness.js', 'undoing one Bold takes two presses',
+    s => s.replace('if (_applying) return;', 'if (false) return;')],
+  ['bulletin-harness.js', 'the applying flag is never put down',
+    s => s.replace('} catch (e) { return; } finally { _applying = false; }', '} catch (e) { return; }')],
+  ['bulletin-harness.js', 'undo walks back one character at a time',
+    s => s.replace('if (_typeSnap == null || now - _typeAt > 1400) {', 'if (true) {')],
+  ['bulletin-harness.js', 'the undo snapshot is taken after the keystroke',
+    s => s.replace("      _noteTyping();\r\n      _setPath(_cur.data, el.dataset.p,",
+                   "      _setPath(_cur.data, el.dataset.p,")],
+  ['bulletin-harness.js', 'an undone bulletin skips the reader a load uses',
+    s => s.replace('_cur.data = _sane(JSON.parse(_undo.pop()));', '_cur.data = JSON.parse(_undo.pop());')],
+  ['bulletin-harness.js', 'the undo history grows without bound',
+    s => s.replace('var UNDO_MAX = 60;', 'var UNDO_MAX = Infinity;')],
+  ['bulletin-harness.js', 'another bulletin inherits the last one\'s history',
+    s => s.replace('      _undo.length = 0; _redo.length = 0; _typeSnap = null;', '')],
+  // A QR travels inside the bulletin row, so what goes in must be an
+  // image and nothing else.
+  // The slot opened a picker all along; nobody could tell it was a button.
+  // Three fixed columns with no colgroup split evenly, so short duty
+  // labels had as much room as cells holding three names.
+  ['bulletin-harness.js', 'the duty labels take back the names\' width',
+    s => s.replace('<colgroup><col style="width:28%"><col style="width:36%"><col style="width:36%"></colgroup>', '')],
+  ['bulletin-harness.js', 'the duty column becomes the widest of the three',
+    s => s.replace('<col style="width:28%"><col style="width:36%"><col style="width:36%">',
+                   '<col style="width:50%"><col style="width:25%"><col style="width:25%">')],
+  // The dialogue is the whole point: the sheet is 10px type.
+  // Two ways to write one field is two code paths for it, and the
+  // in-place one was 10px type nobody could aim at on a phone.
+  ['bulletin-harness.js', 'the sheet becomes editable again',
+    s => s.replace('    return \'<span class="blt-view \' + (cls || \'\') + \'" \' +',
+                   '    return \'<span class="blt-view \' + (cls || \'\') + \'" contenteditable="true" \' +')],
+  ['bulletin-harness.js', 'the form\'s own fields stop being editable',
+    s => s.replace('contenteditable="\' + (f.rich ? \'true\' : \'plaintext-only\') + \'"',
+                   'data-was-editable="\' + (f.rich ? \'true\' : \'plaintext-only\') + \'"')],
+  // dblclick never fires on a phone: a double tap is a zoom and the
+  // browser keeps it. Desktop-only here leaves the form unreachable on
+  // the phones this is mostly read on.
+  ['bulletin-harness.js', 'the form is unreachable on a phone',
+    s => s.replace("      el.addEventListener('touchend', function(e) {", '      if (1) return; el.addEventListener(\'touchend\', function(e) {')],
+  ['bulletin-harness.js', 'the second tap zooms the page instead of opening the form',
+    s => s.replace('          e.preventDefault();          // or the second tap is a zoom', '')],
+  ['bulletin-harness.js', 'the tap listener is passive and cannot stop the zoom',
+    s => s.replace('      }, { passive: false });', '      });')],
+  ['bulletin-harness.js', 'two taps a second apart count as a double tap',
+    s => s.replace('(now - _tapAt) < 400', '(now - _tapAt) < 4000')],
+  ['bulletin-harness.js', 'a block stops saying which form it opens',
+    s => s.replace("_secAttr('giving')", "''")],
+  ['bulletin-harness.js', 'a redraw leaves every block dead',
+    s => s.replace('    _bindOpeners();', '')],
+  ['bulletin-harness.js', 'tapping the QR slot opens the form over it',
+    s => s.replace("        if (e.target && e.target.closest && e.target.closest('.blt-qr, .blt-x, .blt-add, .blt-pen')) return;\r\n        var now = Date.now();",
+                   '        var now = Date.now();')],
+  ['bulletin-harness.js', 'the pencil never appears on a touch screen',
+    s => s.replace('@media (hover: none) { .blt-pen { opacity: .9; } }', '')],
+  // Asked for explicitly: the middle of the screen, not the bottom.
+  ['bulletin-harness.js', 'the form slides up from the bottom again',
+    s => s.replace('  display: flex; align-items: center; justify-content: center; padding: 14px;',
+                   '  display: flex; align-items: flex-end; justify-content: center;')],
+  ['bulletin-harness.js', 'the form keeps its bottom-sheet corners',
+    s => s.replace('  border-radius: 16px; display: flex; flex-direction: column;',
+                   '  border-radius: 16px 16px 0 0; display: flex; flex-direction: column;')],
+  ['bulletin-harness.js', 'a section can no longer be opened to edit it',
+    s => s.replace('    verse: { title: ', '    zz_verse: { title: ')],
+  ['bulletin-harness.js', 'the dialogue adds items its own way',
+    s => s.replace('function dlgAdd(what) { addItem(what); _dlgRefresh(); }',
+                   'function dlgAdd(what) { _cur.data.notices.push({}); _dlgRefresh(); }')],
+  ['bulletin-harness.js', 'the dialogue removes items its own way',
+    s => s.replace('function dlgRemove(what, i) { removeItem(what, i); _dlgRefresh(); }',
+                   'function dlgRemove(what, i) { _cur.data.notices.splice(i, 1); _dlgRefresh(); }')],
+  ['bulletin-harness.js', 'a list no longer says what kind of item it holds',
+    s => s.replace("addKey: 'notice', ", '')],
+  ['bulletin-harness.js', 'the page behind the dialogue stops moving as you type',
+    s => s.replace('      _dlgPaint = setTimeout(function() { render(); }, 220);', '')],
+  ['bulletin-harness.js', 'the formatting bar leaves the dialogue',
+    s => s.replace("'<div class=\"blt-dlg__bar\">' +", "'' +")],
+  ['bulletin-harness.js', 'the dialogue cannot be dismissed',
+    s => s.replace("      if (e.key === 'Escape') { e.preventDefault(); closeSection(); return; }", '')],
+  ['bulletin-harness.js', 'the edit pencils print on the bulletin',
+    s => s.replace('.blt-capturing .blt-pen { display: none !important; }', '')],
+  // A phone fitting A4 to its width lands near 45%.
+  ['bulletin-harness.js', 'a phone opens at a size nobody can read',
+    s => s.replace('var PHONE_ZOOM = 0.87;', 'var PHONE_ZOOM = 0.45;')],
+  ['bulletin-harness.js', 'the phone zoom is forced on every visit',
+    s => s.replace('if (_zoom == null && _isPhone()) _zoom = PHONE_ZOOM;', 'if (_isPhone()) _zoom = PHONE_ZOOM;')],
+  ['bulletin-harness.js', 'a tablet with a coarse pointer is not treated as one',
+    s => s.replace("      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);", '      false;')],
+  ['bulletin-harness.js', 'a phone opens in the middle of the duty table',
+    s => s.replace('      sc.scrollLeft = 0; sc._bltScrolled = true;', '')],
+  ['bulletin-harness.js', 'the QR slot reads as a placeholder again',
+    s => s.replace('<span>Add QR</span>', '<span>QR code</span>')],
+  ['bulletin-harness.js', 'the slot stops saying what it does on hover',
+    s => s.replace('title="Choose a QR picture, or drop or paste one here"', '')],
+  // A QR copied out of a banking app is on the clipboard, not in a file.
+  ['bulletin-harness.js', 'a QR can no longer be dropped on the slot',
+    s => s.replace('ondrop="BLT.dropQr(event,', 'data-nodrop="(')],
+  ['bulletin-harness.js', 'a dropped picture navigates the page away instead',
+    s => s.replace('  function dropQr(ev, i) {', '  function dropQr(ev, i) { if (1) return;')],
+  ['bulletin-harness.js', 'a QR can no longer be pasted',
+    s => s.replace("document.addEventListener('paste', _qrPaste);", '')],
+  ['bulletin-harness.js', 'a paste no longer knows which slot it is for',
+    s => s.replace("var slot = a && a.closest ? a.closest('.blt-qr') : null;", 'var slot = null;')],
+  // A photograph of a QR is a megapixel file, and refusing it was the
+  // old behaviour -- it is the commonest thing somebody would try.
+  ['bulletin-harness.js', 'a photographed QR is refused instead of scaled',
+    s => s.replace('var QR_SIDE = 512;         // a QR needs no more than this to scan', 'var QR_SIDE = 99999;')],
+  ['bulletin-harness.js', 'a QR photographed on a patterned table is refused',
+    s => s.replace("if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.85);", '')],
+  ['bulletin-harness.js', 'the last resort for a noisy photo is gone',
+    s => s.replace("if (out.length > QR_MAX) out = c.toDataURL('image/jpeg', 0.6);", '')],
+  // A transparent PNG over the gold block loses the quiet zone a
+  // scanner needs, and JPEG has no alpha at all.
+  ['bulletin-harness.js', 'the QR is laid on nothing, so it will not scan',
+    s => s.replace("          g.fillStyle = '#ffffff';", '')],
+  ['bulletin-harness.js', 'any file at all is taken as a QR',
+    s => s.replace("    if (!/^image\\//.test(file.type || '')) { _toast('That is not a picture', 'error'); return; }", '')],
+  ['bulletin-harness.js', 'anything at all can be stored as the QR code',
+    s => s.replace("qr: (g && typeof g.qr === 'string' && /^data:image\\//.test(g.qr)) ? g.qr : ''",
+                   "qr: (g && g.qr) || ''")],
+  ['bulletin-harness.js', 'a picture of any size is accepted',
+    s => s.replace('var QR_MAX = 350 * 1024;', 'var QR_MAX = Infinity;')],
+  ['bulletin-harness.js', 'the empty QR slot prints on the bulletin',
+    s => s.replace('.blt-capturing .blt-qr--empty, .blt-capturing .blt-qr__x { display: none !important; }', '')],
+  // The account, as the chapel writes it.
+  ['bulletin-harness.js', 'the account name stops being bold',
+    s => s.replace(".blt-give__name { font-family: 'Poppins', sans-serif; font-weight: 700;",
+                   ".blt-give__name { font-family: 'Poppins', sans-serif; font-weight: 400;")],
+  ['bulletin-harness.js', 'the account number loses its label',
+    s => s.replace("'<div class=\"blt-give__acct\"><span class=\"blt-give__lbl\">A/C No :</span> ' +",
+                   "'<div class=\"blt-give__acct\">' +")],
+  ['bulletin-harness.js', 'a new bulletin forgets the chapel\'s account',
+    s => s.replace("name: 'Luther House Chapel', bank: 'RHB Bank',", "name: '', bank: '',")],
+  ['bulletin-harness.js', 'the announcement title goes back beside its words',
+    s => s.replace("      h += '<li><div class=\"blt-notices__t\">' +", "      h += '<li><span class=\"blt-notices__t\"><b>' +")],
+  ['bulletin-harness.js', 'empty fields print their placeholder text',
+    s => s.replace('.blt-sheet:not(.blt-capturing) .blt-view:empty::before { content: attr(data-ph)',
+                   '.blt-view:empty::before { content: attr(data-ph)')],
+  // Centred overflow runs off both sides: the left of a zoomed page
+  // could then never be scrolled to.
+  ['bulletin-harness.js', 'a zoomed page cannot be scrolled back to its left edge',
+    s => s.replace('.blt-stage { padding: 18px 8px 0; overflow-x: auto; }',
+                   '.blt-stage { display: flex; justify-content: center; padding: 18px 8px 0; overflow: hidden; }')],
+  ['bulletin-harness.js', 'the zoom buttons have nothing to reset to',
+    s => s.replace('onclick="BLT.zoomFit()"', 'onclick="void 0"')],
+  ['bulletin-harness.js', 'the bulletin opens at a fixed size instead of fitting',
+    s => s.replace('var _zoom = null;', 'var _zoom = 0.7;')],
+  // The PDF is always the whole A4 page, whatever the screen is showing.
+  ['bulletin-harness.js', 'the PDF is captured at whatever zoom was on screen',
+    s => s.replace("          pixelRatio: 2, backgroundColor: '#ffffff', width: A4_W, height: A4_H,",
+                   "          pixelRatio: 2, backgroundColor: '#ffffff', width: A4_W * (_zoom || 1), height: A4_H,")],
+  // Something in the app's own CSS strips list markers, so the <ol>
+  // numbered nothing and the announcements ran together.
+  ['bulletin-harness.js', 'the announcements lose their numbering again',
+    s => s.replace('list-style: none; counter-reset: blt-n;', 'counter-reset: blt-n;')],
+  ['bulletin-harness.js', 'the number is not drawn at all',
+    s => s.replace('.blt-notices li::before { content: counter(blt-n) ".";', '.blt-notices li::before { content: "";')],
+  ['bulletin-harness.js', 'the words are not kept clear of the number',
+    s => s.replace('.blt-notices__t { flex: 1 1 auto; min-width: 0; }', '')],
+  // Giving was two loose lines in the first week; a bulletin written
+  // then must still open with its account details in it.
+  ['bulletin-harness.js', 'the first week\'s giving details are dropped on open',
+    s => s.replace('      } else if (Array.isArray(d.giving.lines)) {', '      } else if (false) {')],
+  ['bulletin-harness.js', 'a new giving purpose arrives pre-filled',
+    s => s.replace("d.giving.entries.push({ purpose: '', name: '', bank: '', number: '', qr: '' });",
+                   "d.giving.entries.push(d.giving.entries[0]);")],
+  ['bulletin-harness.js', 'an over-long bulletin loses its bottom in silence',
+    s => s.replace('    _warnIfLong();', '')],
+  ['bulletin-harness.js', 'the overflow check measures the page, which never grows',
+    s => s.replace('var over = body ? body.scrollHeight - body.clientHeight : 0;',
+                   'var over = sheet.scrollHeight - A4_H;')],
+  ['bulletin-harness.js', 'the footer is shoved off the page instead of clipping',
+    s => s.replace('width: 794px; height: 1123px; box-sizing: border-box; overflow: hidden;',
+                   'width: 794px; height: 1123px; box-sizing: border-box;')],
+  ['bulletin-harness.js', 'an offering amount wraps onto the row beneath it',
+    s => s.replace('.blt-money__v { flex: 0 0 auto; white-space: nowrap; font-family',
+                   '.blt-money__v { font-family')],
+  ['bulletin-harness.js', 'the page ends in a white band above the footer',
+    s => s.replace('.blt-main .blt-table { flex: 1 1 auto; }', '')],
+  ['bulletin-harness.js', 'the first reading prints the passage as the reader',
+    s => s.replace("{ key: 'read1',     label: 'First Reading',         roles: ['reader1'], ref: 'reading1' }",
+                   "{ key: 'read1',     label: 'First Reading',         roles: ['reading1'], ref: 'reading1' }")],
+  // The roster keeps the liturgical cell as a JSON STRING, so unwrapping
+  // only objects printed the braces across the masthead.
+  ['bulletin-harness.js', 'the liturgical day prints as raw JSON',
+    s => s.replace("if (s.charAt(0) === '{') {", "if (false) {")],
+  ['bulletin-harness.js', 'a hand-typed liturgical day disappears',
+    s => s.replace("} catch (e) { /* not JSON after all: keep the text */ }", "} catch (e) { return ''; }")],
+  ['bulletin-harness.js', 'a duty points at a roster role that does not exist',
+    s => s.replace("roles: ['flowerarrangement']", "roles: ['flowers']")],
+  ['bulletin-harness.js', 'the band loses half its players',
+    s => s.replace("roles: ['pianist', 'guitarist', 'bassist', 'drummer', 'singer1', 'singer2', 'singer3', 'singer4']",
+                   "roles: ['pianist', 'guitarist']")],
+  // '-' in a scripture slot is the roster saying there is no psalm today.
+  ['bulletin-harness.js', 'the no-psalm sentinel is tidied away',
+    s => s.replace("if (v === '-' && !isScripture) return '';", "if (v === '-') return '';")],
+  ['bulletin-harness.js', 'the same person rostered twice is printed twice',
+    s => s.replace('if (v && names.indexOf(v) === -1) names.push(v);', 'if (v) names.push(v);')],
+  // The sheet is scaled to fit the screen; scaling the SHEET rather than
+  // its wrapper bakes that fraction into the printed PDF.
+  ['bulletin-harness.js', 'the PDF is printed at whatever size the phone showed',
+    s => s.replace("stage.style.transform = 'scale(' + scale + ')';",
+                   "sheet.style.transform = 'scale(' + scale + ')';")],
+  ['bulletin-harness.js', 'the editing controls print on the bulletin',
+    s => s.replace('.blt-capturing .blt-x, .blt-capturing .blt-add { display: none !important; }', '')],
+  // Without onConflict the upsert inserts another row on every keystroke
+  // batch, and reopening the bulletin returns whichever one came back first.
+  ['bulletin-harness.js', 'every save makes a second bulletin for the same Sunday',
+    s => s.replace("{ onConflict: 'service_date,year' }", '{}')],
+  ['bulletin-harness.js', 'a bulletin saved by an older page throws on open',
+    s => s.replace('if (Array.isArray(d.notices)) b.notices = d.notices.map(function(n) {',
+                   'if (d.notices) b.notices = d.notices.map(function(n) {')],
+  // Opened on the last Sunday of a month, one month ahead leaves the
+  // right-hand column with no service to name.
+  ['bulletin-harness.js', 'the next-Sunday column runs out at a month end',
+    s => s.replace('for (var k = 0; k < 3; k++) {', 'for (var k = 0; k < 1; k++) {')],
+
   ['songbook-live-harness.js', 'the box goes back to holding only the title',
     s => s.replace("value=\"' + escapeHtml(_sbmFindQuery(song)) +",
                    "value=\"' + escapeHtml(String(song.title || '').trim()) +")],
@@ -1307,6 +1602,36 @@ const CASES = [
   ['reading-slot-title-harness.js', 'the suggestion loses its anchor',
     s => s.replace(SUGGEST_BODY,
                    "    return String(ref == null ? '' : ref).replace(/Psalms/, 'Psalm');")],
+
+  // Four harnesses that nothing here reached. These are their first cases.
+  //
+  // The altar colours and the jubilee green are the whole visual identity of
+  // the app, and reverting --brand to the pre-rebrand blue is the regression a
+  // careless sweep would actually make.
+  ['theme-colour-harness.js', 'the jubilee green reverts to the old blue',
+    s => s.replace(BRAND_GREEN, '--brand: #4a6da7;')],
+
+  // Two services fall on 31 December. Give the Watchnight the morning's key
+  // and they collide: one row overwrites the other, and whoever is rostered
+  // for the evening quietly disappears.
+  ['watchnight-service-harness.js', 'the Watchnight shares the morning service key',
+    s => s.replace(WATCHNIGHT_KEY, "dateStr:'Dec 31'")],
+
+  // Auto-Suggest exists so that a second press gives a different answer.
+  // Two ways to lose that, caught in two different places: the salt drawn
+  // once per run is a textual check, while a salt that never reaches the
+  // hash only shows in the spread over 200 runs. The second is why one
+  // case here would not have been enough.
+  ['autosuggest-shuffle-harness.js', 'the shuffle salt stops being random',
+    s => s.replace(SHUFFLE_SALT, 'var _shuffleSalt = 0.5')],
+  ['autosuggest-shuffle-harness.js', 'the salt stops reaching the hash',
+    s => s.replace(SHUFFLE_HASH, 'var h = 2166136261;')],
+
+  // The one the source comment warns about in so many words: a group rule is
+  // satisfied ONCE. Without that, a strict rule demands the same person in
+  // every singer row -- she fills Singer 2, and Singer 3 is still required.
+  ['duty-group-pairing-harness.js', 'a group rule is never satisfied, so it keeps firing',
+    s => s.replace(PAIRING_ANSWERED, '      if (false) return;')],
   // The phone's choir-parts editor. It saves by writing the desktop
   // editor's grammar out and handing it to the same parser, so every one
   // of these produces rows that save cleanly and a page that still looks
@@ -1503,6 +1828,133 @@ const CASES = [
     s => s.replace('    if (owner && m.shared === false) return !!(privOn && privOn[owner]);\r\n', '')],
   ['songbook-layers-harness.js', 'the rubber takes somebody else\'s drawing',
     s => s.replace("if (l.owner && !l.mine) { theirs = theirs || l.ownerName || 'somebody else'; return; }", '')],
+  // Earlier versions (2026-11-08): every take says which service it was
+  // made for, another service's marked; the read-only view paints the
+  // drawings of the version it shows, never the copy in front.
+  ['songbook-earlier-versions-harness.js', 'a take recorded in the songbook notes no service',
+    s => s.replace('      if (forOrder) ins.order_id = forOrder;\r\n      return sb.from(\'song_recordings\').insert(ins).select();', '      return sb.from(\'song_recordings\').insert(ins).select();')],
+  ['songbook-earlier-versions-harness.js', 'a cut forgets the service its recording was made for',
+    s => s.replace('var forOrder = (C.rec && C.rec.order_id) ? String(C.rec.order_id) : _sbRecOrderNow();', 'var forOrder = _sbRecOrderNow();')],
+  ['songbook-earlier-versions-harness.js', 'another service\'s take passes for this one\'s',
+    s => s.replace('if (hereId && o === String(hereId)) return', 'if (hereId) return')],
+  ['songbook-earlier-versions-harness.js', 'the read-only view paints the drawings of the copy in front',
+    s => s.replace('    if (card && card.__sbmSong) return card.__sbmSong;\r\n', '')],
+  ['songbook-earlier-versions-harness.js', 'the preview leaves the choir score\'s drawings off',
+    s => s.replace('          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n        _sbEvMountOne(cc, temp);\r\n', '          : \'<p class="sbm-empty">This song has no choir parts yet.</p>\';\r\n')],
+  ['songbook-earlier-versions-harness.js', 'an earlier service\'s medleys are lost',
+    s => s.replace('m.songs.length > 1 && m.songs.indexOf(x.id) !== -1', 'false')],
+  // One Versions sheet (2026-11-08): past versions newest first, a song new
+  // to a service that was sung before pulses its badge and is pointed out,
+  // and a medley kept keeps each song's version.
+  // Save / Load Versions (2026-11-09): a tile of its own, and a name saved
+  // twice replaces the first, asked first.
+  ['songbook-earlier-versions-harness.js', 'Save / Load Versions is back inside More only',
+    s => s.replace("      vTile +\r\n      '<button class=\"sbm-tile sbm-tile--more\"", "      '<button class=\"sbm-tile sbm-tile--more\"")],
+  ['songbook-earlier-versions-harness.js', 'a name saved again is saved twice',
+    s => s.replace('      if (!x) return _sbVerSaveAs(song, name);\r\n', '      return _sbVerSaveAs(song, name);\r\n')],
+  ['songbook-earlier-versions-harness.js', 'a version is replaced without asking',
+    s => s.replace("}).then(function(ok) { return ok ? _sbVerReplace(song, x) : null; });", "}).then(function() { return _sbVerReplace(song, x); });")],
+  ['songbook-earlier-versions-harness.js', 'names differing only in case are taken for two',
+    s => s.replace("function _sbVerNameKey(s) { return String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().toLowerCase(); }", "function _sbVerNameKey(s) { return String(s == null ? '' : s); }")],
+  ['songbook-earlier-versions-harness.js', 'a replace takes the old drawings off before the new ones are in',
+    s => s.replace("        return oldIds.length ? sup.from('song_marks').delete().in('id', oldIds) : { error: null };\r\n", "        return { error: null };\r\n")],
+  ['songbook-earlier-versions-harness.js', 'the preview is the width of any sheet again',
+    s => s.replace('#sbmSheet[data-sheet="earlier-open"] .sbm-sheet { width: min(470px, 92vw); }', '#sbmSheet[data-sheet="earlier-open"] .sbm-sheet { width: min(460px, 92vw); }')],
+  ['songbook-earlier-versions-harness.js', 'past versions are listed oldest first',
+    s => s.replace('return tb.localeCompare(ta) || (a.k - b.k);', 'return ta.localeCompare(tb) || (a.k - b.k);')],
+  ['songbook-earlier-versions-harness.js', 'the badge of a song sung before no longer pulses',
+    s => s.replace("el.classList.toggle('is-pulsing', !!n && el.getAttribute('data-ev-fresh') === '1');", "el.classList.toggle('is-pulsing', false);")],
+  ['songbook-earlier-versions-harness.js', 'a copy with the main song\'s words is taken for one with words of its own',
+    s => s.replace('return !own || own === t(song.masterLyrics);', 'return !own;')],
+  ['songbook-earlier-versions-harness.js', 'a song sung before is never pointed out',
+    s => s.replace('if (n && s1 && _sbBaseSongId(s1) === base && _sbEvFresh(s1)) _sbmCoachRecallSoon(s1);', '')],
+  ['songbook-earlier-versions-harness.js', 'Use on the main song does nothing',
+    s => s.replace("    if (r.kind === 'main') { _sbmCloseSheet(); sbVerUse(''); return; }\r\n", '')],
+  ['songbook-earlier-versions-harness.js', 'a saved medley forgets the version each song was sung on',
+    s => s.replace("transposeSteps: parseInt(stepsOf ? stepsOf(e) : e.transposeSteps, 10) || 0, versionId: e.versionId || '' };", "transposeSteps: parseInt(stepsOf ? stepsOf(e) : e.transposeSteps, 10) || 0 };")],
+  ['songbook-earlier-versions-harness.js', 'a medley used again comes back on Standard',
+    s => s.replace('    if (ed.vers && ed.useKeys) _mdsApplyVersions(ed.vers);\r\n', '')],
+  ['songbook-coach-harness.js', 'Show the tips again leaves out the past-versions hint',
+    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); _sbmReplayRecall(); return; }', 'if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); return; }')],
+  // Slide parts in the LCD rail (2026-11-08): a song marks a part once and
+  // the rail carries it down the slides that finish it; a heading the
+  // operator adds is a SIBLING of .wo-slide-content, which is the only
+  // reason it never reaches the congregation's screen.
+  ['lcd-rail-parts-harness.js', 'every slide starts a part of its own, so nothing is carried down',
+    s => s.replace('if (own || !cur) { cur = { label: own, start: i, size: 0 }; runs.push(cur); }',
+                   '{ cur = { label: own, start: i, size: 0 }; runs.push(cur); }')],
+  ['lcd-rail-parts-harness.js', 'the heading goes INSIDE the slide content, and onto the wall',
+    s => s.replace('if (content && content.parentNode) content.parentNode.insertBefore(el, content);',
+                   'if (content) content.appendChild(el);')],
+  ['lcd-rail-parts-harness.js', 'an empty heading leaves an empty element behind',
+    s => s.replace('if (!t) { if (el) el.remove(); return; }', 'if (!t) return;')],
+  ['lcd-rail-parts-harness.js', 'a song goes back to one flat run of rows with no heading row',
+    s => s.replace('            rowsHtml += _lcdBuildItemGroupRow(\'song\', groupTitle, _songBoxes.length);\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the rows show the item title again instead of the words',
+    s => s.replace('var _words = lines.slice(0, 2).join(\'   /   \');', 'var _words = \'\';')],
+  ['lcd-rail-parts-harness.js', 'a liturgy heading is dropped on the next load',
+    s => s.replace('                if (slide.header) _lcdWriteSlideHeader(slideBox, slide.header);\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'Cancel on the heading prompt clears the heading instead',
+    s => s.replace('      if (v === null || v === undefined) return;   // Cancel, which is not \"clear\"', '')],
+  ['lcd-rail-parts-harness.js', 'pre-chorus is swallowed by chorus again',
+    s => s.replace('if (h.indexOf(\'pre-chorus\') >= 0 || h.indexOf(\'prechorus\') >= 0 || h.indexOf(\'pre chorus\') >= 0) return \'prechorus\';',
+                   'if (h.indexOf(\'zzz\') >= 0) return \'prechorus\';')],
+  ['lcd-rail-parts-harness.js', 'labelling a slide snaps the rail back to the projecting slide',
+    s => s.replace('      _lcdRailHoldScroll();\r\n      _lcdWriteSlideHeader(box, t);', '      _lcdWriteSlideHeader(box, t);')],
+  ['lcd-rail-parts-harness.js', 'the held position is put back once, so a later rebuild still moves it',
+    s => s.replace('[0, 60, 150, 320, 700, 1100].forEach', '[0].forEach')],
+  ['lcd-rail-parts-harness.js', 'the watcher is held off for one reveal instead of a window',
+    s => s.replace('        if (Date.now() < _lcdSkipRevealUntil) return;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the bridge loses the colour edge that ties its slides to its heading',
+    s => s.replace('  .lcd-rail-slide-row[data-part=\"bridge\"]::before    { background: #9573d6; }\r\n', '')],
+  // The rail's title rows in black, and All Slides on the console itself
+  // (2026-11-09). The part badges stay coloured -- the operator was asked
+  // and chose that -- and All Slides stays OUT of the controls row, which
+  // has 27px of its 517 left and would spend 44px of the projection.
+  ['lcd-rail-parts-harness.js', 'the section band goes back to cream',
+    s => s.replace('    background: #13161b;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the song and liturgy name rows go back to cream',
+    s => s.replace('    background: #1b1f26;\r\n', '')],
+  ['lcd-rail-parts-harness.js', 'the VERSE badge is dragged into the black with them',
+    s => s.replace('.lcd-rail-part[data-part=\"verse\"]     { background: #e0ecfd;',
+                   '.lcd-rail-part[data-part=\"verse\"]     { background: #13161b;')],
+  ['lcd-rail-parts-harness.js', 'All Slides is taken off the console again',
+    s => s.replace('<button class=\"lcd-slide-nav-btn lcd-allslides-btn\" id=\"lcdAllSlidesToolBtn\"', '<button class=\"lcd-slide-nav-btn\" id=\"lcdGone\"')],
+  ['lcd-rail-parts-harness.js', 'All Slides takes Project\'s blue, so the live button has a twin',
+    s => s.replace('background: #1d4ed8; border-color: #1d4ed8; color: #fff;',
+                   'background: #0066ff; border-color: #0066ff; color: #fff;')],
+  // Projected words wrap instead of shrinking (2026-11-10). The height test
+  // stays -- a wall has nothing to scroll -- and max-width is what lets
+  // overflow-wrap act at all on a flex item in a centred flex container.
+  ['projection-text-wrap-harness.js', 'a long line shrinks the whole slide again',
+    s => s.replace("'  while (textEl.scrollHeight > maxH && fs > 1.2) {' +",
+                   "'  var maxW = content ? content.offsetWidth - 4 : window.innerWidth - 80;' +\r\n      '  while ((textEl.scrollHeight > maxH || textEl.scrollWidth > maxW) && fs > 1.2) {' +")],
+  ['projection-text-wrap-harness.js', 'a slide taller than the screen keeps its size and loses its last lines',
+    s => s.replace("'  while (textEl.scrollHeight > maxH && fs > 1.2) {' +",
+                   "'  while (false && fs > 1.2) {' +")],
+  ['projection-text-wrap-harness.js', 'the projected text loses its width cap, so a long word runs off both edges',
+    s => s.replace("font-size: 6.5vw; line-height: 1.6; max-width: 100%;", "font-size: 6.5vw; line-height: 1.6;")],
+  ['projection-text-wrap-harness.js', 'a word with no space in it stops breaking',
+    s => s.replace("max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word;", "max-width: 100%; white-space: pre-wrap;")],
+  ['projection-text-wrap-harness.js', 'the presenter view stops wrapping at the safe zone',
+    s => s.replace("    textEl.style.maxWidth = Math.round(maxW) + 'px';\r\n", '')],
+  // 125px on the projector, and nothing of the app's own on a screen the
+  // room can see (2026-11-10). 6.5vw is 124.8px at 1920 and one stop of the
+  // existing slider; the fullscreen rule needs !important to beat
+  // .wofs-filmstrip's own display:flex.
+  ['projection-text-wrap-harness.js', 'the projected words drop back to 5vw, two thirds of what was asked',
+    s => s.replace("'.projection-text { font-size: 6.5vw;", "'.projection-text { font-size: 5vw;")],
+  ['projection-text-wrap-harness.js', 'the projection window falls back to the old size when nothing is stored',
+    s => s.replace("'  var fs = s.fontSize || 6.5;' +", "'  var fs = s.fontSize || 5;' +")],
+  ['projection-text-wrap-harness.js', 'the Text settings dialog still starts at 5vw',
+    s => s.replace('    fontSize: 6.5,', '    fontSize: 5,')],
+  ['projection-text-wrap-harness.js', 'the arrows stay on the wall when the view goes full screen',
+    s => s.replace('  .wo-fullscreen-overlay:fullscreen .wofs-nav-btn,\r\n', '')],
+  ['projection-text-wrap-harness.js', 'the filmstrip is hidden without !important, so its display:flex wins',
+    s => s.replace('    display: none !important;\r\n  }\r\n  /* ...and the pointer',
+                   '    display: none;\r\n  }\r\n  /* ...and the pointer')],
+  ['projection-text-wrap-harness.js', 'the mouse pointer is left sitting on the wall',
+    s => s.replace('  .wo-fullscreen-overlay:-webkit-full-screen { cursor: none; }', '')],
   // The parts a reader plays or sings follow their name (drawer_prefs). A
   // phone that changed hands must not carry one person's parts into the
   // next person's row, which would then follow THEM to every device; a tick
@@ -1567,7 +2019,86 @@ const CASES = [
   ['songbook-book-mode-harness.js', 'a zoom stays on the page it was set on',
     s => s.replace('    for (var i = idx; i >= 0; i--) {\r\n      var z = map ? map[i] : undefined;', '    for (var i = idx; i >= idx; i--) {\r\n      var z = map ? map[i] : undefined;')],
   ['songbook-reading-view-harness.js', 'the first-time flash shows every time',
-    s => s.replace("    try { localStorage.setItem('lhc_sbm_intro_seen', String(Date.now())); } catch (e) {}\r\n", '')],
+    s => s.replace("    _sbmIntroDone = true;\r\n    _sbmSeenMark('lhc_sbm_intro_seen_v2');\r\n    var el = document.createElement('div');", "    var el = document.createElement('div');")],
+  // 2026-11-08: the flash once on the device, not once each time the app
+  // is opened -- phones reopen the app all day, and singers met it again
+  // and again.
+  ['songbook-reading-view-harness.js', 'the first-time flash comes back each time the app is opened',
+    s => s.replace("    _sbmSeenMark('lhc_sbm_intro_seen_v2');\r\n", '')],
+  // The coach marks (the same day): the recordings sheet's, and the two
+  // minutes before the drawing one, counted only while the book is in front.
+  ['songbook-coach-harness.js', 'the recordings sheet opens with no coach mark',
+    s => s.replace('    setTimeout(_sbmCoachRecord, 80);\r\n', '')],
+  ['songbook-coach-harness.js', 'time in another tab counts toward the ten seconds',
+    s => s.replace('    if (document.hidden || !_sbmBookOpen() || !_sbmActive()) return;\r\n    _sbmCoachClock.ms', '    _sbmCoachClock.ms')],
+  ['songbook-coach-harness.js', 'a coach mark shows twice while the app stays open',
+    s => s.replace('    _sbmCoachSeen[key] = true;\r\n', '')],
+  // The drawing hint (2026-11-08): ten seconds in, once on the device, and
+  // only with the song's words in sight to point at.
+  // The floater (2026-11-08): armed by a song being opened, not by the
+  // flash, which is once on a device -- or on a desk it never comes.
+  ['songbook-coach-harness.js', 'on a desk the floater waits for a flash that no longer comes',
+    s => s.replace('      if (_sbmGuideFresh && r.height > 0 && _sbmIntroWant(wt, wb, r.height)) { want = true; _sbmGuideFresh = 0; }\r\n', '')],
+  ['songbook-coach-harness.js', 'opening another song does not arm the floater',
+    s => s.replace('if (song && song.id !== _sbmGuideSong) { _sbmGuideSong = song.id; _sbmGuideFresh = Date.now(); }', '')],
+  // The tips again (2026-11-08): replayed from More, the hint after the card.
+  ['songbook-coach-harness.js', 'Show the tips again plays the card and stops',
+    s => s.replace('if (_sbmCoachDrawAt()) { _sbmCoachDraw(true); _sbmReplayRecall(); return; }', 'if (_sbmCoachDrawAt()) { return; }')],
+  ['songbook-coach-harness.js', 'the drawing hint shows again every time the app is opened',
+    s => s.replace("var _SBM_COACH_ONCE = { draw: 'lhc_sbm_draw_hint_seen_v2', recall: 'lhc_sbm_recall_hint_v1', recallPick: 'lhc_sbm_recall_pick_v1' };", "var _SBM_COACH_ONCE = { recall: 'lhc_sbm_recall_hint_v1', recallPick: 'lhc_sbm_recall_pick_v1' };")],
+  ['songbook-coach-harness.js', 'the drawing hint waits two minutes again',
+    s => s.replace('var _SBM_DRAW_HINT_AFTER = 10000;', 'var _SBM_DRAW_HINT_AFTER = 120000;')],
+  ['songbook-coach-harness.js', 'the drawing hint shows with the words out of sight',
+    s => s.replace(" || _sbmMarksOk !== true || !_sbmCoachDrawAt()) return;", ' || _sbmMarksOk !== true) return;')],
+  // Loading a whole liturgy from a past service (2026-11-08): never a
+  // songbook's pseudo-order, never that day's sermon slides, and only into
+  // an order of the kind it was made for.
+  ['builder-load-liturgy-harness.js', 'a songbook is listed as a past service',
+    s => s.replace("return o && o.id && !/^standalone_/.test(o.id) && !(currentOrderData && o.id === currentOrderData.id);", "return o && o.id && !(currentOrderData && o.id === currentOrderData.id);")],
+  ['builder-load-liturgy-harness.js', 'a past service brings its sermon slides along',
+    s => s.replace("return it && /^(liturgy|content|scripture)$/.test(it.itemType || '');", "return it && /^(liturgy|content|scripture|slides)$/.test(it.itemType || '');")],
+  // Readings that skip verses (2026-11-11): a cut-short one is seen, only a
+  // whole passage replaces it, and a past order is never touched.
+  ['reading-pieces-harness.js', 'a missing piece goes unseen',
+    s => s.replace("var miss = pieces.filter(function(p) { return !nums[String(p.verse)]; });", "var miss = [];")],
+  ['reading-pieces-harness.js', 'a fetch numbered some other way replaces the reading',
+    s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
+  ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
+    s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
+  // The phone's bar, the songbook's font, the master copy (2026-11-09).
+  ['phone-bar-font-master-harness.js', 'the phone\'s bar loses its Save',
+    s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],
+  ['phone-bar-font-master-harness.js', 'a font for words moves the chords off their words',
+    s => s.replace("return f.mono ? f.fam : _SBM_GRID_STACK;", "return f.fam || _SBM_GRID_STACK;")],
+  ['phone-bar-font-master-harness.js', 'the master copy is overwritten whatever the answer',
+    s => s.replace("        'Every new service starts from the master. Services already planned keep their own copies, and the master as it is now is kept under Past versions, where it can be put back.' }).then(function(ok) {\r\n      if (!ok) return;\r\n", "        'Every new service starts from the master. Services already planned keep their own copies, and the master as it is now is kept under Past versions, where it can be put back.' }).then(function(ok) {\r\n")],
+  // Save and Load as two buttons, Templates gone (2026-11-09): Load offers
+  // past services too, and Add Item's New section keeps the template tools.
+  ['builder-load-liturgy-harness.js', 'Load forgets the past services',
+    s => s.replace("      { label: 'Load Liturgy from Past Services…', icon: 'fa-solid fa-clock-rotate-left', run: function() { lbdServiceLiturgies('*', 'order'); } }\r\n    ]);", "    ]);")],
+  ['builder-load-liturgy-harness.js', 'Add Item\'s New section loses the template sections',
+    s => s.replace("full ? { label: 'New section', icon: 'fa-solid fa-heading', sub: _lbdNewSectionItems(secId) }", "full ? { label: 'New section below', icon: 'fa-solid fa-heading', run: function() { lbdAddSection(_lbdSecIndex(secId) + 1); } }")],
+  ['builder-load-liturgy-harness.js', 'a contemporary liturgy loads into a traditional order',
+    s => s.replace("    if (x.type !== _svlOrderType()) { showToast('That liturgy was made for another kind of service', 'info'); return; }\r\n", '')],
+  // A saved liturgy's year folder in the Liturgy Library (2026-11-08): never
+  // a second folder for a year that has one, a folder removed is deleted and
+  // nothing else is, and a year folder lists only its year's liturgies.
+  ['svl-year-folder-harness.js', 'a year that has its folder is given a twin',
+    s => s.replace("var rows = r.data || [], hit = rows.filter(same)[0];", "var rows = r.data || [], hit = null;")],
+  ['svl-year-folder-harness.js', 'a folder removed here is never deleted',
+    s => s.replace("    _occFoldersGone[folderId] = true;\r\n", '')],
+  ['svl-year-folder-harness.js', 'removing one folder deletes every folder',
+    s => s.replace(".delete().in('id', gone)", ".delete().neq('id', 'x')")],
+  // Reading a part's words in the load window (2026-11-08): one part open
+  // at a time, a reading's verse numbers raised, the words escaped.
+  ['svl-item-text-harness.js', 'a second part opens beside the first instead of in its place',
+    s => s.replace("    ol.querySelectorAll('.svl-tx').forEach(function(b) { b.hidden = true; b.innerHTML = ''; });\r\n", '')],
+  ['svl-item-text-harness.js', 'a reading\'s verse numbers are left as [10]',
+    s => s.replace("texts = _svlItemTexts(it); verses = it.itemType === 'scripture';", "texts = _svlItemTexts(it); verses = false;")],
+  ['svl-item-text-harness.js', 'a part\'s words go into the page unescaped',
+    s => s.replace(".join('') : _lbdEsc(ln.text);", ".join('') : ln.text;")],
+  ['svl-year-folder-harness.js', 'a year folder lists every year\'s liturgies',
+    s => s.replace("return f ? _occSvlSorted(_occSvlInYear(occId, f.name)) : [];", "return _occSvlSorted(_occSvlRows[occId]);")],
   ['songbook-versions-harness.js', 'a shared link gains a second question mark',
     s => s.replace("    return url + (url.indexOf('?') === -1 ? '?' : '&') + key + '=' + encodeURIComponent(val);",
                    "    return url + '?' + key + '=' + encodeURIComponent(val);")],

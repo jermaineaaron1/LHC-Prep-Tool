@@ -70,7 +70,7 @@ function check(label, ok, detail) {
 console.log('\nWhat was taken away');
 check('no notice under the song\'s title', !has(/_sbmTwiceRibbon/) && !has(/class="sbm-twice/) &&
   has(/\(mdHere \? _sbmMedleyRibbon\(song, mdHere\) : ''\) \+ '<\/div>';/));
-check('Copy an arrangement is still under More', has(/if \(song && order\) rows\.push\(\['fa-clone', 'Copy an arrangement/));
+check('Versions (once Earlier versions and Copy an arrangement) is still under More', has(/rows\.push\(\['fa-code-branch', 'Save \/ Load Versions', 'WO\.sbmVersions\(\)'/));
 check('no A- / 100% / A+: the toolbar is Share, Undo, (Redo,) Refresh',
   !has(/WO\.sbmScale\(/) && !has(/id="sbmPct"/) && !has(/function sbmScale\(/) && !has(/sbm-toolbar__(pct|rule)/) &&
   has(/onclick="WO\.sbRefresh\(\)"><i class="fa-solid fa-rotate"><\/i>Refresh<\/button><\/div>';/) &&
@@ -334,20 +334,20 @@ check('the Draw chip says so', has(/a ring, an arrow, a breath mark\. Or double-
 // device (asked: "First time per device"), a five-second flash to the words.
 console.log('\nOne row of tiles, More at its end');
 const rnd = fn('_sbmRender');
-const tileRow = (rnd.match(/html \+= '<div class="sbm-tile-row sbm-tiles sbm-tile-row--7">'[^]*?'<\/div><\/div>';/) || [''])[0];
-const order = ['WO.sbmRecord()', 'WO.sbmPractice()', 'WO.sbmVideos()', 'WO.sbmBookMode()', '_sbmDrawingsTile(song)', 'WO.sbmEdit()', 'WO.sbmMore()'];
+const tileRow = (rnd.match(/html \+= '<div class="sbm-tile-row sbm-tiles sbm-tile-row--' \+ \(vTile \? '8' : '7'\) \+ '">'[^]*?'<\/div><\/div>';/) || [''])[0];
+const order = ['WO.sbmRecord()', 'WO.sbmPractice()', 'WO.sbmVideos()', 'WO.sbmBookMode()', '_sbmDrawingsTile(song)', 'WO.sbmEdit()', 'vTile +', 'WO.sbmMore()'];
 const at = order.map(k => tileRow.indexOf(k));
-check('Record, Tracks, YouTube, Book Mode, Drawings, Edit, More -- in that order, in one row',
+check('Record, Tracks, YouTube, Book Mode, Drawings, Edit, Save / Load Versions (2026-11-09), More -- in that order, in one row',
   !!tileRow && at.every((p, i) => p > -1 && (i === 0 || p > at[i - 1])), JSON.stringify(at));
 check('...Practice is called Tracks', /<\/i>Tracks<\/button>/.test(tileRow) && !/<\/i>Practice<\/button>/.test(tileRow));
-check('...and Links, Browse, Versions and Medley are not tiles any more',
-  !/WO\.sbmResources\(\)|WO\.sbmBrowse\(\)|WO\.sbmVersions\(\)|WO\.sbmMedley\(\)/.test(tileRow) && !/var verTile/.test(rnd));
+check('...and Links, Browse and Medley are not tiles any more',
+  !/WO\.sbmResources\(\)|WO\.sbmBrowse\(\)|WO\.sbmMedley\(\)/.test(tileRow) && !/var verTile/.test(rnd));
 const more = fn('sbmMore');
 check('More has Links and Browse, where Read in full screen and Edit choir parts were',
   /\['fa-link', 'Links', 'WO\.sbmResources\(\)'/.test(more) &&
   /\['fa-globe', 'Browse online', 'WO\.sbmCloseSheet\(\);WO\.sbmBrowse\(\)'/.test(more) &&
   !/'Read in full screen'/.test(more) && !/'Edit choir parts'/.test(more));
-check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Versions of this song'/.test(more));
+check('...and still Medley and Versions', /'Edit the medley' : 'Make a medley'/.test(more) && /'Save \/ Load Versions'/.test(more));
 const rowsIn = (more.match(/\['fa-[a-z-]+', [^\]]*\]/g) || []);
 check('every icon in More has a colour of its own', rowsIn.length >= 16 && rowsIn.every(r => /, '#[0-9a-f]{6}'\]$/.test(r)) &&
   /<i class="fa-solid ' \+ r\[0\] \+ '" style="color:' \+ r\[3\] \+ '"><\/i>/.test(more), rowsIn.filter(r => !/'#[0-9a-f]{6}'\]$/.test(r)).join(' | '));
@@ -357,13 +357,17 @@ console.log('\nThe floater, bright yellow and larger');
 const guideCss = (SRC.match(/\.sbm-guide \{[^}]*\}/) || [''])[0];
 check('bright yellow, 56px tall (10px more), its words larger', /background: #ffd60a;/.test(guideCss) && /min-height: 56px;/.test(guideCss) && /font: 800 17px\/1/.test(guideCss));
 
-console.log('\nThe first time: a five-second flash to the words');
+console.log('\nThe first time: a flash to the words, 2.5 seconds');
 const gc = fn('_sbmGuideCheck'), show = fn('_sbmIntroShow'), due = fn('_sbmIntroDue'), end = fn('_sbmIntroEnd');
-check('it comes when the floater would, the first time, and the floater waits for it',
-  /if \(want && _sbmIntroDue\(\)\) _sbmIntroShow\(\);\r?\n\s*if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
-check('once per device, never in the desk\'s Phone view', /if \(_sbmIntroDone \|\| window\.__SBM_PREVIEW\) return false;/.test(due) &&
-  /localStorage\.getItem\('lhc_sbm_intro_seen'\)/.test(due) && /localStorage\.setItem\('lhc_sbm_intro_seen', String\(Date\.now\(\)\)\);/.test(show) && /_sbmIntroDone = true;/.test(show));
-check('five seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 5000\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
+// (Since the second ask it shows whenever the words are not yet up the screen,
+// a desk too, and the floater comes after it: tools/songbook-coach-harness.js.)
+check('it comes at the first opening, the floater after it, and waits while it is up',
+  /if \(_sbmIntroDue\(\) && _sbmIntroWant\(wt, wb, r\.height\)\) \{ _sbmIntroShow\(\); want = true; \}/.test(gc) && /if \(_sbmIntroUp\(\)\) want = false;/.test(gc));
+// (Third ask, 2026-11-08: "only the first time the songbook is accessed" --
+// once on the device -- and 2.5 seconds instead of 5.)
+check('once on the device, never in the desk\'s Phone view', /return !_sbmIntroDone && !window\.__SBM_PREVIEW && !_sbmSeenHere\('lhc_sbm_intro_seen_v2'\);/.test(due) &&
+  /_sbmIntroDone = true;\r?\n\s*_sbmSeenMark\('lhc_sbm_intro_seen_v2'\);/.test(show));
+check('two and a half seconds, or a tap, and then the floater', /_sbmIntroT = setTimeout\(_sbmIntroEnd, 2500\);/.test(show) && /el\.addEventListener\('click', _sbmIntroEnd\);/.test(show) &&
   /el\.remove\(\);\r?\n\s*_sbmGuideCheck\(\);/.test(end));
 check('it says where the words are, and flashes', /Scroll down!/.test(show) && /The chords &amp; lyrics are just below/.test(show) &&
   has(/sbmIntroWobble 2\.4s ease-in-out \.5s infinite, sbmIntroFlash \.9s ease-in-out \.5s 3;/) && has(/@keyframes sbmIntroTime \{ from \{ transform: scaleX\(1\); \} to \{ transform: scaleX\(0\); \} \}/));
@@ -386,7 +390,7 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
   let Idue = null;
   try {
     Idue = new Function('localStorage', 'window', 'document', 'setTimeout', 'clearTimeout', '_sbmGuideCheck',
-      extractVar('_sbmIntroT') + '\n' + ['_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroArt', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
+      extractVar('_sbmIntroT') + '\n' + ['_sbmSeenHere', '_sbmSeenMark', '_sbmIntroDue', '_sbmIntroUp', '_sbmIntroShow', '_sbmIntroArt', '_sbmIntroEnd'].map(extractFn).join('\n') + '\nreturn { due: _sbmIntroDue, show: _sbmIntroShow };');
   } catch (e) { Idue = null; }
   if (!Idue) check('the flash runs', false);
   else {
@@ -398,9 +402,17 @@ check('the flash is half the screen, a cartoon: thick outline, hard shadow, rays
     const api = Idue(ls, {}, doc, () => 1, () => {}, () => {});
     const first = api.due();
     api.show();
-    check('the first time it shows, and is noted as seen', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen);
+    check('the first time it shows, and the device remembers it', first === true && added.length === 1 && !!store.lhc_sbm_intro_seen_v2);
+    check('...and not again while the app stays open', api.due() === false);
     const api2 = Idue(ls, {}, doc, () => 1, () => {}, () => {});
-    check('...and on this device never again', api2.due() === false);
+    check('...nor the next time the app is opened: phones reopen it all day', api2.due() === false);
+    const none = { getItem: () => { throw new Error('no storage'); }, setItem: () => { throw new Error('no storage'); } };
+    let el2 = null;
+    const doc2 = { getElementById: id => id === 'songbookLiveModal' ? { appendChild: e => { el2 = e; } } : (id === 'sbmIntro' ? el2 : null),
+      createElement: () => ({ setAttribute() {}, addEventListener() {}, remove() { el2 = null; } }) };
+    const p1 = Idue(none, {}, doc2, () => 1, () => {}, () => {});
+    const pf = p1.due(); p1.show();
+    check('a browser that keeps nothing: once while the app stays open', pf === true && p1.due() === false);
     const api3 = Idue({ getItem: () => null, setItem: () => {} }, { __SBM_PREVIEW: true }, doc, () => 1, () => {}, () => {});
     check('...nor in the desk\'s Phone view', api3.due() === false);
   }

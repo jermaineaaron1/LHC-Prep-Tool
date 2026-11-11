@@ -15,6 +15,13 @@
 // And one found on the way: the Roster card always said "0 services this
 // month", because its count came only from the retired Apps Script.
 //
+// 2026-11-10: the second line under every name went, and the name itself
+// grew 6px and went to weight 800. The trap is that weight. Cinzel was
+// loaded at 500;700, and a browser asked for 800 from a family that stops
+// at 700 renders 700 and says nothing -- the rule reads correctly in the
+// file, the page is no bolder, and no test that only greps the rule can
+// tell. The weight is therefore checked where it is REQUESTED.
+//
 // WHAT IS EASY TO GET WRONG
 //   - The list and the suggestions must use ONE rule, or they disagree.
 //   - A card that holds buttons cannot itself be a <button>: the two cards
@@ -199,7 +206,43 @@ if (F.chipName) {
     ['Nov 8', 'Oct 11', 'Carols by Candlelight', 'Dec 27', 'Service Order', 'Service of Lessons and Carols', 'Service - Christmas Eve']);
 } else check('  an order called "Service - <date>" shows its date; a named one, its name', false, '_homeOrderChipName not found');
 check('  beside the words only when the names fit there whole', /function _homeRecentFit\(card\)/.test(SRC) && /_homeRecentFit\(card\);/.test(chips) &&
-  /\.home-nav-card\.has-recent:not\(\.recent-below\) \{ grid-template-areas: "icon label recent" "icon desc stat"; \}/.test(SRC));
+  /\.home-nav-card\.has-recent:not\(\.recent-below\) \{ grid-template-areas: "icon label recent" "icon \. stat"; \}/.test(SRC));
+
+console.log('\none name to a card, bigger and bolder');
+check('the second line under every name is gone, markup and CSS both', !/home-nav-desc/.test(SRC));
+check('  the name is 0.88rem + 6px at weight 800 on a desk', /\.home-nav-label \{\r?\n\s*font-size: 1\.25rem;\r?\n\s*font-weight: 800;/.test(SRC));
+check('  and 0.78rem + 6px on a phone', /\.home-nav-label \{ grid-area: label; font-size: 1\.15rem;/.test(SRC));
+// The one that cannot be seen in the rule: 800 asked of a family loaded
+// at 500;700 is 700, silently. Without this the card is never bolder.
+check('  Cinzel is actually fetched at 800', /family=Cinzel:wght@500;700;800&/.test(SRC));
+check('  one row on a phone, so the card is no taller for the bigger name', /grid-template-areas: "icon label stat";/.test(SRC));
+const rosterStat = fn('_homeRosterStat') || '';
+// Only between 901 and 1310px. Outside it auto-fit is already balanced,
+// and forcing three there would be a regression, not a fix.
+check('  three and three where auto-fit would orphan the last card', /@media \(min-width: 901px\) and \(max-width: 1310px\) \{\r?\n\s*\.home-nav-grid \{ grid-template-columns: repeat\(3, 1fr\); \}/.test(SRC));
+check('  the count drops "this month", which the page around it says', /' service' \+ \(dateCount !== 1 \? 's' : ''\);/.test(rosterStat) && !/this month/.test(rosterStat));
+
+console.log('\na thin lit edge on every card');
+const EDGE_CARDS = ['songs', 'roster', 'orders', 'liturgy', 'practice', 'bulletin'];
+const edgeRe = k => new RegExp('\\.home-nav-' + k + '\\s*\\{ --nav-edge: rgba\\(');
+// Six cards, six edges. One without falls back to the grey default and
+// stops saying which card it is.
+check('every card sets an edge of its own', EDGE_CARDS.every(k => edgeRe(k).test(SRC)),
+  'no --nav-edge for: ' + EDGE_CARDS.filter(k => !edgeRe(k).test(SRC)).join(', '));
+const navCardRule = (SRC.match(/\r?\n    \.home-nav-card \{[\s\S]*?\r?\n    \}/) || [''])[0];
+check('  the border reads it, and the 4%-of-black one is gone from THIS rule',
+  /border: 1px solid var\(--nav-edge, /.test(navCardRule) &&
+  !/border: 1px solid rgba\(/.test(navCardRule), 'card rule: ' + (navCardRule ? navCardRule.length + ' chars' : 'NOT FOUND'));
+check('  a lit ring just inside it, at rest',
+  /box-shadow: inset 0 0 0 1px rgba\(255,255,255,0\.6\)/.test(SRC));
+// The SECOND :hover rule is !important and later, so it is the one that
+// paints. Miss it and the bevel blinks off under the pointer.
+check('  and in BOTH :hover rules, not just the first',
+  (SRC.match(/\.home-nav-card:hover \{\r?\n\s*transform:[^}]*?box-shadow: inset 0 0 0 1px rgba\(255,255,255,0\.75\)/g) || []).length === 2);
+// It had no rule of any kind: no tint, no icon colour, white among five.
+check('  Sunday Bulletin, which had no rule at all, has a tint and an icon colour',
+  /\.home-nav-bulletin \{ background: linear-gradient\(/.test(SRC) &&
+  /\.home-nav-bulletin \.home-nav-icon \{ color: #475569;/.test(SRC));
 
 console.log('\nthe roster count and the room around');
 check('the Roster card counts what Upcoming Services reads, not the retired Apps Script',

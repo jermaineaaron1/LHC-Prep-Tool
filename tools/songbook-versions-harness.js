@@ -253,12 +253,15 @@ console.log('\nThe wiring');
   check('a restore writes the earlier version back the same way, keeping the song as it is first',
     has(/function sbVerRestoreMain\(base, vid\) \{/) && has(/var m = _sbVerMainOf\(v\.lyrics, v\.transpose_steps, lib\.key, lib\.key\);/) &&
     (SRC.match(/_sbVerReplaceMain\(base, lib, m\)\.then/g) || []).length === 2);
-  check('the earlier main versions are listed apart, each with a Restore, the oldest the original',
-    has(/<span>Earlier main versions<\/span>/) && has(/onclick="WO\.sbVerRestoreMain\(/) && has(/ver-pill--orig">Original</) &&
+  // (2026-11-08: one Versions sheet. The earlier main songs are rows of Past
+  // versions, the oldest called Original, made the main song again from
+  // their read-only view: tools/songbook-earlier-versions-harness.js.)
+  check('the earlier main versions are listed, each to restore, the oldest the original',
+    has(/kind: isKept \? 'kept' : 'version', title: isKept && v\.id === origId \? 'Original' : v\.name/) && has(/onclick="WO\.sbVerRestoreMain\(/) &&
     has(/sbVerRestoreMain: sbVerRestoreMain, sbVerKept: sbVerKept/));
   check('and in the song library\'s History too', has(/WO\.sbVerRestoreMain\(song\.id, btn\.getAttribute\('data-restore-vid'\)\)/) &&
     has(/var keptPromise = \(window\.WO && WO\.sbVerKept\) \? WO\.sbVerKept\(song\.id\)/));
-  check('the sheet lists the saved versions and offers it', has(/<span>Saved versions<\/span><span class="ver-head__n">/) &&
+  check('the sheet lists the saved versions and offers it', has(/<span>Past versions<\/span><span class="ver-head__n">/) &&
     has(/onclick="WO\.sbVerMakeMain\(\)"/) && has(/sbVerMakeMain: sbVerMakeMain/));
   const mig = fs.existsSync(MIGRATION) ? MIGRATION : (fs.existsSync(MIGRATION_ALT) ? MIGRATION_ALT : null);
   const sql = mig ? fs.readFileSync(mig, 'utf8') : '';

@@ -55,9 +55,10 @@ function run(label, fnSrc, params, args, extra) {
 
 console.log('A tile on every song, opening the book at it');
 const render = fn('_sbmRender');
-// (Since 2026-11-07 one row: Record, Tracks, YouTube, Book Mode, Drawings, Edit, More.)
-check('the song\'s tiles have Book Mode after YouTube, then Drawings, Edit and More',
-  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n(\s*\/\/[^\n]*\n)*\s*_sbmDrawingsTile\(song\) \+\n\s*'<button class="sbm-tile" data-sbm-edit=[^\n]*\n\s*'<button class="sbm-tile sbm-tile--more" onclick="WO\.sbmMore\(\)"><i class="fa-solid fa-ellipsis"><\/i>More<\/button>' \+\n\s*'<\/div><\/div>';/.test(render));
+// (Since 2026-11-07 one row: Record, Tracks, YouTube, Book Mode, Drawings, Edit, More;
+// since 2026-11-09 Save / Load Versions between Edit and More.)
+check('the song\'s tiles have Book Mode after YouTube, then Drawings, Edit, Save / Load Versions and More',
+  /YouTube<\/button>'\) \+\n(\s*\/\/[^\n]*\n)*\s*'<button class="sbm-tile" onclick="WO\.sbmBookMode\(\)"[^\n]*Book Mode<\/button>' \+\n(\s*\/\/[^\n]*\n)*\s*_sbmDrawingsTile\(song\) \+\n\s*'<button class="sbm-tile" data-sbm-edit=[^\n]*\n\s*vTile \+\n\s*'<button class="sbm-tile sbm-tile--more" onclick="WO\.sbmMore\(\)"><i class="fa-solid fa-ellipsis"><\/i>More<\/button>' \+\n\s*'<\/div><\/div>';/.test(render));
 check('...and it is on WO', has(/\n    sbmBookMode: sbmBookMode,\n/));
 const open = fn('sbOpenFullscreen');
 const startSrc = (open.match(/if \(typeof startSongId === 'string' && startSongId\) \{[^]*?\n    \}/) || [''])[0];
