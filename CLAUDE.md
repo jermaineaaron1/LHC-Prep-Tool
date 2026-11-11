@@ -163,8 +163,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
   builder green, the Songbook blue, LCD Projection a light red:
   1. **Liturgy Builder** (order of worship) -- the sections, and in each the
      songs, liturgy, readings and the liturgist's notes, as a word processor.
-     On a desk, three columns: the Order Outline (numbered sections, drag a
-     grip to reorder), the page under a formatting bar (Speaker L:/P:/C:/All:,
+     On a desk, three columns: the Order Outline (numbered sections, drag
+     to reorder), the page under a formatting bar (Speaker L:/P:/C:/All:,
      size, bold, italic, underline, colour), and Add to Order (the library by
      category, your own items, the service templates; click to add where you
      are, or drag onto a section). The ribbon's **Add Item** holds what
@@ -3025,6 +3025,60 @@ the anon key -- verify as `postgres`, not as the app.
       `text === _lcdProjected`), never a word that a comment may also use.
     `tools/live-projection-harness.js` checks it, running `_wofsKeys`
     itself rather than matching it.
+
+83. **A section is dragged by its heading, on a phone too, and the numbers
+    follow it as it goes.** From the operator (2026-11-11), on a phone
+    screenshot of the builder: "Allow the user to drag and drop sections to
+    rearrange, make sure the numbering follows order too". The page's
+    headings could be dragged only by their grip, and the phone hid the grip
+    with the move arrows, so on a phone a section moved only through its
+    menu, one place a press.
+    - **What picks one up** (`_lbdOnPointerDown`): the grip, which a phone
+      now shows (26 x 44px), or the NUMBER (`.lbw-h-num`), at once -- both
+      `touch-action: none`, so a finger on them drags and never scrolls. The
+      mouse, from anywhere on a heading that is not a button or the name
+      (`_lbdHeadFree`). A finger anywhere else on a heading HOLDS it for
+      `_LBD_HOLD_MS` (380) first: one that moves more than 8px before then is
+      scrolling and is let go (`_lbdDragEnd(false)`), and the page scrolls as
+      it always did; held, the heading lifts (`is-lifted`, a short vibrate),
+      and one held and let go WITHOUT moving opens the section's menu, which a
+      long press on Android always did -- the browser's own `contextmenu` is
+      held off while a heading is held. The name is never a handle: a tap
+      there types.
+    - **The page does not scroll under a held finger** because each heading
+      carries a BLOCKING `touchmove` listener (`_lbdBindHeads`, after every
+      `lbdRender`), which cancels the move once the heading is lifted. It has
+      to be there before the touch starts -- Chrome decides at `touchstart`
+      whether a touch may be cancelled at all -- and it is on the headings
+      only, never the whole builder, so a swipe anywhere else stays a
+      compositor scroll. A `touchend` listener eats the click a hold or a drag
+      would otherwise make on whatever is under the finger after the redraw
+      (`_lbdHeldUpAt`).
+    - **While a section is dragged the page is its headings** (`.lbw-page.is-sorting`
+      hides each body and margin), so on a phone the whole order
+      is one screen and not thirteen; the heading held is kept where it was
+      on the screen (`scrollBy` by how far it moved). The section MOVES among
+      the others as it goes (`_lbdDragPlace`: before the first other heading
+      whose middle is below the finger, `_lbdDropSlot`, counted on the rows as
+      they now stand, which keeps it still until the finger passes a
+      neighbour's middle -- tested with headings of different heights), and
+      every number is written again in the order on the screen
+      (`_lbdDragNumber`), the ghost's too: the numbers seen are the ones the
+      drop gives. The held one is a dashed slot. The outline's lines do the
+      same, numbered whether a find hides them or not.
+    - **The drop** (`_lbdDragEnd(true)`) is `_lbdMoveSectionTo` -- before the
+      heading after it, or after the one before it when it is last -- one
+      `_lbdChange`, one Undo; it now returns whether anything moved, and the
+      move puts the songs back in service order (`_lbdSortSongsByService`, in
+      `lbdMoveSection` too: the playlist and the share read the songs as
+      stored, while the Songbook sorts them itself). The page unfolds with the
+      heading where it was let go, and it glows. Not `_lbdReveal`: that keeps
+      the whole SECTION in view, and centring a section longer than the
+      screen threw the heading off the top of it. A drop where it started,
+      Escape, or a `pointercancel` changes nothing and draws the page as it
+      was. No redraw lands mid-drag (`lbdRender` and `_lbdRenderNavPane` wait
+      while `_lbdPD.on`): it would take the rows out from under the finger.
+    `tools/builder-section-drag-harness.js` checks it.
 
 ## Quick Commands for Claude Code
 

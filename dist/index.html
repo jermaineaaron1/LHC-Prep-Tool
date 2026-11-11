@@ -76817,13 +76817,14 @@ var WO = (function() {
     var i = _lbdSecIndex(secId), j = i + delta;
     var lay = (currentOrderData && currentOrderData.sectionLayout) || [];
     if (i < 0 || j < 0 || j >= lay.length) return;
-    _lbdChange(function() { var x = lay.splice(i, 1)[0]; lay.splice(j, 0, x); });
+    // The songs' running order follows the sections (the playlist reads it).
+    _lbdChange(function() { var x = lay.splice(i, 1)[0]; lay.splice(j, 0, x); _lbdSortSongsByService(); });
     _lbdReveal('.lbw-sec[data-sec="' + _lbdCssId(secId) + '"]');
   }
 
   function _lbdMoveSectionTo(secId, targetId, after) {
-    if (!secId || !targetId || secId === targetId) return;
-    _lbdChange(function() {
+    if (!secId || !targetId || secId === targetId) return false;
+    return _lbdChange(function() {
       var lay = currentOrderData.sectionLayout;
       var from = _lbdSecIndex(secId);
       if (from < 0) return false;
@@ -76833,6 +76834,7 @@ var WO = (function() {
       // Dropped where it already was: nothing to record.
       if ((after ? to + 1 : to) === from) { lay.splice(from, 0, moved); return false; }
       lay.splice(after ? to + 1 : to, 0, moved);
+      _lbdSortSongsByService();
     });
   }
 
@@ -77943,6 +77945,8 @@ var WO = (function() {
   function lbdRender() {
     var host = $('woLiturgyBuilder');
     if (!host || !_lbdIsActive() || !currentOrderData) return;
+    // A section being dragged: the drop redraws (gotcha 83).
+    if (_lbdPD && _lbdPD.on) return;
     if (!_lbdPrefsRead) { _lbdPrefsRead = true; _lbdPrefs(); }
     _lbdBind(host);
     _lbdWatchLayout();
@@ -77986,6 +77990,7 @@ var WO = (function() {
         '<div class="lbw-scrim" data-act="scrim" aria-hidden="true"></div>' +
       '</div>';
     _lbdApplyShell();
+    _lbdBindHeads(host);
     _lbdHeaderChip();
     _woUpdateUndoRedoButtons();
     _lbdRestoreScroll(host, scrolls);
@@ -78202,7 +78207,7 @@ var WO = (function() {
 
   function _lbdRenderNavPane() {
     var host = $('woLiturgyBuilder'), el = host && host.querySelector('.lbw-nav');
-    if (!el) return;
+    if (!el || (_lbdPD && _lbdPD.on)) return;
     var top = (el.querySelector('.lbw-nav-list') || {}).scrollTop || 0;
     var t = document.createElement('div');
     t.innerHTML = _lbdNavHtml(_woSectionList());
@@ -81354,6 +81359,8 @@ var WO = (function() {
   // themselves the browser's own menu stays: spelling, copy and paste.
   function _lbdOnContextMenu(e) {
     var t = e.target;
+    // A finger holding a heading to drag it: its menu comes on letting go.
+    if (_lbdPD && (_lbdPD.hold || _lbdPD.on)) { e.preventDefault(); return; }
     if (!t.closest || t.isContentEditable || t.closest('[contenteditable]') || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
     var c = _lbdCtx(t), at = { x: e.clientX, y: e.clientY };
     if (t.closest('.lbw-el') && (c.item || c.song) && !t.closest('.lbw-slots')) {
@@ -81586,12 +81593,62 @@ var WO = (function() {
   }
 
   // ── Dragging ────────────────────────────────────────────────────────────
-  // A section moves by its grip, in the outline or on the page, with the
-  // mouse or a finger: pointer events, so it works on a phone too. A line
-  // of the outline can also be dragged by the mouse from anywhere on it.
-  // Things from the library are dragged onto a section with the browser's
-  // own drag and drop (a desk's mouse; on a phone they are tapped).
+  // A section is dragged to a new place, in the outline or on the page, by
+  // the mouse or a finger: pointer events, so a phone too (gotcha 83).
+  //  - Its grip, or its number on the page, picks it up at once: both are
+  //    touch-action: none, so a finger on them drags and never scrolls.
+  //  - The mouse picks up a heading from anywhere on it that is not a
+  //    button or its name, and a line of the outline from anywhere on it.
+  //  - A finger anywhere else on a heading HOLDS it (_LBD_HOLD_MS) and then
+  //    drags. A finger that moves first is scrolling and is left to scroll;
+  //    one held and let go without moving opens the section's menu, which a
+  //    long press always did.
+  // On the page every section folds to its heading while one is dragged
+  // (.is-sorting), the one held kept under the finger, so the whole order is
+  // in reach on a phone. The section moves among the others as it goes and
+  // every number is written again in the order shown (_lbdDragPlace), so the
+  // numbers on the screen are the ones the drop will give. The drop is one
+  // _lbdChange (one Undo); Escape, or a drop where it started, changes
+  // nothing. Things from the library are dragged onto a section with the
+  // browser's own drag and drop (a desk's mouse; on a phone they are tapped).
   var _lbdPD = null;
+  var _LBD_HOLD_MS = 380;
+  var _lbdHeldUpAt = 0;          // a finger's hold or drag just ended
+
+  // Which other row the section held goes before (pure): the first whose
+  // middle is below the finger, so the count of middles above it. Counted on
+  // the rows as they are now, with the held one among them, which keeps it
+  // still: it moves past a row only once the finger is past that row's middle.
+  function _lbdDropSlot(mids, y) {
+    var n = 0;
+    for (var i = 0; i < mids.length; i++) { if (mids[i] < y) n++; }
+    return n;
+  }
+
+  // A heading's own background: not a button, not its name, not a field.
+  function _lbdHeadFree(t) {
+    var h = t.closest('.lbw-page .lbw-h');
+    if (!h || t.closest('button, a, input, select, textarea, [data-field], [contenteditable="true"], [contenteditable="plaintext-only"]')) return null;
+    return h;
+  }
+
+  // A finger holding (or dragging) a heading must not scroll the page, and
+  // its letting go must not click what is under it then. Bound on each
+  // heading -- never the whole builder, so a swipe anywhere else scrolls as
+  // it always did -- and as blocking listeners, which a phone needs to see
+  // before the touch starts.
+  function _lbdHeadTouchMove(e) {
+    if (_lbdPD && (_lbdPD.armed || _lbdPD.on) && e.cancelable) e.preventDefault();
+  }
+  function _lbdHeadTouchEnd(e) {
+    if (Date.now() - _lbdHeldUpAt < 300 && e.cancelable) e.preventDefault();
+  }
+  function _lbdBindHeads(host) {
+    Array.prototype.forEach.call(host.querySelectorAll('.lbw-page .lbw-h'), function(h) {
+      h.addEventListener('touchmove', _lbdHeadTouchMove, { passive: false });
+      h.addEventListener('touchend', _lbdHeadTouchEnd, { passive: false });
+    });
+  }
 
   function _lbdOnPointerDown(e) {
     var t = e.target;
@@ -81600,16 +81657,40 @@ var WO = (function() {
     // (a mouse is held off by _lbdOnMouseDown); the click still comes.
     if (e.pointerType !== 'mouse' && t.closest('.lbw-fb, .lbw-kb-b, .lbw-rb, .lbw-seg-b, .lbw-mb, .lbw-add')) e.preventDefault();
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    var grip = t.closest('[data-grip]');
-    var row = !grip && e.pointerType === 'mouse' ? t.closest('.lbw-nav-item') : null;
-    var holder = (grip || row) && (grip || row).closest('[data-sec]');
+    if (_lbdPD) return;              // a second finger
+    var grip = t.closest('[data-grip], .lbw-page .lbw-h-num');
+    var free = grip ? null : _lbdHeadFree(t);
+    var row = !grip && !free && e.pointerType === 'mouse' ? t.closest('.lbw-nav-item') : null;
+    var by = grip || free || row;
+    var holder = by && by.closest('[data-sec]');
     if (!holder) return;
-    _lbdPD = { id: holder.getAttribute('data-sec'), zone: holder.closest('.lbw-nav') ? 'nav' : 'page',
-               x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false };
+    var hold = !!free && e.pointerType !== 'mouse';
+    _lbdPD = { id: holder.getAttribute('data-sec'), zone: holder.closest('.lbw-nav') ? 'nav' : 'page', touch: e.pointerType !== 'mouse',
+               x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, hold: hold, armed: false };
     if (grip) e.preventDefault();
+    if (hold) _lbdPD.holdTimer = setTimeout(_lbdHoldArm, _LBD_HOLD_MS);
     document.addEventListener('pointermove', _lbdOnPointerMove);
     document.addEventListener('pointerup', _lbdOnPointerUp);
-    document.addEventListener('pointercancel', _lbdOnPointerUp);
+    document.addEventListener('pointercancel', _lbdOnPointerCancel);
+  }
+
+  // Held long enough: the heading lifts, and the next move drags it.
+  function _lbdHoldArm() {
+    var d = _lbdPD;
+    if (!d || !d.hold || d.armed || d.on) return;
+    d.armed = true;
+    var el = _lbdDragRow(d);
+    if (el) el.classList.add('is-lifted');
+    // A buzz, where a phone has one -- only once the page has been touched,
+    // which Chrome requires (and complains in the console otherwise).
+    var ua = navigator.userActivation;
+    try { if (navigator.vibrate && (!ua || ua.hasBeenActive)) navigator.vibrate(12); } catch (err) {}
+  }
+
+  function _lbdDragRow(d) {
+    var host = $('woLiturgyBuilder');
+    var sel = d.zone === 'nav' ? '.lbw-nav-list .lbw-nav-item' : '.lbw-page .lbw-sec';
+    return host ? host.querySelector(sel + '[data-sec="' + _lbdCssId(d.id) + '"]') : null;
   }
 
   function _lbdOnPointerMove(e) {
@@ -81617,9 +81698,16 @@ var WO = (function() {
     if (!d) return;
     d.x = e.clientX;
     d.y = e.clientY;
+    var dx = Math.abs(d.x - d.x0), dy = Math.abs(d.y - d.y0);
+    if (d.hold && !d.armed) {
+      // Moving before the hold has lifted it: a finger scrolling the page.
+      if (dx > 8 || dy > 8) _lbdDragEnd(false);
+      return;
+    }
     if (!d.on) {
-      if (Math.abs(d.y - d.y0) < 6 && Math.abs(d.x - d.x0) < 6) return;
+      if (dy < 6 && dx < 6) return;
       _lbdDragBegin();
+      if (!d.on) return;
     }
     e.preventDefault();
     _lbdDragMove();
@@ -81628,36 +81716,62 @@ var WO = (function() {
   function _lbdDragBegin() {
     var d = _lbdPD, host = $('woLiturgyBuilder');
     var zone = host && host.querySelector(d.zone === 'nav' ? '.lbw-nav-list' : '.lbw-page');
-    if (!zone) return;
+    var el = zone && _lbdDragRow(d);
+    if (!el) return;
     d.on = true;
     d.zoneEl = zone;
-    d.rows = Array.prototype.slice.call(zone.querySelectorAll(d.zone === 'nav' ? '.lbw-nav-item:not([hidden])' : '.lbw-sec'));
-    d.rows.forEach(function(r) { if (r.getAttribute('data-sec') === d.id) r.classList.add('is-dragging'); });
+    d.el = el;
+    d.sel = d.zone === 'nav' ? '.lbw-nav-item' : '.lbw-sec';
+    el.classList.remove('is-lifted');
+    el.classList.add('is-dragging');
+    _lbdCloseMenu();
+    if (d.zone === 'page') {
+      // Fold every section to its heading, and keep the one held where it
+      // was on the screen: the page above it has just become shorter.
+      var h = el.querySelector('.lbw-h'), top0 = h ? h.getBoundingClientRect().top : 0;
+      zone.classList.add('is-sorting');
+      if (h) window.scrollBy(0, h.getBoundingClientRect().top - top0);
+    }
     var g = document.createElement('div');
     g.className = 'lbw-ghost';
-    g.innerHTML = '<i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>';
-    g.appendChild(document.createTextNode((_lbdSecIndex(d.id) + 1) + '. ' + _lbdSecTitle(d.id)));
+    g.innerHTML = '<i class="fa-solid fa-grip-vertical" aria-hidden="true"></i><span class="lbw-ghost-n"></span>';
+    g.appendChild(document.createTextNode(_lbdSecTitle(d.id)));
     document.body.appendChild(g);
     d.ghost = g;
     document.documentElement.classList.add('lbw-dragging');
-    _lbdCloseMenu();
     d.timer = setInterval(_lbdDragAutoScroll, 30);
+    _lbdDragNumber(d);
   }
 
   function _lbdDragMove() {
     var d = _lbdPD;
     if (!d || !d.on) return;
     d.ghost.style.transform = 'translate(' + Math.round(d.x + 14) + 'px,' + Math.round(d.y - 16) + 'px)';
-    var target = null, after = false;
-    for (var i = 0; i < d.rows.length; i++) {
-      var r = d.rows[i].getBoundingClientRect();
-      if (d.y < r.top + r.height / 2) { target = d.rows[i]; break; }
-    }
-    if (!target && d.rows.length) { target = d.rows[d.rows.length - 1]; after = true; }
-    d.rows.forEach(function(r) { r.classList.remove('drop-before', 'drop-after'); });
-    if (target) target.classList.add(after ? 'drop-after' : 'drop-before');
-    d.target = target ? target.getAttribute('data-sec') : '';
-    d.after = after;
+    _lbdDragPlace(d);
+  }
+
+  // The section held goes where the finger is, among the rows shown, and the
+  // numbers follow the order on the screen.
+  function _lbdDragPlace(d) {
+    var rows = Array.prototype.slice.call(d.zoneEl.querySelectorAll(d.sel + ':not([hidden])'));
+    var others = rows.filter(function(r) { return r !== d.el; });
+    if (!others.length) return;
+    var c = _lbdDropSlot(others.map(function(r) { var b = r.getBoundingClientRect(); return b.top + b.height / 2; }), d.y);
+    if (rows.indexOf(d.el) === c) return;
+    d.el.parentNode.insertBefore(d.el, others[c] || others[others.length - 1].nextSibling);
+    _lbdDragNumber(d);
+  }
+
+  function _lbdDragNumber(d) {
+    var n = 0, mine = 0;
+    Array.prototype.forEach.call(d.zoneEl.querySelectorAll(d.sel), function(r) {
+      n++;
+      var num = r.querySelector(d.zone === 'nav' ? '.lbw-nav-b .n' : '.lbw-h > .lbw-h-num');
+      if (num) num.textContent = d.zone === 'nav' ? String(n) : n + '.';
+      if (r === d.el) mine = n;
+    });
+    var gn = d.ghost && d.ghost.querySelector('.lbw-ghost-n');
+    if (gn) gn.textContent = mine + '.';
   }
 
   // Held near the top or bottom, the list (or the page) scrolls.
@@ -81676,19 +81790,62 @@ var WO = (function() {
     if (v) { window.scrollBy(0, v); _lbdDragMove(); }
   }
 
-  function _lbdOnPointerUp() {
+  function _lbdOnPointerUp() { _lbdDragEnd(true); }
+  function _lbdOnPointerCancel() { _lbdDragEnd(false); }
+
+  // drop: put the section where it was let go; otherwise (a cancel, Escape)
+  // leave the order as it was.
+  function _lbdDragEnd(drop) {
     var d = _lbdPD;
     _lbdPD = null;
     document.removeEventListener('pointermove', _lbdOnPointerMove);
     document.removeEventListener('pointerup', _lbdOnPointerUp);
-    document.removeEventListener('pointercancel', _lbdOnPointerUp);
-    if (!d || !d.on) return;
+    document.removeEventListener('pointercancel', _lbdOnPointerCancel);
+    if (!d) return;
+    clearTimeout(d.holdTimer);
+    if (d.touch && (d.armed || d.on)) _lbdHeldUpAt = Date.now();
+    if (!d.on) {
+      if (!d.armed) return;
+      var lifted = _lbdDragRow(d);
+      if (lifted) lifted.classList.remove('is-lifted');
+      if (drop) {
+        // Held and let go where it was: the section's menu, as a long press.
+        _lbdSuppressClick = Date.now();
+        _lbdSetCur(d.id, '');
+        _lbdOpenSecMenu({ x: d.x, y: d.y }, d.id);
+      }
+      return;
+    }
     clearInterval(d.timer);
     if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
     document.documentElement.classList.remove('lbw-dragging');
-    d.rows.forEach(function(r) { r.classList.remove('is-dragging', 'drop-before', 'drop-after'); });
     _lbdSuppressClick = Date.now();
-    if (d.target && d.target !== d.id) _lbdMoveSectionTo(d.id, d.target, d.after);
+    // Where it was let go, among every row (the outline's hidden ones too).
+    var rows = Array.prototype.slice.call(d.zoneEl.querySelectorAll(d.sel));
+    var i = rows.indexOf(d.el), next = rows[i + 1], prev = rows[i - 1];
+    var head = d.zone === 'page' ? d.el.querySelector('.lbw-h') : null;
+    var y = head ? head.getBoundingClientRect().top : null;
+    var moved = false;
+    if (drop && i >= 0) {
+      moved = next ? _lbdMoveSectionTo(d.id, next.getAttribute('data-sec'), false)
+        : prev ? _lbdMoveSectionTo(d.id, prev.getAttribute('data-sec'), true) : false;
+    }
+    // Nothing changed: draw the page as it was (unfolded, its own numbers).
+    if (!moved) lbdRender();
+    if (y == null) return;
+    // The page unfolds round the heading let go, which stays under the finger.
+    var host = $('woLiturgyBuilder');
+    var nh = host && host.querySelector('.lbw-page .lbw-sec[data-sec="' + _lbdCssId(d.id) + '"] > .lbw-h');
+    if (!nh) return;
+    window.scrollBy(0, nh.getBoundingClientRect().top - y);
+    _lbdKeepInView(nh);
+    if (!moved) return;
+    // A glow on where it went. Not _lbdReveal: that keeps the whole SECTION
+    // in view, and centring one longer than the screen threw the heading off it.
+    var sec = nh.parentNode;
+    sec.classList.remove('is-flash');
+    void sec.offsetWidth;
+    sec.classList.add('is-flash');
   }
 
   // ── Dragging from the library ───────────────────────────────────────────
@@ -81759,6 +81916,7 @@ var WO = (function() {
   // in: the builder's own history, as in Word. In a field, the browser's
   // own undo of the typing.
   function _lbdOnDocKey(e) {
+    if (e.key === 'Escape' && _lbdPD && _lbdPD.on) { e.preventDefault(); _lbdDragEnd(false); return; }
     // Escape closes a pane slid over the page (a menu or dialog closes first).
     if (e.key === 'Escape' && _lbdDrawer && _lbdIsActive() && !_lbdMenu && !_lbdSheetState) { _lbdCloseDrawer(); return; }
     if (!(e.ctrlKey || e.metaKey) || e.altKey || !_lbdIsActive()) return;
@@ -113884,6 +114042,27 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-sec.is-dragging { opacity: 0.45; }
 .lbw-sec.drop-before > .lbw-h { box-shadow: 0 -4px 0 -1px var(--lbw-green); }
 .lbw-sec.drop-after > .lbw-h { box-shadow: 0 4px 0 -1px var(--lbw-green); }
+/* Dragging a section (gotcha 83): the heading is picked up, not selected;
+   its name is still typed in. A finger on its number drags it at once. */
+.lbw-page .lbw-h { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.lbw-page .lbw-h-title { -webkit-user-select: text; user-select: text; }
+.lbw-page .lbw-h-num { touch-action: none; cursor: grab; }
+@media (hover: hover) {
+  .lbw-page .lbw-h { cursor: grab; }
+  .lbw-page .lbw-h-title { cursor: text; }
+  .lbw-page .lbw-h button { cursor: pointer; }
+}
+.lbw-sec.is-lifted > .lbw-h {
+  border-color: var(--lbw-green); background: #e1f0e4; box-shadow: 0 10px 24px rgba(10,30,18,0.22); transform: scale(1.015);
+  transition: transform .12s, box-shadow .12s;
+}
+/* While one is dragged, every section is its heading, and the one held
+   shows where it will land, with the number it will have. */
+.lbw-page.is-sorting .lbw-sec > .lbw-margin, .lbw-page.is-sorting .lbw-sec-body, .lbw-page.is-sorting .lbw-h-empty { display: none; }
+.lbw-page.is-sorting .lbw-sec { margin-bottom: 8px; }
+.lbw-page.is-sorting .lbw-sec.is-dragging { opacity: 1; }
+.lbw-page.is-sorting .lbw-sec.is-dragging > .lbw-h { background: #fff; border: 2px dashed var(--lbw-green); box-shadow: none; }
+.lbw-page.is-sorting .lbw-sec.is-dragging > .lbw-h > :not(.lbw-h-num) { opacity: 0.5; }
 .lbw-sec > .lbw-margin { grid-area: m; }
 .lbw-sec-body { grid-area: b; min-width: 0; padding: 10px 14px 4px 44px; }
 .lbw-sec-body:empty { display: none; }
@@ -114217,10 +114396,10 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .lbw--sm .lbw-doc-sub { font-size: 14px; }
 .lbw--sm .lbw-sec { margin: 0 -8px 12px; scroll-margin-top: 66px; }
 .lbw--sm .lbw-h { min-height: 54px; padding: 4px 2px 4px 2px; gap: 2px; }
-.lbw--sm .lbw-h .lbw-grip,
 .lbw--sm .lbw-tb[data-act="sec-up"], .lbw--sm .lbw-tb[data-act="sec-down"],
 .lbw--sm .lbw-tb[data-act="sec-dup"], .lbw--sm .lbw-tb[data-act="sec-del"] { display: none; }
-.lbw--sm .lbw-fold { width: 36px; height: 44px; opacity: 1; font-size: 14px; }
+.lbw--sm .lbw-fold { width: 30px; height: 44px; opacity: 1; font-size: 14px; }
+.lbw--sm .lbw-h .lbw-grip { width: 26px; height: 44px; margin-right: -4px; font-size: 14px; color: #8aa694; }
 .lbw--sm .lbw-h-num, .lbw--sm .lbw-h-title { font-size: 18px; }
 .lbw--sm .lbw-h-num { min-width: 22px; }
 .lbw--sm .lbw-h-empty { display: none; }
