@@ -2971,6 +2971,57 @@ the anon key -- verify as `postgres`, not as the app.
     `_lcdRailHoldScroll` first, per gotcha 73.
     `tools/live-projection-harness.js` checks it.
 
+82. **The presenter overlay holds its own copy of the slides, and the wall
+    is drawn from it.** The third round of "the projection still does not
+    change" (2026-11-11). The first two rounds fixed the SCHEDULE and
+    checked the schedule; what the room looks at is `#woFullscreenContent`,
+    and nothing had ever repainted it. Reproduced in the browser before
+    anything was changed, which is what the first two rounds skipped: with
+    a doctored `SBQ.loadOrder` standing in for the other device, the
+    selected slide in the schedule read "WALL TEST ONE" within one tick
+    while the overlay went on showing the previous words for as long as it
+    was watched.
+    - `_wofsSlides` is a list of **DOM NODES**, captured by
+      `_buildWofsSlides()` when Project is pressed. Applying a change takes
+      the item's nodes off the page and builds new ones, so the overlay was
+      left reading detached markup with the old words on it. That is
+      exactly "exit the projection and refresh": `goFullscreen` rebuilds
+      the list. `_wofsRefresh()` rebuilds it in place and calls
+      `_wofsRender()`, which ends in `selectSlideBox` -- so one path puts
+      the words on the operator's screen, the small preview and the
+      projection window.
+    - It lands on the same **slide**, not the same index: a change from
+      another device may add or remove slides above the one being shown.
+      `_wofsKeys(list)` (pure) names each entry -- `box:<item>:<n>` for a
+      song or liturgy slide, counting that item's own slides as
+      `_orderSyncRememberLive` does, since a reading's slides carry no
+      `data-slide-idx` (gotcha 60); `ppt:<section>:<n>` for a sermon slide
+      -- and the key being shown is looked up in the rebuilt list. The
+      slide gone, the place is held rather than throwing the congregation
+      back to the top of the service.
+    - `_lcdReproject` calls it FIRST. `selectSlideBox` sets `_lcdProjected`,
+      and the sync's own restore has already run it, so the
+      `text === _lcdProjected` shortcut at the end would return before the
+      overlay was ever reached.
+    - **`_lcdOnAir` was false while presenting.** It tested `#sbFsOverlay`
+      -- the SONGBOOK's book mode, somebody reading a song -- and never
+      `#woFullscreenOverlay`, the LCD's own. Measured: overlay shown,
+      `document.fullscreenElement` null, `_lcdOnAir()` FALSE. With one
+      screen, or with window management not granted, Project falls back to
+      that overlay (gotcha 75), and a browser that then refuses fullscreen
+      leaves the operator presenting from it windowed -- so the state that
+      most needs a last-minute change was the one not counted as being on
+      air. `_orderSyncProjecting` carried the same mistake, which would
+      have drawn the sync banner across a projected slide.
+    - The harness had enshrined it: `check('the presenter overlay counts',
+      /sbFsOverlay/.test(onAir), true)`. Two further checks read the
+      function's own COMMENTS rather than its code and passed on prose
+      mentioning what used to be wrong. A check over source text must
+      match a statement (`getElementById('sbFsOverlay')`,
+      `text === _lcdProjected`), never a word that a comment may also use.
+    `tools/live-projection-harness.js` checks it, running `_wofsKeys`
+    itself rather than matching it.
+
 ## Quick Commands for Claude Code
 
 ```bash

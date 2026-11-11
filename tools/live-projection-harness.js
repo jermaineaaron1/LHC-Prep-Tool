@@ -163,7 +163,10 @@ const onAir = extractFn('_lcdOnAir');
 check('the projector WINDOW counts', /projectionWindow && !projectionWindow\.closed/.test(onAir), true);
 check('  and a closed cross-origin window does not throw', /catch \(e\)/.test(onAir), true);
 check('fullscreen counts', /document\.fullscreenElement/.test(onAir), true);
-check('the presenter overlay counts', /sbFsOverlay/.test(onAir), true);
+// #sbFsOverlay is the SONGBOOK's book mode -- somebody reading a song,
+// not a congregation reading a wall. Calling it "the presenter overlay"
+// here is what let the real one, #woFullscreenOverlay, go unchecked.
+check('the LCD presenter overlay counts', /woFullscreenOverlay/.test(onAir), true);
 
 // ── 4. pushed, not waited for ──────────────────────────────────────────
 console.log('\npushed, rather than waited for');
@@ -250,6 +253,83 @@ check('  by the key its item carries',
 // The rail is rebuilt from the DOM below, and clamps to the top (gotcha 73).
 check('the rail is told to hold its place first',
   /_lcdRailHoldScroll/.test(delta), true);
+
+console.log('\npresenting counts as being on air');
+// Measured, not reasoned about: with the presenter overlay open and the
+// browser refusing fullscreen, overlayShown was true, fullscreenElement
+// false and _lcdOnAir() FALSE -- so the one state that most needs a
+// last-minute change was not counted as projecting at all. goFullscreen
+// falls back to this overlay whenever the projection window cannot be
+// opened (gotcha 75), which is every single-screen laptop.
+check('on-air asks whether that overlay is shown, not what the browser thinks',
+  /classList\.contains\('show'\)/.test(onAir), true);
+check('  and the projection window still answers first',
+  onAir.indexOf('projectionWindow') < onAir.indexOf('woFullscreenOverlay'), true);
+// #sbFsOverlay is the SONGBOOK's book mode -- somebody reading a song,
+// not a congregation reading a wall. It was the wrong overlay entirely.
+check('the Songbook\'s book mode is not mistaken for a projection',
+  /getElementById\('sbFsOverlay'\)/.test(onAir), false);
+// The banner is the one piece of app chrome that must never cross a
+// projected slide, so it asks about the overlay too.
+const projecting = extractFn('_orderSyncProjecting');
+check('the notice also stands down for a windowed presenter overlay',
+  /woFullscreenOverlay/.test(projecting) && /classList\.contains\('show'\)/.test(projecting), true);
+
+console.log('\nthe presenter overlay is repainted, not left on stale nodes');
+// _wofsSlides is a list of DOM NODES captured when Project was pressed.
+// Applying a change takes the item's nodes off the page and builds new
+// ones, so the overlay was left reading detached markup with the old
+// words on it -- reproduced in the browser: the schedule read "WALL TEST
+// ONE" within one tick while #woFullscreenContent never changed at all.
+const reproject = extractFn('_lcdReproject');
+check('reproject repaints the overlay', /_wofsRefresh\(\)/.test(reproject), true);
+// selectSlideBox sets _lcdProjected, and the restore has already run it,
+// so the text comparison at the end returns early. The refresh has to
+// come before it or it is never reached.
+check('  before the already-projected shortcut can return early',
+  reproject.indexOf('if (_wofsRefresh())') < reproject.indexOf('text === _lcdProjected'), true);
+const refresh = extractFn('_wofsRefresh');
+check('the overlay\'s slide list is rebuilt from the page',
+  /_buildWofsSlides\(\)/.test(refresh), true);
+check('  and that rebuilt list becomes the one the overlay uses',
+  /_wofsSlides = rebuilt;/.test(refresh), true);
+check('  and the overlay is drawn again', /_wofsRender\(\)/.test(refresh), true);
+check('  but nothing happens while it is closed',
+  /classList\.contains\('show'\)/.test(refresh), true);
+// Landing on the same INDEX would be wrong: a change from another device
+// may add or remove slides above the one being shown.
+check('it lands on the same slide, not the same index',
+  /_wofsKeys\(/.test(refresh) && /indexOf\(wasKey\)/.test(refresh), true);
+
+console.log('\nand a slide is found again by what it is');
+const _wofsKeys = new Function(extractFn('_wofsKeys') + '\nreturn _wofsKeys;')();
+function box(attrs) {
+  const el = new El('div', 'wo-slide-box');
+  Object.keys(attrs).forEach(k => el.setAttribute(k, attrs[k]));
+  return el;
+}
+const song = { 'data-song-id': 'song_1' };
+const lit  = { 'data-liturgy-id': 'lit_9' };
+check('each slide of an item is told from the next',
+  _wofsKeys([box(song), box(song), box(lit)]),
+  ['box:song_1:1', 'box:song_1:2', 'box:lit_9:1']);
+// A song sung in two sections is two copies with two ids (gotcha 55), so
+// the count restarts per item rather than running across the service.
+check('  and the count restarts for each item',
+  _wofsKeys([box(song), box(lit), box(song)]),
+  ['box:song_1:1', 'box:lit_9:1', 'box:song_1:2']);
+check('a sermon slide is its deck and its page',
+  _wofsKeys([{ type: 'ppt', sectionId: 'wo-section-3', slideIndex: 4 }]),
+  ['ppt:wo-section-3:4']);
+check('nothing in the list does not throw', _wofsKeys([null, undefined]), ['', '']);
+check('neither does no list at all', _wofsKeys(null), []);
+// The whole point: the key of the slide being shown survives a rebuild
+// in which slides above it came and went.
+const before = [box(lit), box(lit), box(song)];
+const after  = [box(lit), box({ 'data-liturgy-id': 'lit_new' }), box(lit), box(song)];
+const shown = _wofsKeys(before)[1];
+check('a slide keeps its identity when another is inserted above it',
+  _wofsKeys(after).indexOf(shown), 2);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
