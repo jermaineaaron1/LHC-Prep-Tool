@@ -2229,6 +2229,11 @@ const CASES = [
     s => s.replace("      if (count[it.name] < 2 || !it.type) return it;", "      return it;")],
   ['home-songs-search-harness.js', 'the phone rules size the chips\' icons again',
     s => s.replace("    .home-nav-card .home-recent-chip i { font-size: .62rem;", "    .home-recent-chip i { font-size: .62rem;")],
+  // After #433: a songbook name in its row's handlers, and a narrow column.
+  ['home-look-harness.js', 'a songbook name goes into its handlers escaped for HTML only, and an apostrophe ends the string',
+    s => s.replace("          return escapeHtml(String(v == null ? '' : v).replace(", "          return escapeHtml(String(v == null ? '' : v)); void (String(v).replace(")],
+  ['home-look-harness.js', 'on a desk a row of six squeezes its name to 60px again',
+    s => s.replace("    .sb-two-col > div { container-type: inline-size; container-name: sbcol; }\r\n", '')],
 ];
 
 let caught = 0, missed = 0, stale = 0;

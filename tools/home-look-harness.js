@@ -49,6 +49,33 @@ check('  each button a tile in its action\'s colour, Open included',
   has(/\.sb-list-btn \{\r?\n\s*width: 30px; height: 30px;/) && has(/class="sb-list-btn open"/) &&
   ['add-songs', 'play', 'open', 'rename', 'delete'].every(k => new RegExp('\\.sb-list-btn\\.' + k + ':hover \\{ color: #fff;').test(SRC)));
 
+// From a check after #433 (2026-11-11): a name with an apostrophe broke Add
+// Songs and Rename (the attribute decodes &#039; back to ' and ends the JS
+// string), and on a desk the two columns left a row of six a 60px name.
+console.log('\na name in a row\'s buttons, and a narrow column');
+const lines = SRC.split('\n').map(l => l.replace(/\r$/, ''));
+const jAt = lines.findIndex(l => /^\s*var jsq = function\(v\) \{$/.test(l));
+let jsq = null;
+if (jAt >= 0) {
+  const body = lines.slice(jAt, jAt + 4).join('\n');
+  const escapeHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  try { jsq = new Function('escapeHtml', body + '\nreturn jsq;')(escapeHtml); } catch (e) { jsq = null; }
+}
+// What the browser does with onclick="f('<value>')": decode the attribute,
+// then run the JS. The name must come out whole, and nothing else must run.
+const decode = s => s.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const roundTrip = name => { try { return new Function("return '" + decode(jsq(name)) + "';")(); } catch (e) { return 'THREW ' + e.message; } };
+const NAMES = ["Mother's Day 2026", 'Back\\slash', 'Say "Amen"', '<b>Carols</b> & more', "two\nlines", "it's a 'test'"];
+check('a name with an apostrophe, a backslash, quotes, tags or a new line reaches the handler whole',
+  !!jsq && NAMES.every(n => roundTrip(n) === n));
+check('  every handler in the row takes its values through jsq',
+  !/ename\.replace\(/.test(SRC) && /openAddSongsModal\(\\'' \+ \(isOrder \? 'order' : 'songbook'\) \+ '\\',\\'' \+ \(isOrder \? jsq\(item\.orderId\) : jsq\(item\.id\)\) \+ '\\',\\'' \+ jsq\(item\.name\) \+ '\\'\)/.test(SRC) &&
+  /renameSongbook\(\\'' \+ jsq\(item\.id\) \+ '\\',\\'' \+ jsq\(item\.name\) \+ '\\'\)/.test(SRC));
+check('a row of six puts its buttons under its name wherever its column is narrow, a desk\'s included',
+  /\.sb-two-col > div \{ container-type: inline-size; container-name: sbcol; \}/.test(SRC) &&
+  /@container sbcol \(max-width: 459px\) \{\r?\n\s*\.sb-list-item\.sb-list-item--many \{ flex-wrap: wrap; row-gap: 4px; \}/.test(SRC));
+check('a name may take two lines rather than be cut', /\.sb-list-name \{\r?\n[^}]*-webkit-line-clamp: 2;/.test(SRC));
+
 console.log('\nthe home cards');
 check('Songs / Songbooks faintly green', has(/\.home-nav-songs \{ background: linear-gradient\(145deg, #ffffff 0%, #eaf8ef 100%\); \}/));
 check('the Roster faintly blue, its icon blue', has(/\.home-nav-roster \{ background: linear-gradient\(145deg, #ffffff 0%, #eaf3ff 100%\); \}/) &&
