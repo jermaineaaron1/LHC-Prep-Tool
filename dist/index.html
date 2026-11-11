@@ -1237,7 +1237,19 @@
       padding: 24px 16px;
       text-align: center;
       cursor: pointer;
-      border: 1px solid rgba(15,23,42,0.04);
+      /* The edge. It was rgba(15,23,42,0.04) -- 4% of near-black over a
+         white-topped gradient, which is no line at all, so six cards ran
+         into one another as one pale column.
+
+         Two lines, not one: the card's own colour outside, a lit white
+         ring just inside it. That reads as a bevel -- the "glossy" asked
+         for -- and both follow the border-radius. A gradient ring would
+         be the other way to do it and needs -webkit-mask compositing,
+         which the Samsung and older Safari browsers this app is read on
+         drop (gotcha 71), taking the whole edge with it. */
+      border: 1px solid var(--nav-edge, rgba(15,23,42,0.12));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6),
+                  0 1px 2px rgba(15,23,42,0.05);
       transition: all 0.25s ease;
       position: relative;
       overflow: hidden;
@@ -1251,7 +1263,8 @@
     }
     .home-nav-card:hover {
       transform: translateY(-4px);
-      box-shadow: 0 20px 40px rgba(9,42,21,0.15);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.75),
+                  0 20px 40px rgba(9,42,21,0.15);
     }
     .home-nav-card:active { transform: translateY(-1px); }
     .home-nav-songs { background: linear-gradient(145deg, #ffffff 0%, #f0f4ff 100%); }
@@ -1263,7 +1276,22 @@
     .home-nav-liturgy { background: linear-gradient(145deg, #ffffff 0%, #e5f4ed 100%); }
     .home-nav-liturgy:hover { background: linear-gradient(145deg, #e5f4ed 0%, #c0e7d5 100%); }
     .home-nav-practice { background: linear-gradient(145deg, #ffffff 0%, #ecfdf5 100%); }
-    .home-nav-practice:hover { background: linear-gradient(145deg, #ecfdf5 0%, #d1fae5 100%); border-color: rgba(5,150,105,0.3); }
+    .home-nav-practice:hover { background: linear-gradient(145deg, #ecfdf5 0%, #d1fae5 100%); border-color: rgba(5,150,105,0.45); }
+    /* Sunday Bulletin had no rule of any kind -- no tint, no icon
+       colour -- so it alone sat white among five tinted cards. Slate,
+       because every other accent here is a green, a teal or the
+       Orders amber. */
+    .home-nav-bulletin { background: linear-gradient(145deg, #ffffff 0%, #eef2f7 100%); }
+    .home-nav-bulletin:hover { background: linear-gradient(145deg, #eef2f7 0%, #dde5ef 100%); }
+
+    /* The edge takes the card's own accent, so the division is the
+       card saying which one it is rather than a grey rule. */
+    .home-nav-songs    { --nav-edge: rgba(24,142,68,0.32); }
+    .home-nav-roster   { --nav-edge: rgba(20,184,166,0.34); }
+    .home-nav-orders   { --nav-edge: rgba(217,119,6,0.34); }
+    .home-nav-liturgy  { --nav-edge: rgba(11,118,68,0.30); }
+    .home-nav-practice { --nav-edge: rgba(5,150,105,0.32); }
+    .home-nav-bulletin { --nav-edge: rgba(71,85,105,0.28); }
     .home-nav-icon {
       font-size: 2rem;
       width: 60px;
@@ -1279,6 +1307,7 @@
     .home-nav-orders .home-nav-icon { color: #d97706; background: rgba(217,119,6,0.12); }
     .home-nav-liturgy .home-nav-icon { color: #0b7644; background: rgba(11,118,68,0.12); }
     .home-nav-practice .home-nav-icon { color: #059669; background: rgba(5,150,105,0.12); }
+    .home-nav-bulletin .home-nav-icon { color: #475569; background: rgba(71,85,105,0.12); }
     /* The name of the feature, and now the only words on the card.
        0.88rem + 6px, at the heaviest Cinzel the page loads: the second
        line under each name ("Service duties & assignments") said what the
@@ -5935,7 +5964,8 @@
     }
     .home-nav-card:hover {
       transform: translateY(-4px) scale(1.02);
-      box-shadow: 0 16px 32px rgba(15,23,42,0.14) !important;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.75),
+                  0 16px 32px rgba(15,23,42,0.14) !important;
     }
 
     /* Smooth view display */
