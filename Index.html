@@ -123049,7 +123049,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
             html += '<td style="padding:8px 10px;"><span class="enabler-status-'+effStatus+'" style="font-size:11px;padding:2px 7px;border-radius:10px;font-weight:600;">'+(sm.labels[effStatus]||effStatus)+'</span></td>';
             html += '<td style="padding:8px 6px;text-align:center;font-weight:700;color:#0d9488;">'+(freq.month||0)+'</td>';
             html += '<td style="padding:8px 6px;text-align:center;font-weight:700;color:#0d9488;">'+(freq.year||0)+'</td>';
-            html += '<td style="padding:8px 6px;text-align:center;"><button onclick="RosterEngine._openEnablerFromDuty(\''+self.escapeHtml(name)+'\')" style="border:none;background:none;color:#14b8a6;cursor:pointer;" title="View profile"><i class="fa-solid fa-arrow-right"></i></button></td>';
+            html += '<td style="padding:8px 6px;text-align:center;"><button onclick="RosterEngine._openEnablerFromDuty(\''+self._jsArg(name)+'\')" style="border:none;background:none;color:#14b8a6;cursor:pointer;" title="View profile"><i class="fa-solid fa-arrow-right"></i></button></td>';
             html += '</tr>';
           });
           html += '</tbody></table>';
@@ -123114,7 +123114,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       if (cats.length) { html += '<div style="margin-top:6px;">'; cats.forEach(function(c){html+='<span style="font-size:10px;background:#e3f6ec;color:#15803d;border-radius:4px;padding:1px 5px;margin-right:3px;">'+(sm.cats[c]||c)+'</span>';}); html += '</div>'; }
       html += '</div>';
       // PDF share button
-      html += '<button onclick="RosterEngine._printEnablerProfile(\''+self.escapeHtml(selectedName)+'\')" title="Share / Print profile card" style="flex-shrink:0;padding:6px 10px;background:#0d9488;color:#fff;border:none;border-radius:7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-file-pdf"></i> PDF</button>';
+      html += '<button onclick="RosterEngine._printEnablerProfile(\''+self._jsArg(selectedName)+'\')" title="Share / Print profile card" style="flex-shrink:0;padding:6px 10px;background:#0d9488;color:#fff;border:none;border-radius:7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-file-pdf"></i> PDF</button>';
       html += '</div>';
 
       // Appointed services breakdown
@@ -123242,7 +123242,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += '<option value="'+t[0]+'"'+((meta.team||'')===t[0]?' selected':'')+'>'+t[1]+'</option>';
       });
       html += '</select></div>';
-      html += '<button onclick="RosterEngine._saveEnablerStatus(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Save Status</button>';
+      html += '<button onclick="RosterEngine._saveEnablerStatus(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Save Status</button>';
       html += '</div>';
 
       // Tab 2: Prayer Requests
@@ -123261,8 +123261,8 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += '<div style="text-align:center;padding:16px 0;color:#9ca3af;font-size:12px;"><i class="fa-solid fa-hands-praying" style="font-size:22px;display:block;margin-bottom:6px;opacity:0.3;"></i>No prayer requests yet</div>';
       }
       html += '</div>';
-      html += '<button onclick="RosterEngine._addPrayerRow(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:7px;border:1.5px dashed #14b8a6;border-radius:7px;background:transparent;color:#0d9488;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;"><i class="fa-solid fa-plus" style="margin-right:4px;"></i>Add Prayer Request</button>';
-      html += '<button onclick="RosterEngine._savePrayerRequests(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;">Save Prayer Requests</button>';
+      html += '<button onclick="RosterEngine._addPrayerRow(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:7px;border:1.5px dashed #14b8a6;border-radius:7px;background:transparent;color:#0d9488;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;"><i class="fa-solid fa-plus" style="margin-right:4px;"></i>Add Prayer Request</button>';
+      html += '<button onclick="RosterEngine._savePrayerRequests(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;">Save Prayer Requests</button>';
       html += '</div>';
 
       // Tab 3: Interesting Facts (uses module-level _ef emoji set)
@@ -123285,7 +123285,7 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
         html += 'style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;background:#fff;">';
         html += '</div>';
       });
-      html += '<button onclick="RosterEngine._saveInterestingFacts(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px;">Save Interesting Facts</button>';
+      html += '<button onclick="RosterEngine._saveInterestingFacts(\''+self._jsArg(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px;">Save Interesting Facts</button>';
       html += '</div>';
 
       html += '</div></div>';
@@ -126374,6 +126374,14 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
     },
 
     escapeHtml: function(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); },
+    // A value inside an inline handler's JS string, onclick="f('<here>')":
+    // escaped for the JS string first, then for the attribute. escapeHtml
+    // alone gives &#039;, which the attribute decodes back to ' -- so a member
+    // named O'Neil had a profile whose buttons did nothing (2026-11-11).
+    _jsArg: function(v) {
+      return this.escapeHtml(String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'));
+    },
     showToast: function(message, type) { var el = document.getElementById('toastNotification'); if (!el) return; el.textContent = message; el.className = 'toast-notification show ' + (type || ''); clearTimeout(this._toastTimer); this._toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3500); },
     showLoader: function(show) { var el = document.getElementById('loadingIndicator'); if (el) el.classList.toggle('show', show); },
     callGAS: function(functionName, args) { return new Promise(function(resolve, reject) { if (typeof google === 'undefined' || !google.script || !google.script.run) { reject(new Error('GAS not available')); return; } var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject); if (typeof runner[functionName] !== 'function') { reject(new Error('Function not found: ' + functionName)); return; } runner[functionName].apply(runner, args || []); }); },

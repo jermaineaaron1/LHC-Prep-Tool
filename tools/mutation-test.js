@@ -2267,6 +2267,11 @@ const CASES = [
     s => s.replace("          return escapeHtml(String(v == null ? '' : v).replace(", "          return escapeHtml(String(v == null ? '' : v)); void (String(v).replace(")],
   ['home-look-harness.js', 'on a desk a row of six squeezes its name to 60px again',
     s => s.replace("    .sb-two-col > div { container-type: inline-size; container-name: sbcol; }\r\n", '')],
+  // A member's name in the Enablers directory's handlers (enablers-calendar-harness).
+  ['enablers-calendar-harness.js', 'a member named O\'Neil gets buttons that do nothing again',
+    s => s.replace("      return this.escapeHtml(String(v == null ? '' : v).replace(", "      return this.escapeHtml(String(v == null ? '' : v)); void (String(v).replace(")],
+  ['enablers-calendar-harness.js', 'one profile button takes the name escaped for HTML only',
+    s => s.replace("RosterEngine._printEnablerProfile(\\''+self._jsArg(selectedName)+'\\')", "RosterEngine._printEnablerProfile(\\''+self.escapeHtml(selectedName)+'\\')")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

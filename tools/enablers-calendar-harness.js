@@ -89,7 +89,7 @@ const METHODS = ['escapeHtml', '_roleWord', 'calculateEaster', 'getSpecialDays',
   '_enablersGroupLabelsFor', '_waPhone', 'getCalendarSubscribeUrl', 'buildDutyCardMessage', 'getDutiesForMember',
   '_enGuideUrl', '_enDateOf', '_enRoleOrder', '_enDutiesIn', '_enLitMonth', '_enMonthGrid', '_enDateLabel', '_enWaUrl',
   '_enCleanContact', '_enMetaKey', '_enMeta', '_enWaHtml', '_enRowsNow', '_enCardText', '_enContactWrite', '_enCtHtml',
-  '_loadEnablersData', '_saveContactToSupabase', '_bulkSendAll', '_enAllNames', '_enRowsForYear'];
+  '_loadEnablersData', '_saveContactToSupabase', '_bulkSendAll', '_enAllNames', '_enRowsForYear', '_jsArg'];
 const PROPS = ['MONTHS_SHORT', 'SEASONS', 'DEFAULT_COLORS', 'ROLES'];
 const missing = [];
 const parts = [];
@@ -354,6 +354,18 @@ const echo = row => ({ data: [Object.assign({ phone: 'kept', email: 'kept@x.co' 
   }
 
   // ---------------------------------------------------------------- wiring
+  // (2026-11-11) A member's name in an inline handler's JS string: By Duty's
+  // profile button and By Individual's Print, Save Status, prayer and Fun
+  // Facts buttons took it HTML-escaped only, and the attribute decodes
+  // &#039; back to ' -- so a member named O'Neil had buttons that did nothing.
+  console.log('\na member\'s name in a button\'s handler');
+  const decode = t => String(t).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const trip = n => { if (!has('_jsArg')) return 'missing'; try { return new Function("return '" + decode(R._jsArg(n)) + "';")(); } catch (e) { return 'THREW ' + e.message; } };
+  const awkward = ["Mary O'Neil", 'Back\\slash', 'Say "Amen"', 'Tom & <b>Jerry</b>', "two\nlines"];
+  check('an apostrophe, a backslash, quotes, tags or a new line reach the handler whole', awkward.map(trip), awkward);
+  truthy('  no handler in the directory takes a name escaped for HTML only',
+    !/\\''\+self\.escapeHtml\((name|selectedName)\)\+'\\'/.test(raw) && (raw.match(/\\''\+self\._jsArg\((name|selectedName)\)\+'\\'/g) || []).length >= 6);
+
   console.log('\nwhat the screens call');
   const all = method('_renderEnablersAll') || '';
   truthy('anyone gets the add/change rows on a card', /\} else \{\s*\n\s*html \+= '<div class="en-ct-group">' \+ self\._enCtHtml\(name, 'phone', phone\) \+ self\._enCtHtml\(name, 'email', email\)/.test(all));
