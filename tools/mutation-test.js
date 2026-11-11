@@ -741,6 +741,39 @@ const CASES = [
   // printed the words "The theme verse" across the masthead.
   // ── A change reaching a projection already running ───────────────
   // Every one of these is a screen a congregation is looking at.
+  // The bug itself: the words changed everywhere except the one place a
+  // congregation reads them.
+  ['live-projection-harness.js', 'saving the words leaves the slides as they were',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });', '')],
+  ['live-projection-harness.js', 'the rebuild runs after the save that reads the DOM',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n', '')
+          .replace('    renderSongbookLive();\r\n  }\r\n  // The editor closed',
+                   '    refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n    renderSongbookLive();\r\n  }\r\n  // The editor closed')],
+  ['live-projection-harness.js', 'the wall is not sent the slide again',
+    s => s.replace("    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }", '')],
+  // song.lyrics here is the Songbook's own words, chords and all.
+  ['live-projection-harness.js', 'the rebuild takes the Songbook chords away',
+    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });',
+                   '      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics));')],
+  ['live-projection-harness.js', 'keepLyrics is accepted and ignored',
+    s => s.replace('    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;', '    song.lyrics = newLyrics;')],
+  // A heading the operator typed is not the parser's to throw away.
+  ['live-projection-harness.js', 'a typed heading is lost on every re-split',
+    s => s.replace("               header: slide.header || was.header || '', background: was.background || '' };",
+                   "               header: slide.header || '', background: was.background || '' };")],
+  ['live-projection-harness.js', 'the slide background is lost with it',
+    s => s.replace("               header: slide.header || was.header || '', background: was.background || '' };",
+                   "               header: slide.header || was.header || '', background: '' };")],
+  // A chord line on the wall is sheet music in front of a congregation.
+  ['live-projection-harness.js', 'the chords go up with the words',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return true;')],
+  ['live-projection-harness.js', 'the blank lines go, and the slides break elsewhere',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !!line.trim() && !isChordLineGlobal(line);')],
+  // "Am" is also the word "am", and both of these are real lyrics.
+  ['live-projection-harness.js', 'a looser test eats "Am I not still the same"',
+    s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !line.trim() || !/^[A-G]/.test(line.trim());')],
+  ['live-projection-harness.js', 'with no detector the words are dropped instead of kept',
+    s => s.replace("    if (typeof isChordLineGlobal !== 'function') return lines.join('\\n');", '')],
   // Presenting from the overlay was not counted as being on air at all --
   // measured: overlayShown true, fullscreenElement false, _lcdOnAir() false.
   ['live-projection-harness.js', 'presenting from the overlay is not on air',
