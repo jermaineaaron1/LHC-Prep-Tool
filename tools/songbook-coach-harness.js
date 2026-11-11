@@ -292,10 +292,12 @@ check('busy means drawing, typing, Book Mode, recording, a sheet, Tracks, the fl
   /_sbmDraw \|\| _sbNp \|\| _sbBkOpen\(\) \|\| _sbRecording \|\| \(rs && rs\.style\.display !== 'none'\)/.test(fn('_sbmCoachBusy')) &&
   /document\.getElementById\('sbmSheet'\) \|\| document\.getElementById\('sbmPrac'\) \|\| document\.getElementById\('sbmIntro'\)/.test(fn('_sbmCoachBusy')));
 check('no card: the yellow card, its chips and buttons are gone', !/sbm-coach__card/.test(draw) && !/data-act=/.test(draw) && !has(/\.sbm-coach__card--draw/) && !has(/function _sbmCoachArt/));
-check('a finger on a word of the song, double-tapping, ripples under it, a ring drawing itself round the word',
-  /fa-hand-pointer sbm-hint__finger/.test(draw) && /sbm-hint__ripple sbm-hint__ripple--2/.test(draw) && /<svg class="sbm-hint__ring"/.test(draw) &&
-  has(/@keyframes sbmHintTap \{/) && has(/\.sbm-hint__ring ellipse \{ stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing/));
-check('it says what to do, under the finger: double-tap the words to draw', /<b>Double-tap<\/b> the words to draw/.test(draw));
+// A hold draws since 2026-11-11 (gotcha 86); a double-tap edits.
+check('a finger on a word of the song, holding while a ring fills round it, then a ring drawing itself round the word',
+  /fa-hand-pointer sbm-hint__finger/.test(draw) && /<svg class="sbm-hint__hold"/.test(draw) && /<svg class="sbm-hint__ring"/.test(draw) &&
+  !/sbm-hint__ripple/.test(draw) && has(/@keyframes sbmHintHold \{/) && has(/@keyframes sbmHintHoldFill \{/) &&
+  has(/\.sbm-hint__ring ellipse \{ stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing/));
+check('it says what to do, under the finger: hold the words 2 seconds to draw', /<b>Hold<\/b> the words 2 seconds to draw/.test(draw) && !/Double-tap/.test(draw));
 check('...and points up at the Draw chip when it is in sight: a ring round it, arrows, "or tap Draw"',
   /_sbmCoachFrame\(parts\[0\], c, 5\);/.test(draw) && /sbm-coach__arrows sbm-hint__arrows/.test(draw) && /or tap <b>Draw<\/b>/.test(draw) &&
   /var chip = card\.querySelector\('\.sbm-chip--draw'\)/.test(fn('_sbmCoachDrawAt')));

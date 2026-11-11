@@ -11503,7 +11503,7 @@
 
           <!-- Formatting Toolbar -->
           <div class="lyrics-format-toolbar">
-            <div class="format-group">
+            <div class="format-group lyr-fg-font">
               <select id="lyricsFontFamily" class="format-select" onchange="applyLyricsFormat('fontFamily', this.value)" title="Font Style">
                 <option value="Courier New, monospace">Monospace</option>
                 <option value="Georgia, serif">Georgia</option>
@@ -11518,7 +11518,7 @@
                 <option value="20px">20px</option>
               </select>
             </div>
-            <div class="format-group">
+            <div class="format-group lyr-fg-style">
               <button type="button" class="format-btn" onclick="applyLyricsFormat('bold')" title="Bold"><i class="fa-solid fa-bold"></i></button>
               <button type="button" class="format-btn" onclick="applyLyricsFormat('italic')" title="Italic"><i class="fa-solid fa-italic"></i></button>
               <button type="button" class="format-btn" onclick="applyLyricsFormat('underline')" title="Underline"><i class="fa-solid fa-underline"></i></button>
@@ -20722,6 +20722,10 @@ function openLyricsEditor(mode) {
   var modal = document.getElementById('lyricsEditorModal');
   var textarea = document.getElementById('lyricsEditorTextarea');
   var richEditor = document.getElementById('lyricsRichEditor');
+  // The Songbook dresses this editor as itself (sbOpenLyricsEditor, gotcha
+  // 86); the song form's is the plain one.
+  if (modal) modal.classList.remove('lyrics-editor-modal--sb');
+  if (richEditor) richEditor.style.fontFamily = '';
   var lyrics = songData[mode].lyrics || '';
 
   textarea.value = lyrics;
@@ -20900,7 +20904,7 @@ function renderRichEditor(text) {
     } else if (trimmed) {
       html += '<div class="editor-lyric-line" data-line="' + idx + '">' + esc(line) + '</div>';
     } else {
-      html += '<div class="editor-lyric-line" data-line="' + idx + '"><br></div>';
+      html += '<div class="editor-lyric-line editor-empty-line" data-line="' + idx + '"><br></div>';
     }
   });
 
@@ -20996,6 +21000,13 @@ function onRichEditorInput() {
   // Sync plain text to hidden textarea
   var text = getPlainTextFromRichEditor();
   textarea.value = text;
+  // A blank line typed into is a line of words now: the Songbook's look sets
+  // a blank line short, as a gap (gotcha 86), and the words must not be.
+  try {
+    var _sel = window.getSelection(), _an = _sel && _sel.anchorNode;
+    var _ln = _an && (_an.nodeType === 3 ? _an.parentNode : _an);
+    if (_ln && _ln.classList && _ln.classList.contains('editor-empty-line') && _ln.textContent.trim()) _ln.classList.remove('editor-empty-line');
+  } catch (e) {}
 
   // Save state for undo/redo (debounced)
   clearTimeout(window.lyricsHistoryDebounce);
@@ -52141,24 +52152,38 @@ var WO = (function() {
   }
   function _sbmDrawChip() {
     if (_sbmMarksOk !== true) return '';
-    return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. Or double-tap the words. ' +
+    return '<button class="sbm-chip sbm-chip--draw sbm-chip--pen' + (_sbmDraw ? ' is-on' : '') + '" onclick="WO.sbmDraw()" title="Draw a remark on the song \u2014 a ring, an arrow, a breath mark. Or hold the words for 2 seconds. ' +
       (_sbmLayersOk === true ? 'When you finish, you choose who sees it.' : 'Everyone sees it.') + '"><i class="fa-solid fa-pen-nib"></i>' + (_sbmDraw ? 'Drawing\u2026' : 'Draw') + '</button>';
   }
 
-  // ---- double-tap the words to draw ----
+  // ---- the words: a double-tap edits them, a hold draws on them ----
   //
-  // From the operator (2026-11-07): a double-tap -- or a double-click --
-  // anywhere on the lyrics / chords card, or the choir parts card, starts
-  // drawing, as it does in Book Mode (gotcha 64). Asked, they chose it over
-  // the double-click that edited a choir line where it sat, so the song view
-  // no longer binds lhcVoiceEdit (sbBindChoirRecorders); a line is edited in
-  // Overview edit or Edit Parts, and the printed pages keep their own. A
-  // phone has no double-click (gotcha 28): two taps close in time and place
-  // count as one, and touch-action keeps them from zooming the page.
-  var _sbmTap = null, _sbmTapDown = null, _sbmDblAt = 0;
-  // The card a double-tap draws on, or null: a card of words (the ones that
-  // take drawings, _sbmMarkCards), not its heading row of chips, nor a
-  // button, field or instrument strip in it.
+  // From the operator (2026-11-11, gotcha 86), on a screenshot of the song
+  // view: "Hold 2 sec to draw", "Double tap to edit", the Type chip crossed
+  // out for Edit -- and the edit pad to "highlight and direct (scroll to the
+  // part) where the user wants to edit". It was the other way round (a
+  // double-tap drew, 2026-11-07). Book Mode keeps its own gestures (asked:
+  // "Leave Book Mode as is").
+  //  - A double-click, or two taps close in time and place (a phone has no
+  //    dblclick, gotcha 28), opens what Edit opens, AT THE PLACE: the words'
+  //    editor scrolled to the line tapped, the cursor in it and the line lit
+  //    (_sbmDblEdit -> sbmEdit(at)); the choir score's parts editor at the
+  //    moment tapped (sbmEditParts(anchor)).
+  //  - Holding the words still for _SBM_HOLD_DRAW_MS brings the pen out
+  //    (_sbmHoldDraw); a ring fills round the finger from _SBM_HOLD_RING_MS,
+  //    so a hold is seen to be one. Moving more than 10px is a scroll, or a
+  //    mouse selecting, and lets it go.
+  //  - On a touch screen the words no longer take the phone's own long-press
+  //    selection (a phone takes a held finger over after half a second, and
+  //    a 2-second hold could never be timed), so a finger held past the ring
+  //    and let go before the pen PICKS the line it is on for moving on its
+  //    own (_sbmXpPick, the line-transpose bar); a second line held takes in
+  //    the lines between. A mouse still drags to select, as before.
+  var _sbmTap = null, _sbmTapDown = null, _sbmDblAt = 0, _sbmHold = null;
+  var _SBM_HOLD_DRAW_MS = 2000, _SBM_HOLD_RING_MS = 450;
+  // The card a double-tap or a hold acts on, or null: a card of words (the
+  // ones that take drawings, _sbmMarkCards), not its heading row of chips,
+  // nor a button, field or instrument strip in it.
   function _sbmDblCard(t) {
     if (!t || !t.closest) return null;
     if (t.closest('button, a, input, textarea, select, label, [contenteditable="true"], .sbm-label, .sbm-inst, .sbm-xpsel')) return null;
@@ -52168,32 +52193,188 @@ var WO = (function() {
   function _sbmDblBind(root) {
     if (!root || root.__sbmDbl) return;
     root.__sbmDbl = true;
-    root.addEventListener('dblclick', function(e) { var c = _sbmDblCard(e.target); if (c) _sbmDblDraw(e); });
+    root.addEventListener('dblclick', function(e) { var c = _sbmDblCard(e.target); if (c) _sbmDblEdit(e, c); });
     root.addEventListener('pointerdown', function(e) {
       _sbmTapDown = (e.pointerType === 'touch' && e.isPrimary !== false) ? { x: e.clientX, y: e.clientY, at: Date.now(), moved: false } : null;
+      _sbmHoldStart(e);
     });
     root.addEventListener('pointermove', function(e) {
       var d = _sbmTapDown; if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) d.moved = true;
+      _sbmHoldMove(e);
     }, { passive: true });
-    root.addEventListener('pointercancel', function() { _sbmTapDown = null; _sbmTap = null; });
+    root.addEventListener('pointercancel', function() { _sbmTapDown = null; _sbmTap = null; _sbmHoldEnd(false); });
     root.addEventListener('pointerup', function(e) {
+      var held = _sbmHoldEnd(true);
       var d = _sbmTapDown; _sbmTapDown = null;
-      if (e.pointerType !== 'touch' || !d || d.moved || Date.now() - d.at > 400 || _sbmDraw || _sbNp || !_sbmDblCard(e.target)) { _sbmTap = null; return; }
+      if (held || e.pointerType !== 'touch' || !d || d.moved || Date.now() - d.at > 400 || _sbmDraw || _sbNp || !_sbmDblCard(e.target)) { _sbmTap = null; return; }
       var now = Date.now(), T = _sbmTap;
-      if (T && now - T.at < 350 && Math.hypot(e.clientX - T.x, e.clientY - T.y) < 32) { _sbmTap = null; _sbmDblDraw(e); }
+      if (T && now - T.at < 350 && Math.hypot(e.clientX - T.x, e.clientY - T.y) < 32) { _sbmTap = null; _sbmDblEdit(e, _sbmDblCard(e.target)); }
       else _sbmTap = { at: now, x: e.clientX, y: e.clientY };
     });
+    // A held finger's own menu (Android) would come up over the ring.
+    root.addEventListener('contextmenu', function(e) { if (_sbmHold && _sbmHold.touch) e.preventDefault(); });
   }
-  // The pen comes out, once for the two ways a double-tap can arrive.
-  function _sbmDblDraw(e) {
-    if (_sbmDraw || _sbNp || Date.now() - _sbmDblAt < 600) return;
-    _sbmDblAt = Date.now();
-    if (e && e.preventDefault) e.preventDefault();
+  function _sbmTouchUI() {
+    try { return !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches); } catch (e) { return false; }
+  }
+
+  // -- the hold --
+  function _sbmHoldStart(e) {
+    _sbmHoldEnd(false);
+    if (e.isPrimary === false || (e.pointerType === 'mouse' && e.button !== 0) || _sbmDraw || _sbNp || _sbmPageView) return;
+    var card = _sbmDblCard(e.target); if (!card) return;
+    var touch = e.pointerType !== 'mouse';
+    var draw = _sbmMarksOk === true, pick = touch && _sbmXpPickable(card, e.target) >= 0;
+    if (!draw && !pick) return;
+    var H = { card: card, target: e.target, touch: touch, draw: draw, pick: pick, x0: e.clientX, y0: e.clientY, ring: null, ringOn: false, fired: false };
+    H.ringT = setTimeout(function() { _sbmHoldRing(H); }, _SBM_HOLD_RING_MS);
+    if (draw) H.drawT = setTimeout(function() { _sbmHoldFire(H); }, _SBM_HOLD_DRAW_MS);
+    _sbmHold = H;
+  }
+  function _sbmHoldMove(e) {
+    var H = _sbmHold;
+    if (H && !H.fired && Math.hypot(e.clientX - H.x0, e.clientY - H.y0) > 10) _sbmHoldEnd(false);
+  }
+  // Let go (up) or given up. True when the hold did something -- the pen,
+  // or a line picked -- so letting go is not also a tap.
+  function _sbmHoldEnd(up) {
+    var H = _sbmHold; if (!H) return false;
+    _sbmHold = null;
+    clearTimeout(H.ringT); clearTimeout(H.drawT);
+    _sbmHoldRingOff(H);
+    if (H.fired) return true;
+    if (up && H.ringOn && H.pick) return _sbmXpPick(H.card, H.target);
+    return false;
+  }
+  function _sbmHoldRing(H) {
+    if (_sbmHold !== H || _sbmDraw || _sbNp) return;
+    H.ringOn = true;
+    var el = document.createElement('div');
+    el.className = 'sbm-holdring' + (H.draw ? '' : ' is-pick') + (H.y0 < 120 ? ' is-below' : '');
+    el.setAttribute('aria-hidden', 'true');
+    el.style.left = Math.round(H.x0) + 'px'; el.style.top = Math.round(H.y0) + 'px';
+    if (H.draw) el.style.setProperty('--sbm-hold', (_SBM_HOLD_DRAW_MS - _SBM_HOLD_RING_MS) + 'ms');
+    el.innerHTML = '<svg viewBox="0 0 80 80" focusable="false"><circle class="sbm-holdring__bg" cx="40" cy="40" r="34"/>' +
+      (H.draw ? '<circle class="sbm-holdring__fill" cx="40" cy="40" r="34" pathLength="100"/>' : '') + '</svg>' +
+      '<span class="sbm-holdring__t">' + (H.draw ? (H.pick ? 'Let go to pick this line \u00b7 hold on to draw' : 'Keep holding to draw') : 'Let go to pick this line') + '</span>';
+    document.body.appendChild(el);
+    H.ring = el;
+    // Its words kept on the screen.
+    var t = el.querySelector('.sbm-holdring__t'), r = t.getBoundingClientRect(), vw = window.innerWidth || 0;
+    if (r.left < 8) t.style.marginLeft = Math.round(8 - r.left) + 'px';
+    else if (vw && r.right > vw - 8) t.style.marginLeft = Math.round(vw - 8 - r.right) + 'px';
+  }
+  function _sbmHoldRingOff(H) {
+    if (H.ring && H.ring.parentNode) H.ring.parentNode.removeChild(H.ring);
+    H.ring = null;
+  }
+  function _sbmHoldFire(H) {
+    if (_sbmHold !== H) return;
+    H.fired = true;               // kept until the finger lifts: its lift is no tap
+    _sbmHoldRingOff(H);
+    var ua = navigator.userActivation;
+    try { if (navigator.vibrate && (!ua || ua.hasBeenActive)) navigator.vibrate(15); } catch (x) {}
+    _sbmHoldDraw();
+  }
+  // The pen comes out.
+  function _sbmHoldDraw() {
+    if (_sbmDraw || _sbNp) return;
     try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
     _sbmMarksSupport().then(function(ok) {
       if (!ok) { showToast('Drawing is not set up on this database yet', 'error'); return; }
       if (!_sbmDraw) sbmDraw(true);
     });
+  }
+
+  // -- a line picked by a finger, for moving on its own --
+  // Which lines a finger held on the line at i takes in (pure): a chord line
+  // and the words under it, or the words and the chords over them; null for
+  // a line that is neither, or a pair with no chords to move.
+  function _sbmXpPairOf(kinds, i) {
+    var k = kinds[i], a = i, b = i;
+    if (k === 'chord') { if (kinds[i + 1] === 'lyric') b = i + 1; }
+    else if (k === 'lyric') { if (kinds[i - 1] === 'chord') a = i - 1; }
+    else return null;
+    return kinds.slice(a, b + 1).indexOf('chord') < 0 ? null : { a: a, b: b };
+  }
+  // A second line held (pure): from the lines already picked through this
+  // one; just this one when it is inside them, or when they have been moved.
+  function _sbmXpPickJoin(X, r) {
+    if (!X || X.net) return r;
+    if (r.a >= X.a && r.b <= X.b) return r;
+    return { a: Math.min(X.a, r.a), b: Math.max(X.b, r.b) };
+  }
+  function _sbmXpKinds(blocks) {
+    return blocks.map(function(el) {
+      return el.classList.contains('wo-lyrics-chord-line') ? 'chord' : el.classList.contains('wo-lyrics-lyric-line') ? 'lyric' : 'other';
+    });
+  }
+  // The line of the song's own card a finger is on, or -1.
+  function _sbmXpPickable(card, target) {
+    var ly = document.getElementById('sbmLyrics');
+    if (!ly || !card || !card.contains(ly) || ly.classList.contains('sbm-lyrics--nochords') || !target || !target.closest) return -1;
+    var blocks = _sbmXpBlocks(ly), i = blocks.indexOf(target.closest('#sbmLyrics > *'));
+    return (i >= 0 && _sbmXpKinds(blocks)[i] !== 'other') ? i : -1;
+  }
+  function _sbmXpPick(card, target) {
+    var i = _sbmXpPickable(card, target), song = _sbmSong(), ly = document.getElementById('sbmLyrics');
+    if (i < 0 || !song || !ly || _sbmDraw || _sbNp) return false;
+    var r = _sbmXpPairOf(_sbmXpKinds(_sbmXpBlocks(ly)), i);
+    if (!r) { showToast('That line has no chords to move', 'info'); return true; }
+    r = _sbmXpPickJoin((_sbmXp && _sbmXp.sid === song.id) ? _sbmXp : null, r);
+    _sbmXp = { sid: song.id, a: r.a, b: r.b, net: 0, before: null };
+    _sbmXpPaint();
+    return true;
+  }
+
+  // -- the double-tap --
+  // The line of a card a tap is on (its source line, the block's l:<i>
+  // anchor), the nearest one when it falls between lines, and how far into it.
+  function _sbmTapLine(card, e) {
+    var ly = card && card.querySelector('.sbm-lyrics');
+    if (!ly || !e) return null;
+    var blocks = Array.prototype.filter.call(ly.querySelectorAll('[data-anchor^="l:"]'), function(b) { return b.parentNode === ly; });
+    if (!blocks.length) return null;
+    var hit = (e.target && e.target.closest) ? e.target.closest('[data-anchor^="l:"]') : null;
+    if (!hit || blocks.indexOf(hit) < 0) {
+      var y = e.clientY, bd = Infinity;
+      hit = null;
+      blocks.forEach(function(b) {
+        var r = b.getBoundingClientRect();
+        if (!r.height) return;
+        var dd = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+        if (dd < bd) { bd = dd; hit = b; }
+      });
+    }
+    if (!hit) return null;
+    return { line: parseInt(hit.getAttribute('data-anchor').slice(2), 10) || 0, col: _sbmCaretCol(hit, e.clientX, e.clientY) };
+  }
+  function _sbmCaretCol(block, x, y) {
+    var node = null, off = 0;
+    try {
+      if (document.caretRangeFromPoint) { var r = document.caretRangeFromPoint(x, y); if (r) { node = r.startContainer; off = r.startOffset; } }
+      else if (document.caretPositionFromPoint) { var p = document.caretPositionFromPoint(x, y); if (p) { node = p.offsetNode; off = p.offset; } }
+    } catch (err) { return 0; }
+    if (!node || node.nodeType !== 3 || !block.contains(node)) return 0;
+    var walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null), n, col = 0;
+    while ((n = walk.nextNode())) { if (n === node) return col + off; col += n.nodeValue.length; }
+    return 0;
+  }
+  // The editor, at the place tapped.
+  function _sbmDblEdit(e, card) {
+    if (!card || _sbmDraw || _sbNp || Date.now() - _sbmDblAt < 600) return;
+    _sbmDblAt = Date.now();
+    if (e && e.preventDefault) e.preventDefault();
+    try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
+    var song = _sbmCardSong(card); if (!song) return;
+    // A song read on under this one (a medley): that song's words.
+    if (card.classList.contains('sbm-card--follow')) { sbOpenLyricsEditor(song.id, null, _sbmTapLine(card, e)); return; }
+    if (card.querySelector('.sbm-score')) {
+      var sys = (e && e.target && e.target.closest) ? e.target.closest('.vl-sys[data-anchor]') : null;
+      sbmEditParts(sys ? sys.getAttribute('data-anchor') : null);
+      return;
+    }
+    sbmEdit(_sbmTapLine(card, e));
   }
 
   // ---- drawing ----
@@ -54839,9 +55020,9 @@ var WO = (function() {
     L.innerHTML =
       '<svg class="sbm-hint__ring" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
         '<ellipse cx="50" cy="20" rx="47" ry="17" pathLength="100" fill="none" stroke="#e11d48" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>' +
-      '<span class="sbm-hint__ripple" aria-hidden="true"></span><span class="sbm-hint__ripple sbm-hint__ripple--2" aria-hidden="true"></span>' +
+      '<svg class="sbm-hint__hold" viewBox="0 0 80 80" aria-hidden="true" focusable="false"><circle cx="40" cy="40" r="34" pathLength="100"/></svg>' +
       '<i class="fa-solid fa-hand-pointer sbm-hint__finger" aria-hidden="true"></i>' +
-      '<div class="sbm-hint__tag" data-tag="words"><b>Double-tap</b> the words to draw</div>' +
+      '<div class="sbm-hint__tag" data-tag="words"><b>Hold</b> the words 2 seconds to draw</div>' +
       '<div class="sbm-coach__ring sbm-hint__chipring" aria-hidden="true"></div>' +
       '<div class="sbm-coach__arrows sbm-hint__arrows" aria-hidden="true"><i class="fa-solid fa-chevron-up"></i><i class="fa-solid fa-chevron-up"></i><i class="fa-solid fa-chevron-up"></i></div>' +
       '<div class="sbm-hint__tag sbm-hint__tag--chip" data-tag="chip">or tap <b>Draw</b></div>';
@@ -54859,12 +55040,11 @@ var WO = (function() {
       var ring = q('.sbm-hint__ring');
       ring.style.left = Math.round(w.left - 10) + 'px'; ring.style.top = Math.round(w.top - 7) + 'px';
       ring.style.width = Math.round(w.width + 20) + 'px'; ring.style.height = Math.round(w.height + 14) + 'px';
-      // The finger's tip on the middle of the word, the ripples under it.
+      // The finger's tip on the middle of the word, the ring filling round it.
       var f = q('.sbm-hint__finger');
       f.style.left = Math.round(cx - 12) + 'px'; f.style.top = Math.round(cy - 3) + 'px';
-      Array.prototype.forEach.call(L.querySelectorAll('.sbm-hint__ripple'), function(r) {
-        r.style.left = Math.round(cx - 15) + 'px'; r.style.top = Math.round(cy - 15) + 'px';
-      });
+      var hold = q('.sbm-hint__hold');
+      hold.style.left = Math.round(cx - 32) + 'px'; hold.style.top = Math.round(cy - 32) + 'px';
       // What to do, under the finger, kept on the screen.
       var tag = q('[data-tag="words"]'), tw = tag.offsetWidth || 220;
       tag.style.left = within(cx - tw / 2 + 16, tw) + 'px';
@@ -55056,12 +55236,14 @@ var WO = (function() {
       if (slug && sel.querySelector('option[value="' + slug + '"]')) sel.value = slug;
     }
   }
-  function sbmEdit() {
+  // at: { line, col } -- a double-tap on the words (gotcha 86): the editor
+  // opens there. The tile and the chip pass nothing.
+  function sbmEdit(at) {
     var song = _sbmSong(); if (!song) return;
     // In Choir it edits the parts -- a song with none yet starts from its
     // words, every line All.
     if (_sbSongHasChoir(song) ? _sbChoirView(song) === 'choir' : song.sbmLyricsMode === 'choir') { sbmEditParts(); return; }
-    sbOpenLyricsEditor(song.id);
+    sbOpenLyricsEditor(song.id, null, (at && typeof at === 'object' && at.line != null) ? at : null);
   }
   function sbmPageView(on) {
     // The printed pages have no drawing canvas: drawing ends, and the
@@ -57215,7 +57397,8 @@ var WO = (function() {
           '<button class="sbm-seg__btn sbm-xp-step" onclick="WO.sbmTranspose(-1)" aria-label="Transpose down a semitone" title="Down a semitone">\u266d</button>' +
           '<button class="sbm-seg__btn' + (steps === 0 ? ' is-on' : '') + '" onclick="WO.sbmTranspose(0)">' + (steps === 0 ? 'Original' : (steps > 0 ? '+' : '') + steps) + '</button>' +
           '<button class="sbm-seg__btn sbm-xp-step" onclick="WO.sbmTranspose(1)" aria-label="Transpose up a semitone" title="Up a semitone">\u266f</button></div>' +
-        (view !== 'lyrics' && view !== 'choir' ? '<div class="sbm-xp-hint"><i class="fa-solid fa-i-cursor" aria-hidden="true"></i>Select some lines in the song to move only those</div>' : '') + '</div>' +
+        (view !== 'lyrics' && view !== 'choir' ? '<div class="sbm-xp-hint"><i class="fa-solid ' + (_sbmTouchUI() ? 'fa-hand-pointer' : 'fa-i-cursor') + '" aria-hidden="true"></i>' +
+          (_sbmTouchUI() ? 'Hold a line, then another, to move only those' : 'Select some lines in the song to move only those') + '</div>' : '') + '</div>' +
       '<div class="sbm-sep"><div class="sbm-label"><i class="fa-solid fa-file-lines"></i>View mode</div>' +
         '<div class="sbm-seg sbm-seg--teal sbm-seg--view">' +
           // Choir for every song: one with no parts yet is shown its words,
@@ -57279,7 +57462,7 @@ var WO = (function() {
       var lyricsHtml = _sbmLyricsSource(song);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
       var noChords = (view === 'lyrics');
-      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmTypeChip(noChords) + _sbmLayersChip() + '</div>' +
+      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-book-open"></i><span class="sbm-label__t">Lyrics' + (noChords ? '' : ' / chords') + ' \u2014 ' + escapeHtml(song.title || '') + '</span>' + _sbmDrawChip() + _sbmEditChip() + _sbmLayersChip() + '</div>' +
         '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" id="sbmLyrics" style="font-family:' + escapeHtml(_sbmFontWords()) + ';">' + lyricsHtml + '</div></div>';
     }
     // A song with no choir parts, in Choir: its words as they would stand,
@@ -58532,12 +58715,22 @@ var WO = (function() {
   function _sbmEdOpen(o) {
     if (!window.lhcVoiceLines) return;
     var rows = Array.isArray(o.rows) ? o.rows : [];
-    var built;
+    var built, from = rows;
     if (rows.length) built = _sbmEdFromRows(rows);
     else {
       var seed = (typeof window.lhcVoiceLines.fromLyrics === 'function') ? window.lhcVoiceLines.fromLyrics(o.lyrics || '') : [];
-      built = _sbmEdFromRows(Array.isArray(seed) ? seed : []);
+      from = Array.isArray(seed) ? seed : [];
+      built = _sbmEdFromRows(from);
       if (!built.sections.length) built.sections.push({ id: _sbmEdId(), name: 'Verse 1', open: true, moments: [] });
+    }
+    // Opened at a moment (a double-tap on the score): its section open, and
+    // the moment shown and lit once painted. Found in the lines the editor
+    // was built from -- a song with no parts yet is shown, and seeded, from
+    // its words.
+    var hit = null, at = _sbmEdMomentAt(from, o.anchor);
+    if (at >= 0) {
+      var k = 0;
+      built.sections.forEach(function(sec) { sec.moments.forEach(function(m) { if (k++ === at) { hit = m; sec.open = true; } }); });
     }
     _sbmEd = { base: o.base, sid: o.sid || null, title: o.title || '', artist: o.artist || '',
                // what is stored as it opens: the save is refused if that changes
@@ -58545,17 +58738,21 @@ var WO = (function() {
                sections: built.sections, parts: built.parts, reorder: false, dirty: false,
                desktop: !!o.desktop, previewOpts: o.previewOpts || null,
                onSave: (typeof o.onSave === 'function') ? o.onSave : null,
-               onText: (typeof o.onText === 'function') ? o.onText : null };
+               onText: (typeof o.onText === 'function') ? o.onText : null,
+               hit: hit ? hit.id : null };
     if (o.base) edTryClaim(_sbEditKey(o.base), (_sbmMe() || {}).name || '');
     // Capture phase, so the songbook's own Escape never sees a key meant
     // for the dialog sitting over it.
     document.addEventListener('keydown', _sbmEdKey, true);
     _sbmEdPaint();
+    if (hit) _sbmEdShowMoment(hit.id);
   }
   // The reading surface's entry: the song on screen. Full screen on a
   // phone; on a desk a dialog, with the textarea reachable on the printed
   // page, which is where it lives.
-  function sbmEditParts() {
+  // anchor: the score's moment double-tapped ("s:Verse 1|3", gotcha 86) --
+  // the editor opens at it.
+  function sbmEditParts(anchor) {
     var song = _sbmSong(); if (!song) return;
     if (!_sbEditClaim(song)) return;
     var base = _sbBaseSongId(song);
@@ -58563,10 +58760,30 @@ var WO = (function() {
     _sbmStopPlayer();
     _sbLinesReady(base).then(function(rows) {
       _sbmEdOpen({ base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
-                   rows: rows, lyrics: song.lyrics || '',
+                   rows: rows, lyrics: song.lyrics || '', anchor: typeof anchor === 'string' ? anchor : '',
                    desktop: wide, previewOpts: { compact: true },
                    onText: wide ? function(t) { sbmPageView(true); setTimeout(function() { _sbChoirTextEditor(base, t); }, 80); } : null });
     }, function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
+  }
+  // Which moment of the arrangement a score anchor is (pure), counted through
+  // the whole song as the parts editor lays its moments out -- one a group,
+  // as lineNumbers numbers them; -1 when it is none of them.
+  function _sbmEdMomentAt(rows, anchor) {
+    var V = window.lhcVoiceLines;
+    if (!anchor || !V || !rows || !rows.length) return -1;
+    var per = V.lineNumbers(rows).perGroup;
+    for (var i = 0; i < per.length; i++) if ('s:' + per[i].sectionKey + '|' + per[i].n === anchor) return i;
+    return -1;
+  }
+  // The moment opened at, scrolled to (lit by its own markup, ed.hit, so a
+  // repaint keeps it -- until the light has had its time).
+  function _sbmEdShowMoment(id) {
+    var go = function() {
+      var el = document.querySelector('#sbmEdit [data-moment="' + id + '"]'); if (!el) return;
+      try { el.scrollIntoView({ block: 'center' }); } catch (e) { el.scrollIntoView(); }
+    };
+    setTimeout(go, 40); setTimeout(go, 240);
+    setTimeout(function() { if (_sbmEd && _sbmEd.hit === id) _sbmEd.hit = null; }, 3600);
   }
   // Anyone else's entry: the dialog. The library's Choir parts tab uses it
   // with its own save.
@@ -58681,7 +58898,7 @@ var WO = (function() {
       if (sec.open) {
         html += '<div class="sbm-ed__secbody">';
         sec.moments.forEach(function(m, mi) {
-          html += '<div class="sbm-ed__moment' + (_sbmEdTogether(m) ? ' is-together' : '') + (ed.sel && ed.sel[m.id] ? ' is-ticked' : '') + '" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)"><span class="sbm-ed__together" aria-hidden="true">Sing together</span>';
+          html += '<div class="sbm-ed__moment' + (_sbmEdTogether(m) ? ' is-together' : '') + (ed.sel && ed.sel[m.id] ? ' is-ticked' : '') + (ed.hit === m.id ? ' is-hit' : '') + '" data-moment="' + m.id + '" draggable="true" ondragstart="WO.sbmEdDragStart(event,\'' + m.id + '\')" ondragover="WO.sbmEdDragOver(event)" ondrop="WO.sbmEdDrop(event,\'' + m.id + '\')" ondragend="WO.sbmEdDragEnd(event)"><span class="sbm-ed__together" aria-hidden="true">Sing together</span>';
           m.lines.forEach(function(l) {
             var ph = (_sbmEdPartKey(l.part) === 'both') ? 'Words everyone sings' : 'Add lyrics for ' + _sbmEdPartLabel(l.part) + ' (optional)';
             html += '<div class="sbm-ed__row" data-line="' + l.id + '">' +
@@ -68991,7 +69208,7 @@ var WO = (function() {
   // selected text. Nothing is written until Save Lyrics, so opening on a
   // seed shows the words beside the song's own and lets the reader
   // decide; it never overwrites on arrival.
-  function sbOpenLyricsEditor(sid, seed) {
+  function sbOpenLyricsEditor(sid, seed, at) {
     var s = (songOrderSections || []).find(function(x) { return x.id === sid; });
     if (!s) return;
     // A song showing its choir parts is edited as choir parts. Done here
@@ -69013,8 +69230,17 @@ var WO = (function() {
     _sbLyricsEditBase = _sbBaseSongId(s);
     // What the copy's words were as the editor opened, for the save to
     // compare with (sbSaveLyricsFromModal).
-    _sbLyrOpened = { sid: sid, words: _sbNormWords(s.customLyrics || '') };
-    var lyrics = (seed && String(seed).trim()) ? String(seed) : (s.customLyrics || s.lyrics || '');
+    var given = !!(seed && String(seed).trim());
+    var stored = given ? String(seed) : (s.customLyrics || s.lyrics || '');
+    // Shown in the key it is SUNG in, as the song view shows it (gotcha 86):
+    // a double-tap on a D lands on a D. The save puts every line it showed
+    // back as it was stored, and moves a chord line typed or changed back
+    // into the copy's own key -- the notepad's rule (_sbNpMap).
+    var steps = given ? 0 : _sbmStepsOf(s);
+    var storedLines = stored.split('\n');
+    var shownLines = steps ? _sbLyrShown(storedLines, steps) : storedLines;
+    var lyrics = shownLines.join('\n');
+    _sbLyrOpened = { sid: sid, words: _sbNormWords(s.customLyrics || ''), steps: steps, shown: shownLines, stored: storedLines };
 
     // Borrow the existing lyrics editor modal
     var modal = document.getElementById('lyricsEditorModal');
@@ -69033,15 +69259,62 @@ var WO = (function() {
     if (typeof lyricsHistory !== 'undefined') { lyricsHistory = [lyrics]; lyricsHistoryIndex = 0; }
 
     textarea.value = lyrics;
+    // Dressed as the songbook (gotcha 86): its look, its chord-grid face, the
+    // song's name and the key it is shown in, and the outline of its sections.
+    modal.classList.add('lyrics-editor-modal--sb');
+    var titleEl = document.getElementById('lyricsEditorSongTitle');
+    if (titleEl) {
+      var sung = steps ? _sbSungKey(s) : '';
+      titleEl.textContent = (s.title || '') + (steps ? ' \u00b7 chords in ' + (sung || ((steps > 0 ? '+' : '') + steps)) : '');
+    }
+    if (typeof window._lyricsRenderOutline === 'function') window._lyricsRenderOutline(lyrics);
     modal.classList.add('show');
     if (richEditor && typeof renderRichEditor === 'function') {
+      richEditor.style.fontFamily = _sbmFontGrid();
       renderRichEditor(lyrics);
       richEditor.focus();
       lhcCaretToStart(richEditor);
+      // A double-tap on the words: the cursor where it tapped, that line in
+      // the middle of the pad and lit.
+      if (at && at.line != null) _sbLyrGoTo(richEditor, _sbLyrLineFor(given ? null : _sbmLinesOf(s), storedLines, at.line), at.col || 0);
     }
     if (typeof updateLyricsLivePreview === 'function') updateLyricsLivePreview();
     if (typeof renderLyricsEditorDocs === 'function') renderLyricsEditorDocs('__sb__');
     if (typeof window._lyricsSetEditorState === 'function') window._lyricsSetEditorState(false);
+  }
+  // The words in the key sung (pure): each chord line moved by the steps.
+  function _sbLyrShown(lines, steps) {
+    return lines.map(function(l, i) { return isChordLineGlobal(l, lines[i + 1]) ? sbTransposeChordLine(l, steps) : l; });
+  }
+  // Which line of the editor's text a line of the card is (pure): the same
+  // index when the card has one block a line of the words, else the line
+  // with the same words nearest to where it stands.
+  function _sbLyrLineFor(src, lines, i) {
+    var n = lines.length;
+    if (!n || i == null || i < 0) return 0;
+    if (!src || src.length === n) return Math.min(i, n - 1);
+    var norm = function(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim(); };
+    var want = norm(src[i]), aim = Math.round(i * (n - 1) / Math.max(1, src.length - 1)), best = -1;
+    if (want) lines.forEach(function(l, j) { if (norm(l) === want && (best < 0 || Math.abs(j - aim) < Math.abs(best - aim))) best = j; });
+    return best >= 0 ? best : Math.min(Math.max(aim, 0), n - 1);
+  }
+  // The editor at a line: the cursor in it at the column, the line in the
+  // middle of the pad, and lit for a moment with its chords or words.
+  function _sbLyrGoTo(ed, line, col) {
+    var el = ed.querySelector('[data-line="' + line + '"]'); if (!el) return;
+    var lit = [el], prev = el.previousElementSibling, next = el.nextElementSibling;
+    if (el.classList.contains('editor-lyric-line') && prev && prev.classList.contains('editor-chord-line')) lit.unshift(prev);
+    else if (el.classList.contains('editor-chord-line') && next && next.classList.contains('editor-lyric-line') && next.textContent.trim()) lit.push(next);
+    lit.forEach(function(x) { x.classList.add('lyr-hit'); });
+    try {
+      var t = (el.firstChild && el.firstChild.nodeType === 3) ? el.firstChild : null;
+      var rg = document.createRange();
+      if (t) rg.setStart(t, Math.max(0, Math.min(col || 0, t.nodeValue.length))); else rg.setStart(el, 0);
+      rg.collapse(true);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+    } catch (e) {}
+    var go = function() { try { el.scrollIntoView({ block: 'center' }); } catch (e) { el.scrollIntoView(); } };
+    go(); setTimeout(go, 60);
   }
 
   // Called by saveLyricsEditor() when in SB mode - saves lyrics back to songbook
@@ -69059,6 +69332,10 @@ var WO = (function() {
     if (!song) { _sbEditingSid = null; return; }
     if (!_sbEditMayWrite(song)) return false;
     var opened = (_sbLyrOpened && _sbLyrOpened.sid === sid) ? _sbLyrOpened.words : null;
+    // Shown in the key sung: what it showed goes back as it was stored, a
+    // chord line typed or changed is moved back into the copy's own key.
+    var O = (_sbLyrOpened && _sbLyrOpened.sid === sid) ? _sbLyrOpened : null;
+    if (O && O.steps) lyrics = _sbNpMap(O.shown, O.stored, String(lyrics == null ? '' : lyrics).split('\n'), O.steps).join('\n');
     var changedMsg = 'These words were changed on another device since you opened them, so yours were not saved. Your text is still in the editor: copy what you need, then close and reopen to see theirs.';
     if (opened != null && _sbNormWords(song.customLyrics || '') !== opened) {
       showToast(changedMsg, 'warning', { duration: 9000 }); return false;
@@ -74051,19 +74328,11 @@ var WO = (function() {
   function sbNpSave() { _sbNpEnd(true); }
   function sbNpCancel() { _sbNpEnd(false); }
 
-  // In the song view: the Type chip, beside Draw, on a card that shows chords.
-  function _sbmTypeChip(noChords) {
-    if (noChords) return '';
-    return '<button class="sbm-chip sbm-chip--type' + (_sbNp && _sbNp.where === 'view' ? ' is-on' : '') + '" onclick="WO.sbmType()" title="Type straight onto the words and chords. Enter saves, Shift+Enter starts a new line, Esc puts it back."><i class="fa-solid fa-keyboard"></i>Type</button>';
-  }
-  function sbmType() {
-    if (_sbNp) { _sbNpEnd(true); return; }   // pressed again: done
-    var song = _sbmSong(), ly = document.getElementById('sbmLyrics');
-    if (!song || !ly) return;
-    if (ly.classList.contains('sbm-lyrics--nochords')) { showToast('Switch to Chords + Lyrics to type over the words and chords', 'info'); return; }
-    if (_sbNpStart(ly, song, 'view', null, null)) {
-      var chip = document.querySelector('#sbmRoot .sbm-chip--type'); if (chip) chip.classList.add('is-on');
-    }
+  // In the song view: Edit, beside Draw, where Type was (2026-11-11, gotcha
+  // 86): what the Edit tile does, here where the words are. A double-tap on
+  // the words does the same, at the place tapped.
+  function _sbmEditChip() {
+    return '<button class="sbm-chip sbm-chip--edit" onclick="WO.sbmEdit()" title="Edit the words and chords. Or double-tap the words, to edit them where you tapped."><i class="fa-solid fa-pen"></i>Edit</button>';
   }
   // In Book Mode: holding the words makes the whole song the notepad, the
   // cursor where they were held.
@@ -74073,7 +74342,7 @@ var WO = (function() {
     if (!song) return;
     // A choir page: the whole arrangement typed on, from the moment held.
     if (card.classList.contains('sbm-bk-card--choir')) { _sbChNpStart(card, song, _sbChNpSysAt(card, y)); return; }
-    if (!wrap) { showToast('This song is set in two columns here. Use Type in the song view to type over it.', 'info', { duration: 6000 }); return; }
+    if (!wrap) { showToast('This song is set in two columns here. Use Edit in the song view to change it.', 'info', { duration: 6000 }); return; }
     _sbNpStart(wrap, song, 'book', x, y);
   }
 
@@ -96656,7 +96925,7 @@ var WO = (function() {
     sbSaveOrder: sbSaveOrder,
     sbOpenFullscreen: sbOpenFullscreen,
     sbmBookMode: sbmBookMode,
-    sbmType: sbmType, sbNpNewLine: sbNpNewLine, sbNpSave: sbNpSave, sbNpCancel: sbNpCancel,
+    sbNpNewLine: sbNpNewLine, sbNpSave: sbNpSave, sbNpCancel: sbNpCancel,
     sbChNpTogether: sbChNpTogether, sbChNpTurns: sbChNpTurns,
     sbFsClose: sbFsClose,
     sbFsNext: sbFsNext,
@@ -116094,7 +116363,64 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-np-on { outline: 2px solid #0ea5e9; outline-offset: 6px; border-radius: 6px; caret-color: #0369a1; cursor: text; background: rgba(240, 249, 255, 0.55); }
 #sbFsPage .sbm-bk-card .sbm-np-on, #sbFsPage .sbm-bk-card .sbm-np-on * { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .sbm-np-on:focus { outline: 2px solid #0ea5e9; }
-.sbm-chip--type.is-on { background: #0369a1; border-color: #0369a1; color: #fff; }
+/* Edit, beside Draw, where Type was (gotcha 86). */
+.sbm-chip--edit i { color: #0f766e; }
+/* A finger (or the mouse) held on the words: a ring fills round it, and at
+   the full turn the pen comes out (gotcha 86). */
+.sbm-holdring { position: fixed; z-index: 3790; width: 0; height: 0; pointer-events: none; }
+.sbm-holdring svg { position: absolute; left: -40px; top: -40px; width: 80px; height: 80px; overflow: visible; transform: rotate(-90deg); }
+.sbm-holdring__bg { fill: rgba(124, 58, 237, 0.10); stroke: rgba(124, 58, 237, 0.30); stroke-width: 5; }
+.sbm-holdring__fill { fill: none; stroke: #7c3aed; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHoldFill var(--sbm-hold, 1550ms) linear forwards; }
+.sbm-holdring.is-pick .sbm-holdring__bg { fill: rgba(3, 105, 161, 0.10); stroke: #0369a1; }
+.sbm-holdring__t {
+  position: absolute; left: 0; top: -82px; transform: translateX(-50%); white-space: nowrap; padding: 6px 12px; border-radius: 999px;
+  background: #1f2937; color: #fff; font: 700 12.5px/1.2 var(--sbm-font-ui, 'Poppins', sans-serif); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+}
+.sbm-holdring.is-below .sbm-holdring__t { top: 50px; }
+@keyframes sbmHoldFill { to { stroke-dashoffset: 0; } }
+/* A touch screen: the words take a held finger, not the phone's own
+   long-press selection, which takes the finger over (gotcha 86). */
+@media (hover: none) and (pointer: coarse) {
+  #sbmRoot .sbm-card .sbm-lyrics, #sbmRoot .sbm-card .sbm-score { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+}
+/* The choir parts editor, opened at a moment double-tapped. */
+#sbmEdit .sbm-ed__moment.is-hit { animation: lyrHit 3.6s ease-out forwards; }
+
+/* ---- The Songbook's Lyrics & Chords editor, dressed as the songbook (gotcha 86) ----
+   The song form's editor, borrowed (sbOpenLyricsEditor); from the Songbook
+   it looks like the song view: a white card, each section its gold tag, the
+   chords teal and bold over black bold words in the songbook's chord-grid
+   face, at its size and spacing. Still one div a line, so the editor's
+   reading of it (getPlainTextFromRichEditor) is unchanged. The slide
+   preview and the font / size / bold controls are hidden: the preview is
+   the projector's, not the band's, and those controls only ever styled a
+   hidden textarea. */
+.lyrics-editor-modal--sb .lyrics-editor-right,
+.lyrics-editor-modal--sb .lyr-fg-font,
+.lyrics-editor-modal--sb .lyr-fg-style { display: none !important; }
+.lyrics-editor-modal--sb .lyrics-editor-wrapper { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+.lyrics-editor-modal--sb .lyrics-rich-editor { background: #fff; color: #0f172a; padding: 16px 20px 48px; font-size: 18px; line-height: 1.45; caret-color: #04756f; }
+.lyrics-editor-modal--sb .lyrics-rich-editor:empty::before { color: #94a3b8; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header {
+  width: -webkit-fit-content; width: fit-content; max-width: 100%; box-sizing: border-box;
+  margin: 24px 0 12px; padding: 5px 10px; border-left: 3px solid #d4a853; border-radius: 4px;
+  background: linear-gradient(90deg, rgba(212, 168, 83, 0.18), rgba(0, 0, 0, 0)); color: #7f5d20;
+  font: 700 12.8px/1.45 Georgia, 'Times New Roman', serif; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header:first-child { margin-top: 0; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-chord-line { margin-top: 1em; color: #04756f; font-weight: 700; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-section-header + .editor-chord-line { margin-top: 0; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-lyric-line { margin-bottom: 0.5em; color: #000; font-weight: 700; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-empty-line { height: auto; margin: 0; font-size: 0.6em; line-height: 1.2; }
+.lyrics-editor-modal--sb .lyrics-rich-editor .editor-chord { color: inherit; background: none; font-weight: inherit; }
+.lyrics-editor-modal--sb .lyr-hit { animation: lyrHit 3.6s ease-out forwards; border-radius: 4px; }
+@keyframes lyrHit { 0%, 55% { background-color: #fde68a; box-shadow: 0 0 0 4px #fde68a; } 100% { background-color: transparent; box-shadow: 0 0 0 4px transparent; } }
+@media (max-width: 640px) {
+  .lyrics-editor-modal--sb .lyrics-rich-editor { font-size: 15px; padding: 12px 14px 40px; }
+}
+/* The editor's close button is icon-only: a very small phone's rule that
+   drops the icons from pill buttons (max-width: 400px) left it an empty pill. */
+#lyricsEditorModal .lyrics-editor-header > .lhc-pill-button i { display: inline-block !important; }
 .sbm-npbar { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3720; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px; width: max-content; max-width: calc(100vw - 16px); padding: 8px 10px; border-radius: 22px; background: var(--sbm-navy, #0f1f3d); color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35); font: 600 13px/1.2 var(--sbm-font-ui, 'Poppins', sans-serif); }
 .sbm-npbar__t { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px; opacity: 0.9; }
 .sbm-npbar__btn { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #fff; font: inherit; cursor: pointer; }
@@ -116893,16 +117219,18 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
   .sbm-coach__time span { animation: sbmIntroTime 4s linear forwards; }
 }
 /* ---- The drawing hint (2026-11-08): on the words themselves, no card ----
-   A finger double-taps a word of the song, a red ring draws itself round
-   it, and purple arrows point up at the Draw chip. Every tap goes through. */
+   A finger holds a word of the song while a ring fills round it (2 seconds
+   draws, gotcha 86; it was a double-tap), then a red ring draws itself round
+   the word, and purple arrows point up at the Draw chip. Every tap goes
+   through. */
 .sbm-hint__ring { position: fixed; overflow: visible; pointer-events: none; }
-.sbm-hint__ring ellipse { stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing 2.4s ease-in-out infinite; }
+.sbm-hint__ring ellipse { stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintRing 3.6s ease-in-out infinite; }
 .sbm-hint__finger {
   position: fixed; font-size: 40px; line-height: 1; color: #fff; -webkit-text-stroke: 3px #1a1405; paint-order: stroke fill;
-  filter: drop-shadow(3px 4px 0 rgba(26, 20, 5, 0.85)); transform-origin: 30% 8%; animation: sbmHintTap 2.4s ease-in-out infinite;
+  filter: drop-shadow(3px 4px 0 rgba(26, 20, 5, 0.85)); transform-origin: 30% 8%; animation: sbmHintHold 3.6s ease-in-out infinite;
 }
-.sbm-hint__ripple { position: fixed; width: 30px; height: 30px; box-sizing: border-box; border: 3px solid #7c3aed; border-radius: 50%; opacity: 0; animation: sbmHintRipple 2.4s ease-out infinite; }
-.sbm-hint__ripple--2 { animation-delay: .29s; }
+.sbm-hint__hold { position: fixed; width: 64px; height: 64px; overflow: visible; pointer-events: none; transform: rotate(-90deg); }
+.sbm-hint__hold circle { fill: rgba(124, 58, 237, 0.10); stroke: #7c3aed; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; animation: sbmHintHoldFill 3.6s linear infinite; }
 .sbm-hint__tag {
   position: fixed; padding: 7px 13px; border-radius: 999px; background: #1f2937; color: #fff; white-space: nowrap;
   font: 700 14px/1.2 var(--sbm-font-ui); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28); animation: sbmCoachPopPlain .4s ease-out both;
@@ -116911,11 +117239,12 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 .sbm-hint__chipring { border-color: #7c3aed; box-shadow: 0 0 0 3px #1a1405, 0 0 0 9px rgba(124, 58, 237, 0.30); }
 .sbm-hint__arrows { color: #a78bfa; }
 .sbm-coach--hint.is-away > * { visibility: hidden; }
-@keyframes sbmHintTap { 0% { transform: translate(18px, 26px); opacity: 0; } 12% { transform: translate(0, 0) scale(1); opacity: 1; } 18% { transform: scale(.82); } 24% { transform: scale(1); } 30% { transform: scale(.82); } 36% { transform: scale(1); } 88% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
-@keyframes sbmHintRipple { 0%, 16% { opacity: 0; transform: scale(.3); } 19% { opacity: .9; transform: scale(.5); } 40% { opacity: 0; transform: scale(2); } 100% { opacity: 0; } }
-@keyframes sbmHintRing { 0%, 38% { stroke-dashoffset: 100; opacity: 1; } 70%, 92% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes sbmHintHold { 0% { transform: translate(18px, 26px); opacity: 0; } 8% { transform: translate(0, 0) scale(1); opacity: 1; } 12%, 66% { transform: scale(.84); } 72% { transform: scale(1); opacity: 1; } 94% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes sbmHintHoldFill { 0%, 12% { stroke-dashoffset: 100; opacity: 1; } 66% { stroke-dashoffset: 0; opacity: 1; } 76%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes sbmHintRing { 0%, 68% { stroke-dashoffset: 100; opacity: 1; } 86%, 94% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .sbm-hint__finger, .sbm-hint__ripple, .sbm-hint__tag { animation: none; }
+  .sbm-hint__finger, .sbm-hint__tag { animation: none; }
+  .sbm-hint__hold circle { animation: none; stroke-dashoffset: 0; }
   .sbm-hint__ring ellipse { animation: none; stroke-dashoffset: 0; }
 }
 /* the tile row's More, at its far end */

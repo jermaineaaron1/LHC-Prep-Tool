@@ -198,7 +198,7 @@ console.log('\nThe wiring');
     has(/var mine = res\[0\] \|\| \[\], had = mine\.length, J = res\[1\];/) && has(/var as = \(mine\[0\] && mine\[0\]\.owner_name\) \|\| name;/) &&
     has(/var text = _sbmWelcome\(as\.split\(' '\)\[0\], had, J\);/));
   // (On the lyrics card the Type chip sits between them since gotcha 65.)
-  check('the Layers chip is drawn beside both Draw chips', (SRC.match(/\+ _sbmDrawChip\(\) \+ (_sbmTypeChip\(noChords\) \+ )?_sbmLayersChip\(\)/g) || []).length === 2);
+  check('the Layers chip is drawn beside both Draw chips', (SRC.match(/\+ _sbmDrawChip\(\) \+ (_sbmEditChip\(\) \+ )?_sbmLayersChip\(\)/g) || []).length === 2);
   const sql = fs.existsSync(MIGRATION) ? fs.readFileSync(MIGRATION, 'utf8') : '';
   check('the migration adds whose and shared, with the earlier rows shared',
     /add column if not exists owner\s+text/.test(sql) && /add column if not exists owner_name text/.test(sql) &&
