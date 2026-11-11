@@ -2132,7 +2132,7 @@ const CASES = [
     s => s.replace("      result = result.filter(function(s) { return _sfTitleStarts(s, f.q); });",
                    "      result = result.filter(function(s) { return String(s.title || '').toLowerCase().indexOf(f.q.toLowerCase()) >= 0; });")],
   ['home-songs-search-harness.js', 'a title matches wherever the letters fall in it',
-    s => s.replace("    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;", "    return !q || _sfTitleKey(song && song.title).indexOf(q) >= 0;")],
+    s => s.replace("    if (q) return _sfTitleKey(song && song.title).indexOf(q) === 0;", "    if (q) return _sfTitleKey(song && song.title).indexOf(q) >= 0;")],
   ['home-songs-search-harness.js', 'the hint stays three times as long',
     s => s.replace("    timer = setTimeout(end, 5000);", "    timer = setTimeout(end, 15000);")],
   ['home-songs-search-harness.js', 'the hint paints under the filters',
@@ -2140,7 +2140,7 @@ const CASES = [
   ['home-songs-search-harness.js', 'a chip opens the whole page as well as its book',
     s => s.replace("        e.stopPropagation();\r\n        var id = chip.getAttribute('data-id');", "        var id = chip.getAttribute('data-id');")],
   ['home-songs-search-harness.js', 'every order chip reads "Service - ..."',
-    s => s.replace("    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
+    s => s.replace("    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);\r\n", "")],
   ['home-songs-search-harness.js', 'the Roster card says 0 services again',
     s => s.replace("        HOME_STATE.rosterNext = results[1] || [];\r\n        _homeRosterStat();\r\n", "        HOME_STATE.rosterNext = results[1] || [];\r\n")],
   // The Songs card: the songbooks opened last, of either kind.
@@ -2178,6 +2178,22 @@ const CASES = [
                    "        if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = { day: r.value }; } }")],
   ['enablers-calendar-harness.js', 'a liturgical cell is matched by its stored text, missing an ISO-dated one',
     s => s.replace("        var sv = (at && saved[at.key]) || {};", "        var sv = saved[day.dateStr] || {};")],
+  // A title in Chinese or Tamil is letters, not something to skip.
+  ['home-songs-search-harness.js', 'a title in another script is stripped away and matches everything',
+    s => s.replace("    return t.toLowerCase().replace(/\\s+/g, ' ').replace(_SF_LEAD, '');", "    return t.toLowerCase().replace(/\\s+/g, ' ').replace(/^[^a-z0-9]+/, '');")],
+  // From the review of #401 (2026-11-07).
+  ['home-songs-search-harness.js', 'a box of only punctuation or an emoji lists every song',
+    s => s.replace("    return !raw || String((song && song.title) || '').trim().toLowerCase().indexOf(raw) === 0;", "    return true;")],
+  ['home-songs-search-harness.js', 'the home cards are not drawn again once the orders are read',
+    s => s.replace("      if (_hv && _hv.style.display !== 'none') renderHomeNavStats();\r\n", '')],
+  ['home-songs-search-harness.js', 'a second hint leaves the first one\'s timer running',
+    s => s.replace("    if (_sfHintEnd) _sfHintEnd(true);\r\n", '')],
+  ['home-songs-search-harness.js', '"Service of Lessons and Carols" is shown as a date',
+    s => s.replace("    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);", "    if ((!title || /^service\\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);")],
+  ['home-songs-search-harness.js', 'two services on one date read alike',
+    s => s.replace("      if (count[it.name] < 2 || !it.type) return it;", "      return it;")],
+  ['home-songs-search-harness.js', 'the phone rules size the chips\' icons again',
+    s => s.replace("    .home-nav-card .home-recent-chip i { font-size: .62rem;", "    .home-recent-chip i { font-size: .62rem;")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

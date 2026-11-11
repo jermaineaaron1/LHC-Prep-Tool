@@ -2367,6 +2367,20 @@ the anon key -- verify as `postgres`, not as the app.
     seconds as the page opens, gone on focus, typing or a tap; it lifts the
     field to z-index 60 while it shows, because `#sfCommandHeader > *` puts
     every child of the search header at 1 and the filters come later.
+    From the review of #401 (2026-11-07): what a title's front is stripped
+    of is `_SF_LEAD` -- spaces, punctuation and symbols, by Unicode class
+    (built at run time, with an ASCII fallback) -- never a letter of any
+    script: "anything but a-z0-9" took a Chinese or Tamil title away whole,
+    and typing one listed every song. A box of only punctuation or an emoji
+    matches titles that begin with exactly that. Only the name the app gives
+    an order, "Service - <a date>", is shown as its date ("Service of Lessons
+    and Carols" keeps itself), and two chips that would read alike add the
+    service type (`_homeTellApart`). `loadOrders` draws the home cards again
+    when Home is showing: Home draws them before that read returns. A second
+    `_sfSearchHint` ends the first (`_sfHintEnd`) -- its timer used to take
+    the glow and the z-index lift off the next one. The chips' icon and name
+    sizes are `.home-nav-card .home-recent-chip ...`: the phone rules for a
+    card's every `i` and `span` overrode them.
     `tools/home-songs-search-harness.js` checks it.
 
 71. **Every phone and browser, not only Chrome.** Every iOS browser is

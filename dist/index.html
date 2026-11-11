@@ -1355,8 +1355,10 @@
       font: 600 0.64rem/1.35 "Poppins", sans-serif; white-space: nowrap;
       box-shadow: 0 1px 2px rgba(15,23,42,.06); transition: background .15s, border-color .15s;
     }
-    .home-recent-chip i { font-size: .62rem; opacity: .75; flex-shrink: 0; }
-    .home-recent-chip span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    /* .home-nav-card in front: the phone rules size a card's every icon and
+       span (.home-nav-card i / span, up to 1.3rem), which overrode these. */
+    .home-nav-card .home-recent-chip i { font-size: .62rem; opacity: .75; flex-shrink: 0; }
+    .home-nav-card .home-recent-chip span { font-size: inherit; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .home-recent-chip:hover { background: #ecfdf3; border-color: rgba(24,142,68,.5); }
     .home-recent-chip:focus-visible { outline: 2px solid #188e44; outline-offset: 1px; }
     .home-nav-orders .home-recent-chip { border-color: rgba(217,119,6,.32); color: #92400e; }
@@ -5313,7 +5315,7 @@
       .home-nav-card.has-recent .home-nav-recent { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 1px; }
       .home-nav-card.has-recent .home-nav-recent::-webkit-scrollbar { display: none; }
       .home-nav-card.has-recent .home-recent-chip { flex: 0 0 auto; max-width: 78%; }
-      .home-nav-card.has-recent .home-recent-chip i { display: none; }
+      .home-nav-card.has-recent .home-recent-chip i { display: none !important; }
     }
     /* Wide enough for them beside the words, as drawn: the chips at the top
        right of the card and its count under them -- when every name fits
@@ -5325,7 +5327,7 @@
       .home-nav-card.has-recent:not(.recent-below) .home-nav-stat { justify-self: end; }
       /* No icon beside the words: the card's own says what they are. */
       .home-nav-card.has-recent:not(.recent-below) .home-recent-chip { flex: 0 1 auto; padding: 3px 9px; max-width: none; }
-      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip i { display: none; }
+      .home-nav-card.has-recent:not(.recent-below) .home-recent-chip i { display: none !important; }
     }
 
     /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
@@ -23372,14 +23374,27 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // own. Case, accents, spacing and a leading quote or bracket are ignored.
   // The list (applyFiltersAndSort) and the suggestions under the box
   // (renderSearchSuggestions) both go through _sfTitleStarts.
+  // What is skipped at the front of a title and of what was typed: spaces,
+  // punctuation and symbols (a quote, a bracket, an emoji) -- never a letter
+  // of any script. It was "anything but a-z and 0-9", which took the whole of
+  // a title in Chinese or Tamil away, so typing one matched every song.
+  // Unicode classes where the browser has them, built at run time so an old
+  // one cannot fail to parse the script; else ASCII punctuation.
+  var _SF_LEAD = (function() {
+    try { return new RegExp('^[\\s\\p{P}\\p{S}\\p{Cf}\\uFE0F]+', 'u'); } catch (e) { return /^[^a-z0-9\u00c0-\uffff]+/i; }
+  })();
   function _sfTitleKey(text) {
     var t = String(text == null ? '' : text);
     try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
-    return t.toLowerCase().replace(/\s+/g, ' ').replace(/^[^a-z0-9]+/, '');
+    return t.toLowerCase().replace(/\s+/g, ' ').replace(_SF_LEAD, '');
   }
   function _sfTitleStarts(song, query) {
     var q = _sfTitleKey(query);
-    return !q || _sfTitleKey(song && song.title).indexOf(q) === 0;
+    if (q) return _sfTitleKey(song && song.title).indexOf(q) === 0;
+    // Nothing left once the front is skipped -- "(", "#", an emoji: the title
+    // must begin with exactly that, not every song be a match.
+    var raw = String(query == null ? '' : query).trim().toLowerCase();
+    return !raw || String((song && song.title) || '').trim().toLowerCase().indexOf(raw) === 0;
   }
 
   function applyFiltersAndSort() {
@@ -25820,7 +25835,12 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   // glowing, and an example from the library typed into the bubble. Only
   // when the box is empty and on screen (on a phone the Songbooks tab hides
   // it). It goes after five seconds, or the moment the box is touched.
+  var _sfHintEnd = null;
   function _sfSearchHint() {
+    // One at a time: an earlier hint still running is ended now, timer and
+    // listeners with it, or its timer would take the glow and the lift off
+    // the next one halfway through.
+    if (_sfHintEnd) _sfHintEnd(true);
     var inp = $('searchInput');
     var hv = $('songFinderView');
     if (!inp || inp.value || inp.offsetParent === null || !hv || hv.style.display === 'none') return;
@@ -25846,15 +25866,18 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var typed = hint.querySelector('.sf-hint-typed'), letters = ex.slice(0, 2), k = 0, typer = 0;
     if (typed) typer = setInterval(function() { if (k >= letters.length) { clearInterval(typer); return; } typed.textContent += letters.charAt(k++); }, 450);
     var timer = 0, gone = false;
-    var end = function() {
+    var end = function(now) {
       if (gone) return;
       gone = true;
+      if (_sfHintEnd === end) _sfHintEnd = null;
       clearTimeout(timer); clearInterval(typer);
       inp.removeEventListener('focus', end); inp.removeEventListener('input', end); inp.removeEventListener('pointerdown', end);
       field.classList.remove('sf-search-flash');
+      if (now === true) { if (hint.parentNode) hint.parentNode.removeChild(hint); return; }
       hint.classList.add('is-out');
       setTimeout(function() { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 320);
     };
+    _sfHintEnd = end;
     timer = setTimeout(end, 5000);
     inp.addEventListener('focus', end);
     inp.addEventListener('input', end);
@@ -25904,8 +25927,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var raw = String(text == null ? '' : text);
     // Skip what _sfTitleKey skips at the front, then mark as many characters
     // as were typed.
-    var lead = (raw.match(/^[^A-Za-z0-9\u00C0-\u024F]*/) || [''])[0].length;
-    var n = String(query).replace(/^[^A-Za-z0-9\u00C0-\u024F]+/, '').length;
+    var lead = (raw.match(_SF_LEAD) || [''])[0].length;
+    var n = String(query).replace(_SF_LEAD, '').length;
     if (!n || !_sfTitleStarts({ title: raw }, query)) return escapeHtml(raw);
     return escapeHtml(raw.slice(0, lead)) +
       '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">' + escapeHtml(raw.slice(lead, lead + n)) + '</mark>' +
@@ -28021,6 +28044,11 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       if (typeof renderHomeUpcomingServices === 'function') {
         renderHomeUpcomingServices();
       }
+      // And the cards: Home draws them before this read comes back, so the
+      // orders edited last (and a service book opened from a link, whose
+      // order is checked against this list) lagged one visit behind.
+      var _hv = $('homeView');
+      if (_hv && _hv.style.display !== 'none') renderHomeNavStats();
       // Refresh songbooks list in case it's visible
       if (typeof renderSongbooksList === 'function') renderSongbooksList();
     }).catch(function(err) {
@@ -28234,11 +28262,24 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   }
   // "Service - Nov 8" is what a new order is called, so cut short it reads
   // "Service - ..." three times over: such an order is shown by its date.
-  // An order someone named ("Carols by Candlelight") keeps its name.
+  // Only that name: "Service - <a date>". One someone chose keeps itself,
+  // "Service of Lessons and Carols" included.
   function _homeOrderChipName(o) {
     var title = String((o && o.title) || '').trim();
-    if ((!title || /^service\b/i.test(title)) && o && o.serviceDate) return String(o.serviceDate);
+    var m = title.match(/^service\s*[-\u2013\u2014:]\s*(.*)$/i);
+    var dated = !!m && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(m[1]) && /\d/.test(m[1]);
+    if ((!title || dated) && o && o.serviceDate) return String(o.serviceDate);
     return title || 'Service Order';
+  }
+  // Two chips that would read alike say which service each is.
+  function _homeTellApart(items) {
+    var count = {};
+    items.forEach(function(it) { count[it.name] = (count[it.name] || 0) + 1; });
+    return items.map(function(it) {
+      if (count[it.name] < 2 || !it.type) return it;
+      var t = String(it.type);
+      return { id: it.id, kind: it.kind, t: it.t, type: it.type, name: it.name + ' \u00B7 ' + t.charAt(0).toUpperCase() + t.slice(1) };
+    });
   }
   // Newest first by .t, an ISO date; undated last. The first n.
   function _homeNewest(items, n) {
@@ -28289,9 +28330,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     var orders = (STATE.orders || []).filter(function(o) {
       return o && o.id && String(o.id).indexOf('standalone_') !== 0;
     }).map(function(o) {
-      return { id: o.id, name: _homeOrderChipName(o), t: o.lastEdited || o.createdDate || '' };
+      return { id: o.id, name: _homeOrderChipName(o), type: o.type || '', t: o.lastEdited || o.createdDate || '' };
     });
-    orders = _homeNewest(orders, 3);
+    orders = _homeTellApart(_homeNewest(orders, 3));
     _homeRecentChips('homeRecentOrders', orders, 'order');
 
     // The songbooks opened on this device (_sbRememberOpened, WO module).
