@@ -96,6 +96,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   (`_sfTitleStarts`, used by the list and the suggestions alike); theme,
   feel, season and scripture are filters of their own. A five-second hint
   under the box shows how, as the page opens (`_sfSearchHint`). Gotcha 70.
+- The Songbooks tab lists each book as one row, its buttons on the name's
+  line (a row of six -- one of My Songbooks -- puts them under the name on
+  a narrow phone, `.sb-list-item--many`). The home cards are each faintly
+  their own colour: Songs / Songbooks green, the Roster blue, the Liturgy
+  Library purple. `tools/home-look-harness.js` checks both.
 - Filter by Theme, Key, Style, Tempo, Season
 - Multiple YouTube links per song
 - Multiple document attachments per song
