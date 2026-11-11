@@ -71,7 +71,7 @@ if (!V || typeof V.labelOf !== 'function' || !fn('_sbChNpInfo')) {
 if (EXPECT_BROKEN) { console.log('\nBUT --expect-broken was given and the choir notepad is present.'); process.exit(1); }
 
 const tokRe = (SRC.match(/\nvar CHORD_TOKEN_RE = [^\n]*/) || [''])[0];
-const isChord = new Function(tokRe + '\n' + top('isChordToken') + '\n' + top('isChordLineGlobal') + '\nreturn isChordLineGlobal;')();
+const isChord = new Function(tokRe + '\n' + top('lhcChordAscii') + '\n' + top('isChordToken') + '\n' + top('isChordLineGlobal') + '\nreturn isChordLineGlobal;')();
 const XP = new Function(top('transposeChordLinePrint') + '\nreturn transposeChordLinePrint;')();
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const PAD = ['_sbmAllPrefix', '_sbmPadLine', '_sbmPadText', '_sbmPadIndent', '_sbmPadWords', '_sbmPadSplit',

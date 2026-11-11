@@ -98,7 +98,7 @@ function extractVar(name) {
 let T = null;
 try {
   const vars = ['CHORD_NOTES', 'FLAT_TO_SHARP', 'CHORD_TOKEN_RE', 'SHARP_TO_FLAT', 'FLAT_KEY_ROOTS'].map(extractVar);
-  const top = ['isChordToken', 'isChordLineGlobal', 'transposeChord', 'transposeLine', '_keyDistance', '_spellChordsForKey',
+  const top = ['lhcChordAscii', 'isChordToken', 'isChordLineGlobal', 'transposeChord', 'transposeLine', '_keyDistance', '_spellChordsForKey',
                '_transposeChordRowKeepingColumns', '_transposeChordLinesOnly'].map(extractTop);
   const names = ['_sbVerMarks', '_sbVerNorm', '_sbVerWordsOf', '_sbVerDrift', '_sbLinkWith', '_sbSongShareMessage',
                  '_sbVerSung', '_sbVerIsChordLine', '_sbVerHasChords', '_sbVerWordsAlone', '_sbVerMainOf', '_sbVerRebase'];

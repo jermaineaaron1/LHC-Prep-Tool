@@ -3398,6 +3398,48 @@ the anon key -- verify as `postgres`, not as the app.
       the library song's lyrics.
     `tools/songbook-choir-setup-harness.js` checks it.
 
+90. **A chord written with the MUSIC SHARP SIGN is still a chord, and the
+    Add Song editor reads like the Songbook and previews like the LCD.**
+    The operator, 2026-11-12, circling two lines in the Lyrics & Chords
+    editor that had not gone gold: `A/C♯  -  D  -  E` and `F♯m`.
+    - **It was the character, not the dashes.** Measured with the real
+      detector before changing anything: `F#m D A E` chord 4/4,
+      `A/C#  -  D  -  E` chord 3/5 (the dashes never mattered),
+      `A/C♯  -  D  -  E` PLAIN 2/5, `F♯m` PLAIN 0/1. U+266F is what a
+      phone keyboard, Word and some chord sites give; `CHORD_TOKEN_RE`
+      only ever knew ASCII `#`. One song can carry both, which is why one
+      line of it was gold and the next was not.
+    - **A worse bug sat behind it.** `transposeChord` matches
+      `/^([A-G][#b]?)/`, so `F♯m` gave the root `F` and the suffix
+      `♯m` -- up a semitone that is `G♯m`, a semitone sharp of the
+      truth, silently. Fixing detection alone would have turned a chord
+      nobody could adjust into one that adjusts WRONGLY in front of a
+      band. So both read through `lhcChordAscii` (♯ -> #, ♭ -> b):
+      `isChordToken` for detection, `transposeChord` and `transposeLine`
+      for the move. Anything new that parses a chord uses it too.
+    - **The pad.** The Songbook's look already existed as
+      `.lyrics-editor-modal--sb`, but that class did two jobs -- the look
+      AND hiding the preview -- so the song form could not have the first
+      without losing the second. Split: `--sheet` is the look (white
+      sheet, teal chords, black bold words) and every way in takes it;
+      `--sb` keeps the hiding and stays the Songbook's.
+    - **The preview.** It had its OWN paragraph splitter while the wall is
+      cut by `parseLyricsIntoSlides`, so the form could promise a shape
+      the service would not keep. It now asks `WO.parseLyricsIntoSlides`
+      for the slides and `WO.projectionHtml` for the words -- both newly
+      exported -- so it drops chord lines and bracketed headers, strips
+      parentheticals like "(2x)" the congregation never sees, and keeps
+      the spacing. Measured: the preview's HTML came back byte-identical
+      to `WO.projectionHtml` for the same slide. The markup is the LCD's
+      (`.wo-preview-content` / `.wo-preview-inner`), with `max-width:
+      100%` and `overflow-wrap` so a long word wraps rather than running
+      off (gotcha 75). A heading is NEVER projected (gotcha 73), so it is
+      emitted above the screen, not inside it -- and `.slide-header` is
+      `display: none` there by an older request of the operator's, which
+      is left alone.
+    `tools/lyrics-editor-harness.js` checks it, running the real chord
+    chain rather than matching its source.
+
 ## Quick Commands for Claude Code
 
 ```bash

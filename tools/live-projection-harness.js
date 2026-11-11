@@ -454,7 +454,7 @@ const chordRe = SRC.split('\n').find(l => /^var CHORD_TOKEN_RE = /.test(l));
 check('the shared chord pattern is there', !!chordRe, true);
 // The real chain, run: the filter, the line test and the token test.
 const _sbProjectionWords = new Function(
-  chordRe.replace(/\r$/, '') + '\n' + topFn('isChordToken') + '\n' +
+  chordRe.replace(/\r$/, '') + '\n' + topFn('lhcChordAscii') + '\n' + topFn('isChordToken') + '\n' +
   topFn('isChordLineGlobal') + '\n' + extractFn('_sbProjectionWords') +
   '\nreturn _sbProjectionWords;')();
 check('a chord line is dropped',
