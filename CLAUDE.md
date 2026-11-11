@@ -3224,7 +3224,7 @@ the anon key -- verify as `postgres`, not as the app.
       running while a screenshot is taken reaches its 2 seconds.
     `tools/songbook-hold-edit-harness.js` checks it.
 
-87. **A phone's choir label sits above its line.** From the operator
+87. **A phone's choir label sits above its line, and each moment is boxed.** From the operator
     (2026-11-11), on two phone screenshots of the choir score -- "ALL",
     "MELODY", "1ST PART" floated in at the start of their lines, and the
     words beside them wrapping early ("Is there room in your / heart"):
@@ -3238,9 +3238,15 @@ the anon key -- verify as `postgres`, not as the app.
     (`.vl-ln--inl:not(.vl-ln--same)`: the padding moves from the line to the
     body). A line that carries on the same part has no label
     (`vl-ln--same`), so it is as it was: the recorder beside its first line
-    and the float making room for it. Every phone line starts 7px in: a
-    line with takes is marked by a 3px teal bar at its left
-    (`vl-ln--has-take`), and the label and words, from the edge, sat on it.
+    and the float making room for it. Every line starts clear of the 3px
+    teal bar that marks a line with takes (`vl-ln--has-take`) -- 10px in
+    on a phone, 9px on a desk -- where the label and words used to sit on
+    it (the operator: "a small gap between the green line and the text").
+    **Each numbered moment is boxed** (asked: each moment, not each whole
+    section): `.vl-sys > .vl-sys-lines` has a 1px `#1f2937` border, radius
+    8px, a Sing together group's round its soft panel with the badge on
+    its top edge; the moment's number (`.vl-no`) moves down by the border
+    and the room inside it (10px, or 13px beside a Sing together group).
     The desk keeps its label column. `_sbmEvenRows` now finds every
     labelled system stacked, which changes nothing on a phone, where the
     lines are not flex. `tools/choir-chord-sheet-harness.js` checks it.

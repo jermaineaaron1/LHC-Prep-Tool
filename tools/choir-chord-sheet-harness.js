@@ -188,7 +188,7 @@ console.log('\nThe reading view draws it as a chord sheet');
 check('no rule under a moment, no brace beside it, no band behind a part',
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys \{ padding: 0; margin: 0 0 10px; border: 0; \}/) &&
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys-lines \{ border-left: 0; padding-left: 0; gap: 0; \}/) &&
-  has(/#sbmRoot \.sbm-score \.vl-score \.vl-ln \{ padding: 1px 4px; row-gap: 0; background: transparent; \}/));
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-ln \{ padding: 1px 4px 1px 9px; row-gap: 0; background: transparent; \}/));
 check('the words and chords in Chords + Lyrics\' size and weight, the chords in its colour',
   has(/#sbmRoot \.sbm-score \.vl-score \{\r?\n\s*--vl-text: calc\(18px \* var\(--sbm-lyrics-scale, 1\)\);/) &&
   has(/#sbmRoot \.sbm-score \.vl-score \.vl-words \{ font-weight: 700; \}/) &&
@@ -212,9 +212,16 @@ check('...chords on the first line get their band under the label, not over it',
   has(/\.vl-ln--inl:not\(\.vl-ln--same\) > \.vl-rec \{ top: 0; \}/));
 check('...a line that carries on the same part has no label, and its first line still makes room for the recorder',
   has(/#sbmRoot:not\(\.sbm--wide\) \.sbm-score \.vl-score \.vl-ln:has\(> \.vl-rec\) > \.vl-body::before \{ content: ""; float: right;/));
-check('...and every line clears the 3px bar that marks a line with takes',
-  has(/#sbmRoot:not\(\.sbm--wide\) \.sbm-score \.vl-score \.vl-ln \{ display: flow-root; position: relative; min-height: 30px; padding: 1px 0 1px 7px; \}/) &&
+check('...and every line keeps a clear gap from the 3px bar that marks a line with takes, phone and desk',
+  has(/#sbmRoot:not\(\.sbm--wide\) \.sbm-score \.vl-score \.vl-ln \{ display: flow-root; position: relative; min-height: 30px; padding: 1px 0 1px 10px; \}/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-ln \{ padding: 1px 4px 1px 9px;/) &&
   has(/\.sbm-score \.vl-ln--has-take \{ box-shadow: inset 3px 0 0 var\(--sbm-teal\); \}/));
+check('each numbered moment in a thin dark border, a Sing together group round its panel',
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys > \.vl-sys-lines \{ border: 1px solid #1f2937; border-radius: 8px; padding-right: 4px; \}/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys:not\(\.vl-sys--together\) > \.vl-sys-lines \{ padding-top: 4px; padding-bottom: 4px; \}/));
+check('...the number beside a moment moves down with the border and its room',
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys:not\(\.vl-sys--together\) > \.vl-no \{ top: 10px; \}/) &&
+  has(/#sbmRoot \.sbm-score \.vl-score \.vl-sys--together > \.vl-no \{ top: 13px; \}/));
 check('...and the rows-alike pass ignores a label that is not shown', has(/if \(!wr\.height\) continue;   \/\/ nor a line whose label is not shown \(vl-ln--same\)/));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
