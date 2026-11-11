@@ -35778,6 +35778,9 @@ var WO = (function() {
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
+    typingHeld: function(m, me, now) { return _lbdTypingHeld(m, me, now); },
+    typingHold: function() { return LBD_TYPING_HOLD; },
+    markTyping: function() { return _lbdMarkTyping(); },
     wofsKeys: function(l) { return _wofsKeys(l); },
     wofsRefresh: function() { return _wofsRefresh(); },
     rememberLive: function() { return _orderSyncRememberLive(); },
@@ -35867,6 +35870,12 @@ var WO = (function() {
       _orderSyncBusy = false;
       if (!res || !res.items) return;
       if (!currentOrderData || currentOrderData.id !== oid) return;
+      // Somebody is typing in the Liturgy Builder on another device. Their
+      // words are saved, so nothing is lost; they are simply not finished.
+      // Before the diff, so there is no notice either, and the baseline stays
+      // where it was -- the next tick after Done sees the whole change at once.
+      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;
+
       var live = _orderSyncFingerprint(res.items);
 
       var seen = _orderSyncSeen[oid];
@@ -37013,6 +37022,13 @@ var WO = (function() {
         _domOwner, 'but currentOrderData is', currentOrderData.id);
       return;
     }
+
+    // Somebody is typing in the Liturgy Builder: say so in the order itself,
+    // so another device does not put a half-written line on the wall. Written
+    // HERE, from the live focus, rather than kept as state -- every save while
+    // the typing goes on stamps it afresh, so it needs no timer to stay alive
+    // and cannot be left behind. Taken off by the save that Done triggers.
+    _lbdMarkTyping();
 
     // Flush any open slide editor before collecting — editSlideBox replaces .wo-slide-line
     // elements with a textarea (content.innerHTML = ''), so collectOrderItems() would capture
@@ -78494,7 +78510,7 @@ var WO = (function() {
       return '<button type="button" class="lbw-kb-b" data-act="' + act + '" aria-label="' + _lbdEsc(label) + '" title="' + _lbdEsc(label) + '"' + (extra || '') + '>' + inner + '</button>';
     }
     return '<div class="lbw-kb" role="toolbar" aria-label="Editing">' +
-      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done') +
+      kb('kb-done', '<i class="fa-solid fa-check" aria-hidden="true"></i>', 'Done - share these words with the other screens') +
       '<span class="lbw-kb-scroll">' +
         kb('fmt-role', '<span class="lbw-kb-role">L·C</span>', 'Who says this line', ' data-need="words"') +
         kb('ins-line', '<span class="lbw-nl" aria-hidden="true">&#8629;</span>', 'New line', ' data-need="words"') +
@@ -78522,6 +78538,59 @@ var WO = (function() {
   }
 
   // Whether the cursor is in words, which tells the formatting what it can do.
+  // How long a receiver believes a typing mark. It refreshes on every save,
+  // and a save follows every change, so this only runs out when somebody
+  // stops typing with the field still open -- a liturgist called away
+  // mid-sentence. Their last words then go out rather than the order staying
+  // frozen for everybody else.
+  var LBD_TYPING_HOLD = 180000;
+  var _lbdWasTyping = false;
+
+  // Is a words field in the builder focused right now? The same question
+  // _lbdSyncTyping asks to show the formatting keys, and the same answer: a
+  // title, a search box or a note is not the congregation's words.
+  function _lbdTypingNow() {
+    var host = $('woLiturgyBuilder');
+    var ae = document.activeElement;
+    if (!host || !ae || !host.contains(ae) || !ae.isContentEditable) return false;
+    var f = ae.getAttribute('data-field');
+    return f === 'slide' || f === 'content-text';
+  }
+
+  // Stamp the order with "being typed in", or take the stamp off. Called by
+  // every save, so the stamp is always as old as the last one.
+  function _lbdMarkTyping() {
+    if (!currentOrderData) return false;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var t = currentOrderData.template;
+    if (_lbdTypingNow()) {
+      t.lbdTyping = { at: Date.now(), by: _edClientId };
+      return true;
+    }
+    if (t.lbdTyping) delete t.lbdTyping;
+    return false;
+  }
+
+  // What a receiving device asks of an order it has just read. The words are
+  // stored -- nothing is ever held back from the database -- but they are not
+  // the words to put in front of a congregation until Done is pressed.
+  // Pure, so the harness can run it: the mark, who is asking, and the time.
+  function _lbdTypingHeld(mark, me, now) {
+    if (!mark || !mark.at) return false;
+    if (mark.by && me && mark.by === me) return false;   // our own typing
+    return (now - mark.at) < LBD_TYPING_HOLD;
+  }
+
+  // Done. Nothing to decide: the mark comes off because the field is no longer
+  // focused, and this is only here to stop the words waiting out the autosave.
+  function _lbdConfirmTyping() {
+    if (!currentOrderData || _sbStandaloneId) return;
+    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = null;
+    saveCurrentOrder(true);
+  }
+
   function _lbdSyncTyping() {
     var host = $('woLiturgyBuilder');
     var w = host && host.querySelector('.lbw');
@@ -78532,6 +78601,17 @@ var WO = (function() {
     w.classList.toggle('lbw--rich', f === 'slide');
     w.classList.toggle('lbw--words', f === 'slide' || f === 'content-text');
     document.documentElement.classList.toggle('wo-lbd-typing', !!f && _lbdPhone() && _lbdIsActive());
+    // Leaving the words IS the confirmation -- the green tick on a phone's key
+    // bar blurs the field, and clicking away does the same on a desk. Save now
+    // rather than two seconds from now: the save is what takes the typing mark
+    // off, and until it lands the other screens are still holding.
+    // _lbdTypingNow, not f: f is any editable field, and the mark is set for
+    // the WORDS alone. Asking the other question here meant moving from a
+    // slide straight to a section title left the mark on until the next
+    // autosave took it off -- two seconds of the other screens still holding.
+    var typingNow = _lbdTypingNow();
+    if (_lbdWasTyping && !typingNow) { _lbdWasTyping = false; _lbdConfirmTyping(); }
+    else if (typingNow) _lbdWasTyping = true;
     _lbdFmtState();
     _lbdKbPlace();
   }

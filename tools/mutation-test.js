@@ -741,6 +741,45 @@ const CASES = [
   // printed the words "The theme verse" across the masthead.
   // ── A change reaching a projection already running ───────────────
   // Every one of these is a screen a congregation is looking at.
+  // Every keystroke in the builder reaching a running projection is what
+  // the operator asked to stop: half a line in front of a congregation.
+  ['live-projection-harness.js', 'a half-written line reaches the wall again',
+    s => s.replace('      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n', '')],
+  ['live-projection-harness.js', 'the hold is asked only after the diff is worked out',
+    s => s.replace('      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n', '')
+          .replace('      var seen = _orderSyncSeen[oid];',
+                   '      if (_lbdTypingHeld(res.template && res.template.lbdTyping, _edClientId, Date.now())) return;\r\n      var seen = _orderSyncSeen[oid];')],
+  // A mark nobody comes back to would freeze the order for everybody.
+  ['live-projection-harness.js', 'a mark left behind holds the order for ever',
+    s => s.replace('    return (now - mark.at) < LBD_TYPING_HOLD;', '    return true;')],
+  ['live-projection-harness.js', 'the hold is cut to a couple of seconds',
+    s => s.replace('  var LBD_TYPING_HOLD = 180000;', '  var LBD_TYPING_HOLD = 2000;')],
+  ['live-projection-harness.js', 'our own typing holds our own screen',
+    s => s.replace('    if (mark.by && me && mark.by === me) return false;   // our own typing', '')],
+  // The mark has to be written by the save, or it goes stale while the
+  // typing is still going on and the words escape mid-sentence.
+  ['live-projection-harness.js', 'the mark is never stamped by a save',
+    s => s.replace('    _lbdMarkTyping();\r\n', '')],
+  ['live-projection-harness.js', 'the mark is never taken off again',
+    s => s.replace('    if (t.lbdTyping) delete t.lbdTyping;', '')],
+  // A section title is not the congregation's words.
+  ['live-projection-harness.js', 'a title or a search box counts as typing',
+    s => s.replace("    return f === 'slide' || f === 'content-text';", '    return !!f;')],
+  ['live-projection-harness.js', 'anything focused anywhere on the page counts',
+    s => s.replace('    if (!host || !ae || !host.contains(ae) || !ae.isContentEditable) return false;',
+                   '    if (!host || !ae) return false;')],
+  // Done has to save at once: until the save lands, every other screen is
+  // still holding the words back.
+  ['live-projection-harness.js', 'Done does not confirm anything',
+    s => s.replace('    if (_lbdWasTyping && !typingNow) { _lbdWasTyping = false; _lbdConfirmTyping(); }', '')],
+  ['live-projection-harness.js', 'leaving the words is decided by a different question',
+    s => s.replace('    var typingNow = _lbdTypingNow();', "    var typingNow = !!f;")],
+  ['live-projection-harness.js', 'the confirmed words wait out the autosave',
+    s => s.replace('    clearTimeout(_autoSaveTimer);\r\n    _autoSaveTimer = null;\r\n    saveCurrentOrder(true);',
+                   '    autoSaveOrder();')],
+  ['live-projection-harness.js', 'a songbook pseudo-order is saved as a service',
+    s => s.replace('    if (!currentOrderData || _sbStandaloneId) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;',
+                   '    if (!currentOrderData) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;')],
   // Presenting from the overlay was not counted as being on air at all --
   // measured: overlayShown true, fullscreenElement false, _lcdOnAir() false.
   ['live-projection-harness.js', 'presenting from the overlay is not on air',
