@@ -201,9 +201,10 @@ run('double-tap', () => {
   const ed = fn('sbmEdit');
   check('Edit (the tile, the chip) passes no place; a double-tap passes its line',
     /function sbmEdit\(at\) \{/.test(ed) && /sbOpenLyricsEditor\(song\.id, null, \(at && typeof at === 'object' && at\.line != null\) \? at : null\);/.test(ed));
+  // The choir pad (gotcha 91): rows seeded from the words first, then the moment found in them.
   check('the choir editor finds the moment in the lines it was built from (a song with no parts yet: from its words)',
-    /var hit = null, at = _sbmEdMomentAt\(from, o\.anchor\);/.test(fn('_sbmEdOpen')) && /from = Array\.isArray\(seed\) \? seed : \[\];/.test(fn('_sbmEdOpen')) &&
-    /anchor: typeof anchor === 'string' \? anchor : '',/.test(fn('sbmEditParts')));
+    /rows = Array\.isArray\(seed\) \? seed : \[\];[^]*?var focus = null, gi = _sbmEdMomentAt\(rows, anchor\);/.test(fn('_sbOverviewOpenNow')) &&
+    /typeof anchor === 'string' \? anchor : ''\);/.test(fn('sbmEditParts')));
   check('...opens its section, and lights it in its own markup (a repaint keeps it)',
     /if \(k\+\+ === at\) \{ hit = m; sec\.open = true; \}/.test(fn('_sbmEdOpen')) && has(/\(ed\.hit === m\.id \? ' is-hit' : ''\)/) && /if \(hit\) _sbmEdShowMoment\(hit\.id\);/.test(fn('_sbmEdOpen')));
   const V = { lineNumbers: rows => ({ perGroup: rows.map(r => ({ sectionKey: r.k, n: r.n })) }) };

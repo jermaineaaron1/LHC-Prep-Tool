@@ -149,12 +149,13 @@ if (lockSrc.every(Boolean)) {
 }
 check('the three whole-song editors take the song as they open',
   has(/\/\/ One editor at a time for a song: refused while somebody else has it\.\r?\n\s*if \(!_sbEditClaim\(s\)\) return;/) &&
-  has(/function sbmEditParts\((?:anchor)?\) \{\r?\n\s*var song = _sbmSong\(\); if \(!song\) return;\r?\n\s*if \(!_sbEditClaim\(song\)\) return;/) &&
+  // Edit in Choir opens the choir pad (gotcha 91), whose opener takes it.
+  has(/function sbmEditParts\((?:anchor)?\) \{[^]*?_sbOverviewOpen\(_sbBaseSongId\(song\), song\.id/) &&
   has(/if \(!_sbEditClaim\(\{ songId: base, title: title \}\)\) return;/));
 check('...let it go as they close, or when they could not open',
   has(/var base = _sbmPad && _sbmPad\.o \? _sbmPad\.o\.base : '';\r?\n\s*_sbmPad = null;\r?\n\s*_sbEditRelease\(base\);/) &&
   has(/var base = _sbmEd \? _sbmEd\.base : '';\r?\n\s*_sbmEd = null;\r?\n\s*_sbEditRelease\(base\);/) &&
-  (SRC.match(/function\(e\) \{ _sbEditRelease\(base\); _sbLinesUnread\(e\); \}/g) || []).length === 3);   // Overview, Edit Parts, the choir notepad
+  (SRC.match(/function\(e\) \{ _sbEditRelease\(base\); _sbLinesUnread\(e\); \}/g) || []).length === 2);   // the choir pad (Edit, Overview), the choir notepad
 check('...and a save from anyone who lost it is refused, editor left open',
   has(/if \(ed\.base && !_sbEditMayWrite\(ed\.base\)\) return;/) && has(/if \(P\.o && P\.o\.base && !_sbEditMayWrite\(P\.o\.base\)\) return;/) &&
   has(/if \(!_sbEditMayWrite\(song\)\) return false;/));

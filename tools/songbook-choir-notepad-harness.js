@@ -237,8 +237,9 @@ async function E(o) {
     /score\.style\.display = 'none';/.test(open) && /card\.classList\.add\('sbm-chnp-card'\)/.test(open) && /\.sbm-chnp-card \.sbm-marks \{ display: none; \}/.test(SRC));
   check('the chords shown in the key sung, and the song held before it opens', /_sbmStepsOf\(song\)/.test(open) && /_sbEditClaim\(song\)/.test(fn('_sbChNpStart')) && /_sbLinesReady\(base\)/.test(fn('_sbChNpStart')));
   check('the bar has Sing together and Take turns, for the choir only', /choir \? '<button[^']*'[^]*WO\.sbChNpTogether\(\)[^]*WO\.sbChNpTurns\(\)/.test(fn('_sbNpBar')) && /sbChNpTogether: sbChNpTogether, sbChNpTurns: sbChNpTurns,/.test(SRC));
-  check('Overview Edit reads the song\'s own part names too', /return _sbmPadSaveSong\(base, sid, whole, colours, openSig, \{ parts: V\.lanes\(rows\) \}\);/.test(SRC));
-  check('...and its save hands them to the parser', /var split = _sbmPadSplit\(fullText, _sbmIsChord\(\), o\.parts\);\n    var parsed = V\.parseVoiceText\(split\.text, \{ parts: o\.parts \}\);/.test(fn('_sbmPadSaveSong')));
+  // Overview Edit is the choir pad now (gotcha 91), with a reader of its own.
+  check('Overview Edit reads the song\'s own part names too', /return _sbmPadSaveSong\(base, sid, t, colours, openSig, \{ parts: parts,/.test(SRC) && /var isChord = _sbmIsChord\(\), parts = V\.lanes\(rows\)/.test(SRC));
+  check('...and its save hands them to the parser', /var split = o\.read \? o\.read\(fullText, _sbmIsChord\(\), o\.parts\) : _sbmPadSplit\(fullText, _sbmIsChord\(\), o\.parts\);\n    var parsed = V\.parseVoiceText\(split\.text, \{ parts: split\.known \|\| o\.parts \}\);/.test(fn('_sbmPadSaveSong')));
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
