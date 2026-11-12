@@ -71,7 +71,8 @@ check('Set up writes that arrangement the way the parts editor saves one, and sh
   has(/_sbVoiceWrite\(ed\.base, ed\.sid, parsed, \{ openSig: ed\.openSig \}\)\.then\(function\(\) \{/));
 check('...and in Choir, Edit edits the parts of any song',
   has(/if \(_sbSongHasChoir\(song\) \? _sbChoirView\(song\) === 'choir' : song\.sbmLyricsMode === 'choir'\) \{ sbmEditParts\(\); return; \}/) &&
-  has(/\+ \(view === 'choir' \? 'Edit Parts' : 'Edit'\) \+/));
+  // ...on the choir pad, straight away, and the tile says Edit (gotcha 91).
+  has(/onclick="WO\.sbmEdit\(\)"><i class="fa-solid fa-pen"><\/i>Edit<\/button>' \+/) && !/'Edit Parts' : 'Edit'/.test(SRC));
 
 console.log('\nChords + Lyrics');
 check('"Both" is "Chords + Lyrics", sized by its name so it is not cut short',

@@ -309,7 +309,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      (`sbmChoirStart`) writes that as its arrangement through the parts
      editor's own save (`_sbVoiceWrite`) -- for the rest of its medley too --
      and shows it in Choir on every open device at once (gotcha 89); Edit
-     there is Edit Parts. The choir score's chords are the words Chords +
+     there opens the choir pad, the arrangement typed as the choir view
+     shows it -- the Edit Parts page is not offered in the Songbook any more
+     (gotcha 91). The choir score's chords are the words Chords +
      Lyrics shows, so a chord changed there is changed in Choir too. The printed pages keep their own Choir / Lyrics / Both
      (`_sbChoirViewToggleHtml`), where Both is both sets of pages.
      **A few lines transposed on their own** (a last verse up a tone): select
@@ -3439,6 +3441,82 @@ the anon key -- verify as `postgres`, not as the app.
       is left alone.
     `tools/lyrics-editor-harness.js` checks it, running the real chord
     chain rather than matching its source.
+
+91. **Choir parts are edited on the choir pad, written as the choir view
+    reads, and a part's name in brackets holds until the next one.** From
+    the operator (2026-11-12), on screenshots of Edit Parts (crossed out),
+    Overview Edit and the choir view: "abolish this page for the editing of
+    the choir parts. Rather it should go straight to the editing pad (just
+    like the lyrics, chords mode)", the pad to "look just like how the
+    songbook for choir view looks like", parts "added (e.g. Harmony 1, Men,
+    Women, etc.) by writing it in brackets", and lines "just below each
+    other" with "no gap in between" sing together, a gap sings separately.
+    - **Every Songbook way in opens the pad**: the Edit tile and chip in
+      Choir (`sbmEditParts` -> `_sbOverviewOpen`), a double-tap on the score
+      (at the moment, by its `s:` anchor), a section's pen (at the section),
+      More > Edit the choir parts, the printed page's Edit parts
+      (`sbEditChoirParts` -> `sbOverviewFor`) and the lyrics editor's choir
+      redirect. The tile says Edit, not Edit Parts. The structured editor
+      (`_sbmEdOpen`) is still there, reached only from the song LIBRARY's
+      Choir parts tab (its Structured button, `sbOpenPartsDialog`); its
+      pen-per-section Overview and Sing together / Take turns ticks are
+      not in the pad.
+    - **The format** (`_sbCpText` writes it, `_sbCpRead` reads it, and the
+      save reads with the same `_sbCpRead` through `_sbmPadSaveSong`'s
+      `opts.read`): a section's name in brackets; a PART's name in brackets
+      on a line of its own, above its chords and words, where the view puts
+      its chip; the chords on the line over the words; `~` for a held note;
+      a blank line between moments. A part's name holds for the lines under
+      it -- across blank lines -- until another name or a new section, which
+      starts with everyone; so the pad names a part only where it takes
+      over, as the view shows its chip (`vl-ln--same`). "Women:" alone on a
+      line is a part's name too, and "Men: words" at the start of a line
+      names that line only. Lines that touch are one moment -- two parts
+      there sing together -- and one part on two touching lines is two
+      moments, one after the other (the parser's own rule).
+    - **Part or section** (`_sbCpPartName`): All / Women / Men and their
+      shorthands, a name in `_PART_NAMES` (Harmony 1, Soprano, Lead...), a
+      part the song or the text already has, and `[name]:` are parts; a
+      name with a section's word in it (`_SB_CP_SEC`: verse, chorus,
+      bridge, tag, ending...) or one of the song's own sections is a
+      section; ANY OTHER NAME IS A NEW PART -- that is what "by writing it
+      in brackets" asks. A section whose name would read as a part is
+      written `[Section: Choir]`. The pad paints every line as it is read,
+      so a name taken the wrong way is seen at once.
+    - **The look** is the view's: one block a line (contenteditable, the
+      Book Mode notepad's engine -- `_sbChNpFlat`, `_sbNpLines`), each line
+      classed by what it is (`is-sec` the view's green pill, `is-part` a
+      chip in the part's colour, `is-chord` teal, words black), and each
+      moment boxed like the view's (1px `#1f2937`, radius 8), purple bar,
+      tint and "Sing together" when its parts sing at once. **The boxes are
+      a layer BEHIND the editable text** (`.sbm-cp__boxes`, laid out from
+      the lines' offsets by `_sbCpPaint`, again on a resize): nothing in the
+      editable is anything but the text, and nothing is rebuilt while a
+      word is being composed (`compositionstart`).
+    - **The chords are in the key sung** and go back by `_sbChNpChords`. A
+      moment's chords are read from over its LEAD line only
+      (`V.leadLine`, what `_sbmPadSaveChords` matches by); a chord line over
+      another line of a moment is marked `lead: false` and left out of the
+      save (`_sbCpChordsToSave`) -- quietly when it is as it was shown (two
+      moments joined into one keep their second chord line on the page),
+      reported as having nowhere to sit when it was typed.
+    - **The toolbar** works on the line model, not the DOM: Sung by
+      (`_sbCpSetPart`: the lines highlighted, the cursor's line, or every
+      line under a part's own name; the lines after keep who they were, by
+      writing the text again through `_sbCpNormal`), + New part (asks a
+      name, any name), ~ Hold, + Chords, + Verse / Chorus... (after the
+      section the cursor is in). `_sbmPadKey` leaves keys alone that are
+      typed into anything outside the pad (the New part question).
+    - **A medley's following song** opens ITS editor on a double-tap, at the
+      place, without becoming the song in front: its choir pad at the moment
+      (`_sbmDblEdit`: `_sbOverviewOpen(<its base>, <its id>, ..., anchor)`),
+      or its words' editor at the line (`sbOpenLyricsEditor` with
+      `_sbmTapLine`, which stamps the card's anchors first -- a card whose
+      drawings had not loaded had none).
+    - Book Mode's choir notepad (gotcha 67) is untouched: its own inline
+      format ("Women: ..."), its own save path.
+    `tools/songbook-choir-pad-harness.js` checks it, running the reader and
+    writer on real arrangements through the real parser.
 
 ## Quick Commands for Claude Code
 

@@ -52546,6 +52546,7 @@ var WO = (function() {
   function _sbmTapLine(card, e) {
     var ly = card && card.querySelector('.sbm-lyrics');
     if (!ly || !e) return null;
+    _sbmStampAnchors(card);   // a card whose drawings have not loaded yet has no anchors
     var blocks = Array.prototype.filter.call(ly.querySelectorAll('[data-anchor^="l:"]'), function(b) { return b.parentNode === ly; });
     if (!blocks.length) return null;
     var hit = (e.target && e.target.closest) ? e.target.closest('[data-anchor^="l:"]') : null;
@@ -52580,13 +52581,17 @@ var WO = (function() {
     if (e && e.preventDefault) e.preventDefault();
     try { var sel = window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
     var song = _sbmCardSong(card); if (!song) return;
-    // A song read on under this one (a medley): that song's words.
-    if (card.classList.contains('sbm-card--follow')) { sbOpenLyricsEditor(song.id, null, _sbmTapLine(card, e)); return; }
-    if (card.querySelector('.sbm-score')) {
-      var sys = (e && e.target && e.target.closest) ? e.target.closest('.vl-sys[data-anchor]') : null;
-      sbmEditParts(sys ? sys.getAttribute('data-anchor') : null);
+    var sys = (e && e.target && e.target.closest) ? e.target.closest('.vl-sys[data-anchor]') : null;
+    var anchor = sys ? String(sys.getAttribute('data-anchor') || '') : '';
+    // A song read on under this one (a medley): that song's editor, at the
+    // place tapped, without making it the song in front (the operator,
+    // 2026-11-12) -- its choir parts on the pad, or its words.
+    if (card.classList.contains('sbm-card--follow')) {
+      if (card.querySelector('.sbm-score')) { _sbmStopPlayer(); _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', null, null, anchor); }
+      else sbOpenLyricsEditor(song.id, null, _sbmTapLine(card, e));
       return;
     }
+    if (card.querySelector('.sbm-score')) { sbmEditParts(anchor); return; }
     sbmEdit(_sbmTapLine(card, e));
   }
 
@@ -55623,9 +55628,9 @@ var WO = (function() {
       ['fa-file-powerpoint', 'Export slides (PPT)', 'WO.sbmCloseSheet();WO.sbExportPPT()', '#c2410c'],
       ['fa-floppy-disk', 'Save songbook', 'WO.sbmCloseSheet();WO.sbSaveOrder()', '#15803d'],
       ['fa-arrows-rotate', 'Reset this song’s layout', 'WO.sbmCloseSheet();WO.sbmReset()', '#d97706'],
-      ['fa-globe', 'Browse online', 'WO.sbmCloseSheet();WO.sbmBrowse()', '#059669'],
-      ['fa-align-left', 'Overview edit — the arrangement as text', 'WO.sbmCloseSheet();WO.sbmOverview(null)', '#9333ea']
+      ['fa-globe', 'Browse online', 'WO.sbmCloseSheet();WO.sbmBrowse()', '#059669']
     ]);
+    if (song && _sbSongHasChoir(song)) rows.push(['fa-people-group', 'Edit the choir parts', 'WO.sbmCloseSheet();WO.sbmOverview(null)', '#9333ea']);
     var html = '<div class="sbm-menu">' + rows.map(function(r) {
       return '<button class="sbm-btn" onclick="' + r[2] + '"><i class="fa-solid ' + r[0] + '" style="color:' + r[3] + '"></i>' + r[1] + '</button>';
     }).join('');
@@ -57663,7 +57668,7 @@ var WO = (function() {
       '<button class="sbm-tile" onclick="WO.sbmBookMode()" title="Read the songbook full screen at this song. Double-click to draw; hold a line to type over it."><i class="fa-solid fa-book-open"></i>Book Mode</button>' +
       // Every drawing kept on the song: whose, which show, who sees yours.
       _sbmDrawingsTile(song) +
-      '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>' + (view === 'choir' ? 'Edit Parts' : 'Edit') + '</button>' +
+      '<button class="sbm-tile" data-sbm-edit="' + escapeHtml(_sbBaseSongId(song)) + '" onclick="WO.sbmEdit()"><i class="fa-solid fa-pen"></i>Edit</button>' +
       vTile +
       '<button class="sbm-tile sbm-tile--more" onclick="WO.sbmMore()"><i class="fa-solid fa-ellipsis"></i>More</button>' +
       '</div></div>';
@@ -57703,14 +57708,13 @@ var WO = (function() {
       var seed = V ? V.fromLyrics(song.customLyrics || song.lyrics || '') : [];
       html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts \u2014 ' + escapeHtml(song.title || '') + '</span></div>' +
         '<div class="sbm-choir-start"><i class="fa-solid fa-people-group" aria-hidden="true"></i><div class="sbm-choir-start__t">' +
-          '<b>No choir parts yet.</b> Set them up and every line starts as <b>All</b>; then change who sings what with Edit Parts, or a line\u2019s part chip.</div>' +
+          '<b>No choir parts yet.</b> Set them up and every line starts as <b>All</b>; then press <b>Edit</b> and write who sings each line in brackets above it \u2014 [Women], [Men], [Harmony 1].</div>' +
           (seed.length ? '<button class="sbm-btn sbm-btn--primary" onclick="WO.sbmChoirStart()"><i class="fa-solid fa-wand-magic-sparkles"></i>Set up choir parts</button>' : '') + '</div>' +
         '<div class="sbm-score sbm-score--seed sb-song-page--choir">' + (seed.length ? V.html(seed, { compact: !wide }) : '<p class="sbm-empty">This song has no words yet to make parts from.</p>') + '</div></div>';
     }
     if (showScore) {
       var score = _sbChoirBodyHtml(song, true, !wide);
-      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') +
-          '<button class="sbm-chip sbm-score__ov" onclick="WO.sbmOverview(null)" title="The whole arrangement as text, with its chords"><i class="fa-solid fa-align-left"></i>Overview edit</button>' + _sbmDrawChip() + _sbmLayersChip() + '</div>' +
+      html += '<div class="sbm-card sbm-card--words" id="sbmWordsCard"><div class="sbm-label"><i class="fa-solid fa-people-group"></i><span class="sbm-label__t">Choir parts lyrics / chords \u2014 ' + escapeHtml(song.title || '') + '</span>' + (cur ? '<span class="sbm-label__part">' + escapeHtml(V.partLabel(cur)) + '</span>' : '') + _sbmDrawChip() + _sbmEditChip() + _sbmLayersChip() + '</div>' +
         '<div class="sbm-score sb-song-page--choir" id="sbChoirPage-' + escapeHtml(song.id) + '" data-choir-song="' + escapeHtml(_sbBaseSongId(song)) + '">' +
           _sbPartColourCss(song) + (score || '<p class="sbm-empty">Loading the choir parts\u2026</p>') + '</div></div>';
     }
@@ -57730,7 +57734,7 @@ var WO = (function() {
       var nk = name.toLowerCase(), run = secRuns[nk] = (secRuns[nk] || 0) + 1;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'sbm-sec-edit';
-      b.title = 'Overview edit \u2014 ' + name; b.setAttribute('aria-label', 'Edit ' + name + ' as text');
+      b.title = 'Edit \u2014 ' + name; b.setAttribute('aria-label', 'Edit ' + name);
       b.innerHTML = '<i class="fa-solid fa-pen"></i>';
       b.onclick = function(ev) { ev.stopPropagation(); sbmOverview(name, run); };
       el.setAttribute('data-section', name);
@@ -58102,8 +58106,9 @@ var WO = (function() {
   // in the key sung); opts.quiet: no toast, the caller has its own.
   function _sbmPadSaveSong(base, sid, fullText, colours, openSig, opts) {
     var V = window.lhcVoiceLines, o = opts || {};
-    var split = _sbmPadSplit(fullText, _sbmIsChord(), o.parts);
-    var parsed = V.parseVoiceText(split.text, { parts: o.parts });
+    // opts.read: the choir pad's own reader (_sbCpRead), parts on their own lines
+    var split = o.read ? o.read(fullText, _sbmIsChord(), o.parts) : _sbmPadSplit(fullText, _sbmIsChord(), o.parts);
+    var parsed = V.parseVoiceText(split.text, { parts: split.known || o.parts });
     if (!parsed.length) { showToast('Nothing to save \u2014 the pad has no words', 'error'); return Promise.reject(new Error('empty')); }
     var chords = o.mapChords ? o.mapChords(split.chords) : split.chords;
     if (typeof showLoader === 'function') showLoader(true);
@@ -58137,35 +58142,488 @@ var WO = (function() {
     var k = String(key || '').toLowerCase();
     return (_sbmPad && _sbmPad.colours[k]) || _sbPartDefaultFor(_sbmPadBase(), k);
   }
+  // ---- The choir pad: the arrangement as the choir view shows it ----------
+  //
+  // From the operator (2026-11-12), on screenshots of Edit Parts (crossed
+  // out), Overview Edit and the choir view: Edit goes straight to the pad,
+  // as it does for the words; the pad looks like the choir view; a part is
+  // added by writing it in brackets -- [Harmony 1], [Men], [Women]; and
+  // lines just below each other sing together, a gap between them sings
+  // them separately. So in the pad (_sbmPad.sheet) a part's name in
+  // brackets sits on a line of its own, above its chords and words, where
+  // the view puts its chip, and holds for the lines under it until another
+  // name or a new section. Each line is drawn as what it is read as
+  // (_sbCpRead, which the save reads with too), and each moment gets the
+  // view's box, with the purple bar and "Sing together" when its parts sing
+  // at once. The chords are in the key sung and go back into the copy's own
+  // key on save (_sbChNpChords). CLAUDE.md gotcha 91.
+  var _SB_CP_SEC = /\b(?:verse|chorus|pre-?chorus|post-?chorus|bridge|intro(?:duction)?|outro|ending|end|tag|refrain|interlude|coda|vamp|hook|instrumental|breakdown|turnaround|reprise|prelude|postlude|finale|stanza|section)\b/i;
+  // What "[name]" alone on a line names (pure): a part -- 'both', 'women',
+  // 'men' or its name -- or null for a section. All, Women, Men and their
+  // shorthands, a name parts are called by (_PART_NAMES), one the song or
+  // the text already has, and "[name]:" are parts; a name with a section's
+  // word in it, or one of the song's own sections, is a section; any other
+  // name is a new part. "[Section: name]" is always a section.
+  function _sbCpPartName(inner, known, sections, colon) {
+    var V = window.lhcVoiceLines, name = String(inner == null ? '' : inner).trim().replace(/\s+/g, ' '), k = name.toLowerCase();
+    if (!name || /^section\s*:/i.test(name)) return null;
+    if (/^(?:all|both|everyone|everybody|unison|tutti)$/.test(k)) return 'both';
+    if (k === 'w' || k === 'women') return 'women';
+    if (k === 'm' || k === 'men') return 'men';
+    var have = (known || []).filter(function(p) { return V.partKey(p) === k; })[0];
+    if (have != null) return String(have).trim();
+    if (!colon && !V._PART_NAMES.test(name)) {
+      if (_SB_CP_SEC.test(name)) return null;
+      if ((sections || []).some(function(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase() === k; })) return null;
+    }
+    return (name === k) ? name.replace(/(^|\s)([a-z])/g, function(x, sp, c) { return sp + c.toUpperCase(); }) : name;
+  }
+  // A section's line in the pad (pure): "[Verse 1]", or "[Section: Choir]"
+  // when the name alone would be read as a part's.
+  function _sbCpSecLine(name, known, sections) {
+    var n = String(name == null ? '' : name).trim();
+    return (_sbCpPartName(n, known, sections, false) === null && !/^section\s*:/i.test(n)) ? '[' + n + ']' : '[Section: ' + n + ']';
+  }
+  // The label a line of the parser's own format opens with (pure): nothing
+  // for everyone ("[All]" when the words would read as a label or as bars),
+  // W: and M:, any other part in brackets.
+  function _sbCpPrefix(part, s) {
+    var V = window.lhcVoiceLines, k = V.partKey(part);
+    if (k === 'both') return V._needsAll(s) ? '[All] ' : '';
+    if (k === 'women') return 'W: ';
+    if (k === 'men') return 'M: ';
+    return '[' + V.partLabel(part) + '] ';
+  }
+  // The pad's text, read (pure). info[i], for each line:
+  //   kind    'blank' | 'sec' | 'part' | 'chord' | 'words'
+  //   part    who sings it -- on a part's own line, whom it names
+  //   name    a section's name
+  //   inline  a line of words that names its own part ("Men: ...")
+  //   over    a chord line's line of words (-1: nothing under it)
+  //   m       its moment (the parser's sortOrder), -1 for none
+  //   tg      its moment has two parts or more singing at once
+  // text: the same arrangement in the parser's own format; chords: [{ words,
+  // chord }] as _sbmPadSaveChords takes them (a chord line over nothing has
+  // no words, and is reported as having nowhere to sit); known: every part.
+  function _sbCpRead(text, isChord, parts, sections) {
+    var V = window.lhcVoiceLines;
+    var lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
+    var n = lines.length, info = [], known = (parts || []).slice(), secs = (sections || []).slice();
+    var isNew = function(p) { var k = V.partKey(p); return k !== 'both' && k !== 'women' && k !== 'men' && !known.some(function(q) { return V.partKey(q) === k; }); };
+    for (var i = 0; i < n; i++) {
+      var l = lines[i], f = { kind: 'words', part: null, name: '', inline: false, over: -1, m: -1, tg: false };
+      info.push(f);
+      if (!l.trim()) { f.kind = 'blank'; continue; }
+      var b = /^\s*\[([^\[\]]+)\]\s*(:?)\s*$/.exec(l), p;
+      if (b) {
+        p = _sbCpPartName(b[1], known, secs, !!b[2]);
+        if (p === null) {
+          var nm = b[1].trim(), sm = /^section\s*:\s*(.*)$/i.exec(nm);
+          f.kind = 'sec'; f.name = sm ? sm[1].trim() : nm;
+          if (f.name && secs.indexOf(f.name) < 0) secs.push(f.name);
+          continue;
+        }
+      } else {
+        // "Women:" alone is a part's name too, as Book Mode's notepad writes it.
+        var t = l.trim(), lab = V.labelOf(t, known);
+        p = (lab && lab.len >= t.length) ? lab.part : null;
+        if (p === null) continue;
+      }
+      f.kind = 'part'; f.part = p;
+      if (isNew(p)) known.push(p);
+    }
+    // A chord line is the line over a line of words; a part's name may sit
+    // between them.
+    for (var c = 0; c < n; c++) {
+      if (info[c].kind !== 'words' || !isChord) continue;
+      var j = c + 1;
+      while (j < n && info[j].kind === 'part') j++;
+      if (!isChord(lines[c], j < n ? lines[j] : undefined)) continue;
+      info[c].kind = 'chord';
+      if (j < n && info[j].kind === 'words' && !isChord(lines[j], lines[j + 1])) info[c].over = j;
+    }
+    var cur = 'both', out = [], idx = [];
+    for (var w = 0; w < n; w++) {
+      var fw = info[w];
+      if (fw.kind === 'blank') { out.push(''); continue; }
+      if (fw.kind === 'sec') { out.push(fw.name ? '[' + fw.name + ']' : ''); cur = 'both'; continue; }
+      if (fw.kind === 'part') { cur = fw.part; continue; }
+      if (fw.kind !== 'words') continue;
+      var s = lines[w].replace(/^\s+/, '').replace(/\s+$/, ''), lb = V.labelOf(s, known), part = cur;
+      if (lb) { part = lb.part; s = s.slice(lb.len); fw.inline = true; if (isNew(part)) known.push(part); }
+      fw.part = part;
+      out.push(_sbCpPrefix(part, s) + s);
+      idx.push(w);
+    }
+    var rows = V.parseVoiceText(out.join('\n'), { parts: known });
+    idx.forEach(function(li, r) {
+      var row = rows[r]; if (!row) return;
+      info[li].m = row.sortOrder; info[li].held = !!row.sustained; info[li].sings = V._hasWords(row.text);
+    });
+    info.forEach(function(f) { if (f.kind === 'chord' && f.over > -1) f.m = info[f.over].m; });
+    for (var q = n - 1; q >= 0; q--) {
+      var nx = info[q + 1];
+      if (info[q].kind === 'part' && nx && (nx.kind === 'words' || nx.kind === 'chord' || nx.kind === 'part')) info[q].m = nx.m;
+    }
+    var sing = {};
+    info.forEach(function(f) {
+      if (f.kind !== 'words' || f.m < 0 || !f.sings || V.partKey(f.part) === 'both') return;
+      (sing[f.m] = sing[f.m] || {})[V.partKey(f.part)] = 1;
+    });
+    info.forEach(function(f) { if (f.m > -1 && sing[f.m] && Object.keys(sing[f.m]).length > 1) f.tg = true; });
+    // A moment's chords are read from over its LEAD line (V.leadLine), the
+    // one _sbmPadSaveChords matches them by; a chord line over another line
+    // of the moment is marked lead: false.
+    var leadAt = {};
+    V.group(rows).forEach(function(g) { var r = rows.indexOf(V.leadLine(g)); if (r > -1) leadAt[idx[r]] = true; });
+    var chords = [];
+    info.forEach(function(f, i) {
+      if (f.kind !== 'chord') return;
+      var cl = lines[i].replace(/\s+$/, '');
+      if (f.over < 0) { chords.push({ words: '', chord: cl, lead: false }); return; }
+      var wl = lines[f.over], ws = (/^\s*/.exec(wl) || [''])[0].length, lab = V.labelOf(wl.slice(ws), known), cut = ws + (lab ? lab.len : 0);
+      if (wl.charAt(cut) === '~') cut++;
+      var lead = (/^ */.exec(cl) || [''])[0].length;
+      chords.push({ words: _sbmPadWords(wl, known), chord: cl.slice(Math.min(cut, lead)), lead: !!leadAt[f.over] });
+    });
+    return { lines: lines, info: info, text: out.join('\n'), chords: chords, known: known };
+  }
+  // rows -> the pad's text (pure), laid out as the choir view lays a song
+  // out: a section's name, then each moment -- a part's name on its own
+  // line where that part takes over (and at each section's start), the
+  // chords over the moment's lead line, the words -- and a blank line
+  // between moments. opts.chord(line): a chord line as shown (in the key
+  // sung); opts.at[]: the line each moment starts on; opts.parts: the
+  // song's part names.
+  function _sbCpText(rows, lyrics, isChord, opts) {
+    var V = window.lhcVoiceLines, o = opts || {}, known = o.parts || V.lanes(rows), sections = [];
+    (rows || []).forEach(function(r) { var s = String(r.section || '').trim(); if (s && sections.indexOf(s) < 0) sections.push(s); });
+    var index = V.chordIndex(lyrics || '', isChord || null), cursor = {};
+    var out = [], lastSec = null, cur = null, started = false;
+    V.group(rows || []).forEach(function(g, gi) {
+      var hit = V.chordFor(index, g, cursor);
+      var name = String(g.section || '');
+      if (!started || name !== lastSec) {
+        if (out.length) out.push('');
+        if (name.trim()) out.push(_sbCpSecLine(name, known, sections));
+        lastSec = name; cur = null; started = true;
+      } else out.push('');
+      if (o.at) o.at[gi] = out.length;
+      var lead = V.leadLine(g), lines = [];
+      if (g.both) lines.push(g.both);
+      Object.keys(g.byPart || {}).forEach(function(p) { lines.push(g.byPart[p]); });
+      var chord = (hit && hit.chord && String(hit.chord).trim()) ? String(hit.chord).replace(/\s+$/, '') : '';
+      if (chord && o.chord) chord = String(o.chord(chord)).replace(/\s+$/, '');
+      if (chord && (!lead || lines.indexOf(lead) < 0)) { out.push(chord); chord = ''; }
+      lines.forEach(function(ln) {
+        if (cur === null || V.partKey(cur) !== V.partKey(ln.part)) { out.push('[' + V.partLabel(ln.part) + ']'); cur = ln.part; }
+        var text = String(ln.text || '').replace(/\r?\n/g, ' ');
+        // Words that would read as a part's name keep their own label.
+        var guard = !!V.labelOf(text.replace(/^\s+/, ''), known) || /^\s*\[[^\[\]]+\]\s*:?\s*$/.test(text);
+        var t = (guard ? '[' + V.partLabel(ln.part) + '] ' : '') + (ln.sustained ? '~' : '') + text;
+        if (chord && ln === lead) { out.push(_sbmPadIndent(t, known) + chord); chord = ''; }
+        out.push(t);
+      });
+    });
+    return out.join('\n');
+  }
+  // The chord lines to save (pure): those over a moment's lead line, in the
+  // copy's own key (_sbChNpChords); one over another line of a moment is not
+  // where the score reads chords from, so it is left out -- quietly when it
+  // is as it was shown, as one with nowhere to sit when it was typed or
+  // changed.
+  function _sbCpChordsToSave(typed, shown, stored, steps, fn) {
+    var isLead = function(c) { return c.lead !== false; };
+    var asShown = function(c) { return shown.some(function(x) { return x.words === c.words && x.chord === c.chord; }); };
+    var lead = _sbChNpChords(typed.filter(isLead), shown.filter(isLead), stored.filter(isLead), steps, fn);
+    return lead.concat(typed.filter(function(c) { return !isLead(c) && !asShown(c); }).map(function(c) { return { words: '', chord: c.chord }; }));
+  }
+  // The moments' boxes (pure): runs of lines in one moment.
+  function _sbCpBoxes(info) {
+    var out = [], cur = null;
+    (info || []).forEach(function(f, i) {
+      if (f.m < 0) { cur = null; return; }
+      if (cur && cur.m === f.m && cur.hi === i - 1) { cur.hi = i; if (f.tg) cur.tg = true; return; }
+      cur = { m: f.m, lo: i, hi: i, tg: !!f.tg }; out.push(cur);
+    });
+    return out;
+  }
+  // The pad's lines written again (pure), each line of words sung by want[i]
+  // (or by whom it is read as now): a part's name where the part takes over
+  // and at each section's start, above its chord line, and none where it
+  // carries on -- as _sbCpText writes them. map[k]: the line output line k
+  // was (-1 for a part's name).
+  function _sbCpNormal(R, want) {
+    var V = window.lhcVoiceLines, info = R.info, lines = R.lines, out = [], map = [], cur = null;
+    var who = function(i) { return (want && want[i] != null) ? want[i] : info[i].part; };
+    var name = function(p) { if (cur === null || V.partKey(cur) !== V.partKey(p)) { out.push('[' + V.partLabel(p) + ']'); map.push(-1); cur = p; } };
+    for (var i = 0; i < lines.length; i++) {
+      var f = info[i], l = lines[i];
+      if (f.kind === 'part') continue;
+      if (f.kind === 'sec') { cur = null; out.push(l); map.push(i); continue; }
+      if (f.kind === 'blank') { out.push(''); map.push(i); continue; }
+      if (f.kind === 'chord') {
+        if (f.over > -1) {
+          name(who(f.over));
+          // its words lose their own label (below): the chords move with them
+          var wl = lines[f.over], ws = (/^\s*/.exec(wl) || [''])[0].length, lab = info[f.over].inline ? V.labelOf(wl.slice(ws), R.known) : null;
+          if (lab) l = l.slice(Math.min(lab.len, (/^ */.exec(l) || [''])[0].length));
+        }
+        out.push(l); map.push(i); continue;
+      }
+      var p = who(i);
+      name(p);
+      var s = l;
+      if (f.inline) { var w0 = (/^\s*/.exec(s) || [''])[0], lb = V.labelOf(s.slice(w0.length), R.known); if (lb) s = w0 + s.slice(w0.length + lb.len); }
+      var bare = s.replace(/^\s+/, '');
+      if (V.labelOf(bare, R.known) || /^\[[^\[\]]+\]\s*:?\s*$/.test(bare)) s = '[' + V.partLabel(p) + '] ' + bare;
+      out.push(s); map.push(i);
+    }
+    return { lines: out, map: map };
+  }
+  // "Sung by" a part (pure): the lines highlighted, the line the cursor is
+  // on, or -- on a part's own name -- every line under that name. The lines
+  // after keep who they were.
+  function _sbCpSetPart(R, a, b, part) {
+    var info = R.info, n = info.length, want = {}, first = -1;
+    var take = function(i) { if (i > -1 && info[i] && info[i].kind === 'words') { want[i] = part; if (first < 0 || i < first) first = i; } };
+    if (a === b && info[a] && info[a].kind === 'part') {
+      for (var j = a + 1; j < n && info[j].kind !== 'part' && info[j].kind !== 'sec'; j++) if (!info[j].inline) take(j);
+    } else {
+      for (var i = Math.max(0, a); i <= Math.min(b, n - 1); i++) {
+        if (info[i].kind === 'words') take(i); else if (info[i].kind === 'chord') take(info[i].over);
+      }
+    }
+    if (first < 0) for (var k = Math.max(0, b); k < n; k++) { if (k > b && info[k].kind === 'sec') break; if (info[k].kind === 'words') { take(k); break; } }
+    if (first < 0) return null;
+    var N = _sbCpNormal(R, want);
+    return { lines: N.lines, caret: N.map.indexOf(first), off: 0 };
+  }
+  // ~ before the words the cursor is on, or taken off (pure); a chord line
+  // over them moves with them.
+  function _sbCpHold(R, li) {
+    var V = window.lhcVoiceLines, info = R.info, lines = R.lines.slice(), f = info[li];
+    var w = !f ? -1 : f.kind === 'words' ? li : f.kind === 'chord' ? f.over : -1;
+    if (w < 0) return null;
+    var s = lines[w], ws = (/^\s*/.exec(s) || [''])[0], rest = s.slice(ws.length), lab = info[w].inline ? V.labelOf(rest, R.known) : null;
+    var k = lab ? lab.len : 0, body = rest.slice(k), on = body.charAt(0) !== '~';
+    lines[w] = ws + rest.slice(0, k) + (on ? '~' + body : body.slice(1));
+    for (var c = 0; c < info.length; c++) if (info[c].kind === 'chord' && info[c].over === w) lines[c] = on ? ' ' + lines[c] : lines[c].replace(/^ /, '');
+    return { lines: lines, caret: w, off: ws.length + k + (on ? 1 : 0) };
+  }
+  // A line for chords over the words the cursor is on, or its own if it has
+  // one (pure).
+  function _sbCpAddChords(R, li) {
+    var info = R.info, lines = R.lines.slice(), f = info[li];
+    if (!f) return null;
+    if (f.kind === 'chord') return { lines: lines, caret: li, off: lines[li].length };
+    var w = (f.kind === 'words') ? li : -1;
+    if (w < 0) for (var k = li + 1; k < info.length; k++) { if (info[k].kind === 'words') { w = k; break; } if (info[k].kind === 'sec') break; }
+    if (w < 0) return null;
+    for (var c = 0; c < info.length; c++) if (info[c].kind === 'chord' && info[c].over === w) return { lines: lines, caret: c, off: lines[c].length };
+    lines.splice(w, 0, '');
+    return { lines: lines, caret: w, off: 0 };
+  }
+  // A new section after the one the cursor is in (pure), with a line to type
+  // its words on. Verse is numbered on from the verses there are.
+  function _sbCpAddSection(R, li, name) {
+    var info = R.info, lines = R.lines.slice(), label = name;
+    if (name === 'Verse') {
+      var nv = 0;
+      info.forEach(function(f) { var m = (f.kind === 'sec') ? /^verse\s*(\d+)?$/i.exec(f.name) : null; if (m) nv = Math.max(nv, parseInt(m[1] || '1', 10)); });
+      label = 'Verse ' + (nv + 1);
+    }
+    var p = Math.max(0, li) + 1;
+    while (p < info.length && info[p].kind !== 'sec') p++;
+    var ins = [];
+    if (p > 0 && p <= lines.length && String(lines[p - 1] || '').trim()) ins.push('');
+    ins.push('[' + label + ']', '');
+    if (p < lines.length) ins.push('');
+    lines.splice.apply(lines, [p, 0].concat(ins));
+    return { lines: lines, caret: p + ins.indexOf('[' + label + ']') + 1, off: 0 };
+  }
+  // Where the pad opens for a section's pen (pure): the line of its run'th
+  // time through, or null.
+  function _sbCpSectionAt(R, name, run) {
+    var want = String(name == null ? '' : name).trim().toLowerCase(), seen = 0;
+    for (var i = 0; i < R.info.length; i++) {
+      var f = R.info[i];
+      if (f.kind === 'sec' && f.name.trim().toLowerCase() === want && ++seen === (run || 1)) return i;
+    }
+    return null;
+  }
+  // The first line of words at or after a line (pure), -1 for none.
+  function _sbCpWordsAt(info, i) {
+    for (var k = Math.max(0, i || 0); k < info.length; k++) if (info[k].kind === 'words') return k;
+    return -1;
+  }
+
+  // -- the sheet itself --
+  function _sbCpEl() { return _sbmPad && _sbmPad.sheet ? _sbmPad.host.querySelector('.sbm-cp') : null; }
+  function _sbCpRowHtml(l) { return '<div class="sbm-cp__ln">' + (l ? escapeHtml(l) : '<br>') + '</div>'; }
+  // One block a line again, the cursor where it was: a line break typed,
+  // a paste, or two lines joined make something else (see _sbChNpFlat).
+  function _sbCpRebuild(el) {
+    var sel = window.getSelection(), MARK = String.fromCharCode(0xE000), li = -1, off = 0;
+    try {
+      if (sel && sel.rangeCount && el.contains(sel.getRangeAt(0).startContainer)) {
+        var r = sel.getRangeAt(0).cloneRange(); r.collapse(true); r.insertNode(document.createTextNode(MARK));
+      }
+    } catch (e) {}
+    var lines = _sbNpLines(el).map(function(l, i) {
+      var k = l.indexOf(MARK);
+      if (k > -1) { li = i; off = k; l = l.split(MARK).join(''); }
+      return l;
+    });
+    el.innerHTML = lines.map(_sbCpRowHtml).join('');
+    if (li > -1) _sbChNpCaret(el, li, off);
+  }
+  function _sbCpLinesNow() {
+    var el = _sbCpEl(); if (!el) return [];
+    if (!_sbChNpFlat(el)) _sbCpRebuild(el);
+    return _sbChNpLinesNow(el);
+  }
+  function _sbCpMount(o) {
+    var P = _sbmPad, el = _sbCpEl(); if (!P || !el) return;
+    P.parts = (o.parts || []).slice(); P.sections = (o.sections || []).slice(); P.composing = false;
+    el.style.fontFamily = _sbmFontGrid();
+    el.innerHTML = String(o.text || '').split('\n').map(_sbCpRowHtml).join('');
+    el.addEventListener('input', sbmPadInput);
+    el.addEventListener('paste', _sbCpPaste);
+    el.addEventListener('compositionstart', function() { P.composing = true; });
+    el.addEventListener('compositionend', function() { P.composing = false; sbmPadInput(); });
+    if (window.ResizeObserver) { P.ro = new ResizeObserver(function() { if (_sbmPad === P) _sbCpPaint(true); }); P.ro.observe(el.parentNode); }
+    _sbCpPaint();
+    setTimeout(function() {
+      if (_sbmPad !== P || !el.isConnected) return;
+      el.focus();
+      var R = P.read, li = (o.focus != null && R) ? _sbCpWordsAt(R.info, o.focus) : -1;
+      if (li < 0) { lhcCaretToStart(el); return; }
+      var V = window.lhcVoiceLines, ln = String(R.lines[li] || ''), ws = (/^\s*/.exec(ln) || [''])[0].length;
+      var lab = R.info[li].inline ? V.labelOf(ln.slice(ws), R.known) : null, off = ws + (lab ? lab.len : 0);
+      if (ln.charAt(off) === '~') off++;
+      _sbChNpCaret(el, li, off);
+      // The moment it opens at is lit for a moment, and brought into view.
+      var bx = _sbCpBoxes(R.info).filter(function(b) { return b.lo <= li && li <= b.hi; })[0];
+      if (bx) {
+        P.hit = { lo: bx.lo, hi: bx.hi };
+        P.hitT = setTimeout(function() { if (_sbmPad === P && P.hit) { P.hit = null; _sbCpPaint(true); } }, 3600);
+      }
+      var wrap = el.parentNode, row = el.children[o.focus] || el.children[li];
+      if (row && wrap) wrap.scrollTop = Math.max(0, el.offsetTop + row.offsetTop - Math.round(wrap.clientHeight / 4));
+      _sbCpPaint(true);
+    }, 30);
+  }
+  function _sbCpPaste(e) {
+    var t = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    e.preventDefault();
+    try { document.execCommand('insertText', false, t.replace(/\r\n?/g, '\n')); } catch (x) {}
+  }
+  // Each line drawn as what it is read as, and the moments' boxes behind.
+  // boxesOnly: the lines as they are, the boxes laid out again (a resize).
+  function _sbCpPaint(boxesOnly) {
+    var P = _sbmPad, el = _sbCpEl(); if (!P || !el || !el.isConnected) return;
+    var V = window.lhcVoiceLines;
+    if (!boxesOnly || !P.read) {
+      if (P.composing && P.read) return;   // a word being composed is not touched
+      if (!_sbChNpFlat(el)) _sbCpRebuild(el);
+      P.read = _sbCpRead(_sbChNpLinesNow(el).join('\n'), _sbmIsChord(), P.parts, P.sections);
+      var info = P.read.info, kids = el.children, bx = _sbCpBoxes(info), top = {}, after = {};
+      bx.forEach(function(b, x) { top[b.lo] = b; if (x && bx[x - 1].hi === b.lo - 1) after[b.lo] = 1; });
+      for (var j = 0; j < kids.length; j++) {
+        var d = kids[j], f = info[j] || { kind: 'blank', m: -1 };
+        var cls = 'sbm-cp__ln is-' + f.kind + (f.m > -1 ? ' in-box' : '') + (f.held ? ' is-held' : '') +
+          (top[j] && top[j].tg ? ' is-tg-top' : '') + (after[j] ? ' is-after-box' : '');
+        if (d.className !== cls) d.className = cls;
+        var c = (f.kind === 'part' || (f.kind === 'words' && f.inline)) ? _sbmPadColourOf(V.partKey(f.part)) : '';
+        if (d.style.getPropertyValue('--cp-c') !== c) { if (c) d.style.setProperty('--cp-c', c); else d.style.removeProperty('--cp-c'); }
+        var who = (f.kind === 'words' && f.inline) ? V.partLabel(f.part) : '';
+        if ((d.getAttribute('data-who') || '') !== who) { if (who) d.setAttribute('data-who', who); else d.removeAttribute('data-who'); }
+      }
+    }
+    var layer = P.host.querySelector('.sbm-cp__boxes'); if (!layer || !P.read) return;
+    var rows = el.children, hit = P.hit;
+    layer.innerHTML = _sbCpBoxes(P.read.info).map(function(b) {
+      var a = rows[b.lo], z = rows[b.hi]; if (!a || !z) return '';
+      var t = el.offsetTop + a.offsetTop - 5, h = (z.offsetTop + z.offsetHeight) - a.offsetTop + 10;
+      var lit = !!(hit && b.lo <= hit.hi && b.hi >= hit.lo);
+      return '<div class="sbm-cp__box' + (b.tg ? ' is-tg' : '') + (lit ? ' is-hit' : '') + '" style="top:' + t + 'px;height:' + h + 'px"></div>';
+    }).join('');
+  }
+  // The toolbar on the sheet: what the cursor is on, changed as a whole.
+  function _sbCpTool(kind, arg) {
+    var P = _sbmPad, el = _sbCpEl(); if (!P || !el) return;
+    var lines = _sbCpLinesNow();
+    var sel = _sbChNpSelLines(el) || { a: 0, b: 0, collapsed: true };
+    var R = _sbCpRead(lines.join('\n'), _sbmIsChord(), P.parts, P.sections);
+    var r = (kind === 'part') ? _sbCpSetPart(R, sel.a, sel.b, arg)
+          : (kind === 'hold') ? _sbCpHold(R, sel.a)
+          : (kind === 'chords') ? _sbCpAddChords(R, sel.a)
+          : _sbCpAddSection(R, sel.a, arg);
+    if (!r) { el.focus(); return; }
+    el.innerHTML = r.lines.map(_sbCpRowHtml).join('');
+    P.dirty = true; P.hit = null;
+    _sbCpPaint();
+    el.focus();
+    if (r.caret > -1) _sbChNpCaret(el, Math.min(r.caret, r.lines.length - 1), r.off || 0);
+  }
+  // + New part: a name asked for, and the lines the cursor is on sung by it.
+  function sbmPadNewPart() {
+    var P = _sbmPad, el = _sbCpEl(); if (!P || !el) return;
+    var lines = _sbCpLinesNow(), sel = _sbChNpSelLines(el) || { a: 0, b: 0, collapsed: true };
+    var ask = (typeof window.customPrompt === 'function') ? window.customPrompt('A new part', 'What is the part called? Harmony 1, Kids, Solo\u2026', '')
+                                                          : Promise.resolve(window.prompt('What is the part called?', ''));
+    Promise.resolve(ask).then(function(v) {
+      if (_sbmPad !== P || !el.isConnected) return;
+      var name = String(v == null ? '' : v).replace(/[\[\]]/g, '').trim();
+      if (!name) { el.focus(); return; }
+      var part = _sbCpPartName(name, P.parts, [], true);
+      if (['both', 'women', 'men'].indexOf(window.lhcVoiceLines.partKey(part)) < 0 && !P.parts.some(function(q) { return window.lhcVoiceLines.partKey(q) === window.lhcVoiceLines.partKey(part); })) P.parts.push(part);
+      var R = _sbCpRead(lines.join('\n'), _sbmIsChord(), P.parts, P.sections);
+      var r = _sbCpSetPart(R, sel.a, sel.b, part);
+      if (!r) { el.focus(); return; }
+      el.innerHTML = r.lines.map(_sbCpRowHtml).join('');
+      P.dirty = true; P.hit = null;
+      _sbCpPaint();
+      el.focus();
+      if (r.caret > -1) _sbChNpCaret(el, Math.min(r.caret, r.lines.length - 1), 0);
+    });
+  }
   function _sbmPadOpen(o) {
     _sbmPadClose();
-    var wide = !_sbFoldPhone();
+    var wide = !_sbFoldPhone(), sheet = !!o.sheet;
     var host = document.createElement('div');
-    host.id = 'sbmPad'; host.className = 'sbm' + (wide ? ' sbm-pad--desktop' : '');
+    host.id = 'sbmPad'; host.className = 'sbm' + (wide ? ' sbm-pad--desktop' : '') + (sheet ? ' sbm-pad--sheet' : '');
     var labels = {}; (o.roles || []).forEach(function(r) { labels[r.key] = r.label; });
-    _sbmPad = { host: host, o: o, colours: Object.assign({}, o.colours || {}), labels: labels, dirty: false };
+    _sbmPad = { host: host, o: o, colours: Object.assign({}, o.colours || {}), labels: labels, dirty: false, sheet: sheet };
     if (o.base) edTryClaim(_sbEditKey(o.base), (_sbmMe() || {}).name || '');
     var roles = o.roles || [];
     var q = function(k) { return escapeHtml(k).replace(/'/g, '&#39;'); };
     host.innerHTML = (wide ? '<div class="sbm-pad__dlg" role="dialog" aria-label="Overview edit">' : '') +
       '<div class="sbm-ed__hero">' +
         (wide ? '' : '<button class="sbm-ed__back" onclick="WO.sbmPadCancel()" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button>') +
-        '<div style="min-width:0;"><div class="sbm-ed__title">Overview Edit' + (o.sectionName ? ' \u2014 ' + escapeHtml(o.sectionName) : '') + '</div><div class="sbm-ed__song">' + escapeHtml(o.title || '') + '</div></div>' +
+        '<div style="min-width:0;"><div class="sbm-ed__title">' + (sheet ? 'Edit choir parts' : 'Overview Edit' + (o.sectionName ? ' \u2014 ' + escapeHtml(o.sectionName) : '')) + '</div><div class="sbm-ed__song">' + escapeHtml(o.title || '') + '</div></div>' +
         '<button class="sbm-hero__close" onclick="WO.sbmPadCancel()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
       '<div class="sbm-pad__body">' +
         '<div class="sbm-pad__tools"><span class="sbm-pad__lbl">Insert</span>' +
           ['Verse', 'Chorus', 'Pre-Chorus', 'Bridge', 'Ending'].map(function(n) { return '<button class="sbm-pad__tb sbm-pad__tb--sec" onclick="WO.sbmPadInsertSection(\'' + n + '\')">+ ' + n + '</button>'; }).join('') +
-          '<span class="sbm-pad__sep"></span>' +
+          '<span class="sbm-pad__sep"></span>' + (sheet ? '<span class="sbm-pad__lbl">Sung by</span>' : '') +
           roles.map(function(r) { return '<button class="sbm-pad__tb sbm-pad__tb--role" data-role="' + q(r.key) + '" style="--p:' + _sbmPadColourOf(r.key) + '" onclick="WO.sbmPadPrefix(this.getAttribute(\'data-role\'))" title="This line is sung by ' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</button>'; }).join('') +
+          (sheet ? '<button class="sbm-pad__tb sbm-pad__tb--new" onclick="WO.sbmPadNewPart()" title="A part with a name of its own">+ New part</button>' : '') +
           '<button class="sbm-pad__tb" onclick="WO.sbmPadHold()" title="A held note">~ Hold</button>' +
           '<button class="sbm-pad__tb sbm-pad__tb--chord" onclick="WO.sbmPadChordLine()" title="A chord line above these words">+ Chords</button></div>' +
         '<div class="sbm-pad__colours"><span class="sbm-pad__lbl">Colours</span>' +
           roles.map(function(r) { return '<label class="sbm-pad__sw" data-role="' + q(r.key) + '"><input type="color" value="' + _sbmPadColourOf(r.key) + '" oninput="WO.sbmPadColour(this.parentNode.getAttribute(\'data-role\'), this.value)"><span style="background:' + _sbmPadColourOf(r.key) + '">' + escapeHtml(r.label) + '</span></label>'; }).join('') +
           '<button class="sbm-pad__tb" onclick="WO.sbmPadColoursReset()">Reset colours</button></div>' +
-        '<div class="sbm-pad"><pre class="sbm-pad__hl" aria-hidden="true"></pre>' +
-          '<textarea class="sbm-pad__ta" spellcheck="false" autocapitalize="off" oninput="WO.sbmPadInput()" onscroll="WO.sbmPadScroll()"></textarea></div>' +
-        '<div class="sbm-pad__hint">Lines that touch sing together \u00b7 a blank line starts the next moment \u00b7 chords go on the line above the words \u00b7 ' +
-          '<b>W:</b> women \u00b7 <b>M:</b> men \u00b7 <b>[Melody]</b> any other part \u00b7 no prefix = everyone \u00b7 <b>~</b> holds the note</div>' +
+        (sheet
+          ? '<div class="sbm-pad sbm-cp-wrap"><div class="sbm-cp__boxes" aria-hidden="true"></div>' +
+              '<div class="sbm-cp" contenteditable="true" spellcheck="false" autocapitalize="off" autocorrect="off" role="textbox" aria-multiline="true" aria-label="The choir parts"></div></div>' +
+            '<div class="sbm-pad__hint">Who sings: their name in brackets on a line of its own \u2014 <b>[Women]</b> <b>[Men]</b> <b>[Harmony 1]</b> \u2014 for the lines under it, until the next name \u00b7 ' +
+              'lines just below each other sing together; a blank line between them sings them separately \u00b7 chords on the line above the words \u00b7 <b>~</b> holds the note</div>'
+          : '<div class="sbm-pad"><pre class="sbm-pad__hl" aria-hidden="true"></pre>' +
+              '<textarea class="sbm-pad__ta" spellcheck="false" autocapitalize="off" oninput="WO.sbmPadInput()" onscroll="WO.sbmPadScroll()"></textarea></div>' +
+            '<div class="sbm-pad__hint">Lines that touch sing together \u00b7 a blank line starts the next moment \u00b7 chords go on the line above the words \u00b7 ' +
+              '<b>W:</b> women \u00b7 <b>M:</b> men \u00b7 <b>[Melody]</b> any other part \u00b7 no prefix = everyone \u00b7 <b>~</b> holds the note</div>') +
       '</div>' +
       '<div class="sbm-ed__foot"><span class="sbm-ed__hint">Esc cancels \u00b7 Ctrl+Enter saves</span>' +
         '<button class="sbm-btn" onclick="WO.sbmPadCancel()">Cancel</button>' +
@@ -58173,14 +58631,16 @@ var WO = (function() {
       (wide ? '</div>' : '');
     if (wide) host.addEventListener('click', function(e) { if (e.target === host) sbmPadCancel(); });
     document.body.appendChild(host);
+    document.addEventListener('keydown', _sbmPadKey, true);
+    if (sheet) { _sbCpMount(o); return; }
     var ta = host.querySelector('.sbm-pad__ta');
     ta.value = o.text || '';
     _sbmPadPaint();
-    document.addEventListener('keydown', _sbmPadKey, true);
     setTimeout(function() { ta.focus(); lhcCaretToStart(ta); sbmPadScroll(); }, 30);
   }
   function _sbmPadTa() { return _sbmPad ? _sbmPad.host.querySelector('.sbm-pad__ta') : null; }
   function _sbmPadPaint() {
+    if (_sbmPad && _sbmPad.sheet) { _sbCpPaint(); return; }
     var ta = _sbmPadTa(); if (!ta) return;
     var pre = _sbmPad.host.querySelector('.sbm-pad__hl');
     pre.innerHTML = _sbmPadHighlight(ta.value, _sbmPadColourOf, _sbmIsChord());
@@ -58189,8 +58649,9 @@ var WO = (function() {
   function sbmPadInput() {
     if (!_sbmPad) return;
     _sbmPad.dirty = true;
+    if (_sbmPad.sheet) _sbmPad.hit = null;   // the light goes once it is typed on
     if (_sbmPadTimer) clearTimeout(_sbmPadTimer);
-    _sbmPadTimer = setTimeout(_sbmPadPaint, 40);
+    _sbmPadTimer = setTimeout(_sbmPadPaint, _sbmPad.sheet ? 120 : 40);
   }
   function sbmPadScroll() { var ta = _sbmPadTa(); if (!ta) return; var pre = _sbmPad.host.querySelector('.sbm-pad__hl'); pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; }
   function _sbmPadBounds(ta) {
@@ -58199,6 +58660,7 @@ var WO = (function() {
     return { s: st, e: en, line: v.slice(st, en) };
   }
   function sbmPadInsertSection(name) {
+    if (_sbmPad && _sbmPad.sheet) { _sbCpTool('sec', name); return; }
     var ta = _sbmPadTa(); if (!ta) return;
     var label = name;
     if (name === 'Verse') {
@@ -58210,6 +58672,7 @@ var WO = (function() {
     ta.setRangeText(ins, b.e, b.e, 'end'); ta.focus(); sbmPadInput();
   }
   function sbmPadPrefix(key) {
+    if (_sbmPad && _sbmPad.sheet) { _sbCpTool('part', (key === 'both' || key === 'women' || key === 'men') ? key : (_sbmPad.labels[key] || key)); return; }
     var ta = _sbmPadTa(); if (!ta) return;
     var b = _sbmPadBounds(ta);
     if (/^\s*\[.+\]\s*$/.test(b.line)) return;   // a header is nobody's line
@@ -58218,12 +58681,14 @@ var WO = (function() {
     ta.setRangeText(pre + m[3], b.s, b.e, 'end'); ta.focus(); sbmPadInput();
   }
   function sbmPadHold() {
+    if (_sbmPad && _sbmPad.sheet) { _sbCpTool('hold'); return; }
     var ta = _sbmPadTa(); if (!ta) return;
     var b = _sbmPadBounds(ta);
     var m = /^(\s*(?:W:|M:|\[[^\]]+\])?\s*)(~?)([\s\S]*)$/i.exec(b.line);
     ta.setRangeText(m[1] + (m[2] ? '' : '~') + m[3], b.s, b.e, 'end'); ta.focus(); sbmPadInput();
   }
   function sbmPadChordLine() {
+    if (_sbmPad && _sbmPad.sheet) { _sbCpTool('chords'); return; }
     var ta = _sbmPadTa(); if (!ta) return;
     var b = _sbmPadBounds(ta);
     ta.setRangeText('\n', b.s, b.s, 'start'); ta.selectionStart = ta.selectionEnd = b.s; ta.focus(); sbmPadInput();
@@ -58253,6 +58718,8 @@ var WO = (function() {
   }
   function _sbmPadKey(ev) {
     if (!_sbmPad) return;
+    // A question asked over the pad (+ New part) keeps its own keys.
+    if (ev.target && ev.target !== document.body && _sbmPad.host && !_sbmPad.host.contains(ev.target)) return;
     if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); sbmPadCancel(); }
     else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.stopPropagation(); ev.preventDefault(); sbmPadSave(); }
   }
@@ -58263,6 +58730,8 @@ var WO = (function() {
   function _sbmPadClose() {
     document.removeEventListener('keydown', _sbmPadKey, true);
     if (_sbmPadTimer) { clearTimeout(_sbmPadTimer); _sbmPadTimer = null; }
+    if (_sbmPad && _sbmPad.ro) { try { _sbmPad.ro.disconnect(); } catch (e) {} }
+    if (_sbmPad && _sbmPad.hitT) clearTimeout(_sbmPad.hitT);
     if (_sbmPad && _sbmPad.host && _sbmPad.host.parentNode) _sbmPad.host.remove();
     var base = _sbmPad && _sbmPad.o ? _sbmPad.o.base : '';
     _sbmPad = null;
@@ -58271,7 +58740,7 @@ var WO = (function() {
   function sbmPadSave() {
     var P = _sbmPad; if (!P || P.saving) return;   // one save at a time, by key as by button
     if (P.o && P.o.base && !_sbEditMayWrite(P.o.base)) return;
-    var ta = _sbmPadTa(), text = ta ? ta.value : '';
+    var ta = _sbmPadTa(), text = P.sheet ? _sbCpLinesNow().join('\n') : (ta ? ta.value : '');
     var colours = P.colours;
     var btn = P.host.querySelector('.sbm-ed__foot .sbm-btn--primary'); if (btn) btn.disabled = true;
     P.saving = true;
@@ -58301,33 +58770,48 @@ var WO = (function() {
     });
   }
   function _sbLinesUnread() { showToast('The choir parts could not be loaded \u2014 check the connection and try again', 'error'); }
-  function _sbOverviewOpen(base, sid, title, sectionName, run) {
+  // anchor: the score's moment double-tapped ("s:Verse 1|3") -- the pad
+  // opens at it; sectionName and run: a section's pen -- at that section.
+  function _sbOverviewOpen(base, sid, title, sectionName, run, anchor) {
     var V = window.lhcVoiceLines; if (!V || !base) return;
     if (!_sbEditClaim({ songId: base, title: title })) return;
-    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run); },
+    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run, anchor); },
       function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
   }
-  function _sbOverviewOpenNow(base, sid, title, sectionName, run) {
+  // The choir pad (gotcha 91): the whole arrangement, its chords in the key
+  // sung, opened at the moment or section asked for. A song with no parts
+  // yet starts from its words, every line All, as Set up choir parts does.
+  function _sbOverviewOpenNow(base, sid, title, sectionName, run, anchor) {
     var V = window.lhcVoiceLines;
     var rows = _sbVoiceLines[base] || [];
     var openSig = _sbLinesSig(rows);   // what is stored as it opens, before any seed
-    var lyrics = _sbChoirChordWords(_sbCopyById(sid), base);   // gotcha 89
+    var copy = _sbCopyById(sid);
+    var lyrics = _sbChoirChordWords(copy, base);   // gotcha 89
     if (!rows.length) {
-      // An ordinary song: its own words, everyone singing, as the editor does.
       var seed = (typeof V.fromLyrics === 'function') ? V.fromLyrics(lyrics) : [];
       rows = Array.isArray(seed) ? seed : [];
     }
-    var isChord = _sbmIsChord();
-    var full = _sbmPadText(rows, lyrics, null, isChord);
-    // One section is one TIME through it: a chorus sung twice is two, and
-    // the pen on the second edits the second. Editing "Chorus" by name
-    // showed both runs as one and the save dropped the second.
-    var text = (sectionName != null) ? _sbmPadText(rows, lyrics, sectionName, isChord, run) : full;
+    var isChord = _sbmIsChord(), parts = V.lanes(rows), sections = [];
+    rows.forEach(function(r) { var s = String(r.section || '').trim(); if (s && sections.indexOf(s) < 0) sections.push(s); });
+    var steps = copy ? _sbmStepsOf(copy) : 0;
+    var fn = (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null;
+    var at = [];
+    var text = _sbCpText(rows, lyrics, isChord, { parts: parts, at: at,
+      chord: (steps && fn) ? function(c) { return V._transposeAligned(c, steps, fn); } : null });
+    var stored = (steps && fn) ? _sbCpText(rows, lyrics, isChord, { parts: parts }) : text;
+    var R = _sbCpRead(text, isChord, parts, sections);
+    var shownChords = R.chords, storedChords = (stored === text) ? R.chords : _sbCpRead(stored, isChord, parts, sections).chords;
+    var focus = null, gi = _sbmEdMomentAt(rows, anchor);
+    if (gi > -1 && at[gi] != null) focus = at[gi];
+    else if (sectionName != null) focus = _sbCpSectionAt(R, sectionName, run || 1);
+    var key = (steps && copy) ? _sbSungKey(copy) : '';
     _sbmCloseSheet();
-    _sbmPadOpen({ base: base, title: title || '', sectionName: sectionName, text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base),
+    _sbmPadOpen({ sheet: true, base: base, title: (title || '') + (steps ? ' \u00b7 chords in ' + (key || ((steps > 0 ? '+' : '') + steps)) : ''),
+      text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base), parts: parts, sections: sections, focus: focus,
       onSave: function(t, colours) {
-        var whole = (sectionName != null) ? _sbmPadReplaceSection(full, sectionName, t, run) : t;
-        return _sbmPadSaveSong(base, sid, whole, colours, openSig, { parts: V.lanes(rows) });
+        return _sbmPadSaveSong(base, sid, t, colours, openSig, { parts: parts,
+          read: function(x, ic) { return _sbCpRead(x, ic, parts, sections); },
+          mapChords: function(ch) { return _sbCpChordsToSave(ch, shownChords, storedChords, steps, fn); } });
       } });
   }
   function sbmOverview(sectionName, run) {
@@ -58985,16 +59469,9 @@ var WO = (function() {
   // the editor opens at it.
   function sbmEditParts(anchor) {
     var song = _sbmSong(); if (!song) return;
-    if (!_sbEditClaim(song)) return;
-    var base = _sbBaseSongId(song);
-    var wide = !_sbFoldPhone();
     _sbmStopPlayer();
-    _sbLinesReady(base).then(function(rows) {
-      _sbmEdOpen({ base: base, sid: song.id, title: song.title || '', artist: song.artist || '',
-                   rows: rows, lyrics: song.lyrics || '', anchor: typeof anchor === 'string' ? anchor : '',
-                   desktop: wide, previewOpts: { compact: true },
-                   onText: wide ? function(t) { sbmPageView(true); setTimeout(function() { _sbChoirTextEditor(base, t); }, 80); } : null });
-    }, function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
+    // Straight to the pad (gotcha 91): the Edit Parts page is not offered here.
+    _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', null, null, typeof anchor === 'string' ? anchor : '');
   }
   // Which moment of the arrangement a score anchor is (pure), counted through
   // the whole song as the parts editor lays its moments out -- one a group,
@@ -59630,7 +60107,7 @@ var WO = (function() {
       _sbmChoirAnnounce(bases);
       var n = done.length;
       showToast((n > 1 ? 'Choir parts set up for ' + n + ' songs of the medley' : 'Choir parts set up') +
-        ': every line is All, shown in Choir for everyone. Edit Parts says who sings what.' +
+        ': every line is All, shown in Choir for everyone. Edit says who sings what.' +
         (missed.length ? ' Not set up: ' + missed.map(function(x) { return x.title || 'a song'; }).join(', ') + '.' : ''),
         missed.length ? 'info' : 'success', { duration: 8000 });
     }).catch(function(err) {
@@ -61682,14 +62159,12 @@ var WO = (function() {
             _sbChoirHeadHtml(song, false) +
             '<button class="sb-choir-edit" onclick="WO.sbEditChoirParts(\'' + escapeJsArg(_baseId) + '\')">' +
               '<i class="fa-solid fa-pen-to-square"></i> Edit parts</button>' +
-            '<button class="sb-choir-edit sb-choir-overview" onclick="WO.sbOverviewFor(\'' + escapeJsArg(_baseId) + '\')" title="The whole arrangement as text, with its chords">' +
-              '<i class="fa-solid fa-align-left"></i> Overview edit</button>' +
             '<div class="sb-choir-hint">Double-click a line to change its words, ' +
               'or its <b>ALL / WOMEN / MEN</b> chip to move it between parts. ' +
               'Double-click the <b>chord row</b> above a moment to type its chords — ' +
               'those are the song’s own, and show in the Chords tab too. ' +
               'The microphone on a line records just that line. ' +
-              'Use <b>Edit parts</b> to add or regroup moments.</div>' +
+              'Use <b>Edit parts</b> to add parts, regroup moments or change chords.</div>' +
             _sbChoirPartsBarHtml(song, sid) +
             _edBar +
             (_edChoir || '<div class="sb-panel-info" style="text-align:left;">Loading the choir parts\u2026</div>') +
@@ -65349,12 +65824,8 @@ var WO = (function() {
   // the textarea one click away; on a phone's Page view it stays the
   // textarea, because the phone has its own full-screen editor and the A4
   // page is the one place the grammar is still typed.
-  function sbEditChoirParts(baseSongId) {
-    if (_sbFoldPhone() || typeof _sbmEdOpen !== 'function') { _sbChoirTextEditor(baseSongId); return; }
-    var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; });
-    if (!_sbEditClaim(item || { songId: baseSongId })) return;
-    _sbOpenPartsDialogFor(baseSongId, null);
-  }
+  // The printed page's Edit: the choir pad (gotcha 91), on a desk and a phone.
+  function sbEditChoirParts(baseSongId) { sbOverviewFor(baseSongId, null); }
   function _sbOpenPartsDialogFor(baseSongId, text) {
     var V = window.lhcVoiceLines; if (!V) return;
     var item = (songOrderSections || []).find(function(x) { return x && _sbBaseSongId(x) === baseSongId; }) || {};
@@ -69568,7 +70039,7 @@ var WO = (function() {
     if (!(seed && String(seed).trim()) &&
         (typeof _sbChoirView === 'function') && _sbChoirView(s) === 'choir') {
       var _baseId = s.songId || String(sid).split('--')[0];
-      if (_baseId && typeof sbEditChoirParts === 'function') { sbEditChoirParts(_baseId); return; }
+      if (_baseId) { _sbOverviewOpen(_baseId, sid, s.title || '', null, null, ''); return; }
     }
     // One editor at a time for a song: refused while somebody else has it.
     if (!_sbEditClaim(s)) return;
@@ -97169,7 +97640,7 @@ var WO = (function() {
     sbmDragSong: sbmDragSong, sbmDragOverSong: sbmDragOverSong, sbmDropSong: sbmDropSong, sbmDragEndSong: sbmDragEndSong,
     sbmOverview: sbmOverview, sbmEdOverview: sbmEdOverview, sbmPadCancel: sbmPadCancel, sbmPadSave: sbmPadSave, sbmPadInput: sbmPadInput,
     sbmPadScroll: sbmPadScroll, sbmPadInsertSection: sbmPadInsertSection, sbmPadPrefix: sbmPadPrefix, sbmPadHold: sbmPadHold,
-    sbmPadChordLine: sbmPadChordLine, sbmPadColour: sbmPadColour, sbmPadColoursReset: sbmPadColoursReset,
+    sbmPadChordLine: sbmPadChordLine, sbmPadColour: sbmPadColour, sbmPadColoursReset: sbmPadColoursReset, sbmPadNewPart: sbmPadNewPart,
     sbmOpenPdf: sbmOpenPdf, sbmPdfClose: sbmPdfClose, sbmPdfZoom: sbmPdfZoom, sbmPdfGo: sbmPdfGo, sbmPdfOpenLast: sbmPdfOpenLast,
     sbmEditParts: sbmEditParts, sbmEdInput: sbmEdInput, sbmEdHold: sbmEdHold, sbmEdToggleSec: sbmEdToggleSec,
     sbmEdRenameSec: sbmEdRenameSec, sbmEdMoveSec: sbmEdMoveSec, sbmEdDupSec: sbmEdDupSec, sbmEdDelSec: sbmEdDelSec,
@@ -116561,6 +117032,37 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 #sbmPad:not(.sbm-pad--desktop) .sbm-pad__tools, #sbmPad:not(.sbm-pad--desktop) .sbm-pad__colours { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
 #sbmPad:not(.sbm-pad--desktop) .sbm-pad__tools::-webkit-scrollbar, #sbmPad:not(.sbm-pad--desktop) .sbm-pad__colours::-webkit-scrollbar { display: none; }
 #sbmPad:not(.sbm-pad--desktop) .sbm-pad__hint { font-size: 11px; line-height: 1.4; }
+/* ---- The choir pad (gotcha 91): the arrangement as the choir view shows it,
+   typed on. One block a line, drawn as what it is read as: a section's pill,
+   a part's chip, teal chords over black words; each moment in the view's
+   thin dark box, a moment whose parts sing at once on its purple bar with
+   "Sing together" -- the boxes are a layer BEHIND the words, never in them,
+   so nothing in the editable text is anything but the text. */
+#sbmPad .sbm-pad.sbm-cp-wrap { flex: 1 1 0; background: #fff; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; box-shadow: 0 0 0 1px rgba(15,23,42,0.14); }
+.sbm-cp__boxes { position: absolute; top: 0; left: 0; right: 0; height: 0; pointer-events: none; z-index: 0; }
+.sbm-cp__box { position: absolute; left: 8px; right: 8px; box-sizing: border-box; border: 1px solid #1f2937; border-radius: 8px; transition: box-shadow 0.4s, background-color 0.4s; }
+.sbm-cp__box.is-tg { background: rgba(124, 58, 237, 0.06); }
+.sbm-cp__box.is-tg::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; background: #7c3aed; }
+.sbm-cp__box.is-tg::after { content: "Sing together"; position: absolute; top: -9px; left: 14px; padding: 3px 8px; border-radius: 999px; background: #7c3aed; color: #fff; font: 800 9.5px/1 var(--sbm-font-ui); letter-spacing: 0.06em; text-transform: uppercase; box-shadow: 0 1px 3px rgba(76, 29, 149, 0.3); }
+.sbm-cp__box.is-hit { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.6); background-color: rgba(254, 243, 199, 0.6); }
+.sbm-cp { position: relative; z-index: 1; min-height: 100%; box-sizing: border-box; padding: 14px 8px 140px; outline: none; color: #000; font-size: 17px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; caret-color: #7c3aed; -webkit-user-select: text; user-select: text; -webkit-text-size-adjust: 100%; }
+.sbm-cp__ln { position: relative; min-height: 1.5em; padding: 0 12px 0 20px; font-weight: 700; color: #000; }
+.sbm-cp__ln.is-chord { color: #04756f; }
+.sbm-cp__ln.is-held { color: #64748b; font-weight: 600; }
+.sbm-cp__ln.is-sec { width: -webkit-fit-content; width: fit-content; min-height: 0; margin: 16px 0 8px 8px; padding: 3px 14px; border-radius: 999px; background: #dcf5e5; color: #15803d; font: 700 12px/1.5 var(--sbm-font-ui); letter-spacing: 1.2px; text-transform: uppercase; }
+.sbm-cp__ln.is-part { width: -webkit-fit-content; width: fit-content; min-width: 44px; min-height: 20px; box-sizing: border-box; margin: 4px 0 2px 20px; padding: 0 8px; border-radius: 4px; background: var(--cp-c, #475569); color: #fff; font: 800 11px/20px var(--sbm-font-ui); letter-spacing: 0.5px; text-transform: uppercase; }
+.sbm-cp__ln[data-who] { padding-right: 96px; }
+.sbm-cp__ln[data-who]::after { content: attr(data-who); position: absolute; right: 14px; top: 0.3em; max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; border-radius: 4px; background: var(--cp-c, #64748b); color: #fff; font: 800 9.5px/16px var(--sbm-font-ui); letter-spacing: 0.04em; text-transform: uppercase; pointer-events: none; -webkit-user-select: none; user-select: none; }
+.sbm-cp__ln.is-after-box { margin-top: 12px; }
+.sbm-cp__ln.is-tg-top { margin-top: 14px; }
+.sbm-cp__ln.is-sec.is-after-box, .sbm-cp__ln.is-sec.is-tg-top { margin-top: 16px; }
+.sbm-pad__tb--new { color: #7c3aed; border-style: dashed; border-color: #c4b5fd; }
+#sbmPad.sbm-pad--sheet .sbm-pad__tools, #sbmPad.sbm-pad--sheet .sbm-pad__colours, #sbmPad.sbm-pad--sheet .sbm-pad__hint { flex-shrink: 0; }
+#sbmPad.sbm-pad--sheet:not(.sbm-pad--desktop) .sbm-ed__foot .sbm-ed__hint { display: none; }
+#sbmPad:not(.sbm-pad--desktop) .sbm-cp { font-size: 16px; padding: 12px 4px 160px; }
+#sbmPad:not(.sbm-pad--desktop) .sbm-cp__ln { padding: 0 8px 0 18px; }
+#sbmPad:not(.sbm-pad--desktop) .sbm-cp__ln.is-part { margin-left: 18px; }
+#sbmPad:not(.sbm-pad--desktop) .sbm-cp__box { left: 4px; right: 4px; }
 .sbm-score__ov { margin-left: auto; min-height: 36px; padding: 0 12px; font-size: 12px; }
 .sbm-score__ov i { font-size: 12px; }
 .sbm-score .vl-section { display: inline-flex; align-items: center; gap: 8px; }

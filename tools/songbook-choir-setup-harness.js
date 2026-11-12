@@ -77,7 +77,7 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
   });
   check('the score is drawn from them', /var chords = window\.lhcVoiceLines\.chordIndex\(\n\s*_sbChoirChordWords\(song\),/.test(fn('_sbChoirBodyHtml')) && !/lib && lib\.lyrics/.test(fn('_sbChoirBodyHtml')));
   check('Overview edit, Edit Parts\' pad and Book Mode\'s choir notepad read the same words',
-    /var lyrics = _sbChoirChordWords\(_sbCopyById\(sid\), base\);/.test(fn('_sbOverviewOpenNow')) &&
+    /var copy = _sbCopyById\(sid\);\n\s*var lyrics = _sbChoirChordWords\(copy, base\);/.test(fn('_sbOverviewOpenNow')) &&
     has(/var lyrics = _sbChoirChordWords\(_sbCopyById\(ed\.sid\), ed\.base\);/) &&
     /var lyrics = _sbChoirChordWords\(song, base\), parts = V\.lanes\(rows\)/.test(fn('_sbChNpOpen')));
   check('...and write to them: the pad (with its copy), Edit Parts, the notepad\'s Undo',
