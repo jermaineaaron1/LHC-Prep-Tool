@@ -4,6 +4,80 @@ _Last updated: 2026-11-13 by Claude Code_
 
 ---
 
+## 2026-11-13 — The offline bar closes, and coming back asks for a refresh (branch `feat/offline-service`)
+
+The operator tested a real phone with the data plan AND Wi-Fi off: the app
+opened, the orders opened, everything worked. Two things came back from that:
+
+> "I see a banner that mentions it's offline, can you make that closeable
+> because it blocks the control buttons above the header."
+>
+> "when the phone or laptop goes back online, can you make it recognize
+> changes by prompting the user to refresh in order to see the latest changes"
+
+### The bar closes, per outage
+
+The close is the full height of the bar and 40px wide — a real target on a
+phone — and the message is padded clear of it. Measured at 390px: bar 49px,
+close 40x49, message clear, nothing off screen.
+
+Dismissal is keyed on `LHC_Net.since()`, which moves on every change of state.
+So closing it hides THIS outage, not every future one: go offline again, or
+come back, and it speaks again. Verified all four transitions on screen.
+
+### Coming back asks for a refresh — and saves first
+
+A reload is what picks up what other devices did while this one was out, so
+the bar turns green and offers it. But everything typed during the outage
+failed to save, so **Refresh is a save and then a reload**, never a reload:
+
+- nothing unsaved — reloads at once (verified: the marker set before the
+  click was gone from the new document)
+- unsaved — "Saving...", waits, reloads when it lands
+- still unsaved after five seconds — **"Your changes still have not saved.
+  Refreshing now would lose them."** with a *Refresh anyway*. Verified with
+  writes refused: it did not reload.
+
+And the internet coming back now saves what the outage held by itself, at most
+once per reconnect. Offline every save failed and said so, but nothing ever
+retried, so a liturgist's edits sat in memory until somebody pressed Save.
+
+### The loop that retry created, and what it says about #451
+
+Adding the retry turned a line from the first offline PR into a feedback loop.
+`saveCurrentOrder`'s catch called `LHC_Net.mark(false)` on the reasoning that
+"a save that threw is almost always the uplink". With a retry on reconnect:
+
+> the retry fails — marks us offline — the next read succeeds — marks us
+> online — fires the retry again
+
+Measured in the browser with writes refused: `LHC_Net.reachable()` oscillated
+and the banner would not settle. **A failed save no longer marks the network
+down.** It conflated "this write failed" with "we cannot reach the database",
+and reads answer that on their own — the offline case included, since the
+worker stamps what it served from cache. A write that fails for its own
+reasons (a lock, a refusal, a bad row) says so in the indicator and leaves the
+banner alone. Verified: save fails, `reachable()` stays true.
+
+### Two more checks of mine that did not bite
+
+Fifth and sixth instances of gotcha 82, both caught by the mutation test:
+
+- `refSrc.indexOf('if (!unsaved()) { location.reload(); return; }')` matched
+  the IDENTICAL line inside the wait loop, so deleting the real early return
+  — the one thing standing between a refresh and somebody's work — changed
+  nothing the harness could see. It now matches with its indent, and by order
+  (the early return must come before the save).
+- `/window\.addEventListener\('lhc:net'[^]*?saveImmediately\(\);/` ran past
+  the listener and found a `saveImmediately()` belonging to something else.
+  Bounded to the listener now.
+
+Green: `python tools/check-inline-scripts.py --check Index.html` (19 blocks),
+`npm run check` (**731 mutation cases, 0 missed, 0 stale** — 9 new), the
+harness at 127 passed / 0 failed.
+
+---
+
 ## 2026-11-13 — Offline, actually tested — and two things it turned up (branch `feat/offline-service`)
 
 "I haven't done any testing with the offline function. Would it be possible to
