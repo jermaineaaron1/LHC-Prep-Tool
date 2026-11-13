@@ -3567,6 +3567,45 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songs-data-loss-harness.js` checks it, running `updateForm`
     against a fake database.
 
+93. **What the Songbook changes reaches the wall when it should, and only
+    then.** From the same review (2026-11-12):
+    - `addSongToServiceSection` selected -- and so PROJECTED -- the first
+      slide of every song it drew. Another device's change redraws its songs
+      through it (`_orderSyncApplyDelta`), so a key moved on a phone put that
+      song's first verse up over the Gospel, and `_orderSyncRememberLive` only
+      puts back a song or liturgy slide, not a reading's. It takes `noSelect`
+      now, passed by the sync path and by the Songbook's Add a song
+      (`_woAddSongToSection`); the LCD's own inserts still select.
+    - `sbApplyBroadcast` took another device's `richLyrics` and never its
+      `customLyrics`, so this device SHOWED the new words and kept the old
+      ones underneath: its editor opened on them, the save's check (gotcha 61)
+      compared them with themselves, and the save put the old words back --
+      on the wall too. It takes the words now (outside typing in that song),
+      and an editor open on the copy sees the change and refuses its save.
+    - `_sbSlidesFollow(song, before)` is the one way a copy's slides follow
+      its words: split again (`refreshSongSlidesInOrder`, gotcha 84) and the
+      wall sent again -- ONLY when `_sbProjectionWords` of the words changed.
+      `_sbSetCopyWords` used to re-split on every call, so a few lines
+      transposed or a chord typed on the choir pad threw away the operator's
+      own slide work for no change on the wall. Versions and earlier
+      arrangements (`_sbVerSetWords`, `_sbVerRestore`, and so `_sbArrApply`,
+      `_sbArrRestore` and every Undo) never re-split at all: a version's verse
+      3 reached the band and not the congregation.
+    - `refreshSongSlidesInOrder` writes on the page the heading the data
+      kept (the song's marker, or the one the operator typed, gotcha 73) --
+      the same-count path used to remove a typed one from the page, which is
+      what gets saved -- and a re-split with a different count selects again
+      the slide that was selected, at its place, so the wall gets the new
+      words and the clicker does not jump to the top of the service.
+    - The builder's Insert -> Song after a medley's song (`_lbdAddSong`) goes
+      after the whole medley, never into it (gotcha 42).
+    Not done, by size: backgrounds after a remote redraw are re-pinned by
+    position only within the map the redraw compacts; a Songbook open on
+    another device writes back the template (sections, medleys) it loaded;
+    the builder's Undo restores `songOrderSections` whole, over Songbook
+    changes made since. `tools/songbook-lcd-builder-harness.js` checks the
+    rest, running `_sbSlidesFollow`, `_sbVerSetWords` and `_lbdAddSong`.
+
 ## Quick Commands for Claude Code
 
 ```bash

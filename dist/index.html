@@ -35960,7 +35960,7 @@ var WO = (function() {
     });
     Object.keys(scratch.serviceSectionSongs).forEach(function(sec) {
       scratch.serviceSectionSongs[sec].forEach(function(entry) {
-        addSongToServiceSection(sec, entry, true);
+        addSongToServiceSection(sec, entry, true, true);
       });
     });
     if (!window.serviceSectionItems) window.serviceSectionItems = {};
@@ -42418,7 +42418,7 @@ var WO = (function() {
       songOrderSections.push(entry);
     }
     _lbdSortSongsByService();
-    if ($(secId + '-boxes')) addSongToServiceSection(secId, entry, true);
+    if ($(secId + '-boxes')) addSongToServiceSection(secId, entry, true, true);
     currentOrderData.songs = songOrderSections.slice();
     autoSaveOrder();
     return entry;
@@ -60866,6 +60866,7 @@ var WO = (function() {
   // the copy's first words, the song's as it was added), and from now on
   // its drawn remarks.
   function _sbVerSetWords(song, v) {
+    var before = song.lyrics;
     if (!v || (v.lyrics == null && v.rich_lyrics == null)) {
       var lib = _lbdLibSong(song.songId);
       song.lyrics = song.masterLyrics || (lib && lib.lyrics) || song.lyrics || '';
@@ -60880,6 +60881,9 @@ var WO = (function() {
     songOriginalLyrics[song.id] = song.lyrics;
     songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(song.lyrics);
     _sbCanonicalText[song.id] = song.lyrics;
+    // A version's words on the wall too (review, 2026-11-12): they reached
+    // the band's screens and never the projected slides.
+    _sbSlidesFollow(song, before);
   }
   function _sbVerSetKey(song, want) {
     var cur = _sbVerSteps(song);
@@ -60893,10 +60897,12 @@ var WO = (function() {
     return o;
   }
   function _sbVerRestore(song, snap) {
+    var before = song.lyrics;
     _SB_VER_FIELDS.forEach(function(k) { song[k] = snap[k]; });
     songOriginalLyrics[song.id] = song.lyrics;
     songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
     _sbCanonicalText[song.id] = song.lyrics;
+    _sbSlidesFollow(song, before);
     _sbVerSetKey(song, snap.steps);
   }
   function _sbVerApply(song, v) {
@@ -67854,6 +67860,24 @@ var WO = (function() {
           p.words = true;
           p.label = p.label || 'editing';
         }
+        // The words themselves, not only how they are drawn (review,
+        // 2026-11-12): with richLyrics alone this device SHOWED the new words
+        // and kept the old ones underneath -- its editor opened on them, its
+        // own check passed, and its save put the old words back, on the wall
+        // too. An editor open on this copy now sees the change and refuses
+        // its save (gotcha 61), which is right.
+        if (typeof inc.customLyrics === 'string' && inc.customLyrics !== (song.customLyrics || '')) {
+          song.customLyrics = inc.customLyrics;
+          song.hasCustomLyrics = !!inc.customLyrics;
+          song.lyrics = inc.customLyrics || song.masterLyrics || song.lyrics || '';
+          if (inc.richLyrics != null) song.customRichLyrics = inc.richLyrics;
+          songOriginalLyrics[song.id] = song.lyrics;
+          if (song.richLyrics) songOriginalRichLyrics[song.id] = song.richLyrics;
+          _sbCanonicalText[song.id] = song.lyrics;
+          p.lyrics = true;
+          p.words = true;
+          p.label = p.label || 'editing';
+        }
 
         // ── Transpose ──────────────────────────────────────────────────────────
         if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
@@ -69843,8 +69867,12 @@ var WO = (function() {
           contentEl.innerHTML = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
         }
         var headerEl = box.querySelector('.wo-slide-section-header');
-        var headerHtml = slide.header
-          ? '<div class="wo-slide-section-header ' + getSectionTypeClass(slide.header) + '">' + escapeHtml(slide.header) + '</div>'
+        // The heading kept in the data (the song's own marker, or the one the
+        // operator typed): the page is what gets saved, and it used to drop a
+        // typed heading the data had kept (review, 2026-11-12).
+        var hdr = (newSavedSlides[idx] && newSavedSlides[idx].header) || '';
+        var headerHtml = hdr
+          ? '<div class="wo-slide-section-header ' + getSectionTypeClass(hdr) + '">' + escapeHtml(hdr) + '</div>'
           : '';
         if (headerHtml && !headerEl) {
           if (contentEl) contentEl.insertAdjacentHTML('beforebegin', headerHtml);
@@ -69857,6 +69885,11 @@ var WO = (function() {
     }
 
     // Different slide count — re-render slide boxes in place after the banner
+    // The slide that was selected -- on the wall, when projecting -- is
+    // selected again at its place afterwards, or the wall kept the old words
+    // and the next clicker press went to the top of the service.
+    var selAt = -1;
+    existingBoxes.forEach(function(box, i) { if (box.classList.contains('selected')) selAt = i; });
     existingBoxes.forEach(function(box) { box.remove(); });
     var addSlideRow = boxesContainer.querySelector('.wo-add-slide-row[data-song-id="' + songId + '"]');
     if (addSlideRow) addSlideRow.remove();
@@ -69865,9 +69898,10 @@ var WO = (function() {
     var insertAfter = banner || boxesContainer;
 
     newSlides.forEach(function(slide, idx) {
-      var headerClass = getSectionTypeClass(slide.header);
-      var headerHtml = slide.header
-        ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>'
+      var hdr2 = (newSavedSlides[idx] && newSavedSlides[idx].header) || '';
+      var headerClass = getSectionTypeClass(hdr2);
+      var headerHtml = hdr2
+        ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(hdr2) + '</div>'
         : '';
       var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
@@ -69886,6 +69920,11 @@ var WO = (function() {
       '<i class="fa-solid fa-plus"></i> Add Slide</button>' +
       '<span class="wo-add-slide-hint">or dbl-click slide → <kbd>Shift+Enter</kbd> to split</span></div>';
     insertAfter.insertAdjacentHTML('afterend', addSlideBtnHtml);
+    if (selAt > -1) {
+      var again = boxesContainer.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]');
+      var back = again[Math.min(selAt, again.length - 1)];
+      if (back) selectSlideBox(back);
+    }
   }
 
   // Transpose a single chord token using sharps/flats based on direction
@@ -70351,10 +70390,25 @@ var WO = (function() {
     }).join('\n');
   }
 
+  // The words a copy projects changed: its slides split again (gotcha 84) and
+  // the slide on the wall sent again. Not when only chord lines moved -- a
+  // few lines transposed, a chord typed on the choir pad: the projected words
+  // are the same, and a re-split threw away the operator's own slide work
+  // (review, 2026-11-12). before: the copy's words before the change.
+  function _sbSlidesFollow(song, before) {
+    if (!song || typeof refreshSongSlidesInOrder !== 'function') return false;
+    var now = _sbProjectionWords(song.lyrics || '');
+    if (before != null && _sbProjectionWords(before) === now) return false;
+    refreshSongSlidesInOrder(song.id, now, { keepLyrics: true });
+    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }
+    return true;
+  }
+
   // This copy's words replaced and saved: the editor's Save, and a few lines
   // transposed on their own.
   function _sbSetCopyWords(song, lyrics) {
     var sid = song.id;
+    var before = song.lyrics;
     song.lyrics = lyrics;
     song.richLyrics = formatLyricsWithHighlights(lyrics);
     song.customLyrics = lyrics;
@@ -70376,12 +70430,9 @@ var WO = (function() {
     // except the one place a congregation reads them. Before the saves: a
     // save serialises the schedule's DOM whenever it is on the page
     // (gotcha 35), and this is what brings that DOM into line.
-    if (typeof refreshSongSlidesInOrder === 'function') {
-      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });
-    }
     // Projecting on THIS device: the schedule has just changed under a
-    // running projection, so send the slide again (gotcha 82).
-    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }
+    // running projection, so the slide is sent again (gotcha 82).
+    _sbSlidesFollow(song, before);
 
     // Saved both ways, as a version chosen is: the quick sync, and the full
     // save that keeps the words (a standalone book reads them from it).
@@ -78253,7 +78304,13 @@ var WO = (function() {
         return;
       }
       var entry = existing ? _woSongCopy(existing, secId) : _woNewSongEntry(libSong, secId);
-      var after = afterSongId ? songOrderSections.indexOf(_lbdSong(afterSongId)) : -1;
+      // After a medley, never into it (gotcha 42, review 2026-11-12): a plain
+      // splice after its first song split it on the page, the LCD and the
+      // shared liturgy.
+      var afterSong = afterSongId ? _lbdSong(afterSongId) : null;
+      var md = afterSong ? _woMedleyOf(afterSong.id) : null;
+      if (md && md.medley.songs.length) afterSong = _lbdSong(md.medley.songs[md.medley.songs.length - 1]) || afterSong;
+      var after = afterSong ? songOrderSections.indexOf(afterSong) : -1;
       if (after >= 0) songOrderSections.splice(after + 1, 0, entry);
       else songOrderSections.push(entry);
       _lbdSortSongsByService();
@@ -85225,7 +85282,11 @@ var WO = (function() {
 
   // Add song to service order section
   // silent=true suppresses the duplicate toast (used during initialization)
-  function addSongToServiceSection(sectionId, songSection, silent) {
+  // noSelect: drawn in from elsewhere -- another device's change, the
+  // Songbook's Add a song -- so the slide on the wall stays on the wall
+  // (review, 2026-11-12). Selecting a slide is what projects it: a key moved
+  // on a phone put that song's first verse up over the Gospel.
+  function addSongToServiceSection(sectionId, songSection, silent, noSelect) {
     var boxesContainer = $(sectionId + '-boxes');
     if (!boxesContainer) return;
 
@@ -85384,7 +85445,7 @@ var WO = (function() {
     }
 
     // Auto-select the first slide of this song
-    if (firstSlideBox) {
+    if (firstSlideBox && !noSelect) {
       selectSlideBox(firstSlideBox);
     }
   }
