@@ -3513,6 +3513,16 @@ the anon key -- verify as `postgres`, not as the app.
       or its words' editor at the line (`sbOpenLyricsEditor` with
       `_sbmTapLine`, which stamps the card's anchors first -- a card whose
       drawings had not loaded had none).
+    - **Closing with changes not saved asks by a TOAST, not the browser's
+      box** (the operator, 2026-11-12, on a screenshot of "Discard your
+      changes?": "design toast for discard save"). `_sbmAskUnsaved` --
+      from the foot of the screen, over the pad (z-index 10004), the amber
+      edge of the songbook's warnings: Keep editing (focused; Esc and a tap
+      elsewhere do the same), Discard, Save. It resolves 'keep' | 'discard' |
+      'save'; asked again while up it nudges. The pad (`sbmPadCancel`) and the
+      library's parts editor (`sbmEdCancel`) both use it; while it is up their
+      key handlers stand down, and closing the editor takes it down
+      (`_sbmUnsavedDrop`).
     - Book Mode's choir notepad (gotcha 67) is untouched: its own inline
       format ("Women: ..."), its own save path.
     `tools/songbook-choir-pad-harness.js` checks it, running the reader and

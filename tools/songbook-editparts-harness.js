@@ -145,6 +145,9 @@ try {
     // Moving the drawn remarks with their lines is the marks' business,
     // checked in songbook-review-harness.js.
     '\nfunction _sbmRekeyMarks() { return Promise.resolve(0); }' +
+    // The unsaved-changes toast (2026-11-12) is checked in
+    // songbook-choir-pad-harness.js; no pad is open over this editor here.
+    '\nvar _sbmPad = null;\nfunction _sbmUnsavedDrop() {}' +
     '\nreturn {' +
     '  get ed() { return _sbmEd; }, set ed(v) { _sbmEd = v; },' +
     '  fromRows: _sbmEdFromRows, toText: _sbmEdToText, find: _sbmEdFind, nextName: _sbmEdNextName,' +
