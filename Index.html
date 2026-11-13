@@ -34422,6 +34422,302 @@ var SBQ_LECT_SOURCES = {
   }
 };
 
+// ================================================================
+// SBQ_PRAYERS -- the Prayer of the Day, one per service date (2026-11-13).
+//
+// Imported from the church's own document (Readings > Import prayers) and
+// edited on the Readings page. Three readers: the Liturgy Builder and LCD
+// Projection put it into an upcoming order's "Prayer of the Day" slides
+// (WO._woAutoPrayer), and the Sunday bulletin prints it (BLT). A row is
+// keyed as the Readings page keys a service: 'YYYY-MM-DD', '|pm' on the end
+// for an evening service on a day that also has a morning one.
+//
+// Not a roster row, unlike the readings (gotcha 5): a prayer is a paragraph,
+// and the roster grid has nowhere to show one. The table arrives with
+// migrations/2026-11-13_day_prayers.sql; until it is run every read answers
+// "no prayer" and _missing says why, so the pages can say so rather than
+// look empty.
+// ================================================================
+var SBQ_PRAYERS = {
+  _sb: function() { return getSupabaseClient(); },
+  _missing: false,
+  _cache: {},          // key -> { row: row|null, at: ms }
+  _FRESH_MS: 5 * 60 * 1000,
+
+  _absent: function(msg) {
+    var m = String(msg || '');
+    return m.indexOf('PGRST205') !== -1 || m.indexOf('42P01') !== -1 ||
+           (m.indexOf('day_prayers') !== -1 && (m.indexOf('not find') !== -1 || m.indexOf('does not exist') !== -1));
+  },
+
+  _soften: function(err, fallback) {
+    var msg = (err && err.message) ? err.message : String(err || '');
+    if (SBQ_PRAYERS._absent(msg)) {
+      if (!SBQ_PRAYERS._missing) {
+        console.warn('[LHC] day_prayers is not in the database yet, so no Prayer of the Day can be read or ' +
+          'saved. Run migrations/2026-11-13_day_prayers.sql in the Supabase SQL editor.');
+      }
+      SBQ_PRAYERS._missing = true;
+      return fallback;
+    }
+    console.warn('[LHC] day_prayers:', msg);
+    return fallback;
+  },
+
+  _fromRow: function(row) {
+    if (!row) return null;
+    return {
+      key: row.service_key,
+      prayer: String(row.prayer || ''),
+      occasion: row.occasion || '',
+      sourceFile: row.source_file || '',
+      sourceUrl: row.source_url || '',
+      updatedAt: row.updated_at || ''
+    };
+  },
+
+  _put: function(key, row) { SBQ_PRAYERS._cache[key] = { row: row || null, at: Date.now() }; },
+
+  // Every prayer in [fromIso, toIso], evening services included, as
+  // { key: row }. Keys sort as dates do, so the range is a plain text range;
+  // '|~' sorts after '|pm', so the last day's evening service is inside it.
+  getRange: function(fromIso, toIso) {
+    var sb = SBQ_PRAYERS._sb();
+    if (!sb) return Promise.resolve({});
+    return Promise.resolve(
+      sb.from('day_prayers').select('*')
+        .gte('service_key', String(fromIso)).lte('service_key', String(toIso) + '|~')
+        .order('service_key', { ascending: true })
+    ).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      SBQ_PRAYERS._missing = false;
+      var out = {};
+      (r.data || []).forEach(function(row) {
+        var p = SBQ_PRAYERS._fromRow(row);
+        out[p.key] = p;
+        SBQ_PRAYERS._put(p.key, p);
+      });
+      return out;
+    }).catch(function(e) { return SBQ_PRAYERS._soften(e, {}); });
+  },
+
+  // One service's prayer, or null. An evening key with no prayer of its own
+  // falls back to the day's: a document lists dates, not services.
+  get: function(key, opts) {
+    key = String(key || '');
+    if (!/^\d{4}-\d{2}-\d{2}/.test(key)) return Promise.resolve(null);
+    var hit = SBQ_PRAYERS._cache[key];
+    if (hit && !(opts && opts.fresh) && Date.now() - hit.at < SBQ_PRAYERS._FRESH_MS) {
+      if (hit.row || key.length === 10) return Promise.resolve(hit.row);
+    }
+    var day = key.slice(0, 10);
+    return SBQ_PRAYERS.getRange(day, day).then(function(rows) {
+      if (!rows[key]) SBQ_PRAYERS._put(key, null);
+      return rows[key] || rows[day] || null;
+    });
+  },
+
+  // Upserts the rows and reads them back: a row the next reader cannot
+  // read has not been saved. Resolves to the number read back.
+  saveMany: function(list) {
+    var sb = SBQ_PRAYERS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var now = new Date().toISOString();
+    var rows = (list || []).filter(function(x) { return x && x.key && String(x.prayer || '').trim(); })
+      .map(function(x) {
+        return { service_key: String(x.key), prayer: String(x.prayer).trim(),
+                 occasion: x.occasion || null, source_file: x.sourceFile || null,
+                 source_url: x.sourceUrl || null, updated_at: now };
+      });
+    if (!rows.length) return Promise.resolve(0);
+    var keys = rows.map(function(r) { return r.service_key; });
+    var batches = [];
+    for (var i = 0; i < rows.length; i += 100) batches.push(rows.slice(i, i + 100));
+    return batches.reduce(function(p, b) {
+      return p.then(function() {
+        return Promise.resolve(sb.from('day_prayers').upsert(b, { onConflict: 'service_key' })).then(function(r) {
+          if (r.error) {
+            if (SBQ_PRAYERS._absent(r.error.message)) SBQ_PRAYERS._missing = true;
+            throw new Error(r.error.message);
+          }
+        });
+      });
+    }, Promise.resolve()).then(function() {
+      return Promise.resolve(sb.from('day_prayers').select('*').in('service_key', keys));
+    }).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      (r.data || []).forEach(function(row) { var p = SBQ_PRAYERS._fromRow(row); SBQ_PRAYERS._put(p.key, p); });
+      return (r.data || []).filter(function(row) {
+        var want = rows.filter(function(x) { return x.service_key === row.service_key; })[0];
+        return want && String(row.prayer || '') === want.prayer;
+      }).length;
+    });
+  },
+
+  set: function(key, prayer, extra) {
+    var x = Object.assign({ key: key, prayer: prayer }, extra || {});
+    return SBQ_PRAYERS.saveMany([x]).then(function(n) {
+      if (!n) throw new Error('The prayer did not save.');
+      return n;
+    });
+  },
+
+  remove: function(key) {
+    var sb = SBQ_PRAYERS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return Promise.resolve(sb.from('day_prayers').delete().eq('service_key', String(key))).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      SBQ_PRAYERS._put(String(key), null);
+      return true;
+    });
+  }
+};
+window.SBQ_PRAYERS = SBQ_PRAYERS;
+
+// How a Prayer of the Day becomes slides, and when it is put into an order.
+// Pure, and outside the modules, so the Builder, LCD Projection and the
+// bulletin share one reading of it and tools/day-prayer-harness.js can run
+// it. The rules:
+//
+//  - The order's own "Prayer of the Day" liturgy keeps its shape. The
+//    church's is two slides: "L: The Lord be with you / C: And also with
+//    you.", then "Prayer of The Day / L: Let us pray / C :" with the C left
+//    for the liturgist to fill. Everything before the heading slide stays as
+//    it is; the heading slide keeps its lines up to "Let us pray"; the prayer
+//    follows after the speaker the slide names (C, A, All...), C by default;
+//    and the slides after it, which were the old prayer, are replaced.
+//  - The words are split between slides at sentence ends, and a sentence too
+//    long for one slide at its commas, into parts of about even length; the
+//    first part shares the heading slide, so it is kept shorter. A closing
+//    "Amen." gets a line of its own.
+//  - An upcoming order is given the date's prayer, replacing what it has
+//    (the operator asked, 2026-11-13: several orders still carried one old
+//    prayer copied from week to week). What was put in is noted on the order
+//    (template.dayPrayer); once noted, the order is left alone -- its words
+//    are the liturgist's -- until the imported prayer itself changes.
+window.lhcDayPrayer = (function() {
+  var HEAD_RE = /prayer\s+of\s+the\s+day|^\s*(the\s+)?collect\b/i;
+  var PRAY_RE = /let\s+us\s+pray/i;
+  var SPEAKER_RE = /^\s*(C|A|P|L|All|People|Congregation)\s*:/i;
+
+  function _dpNorm(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
+
+  // The prayer's words in slide-sized parts.
+  function _dpSplit(text, firstMax, max) {
+    firstMax = firstMax || 140; max = max || 220;
+    var t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    if (!t) return [];
+    var amen = '';
+    var am = /\s*\b(amen)([.!]?)\s*$/i.exec(t);
+    if (am) { amen = am[1].charAt(0).toUpperCase() + am[1].slice(1).toLowerCase() + (am[2] || '.'); t = t.slice(0, am.index).trim(); }
+    var pieces = [];
+    var sentences = t.match(/[^.!?;:]+(?:[.!?;:]+["'’”)\]]*|$)/g) || [];
+    sentences.map(function(s) { return s.trim(); }).filter(Boolean).forEach(function(s) {
+      if (s.length <= max) { pieces.push(s); return; }
+      // Too long for a slide: its clauses, in about even parts.
+      var clauses = s.match(/[^,]+(?:,|$)/g) || [s];
+      var parts = Math.ceil(s.length / max), target = s.length / parts, cur = '';
+      clauses.map(function(c) { return c.trim(); }).filter(Boolean).forEach(function(c) {
+        while (c.length > max) {
+          var cut = c.lastIndexOf(' ', max);
+          if (cut < 20) cut = max;
+          if (cur) { pieces.push(cur); cur = ''; }
+          pieces.push(c.slice(0, cut).trim());
+          c = c.slice(cut).trim();
+        }
+        if (cur && (cur.length >= target || cur.length + 1 + c.length > max)) { pieces.push(cur); cur = ''; }
+        cur = cur ? cur + ' ' + c : c;
+      });
+      if (cur) pieces.push(cur);
+    });
+    var out = [], cur = '';
+    pieces.forEach(function(p) {
+      var limit = out.length ? max : firstMax;
+      if (cur && cur.length + 1 + p.length > limit) { out.push(cur); cur = ''; }
+      cur = cur ? cur + ' ' + p : p;
+    });
+    if (cur) out.push(cur);
+    if (amen) {
+      if (out.length) out[out.length - 1] += '\n\n' + amen;
+      else out.push(amen);
+    }
+    return out;
+  }
+
+  // The order's slide texts with the prayer put in. Returns the new texts.
+  function _dpSlides(oldTexts, prayer) {
+    var old = (oldTexts || []).map(function(s) { return String(s == null ? '' : s).replace(/\r/g, ''); });
+    var parts = _dpSplit(prayer);
+    if (!parts.length) return old.slice();
+    var h = -1;
+    for (var i = 0; i < old.length && h < 0; i++) {
+      if (old[i].split('\n').some(function(l) { return HEAD_RE.test(l); })) h = i;
+    }
+    var keep, prefix, who = 'C';
+    if (h >= 0) {
+      keep = old.slice(0, h);
+      var lines = old[h].split('\n'), stop = -1, j;
+      for (j = 0; j < lines.length; j++) { if (PRAY_RE.test(lines[j])) { stop = j; break; } }
+      if (stop < 0) { for (j = 0; j < lines.length; j++) { if (HEAD_RE.test(lines[j])) { stop = j; break; } } }
+      for (j = stop + 1; j < lines.length; j++) {
+        var sm = SPEAKER_RE.exec(lines[j]);
+        if (sm) { who = sm[1].length === 1 ? sm[1].toUpperCase() : sm[1].charAt(0).toUpperCase() + sm[1].slice(1).toLowerCase(); break; }
+      }
+      prefix = lines.slice(0, stop + 1).join('\n').replace(/\s+$/, '');
+    } else {
+      // No heading slide: the salutation, if it opens the item, stays; the
+      // heading is written as the church's own liturgy has it.
+      keep = [];
+      for (var k = 0; k < old.length && /be\s+with\s+you|also\s+with\s+you/i.test(old[k]); k++) keep.push(old[k]);
+      prefix = 'Prayer of The Day\n\nL: Let us pray';
+    }
+    var first = prefix + '\n\n' + who + ': ' + parts[0];
+    return keep.concat([first], parts.slice(1));
+  }
+
+  function _dpSameSlides(a, b) {
+    a = a || []; b = b || [];
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) { if (_dpNorm(a[i]) !== _dpNorm(b[i])) return false; }
+    return true;
+  }
+
+  // What to do with one order: 'apply' (replace with the imported prayer),
+  // 'note' (already says it -- record it, change nothing), 'keep' (put in
+  // before; what is there now is the liturgist's), or 'none'.
+  function _dpPlan(noted, oldTexts, prayer) {
+    if (!_dpNorm(prayer)) return 'none';
+    if (_dpSameSlides(oldTexts, _dpSlides(oldTexts, prayer))) return 'note';
+    if (noted && _dpNorm(noted.text) === _dpNorm(prayer)) return 'keep';
+    return 'apply';
+  }
+
+  // The order's Prayer of the Day: its section (by name), and the liturgy
+  // in it that carries the prayer. sections: [{ id, title }]; items: the
+  // order's non-song items. null when the order has no such section.
+  function _dpTarget(sections, items) {
+    var sec = (sections || []).filter(function(s) { return s && HEAD_RE.test(String(s.title || '')); })[0];
+    if (!sec) return null;
+    var lits = (items || []).filter(function(it) { return it && it.itemType === 'liturgy' && it.sectionId === sec.id; });
+    var texts = function(it) { return (it.slides || []).map(function(s) { return (s && s.content) || ''; }).join('\n'); };
+    var item = lits.filter(function(it) { return HEAD_RE.test(String(it.title || '')); })[0] ||
+               lits.filter(function(it) { return HEAD_RE.test(texts(it)); })[0] ||
+               lits[0] || null;
+    return { sectionId: sec.id, item: item };
+  }
+
+  // A rich field's plain words, for comparing a typed prayer with an
+  // imported one (the bulletin's prayer is sanitised HTML).
+  function _dpPlain(html) {
+    return String(html == null ? '' : html).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+  }
+
+  return { split: _dpSplit, slides: _dpSlides, same: _dpSameSlides, plan: _dpPlan,
+           target: _dpTarget, norm: _dpNorm, plain: _dpPlain };
+})();
+
 var SBQ_SONGS = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -39368,6 +39664,7 @@ var WO = (function() {
       _lbdSetActive(true);
       lbdRender();
       _woAutoReadings('liturgy');
+      _woAutoPrayer('liturgy');
     } else if (orderType === 'song') {
       // The old Song Order list, kept behind More while it is retired. It is
       // not one of the three steps, so no tab lights for it.
@@ -39408,6 +39705,7 @@ var WO = (function() {
       _lcdServiceInitAt = Date.now();
       _lcdUpdateProgramBarrier();
       _woAutoReadings('service');
+      _woAutoPrayer('service');
       // Put the selection at the top of the schedule once the groups have all
       // rendered -- each one grabs it for its own first slide on the way in.
       setTimeout(_lcdSelectFirstSlideOnce, 250);
@@ -79419,6 +79717,190 @@ var WO = (function() {
     })();
   }
 
+  // ── This date's Prayer of the Day, put in by itself (2026-11-13) ───────
+  //
+  // The prayers are imported per date on the Readings page (SBQ_PRAYERS).
+  // An upcoming order opened in the Liturgy Builder or LCD Projection gets
+  // its date's prayer in its "Prayer of the Day" liturgy, each step by its
+  // own path, as the readings are (_woAutoReadings): the builder through
+  // _lbdChange on the data, LCD Projection on its schedule once it is in the
+  // page (gotcha 35). The operator chose (2026-11-13) that the imported
+  // prayer REPLACES what the order had -- several Traditional orders carried
+  // one old prayer copied from week to week -- with Undo on the toast.
+  //
+  // What was put in is noted on the order, template.dayPrayer = { iso,
+  // text }, and is not in the builder's undo snapshot: after Undo the note
+  // stays, so the order keeps its own words and is not given the prayer
+  // again on the next opening. A noted order is left alone until the
+  // imported prayer itself changes (lhcDayPrayer.plan). A past order is
+  // never touched; nor is a songbook's pseudo-order.
+  var _woAutoPrayerDone = {};
+
+  // The order's service as the Readings page keys it: 'YYYY-MM-DD', with
+  // '|pm' for an evening service ("Dec 31 PM").
+  function _woOrderIso(order) {
+    var when = _woOrderWhen(order);
+    if (isNaN(when)) return '';
+    var d = new Date(when);
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    var iso = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    if (/\bpm\b/i.test(String((order && order.serviceDate) || ''))) iso += '|pm';
+    return iso;
+  }
+
+  function _woPrayerNoted(order, iso) {
+    var n = order && order.template && order.template.dayPrayer;
+    return (n && typeof n === 'object' && n.iso === iso) ? n : null;
+  }
+
+  function _woNotePrayer(order, iso, text) {
+    if (!order) return;
+    if (!order.template) order.template = {};
+    order.template.dayPrayer = { iso: iso, text: String(text || '') };
+  }
+
+  function _woPrayerWhen(iso) {
+    var p = String(iso || '').slice(0, 10).split('-');
+    if (p.length !== 3) return '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+
+  // step: 'liturgy' (the builder) or 'service' (the LCD's schedule).
+  function _woAutoPrayer(step) {
+    var tries = 0;
+    (function go() {
+      if (_loadingOrder && ++tries < 80) { setTimeout(go, 150); return; }
+      var o = currentOrderData;
+      if (!o || !o.id || _sbStandaloneId || String(o.id).indexOf('standalone_') === 0) return;
+      var key = o.id + '|' + step;
+      if (_woAutoPrayerDone[key] || !_woOrderIsUpcoming(o)) return;
+      if (step === 'service' && !_woLcdInPage()) { if (++tries < 40) setTimeout(go, 150); return; }
+      if (step === 'liturgy' && !_lbdIsActive()) return;
+      if (typeof SBQ_PRAYERS === 'undefined' || !window.lhcDayPrayer) return;
+      var iso = _woOrderIso(o);
+      if (!iso) return;
+      _woAutoPrayerDone[key] = true;
+      SBQ_PRAYERS.get(iso).then(function(row) {
+        if (!row || !row.prayer || currentOrderData !== o) return;
+        if (step === 'liturgy') _woPrayerIntoData(o, row, iso);
+        // The schedule draws its groups over the next moment; the prayer
+        // goes in once they are all down.
+        else setTimeout(function() { _woPrayerIntoLcd(o, row, iso); }, 400);
+      });
+    })();
+  }
+
+  // The builder: the order's data, one undoable change.
+  function _woPrayerIntoData(order, row, iso) {
+    if (currentOrderData !== order || _woLcdInPage() || !_lbdIsActive()) return false;
+    var D = window.lhcDayPrayer;
+    var t = D.target(_woSectionList(), order.allItems || []);
+    if (!t || !t.item) return false;
+    var id = t.item.id;
+    var old = (t.item.slides || []).map(function(s) { return (s && s.content) || ''; });
+    var plan = D.plan(_woPrayerNoted(order, iso), old, row.prayer);
+    if (plan === 'none' || plan === 'keep') return false;
+    if (plan === 'note') { _woNotePrayer(order, iso, row.prayer); autoSaveOrder(); return false; }
+    var next = D.slides(old, row.prayer);
+    var done = _lbdChange(function() {
+      var cur = _lbdItem(id);
+      if (!cur) return false;
+      var was = Array.isArray(cur.slides) ? cur.slides : [];
+      cur.slides = next.map(function(text, k) {
+        var o = was[k] || {};
+        // A slide kept word for word (the greeting) keeps its formatting.
+        var kept = o.content != null && D.norm(o.content) === D.norm(text);
+        return { index: k, content: text, background: o.background || '', richHtml: kept ? (o.richHtml || null) : null };
+      });
+      _woNotePrayer(currentOrderData, iso, row.prayer);
+    });
+    if (done) showToast('Put in the Prayer of the Day for ' + _woPrayerWhen(iso) +
+      (row.sourceFile ? ' (from ' + row.sourceFile + ')' : ''), 'success', _woUndoOpts());
+    return done;
+  }
+
+  // LCD Projection: the schedule IS what a save reads while it is in the
+  // page, so the prayer is written into its slide boxes, as an operator's
+  // edit would be, one step on the LCD's own undo stack. Found by what the
+  // schedule shows -- the section named "Prayer of the Day" and the liturgy
+  // drawn in it -- because a liturgy the template filled in is on the
+  // schedule before it is anywhere in the data.
+  function _woPrayerLcdItems() {
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return { sections: [], items: [] };
+    var sections = [], items = [];
+    Array.prototype.forEach.call(root.querySelectorAll('.wo-worship-section'), function(el) {
+      var t = el.querySelector('.wo-section-title');
+      var sec = { id: el.id, title: t ? t.textContent : '' };
+      sections.push(sec);
+      var host = document.getElementById(el.id + '-boxes');
+      if (!host) return;
+      Array.prototype.forEach.call(host.querySelectorAll('.wo-liturgy-banner-bar[data-liturgy-id]'), function(bar) {
+        var lid = bar.getAttribute('data-liturgy-id');
+        var info = bar.querySelector('.wo-liturgy-banner-info');
+        var pill = info && info.querySelector('.wo-liturgy-type-pill');
+        var title = info ? info.textContent.replace(pill ? pill.textContent : '', '').trim() : '';
+        var boxes = Array.prototype.filter.call(host.querySelectorAll('.wo-slide-box.wo-liturgy-slide'), function(b) {
+          return b.getAttribute('data-liturgy-id') === lid;
+        });
+        items.push({ id: lid, itemType: 'liturgy', sectionId: el.id, title: title, boxes: boxes,
+                     slides: boxes.map(function(b) { return { content: _lcdSlideText(b.querySelector('.wo-slide-content')) }; }) });
+      });
+    });
+    return { sections: sections, items: items };
+  }
+
+  function _woPrayerIntoLcd(order, row, iso) {
+    if (currentOrderData !== order || !_woLcdInPage()) return false;
+    // Words held in the slide editor, or a slide being typed in, are the
+    // operator's: the prayer waits for the next opening rather than go
+    // in under them.
+    if ((typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) ||
+        document.querySelector('#woWorshipOrder .wo-slide-box textarea')) return false;
+    var D = window.lhcDayPrayer;
+    var found = _woPrayerLcdItems();
+    var t = D.target(found.sections, found.items);
+    if (!t || !t.item || !t.item.boxes.length) return false;
+    var old = t.item.slides.map(function(s) { return s.content || ''; });
+    var plan = D.plan(_woPrayerNoted(order, iso), old, row.prayer);
+    if (plan === 'none' || plan === 'keep') return false;
+    if (plan === 'note') { _woNotePrayer(order, iso, row.prayer); autoSaveOrder(); return false; }
+    var next = D.slides(old, row.prayer);
+    var boxes = t.item.boxes.slice(), sec = t.sectionId, lid = t.item.id;
+    _lcdPushUndo();
+    var bgs = _lcdCaptureSectionBgs(sec);
+    next.forEach(function(text, k) {
+      var box = boxes[k];
+      if (!box) {
+        var after = boxes[boxes.length - 1];
+        after.insertAdjacentHTML('afterend',
+          '<div class="wo-content-box wo-slide-box wo-liturgy-slide" data-section="' + _lbdEsc(sec) + '" data-liturgy-id="' + _lbdEsc(lid) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+            _buildSlideBoxHeader(0, 0, 'liturgy', lid, sec) +
+            '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
+            '<div class="wo-slide-content"><div class="wo-slide-line"></div></div>' +
+          '</div>');
+        box = after.nextElementSibling;
+        boxes.push(box);
+      }
+      if (D.norm(old[k]) !== D.norm(text)) _lcdWriteSlideText(box, text);
+    });
+    // The slides after the prayer were the old prayer's.
+    boxes.slice(next.length).forEach(function(b) {
+      if (b.classList.contains('selected')) selectedSlideBox = null;
+      b.remove();
+    });
+    renumberSlideBoxes(sec, lid, 'liturgy');
+    _lcdRestoreSectionBgs(sec, bgs);
+    _woNotePrayer(order, iso, row.prayer);
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    autoSaveOrder();
+    showToast('Put in the Prayer of the Day for ' + _woPrayerWhen(iso) +
+      (row.sourceFile ? ' (from ' + row.sourceFile + ')' : ''), 'success',
+      { action: 'Undo', duration: 8000, onAction: function() { _lcdUndo(); } });
+    return true;
+  }
+
   // ── A reading cut short, fetched whole (2026-11-11) ──────────────────────
   //
   // Until 2026-11-11 the passage service kept only the FIRST piece of a
@@ -103285,6 +103767,7 @@ var LiturgyModule = (function() {
       // Only in Day view: week and month show many services at once, and one
       // button there could not say which service it would put back.
       _renderReadingResetButton(_currentReadingDate);
+      _paintDayPrayer(onThisDay.slice().sort());
       // Re-read the source for THIS date: moving between services changes
       // which entry applies, and a mark left over from the last one would
       // claim a provenance this service never had.
@@ -103293,6 +103776,7 @@ var LiturgyModule = (function() {
     }
     var resetHost = document.getElementById('lectionaryResetHost');
     if (resetHost) resetHost.innerHTML = '';
+    _paintDayPrayer([]);
 
     if (!dates.length) {
       grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
@@ -103584,6 +104068,330 @@ var LiturgyModule = (function() {
       '<div class="bible-passage-text">' + text + '</div>';
   }
 
+  // ── The Prayer of the Day on the Readings page (2026-11-13) ────────────
+  //
+  // Under the readings in Day view: the date's prayer (SBQ_PRAYERS), where it
+  // came from, and Edit. The prayers arrive in bulk from the church's own
+  // document through Import prayers, which works as Import lectionary does:
+  // upload once, read once, review every date before anything is saved, and
+  // a prayer already saved that the document words differently is shown with
+  // both and kept until somebody picks the other. Whatever is saved here is
+  // what the Liturgy Builder, LCD Projection and the bulletin put in for that
+  // date (WO._woAutoPrayer, BLT).
+  var _dayPrayerTok = 0;
+
+  function _paintDayPrayer(keys) {
+    var host = document.getElementById('lectionaryDayPrayer');
+    if (!host) return;
+    if (!keys || !keys.length || typeof SBQ_PRAYERS === 'undefined') { host.innerHTML = ''; return; }
+    var tok = ++_dayPrayerTok;
+    if (!host.firstChild) host.innerHTML = '<div class="lit-day-prayer"><div class="lit-day-prayer__none">Looking for the Prayer of the Day…</div></div>';
+    Promise.all(keys.map(function(k) { return SBQ_PRAYERS.get(k); })).then(function(rows) {
+      if (tok !== _dayPrayerTok) return;
+      host.innerHTML = keys.map(function(k, i) { return _dayPrayerCard(k, rows[i], keys.length > 1); }).join('');
+    });
+  }
+
+  function _dayPrayerCard(key, row, several) {
+    var k = escapeHtml(key);
+    var evening = several && /\|pm$/.test(key) ? ' <span class="lit-day-prayer__when">Evening service</span>' : '';
+    var src = row
+      ? (row.sourceFile
+          ? '<span class="lit-day-prayer__src" title="Imported from this document"><i class="fa-solid fa-file-lines"></i>' + escapeHtml(row.sourceFile) + '</span>'
+          : '<span class="lit-day-prayer__src"><i class="fa-solid fa-pen"></i>typed here</span>')
+      : '';
+    var body;
+    if (SBQ_PRAYERS._missing) {
+      body = '<p class="lit-day-prayer__none">The prayers table is not in the database yet. Run <code>migrations/2026-11-13_day_prayers.sql</code> in the Supabase SQL editor, then import your document.</p>';
+    } else if (!row) {
+      body = '<p class="lit-day-prayer__none">No prayer for this date yet. Import your Prayers of the Day document, or type this one.</p>';
+    } else {
+      body = '<p class="lit-day-prayer__text">' + escapeHtml(row.prayer) + '</p>' +
+        '<div class="lit-day-prayer__where"><i class="fa-solid fa-circle-check"></i>Goes into this date’s order (Liturgy Builder and LCD) and the bulletin</div>';
+    }
+    return '<div class="lit-day-prayer">' +
+      '<div class="lit-day-prayer__hd">' +
+        '<span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + src +
+        '<span class="lit-day-prayer__gap"></span>' +
+        (SBQ_PRAYERS._missing ? '' :
+          '<button type="button" class="lit-day-prayer__btn" onclick="LiturgyModule.editDayPrayer(\'' + k + '\')">' +
+            '<i class="fa-solid ' + (row ? 'fa-pen' : 'fa-plus') + '"></i>' + (row ? 'Edit' : 'Type it') + '</button>') +
+      '</div>' + body + '</div>';
+  }
+
+  function _prayerKeyLabel(key) {
+    return _lectPrettyDate(key);
+  }
+
+  function editDayPrayer(key) {
+    closeDayPrayerEditor();
+    SBQ_PRAYERS.get(key, { fresh: true }).then(function(row) {
+      var el = document.createElement('div');
+      el.id = 'dayPrayerModal';
+      el.className = 'modal show';
+      el.innerHTML =
+        '<div class="modal-content lit-dp-modal" role="dialog" aria-modal="true" aria-labelledby="dayPrayerTtl">' +
+          '<div class="modal-header">' +
+            '<h2 id="dayPrayerTtl"><i class="fa-solid fa-hands-praying mr-2"></i> Prayer of the Day</h2>' +
+            '<button type="button" class="modal-close" onclick="LiturgyModule.closeDayPrayerEditor()" aria-label="Close">&times;</button>' +
+          '</div>' +
+          '<div class="lit-dp-body">' +
+            '<div class="lit-dp-when">' + escapeHtml(_prayerKeyLabel(key)) + (row && row.occasion ? ' · ' + escapeHtml(row.occasion) : '') + '</div>' +
+            '<label class="liturgy-form-label" for="dayPrayerText">The prayer</label>' +
+            '<textarea id="dayPrayerText" class="liturgy-form-input lit-dp-text" rows="8"></textarea>' +
+            '<p class="lect-import-hint">Saved for this date only. An upcoming order and the bulletin take it the next time they are opened.</p>' +
+            '<div id="dayPrayerErr" class="bible-passage-error" style="display:none;margin-top:10px;"></div>' +
+          '</div>' +
+          '<div class="bible-browser-actions lit-dp-acts">' +
+            (row ? '<button type="button" class="modal-btn modal-btn-secondary lit-dp-remove" onclick="LiturgyModule.removeDayPrayer(\'' + escapeHtml(key) + '\')"><i class="fa-solid fa-trash-can mr-1"></i>Remove</button>' : '') +
+            '<span style="flex:1"></span>' +
+            '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeDayPrayerEditor()">Cancel</button>' +
+            '<button type="button" class="modal-btn modal-btn-primary" id="dayPrayerSave" onclick="LiturgyModule.saveDayPrayer(\'' + escapeHtml(key) + '\')"><i class="fa-solid fa-check mr-1"></i>Save</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(el);
+      el.addEventListener('click', function(e) { if (e.target === el) closeDayPrayerEditor(); });
+      var ta = document.getElementById('dayPrayerText');
+      ta.value = row ? row.prayer : '';
+      ta.focus();
+      if (window.lhcCaretToStart) window.lhcCaretToStart(ta);
+    });
+  }
+
+  function closeDayPrayerEditor() {
+    var m = document.getElementById('dayPrayerModal');
+    if (m) m.remove();
+  }
+
+  function saveDayPrayer(key) {
+    var ta = document.getElementById('dayPrayerText');
+    var err = document.getElementById('dayPrayerErr');
+    var btn = document.getElementById('dayPrayerSave');
+    var text = ta ? ta.value.replace(/\s+/g, ' ').trim() : '';
+    if (err) err.style.display = 'none';
+    if (!text) {
+      if (err) { err.textContent = 'There are no words to save. Remove takes a prayer away.'; err.style.display = 'block'; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+    SBQ_PRAYERS.get(key).then(function(was) {
+      return SBQ_PRAYERS.set(key, text, { occasion: was ? was.occasion : '' });
+    }).then(function() {
+      closeDayPrayerEditor();
+      renderReadingSlots();
+      if (typeof showToast === 'function') showToast('Prayer of the Day saved for ' + _prayerKeyLabel(key), 'success');
+    }).catch(function(e) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i>Save'; }
+      if (err) { err.textContent = 'Not saved: ' + ((e && e.message) || e); err.style.display = 'block'; }
+    });
+  }
+
+  function removeDayPrayer(key) {
+    var ask = window.lhcAskDelete ? window.lhcAskDelete({
+      title: 'Remove this Prayer of the Day?', detail: _prayerKeyLabel(key), detailIcon: 'fa-hands-praying',
+      message: 'Orders already given it keep their words. Importing the document again brings it back.',
+      okLabel: 'Remove'
+    }) : Promise.resolve(window.confirm('Remove the Prayer of the Day for ' + _prayerKeyLabel(key) + '?'));
+    ask.then(function(yes) {
+      if (!yes) return;
+      SBQ_PRAYERS.remove(key).then(function() {
+        closeDayPrayerEditor();
+        renderReadingSlots();
+        if (typeof showToast === 'function') showToast('Prayer of the Day removed', 'success');
+      }).catch(function(e) {
+        if (typeof showToast === 'function') showToast('Could not remove it: ' + ((e && e.message) || e), 'error');
+      });
+    });
+  }
+
+  // ── Importing the Prayers of the Day ──────────────────────────────────
+  var _prayImport = null;   // { fileName, fileUrl, entries, warnings, existing }
+
+  function openPrayerImportModal() {
+    _prayImport = null;
+    closePrayerImportModal();
+    var el = document.createElement('div');
+    el.id = 'prayerImportModal';
+    el.className = 'modal show';
+    el.innerHTML =
+      '<div class="modal-content lect-import-modal">' +
+        '<div class="modal-header">' +
+          '<h2><i class="fa-solid fa-hands-praying mr-2"></i> Import Prayers of the Day</h2>' +
+          '<button type="button" class="modal-close" onclick="LiturgyModule.closePrayerImportModal()" aria-label="Close">&times;</button>' +
+        '</div>' +
+        '<div class="lect-import-body" id="prayImportBody"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function(e) { if (e.target === el) closePrayerImportModal(); });
+    _renderPrayImportUpload();
+  }
+
+  function closePrayerImportModal() {
+    var m = document.getElementById('prayerImportModal');
+    if (m) m.remove();
+  }
+
+  function _renderPrayImportUpload() {
+    var body = document.getElementById('prayImportBody');
+    if (!body) return;
+    body.innerHTML =
+      '<p class="lect-import-intro">Upload the document that gives the Prayer of the Day under each service date — a PDF or Word file. ' +
+      'Every dated prayer in it is read at once, and you review them all before anything is saved. Each one then goes into its date’s ' +
+      'order (Liturgy Builder and LCD Projection) and the bulletin.</p>' +
+      '<div class="lect-import-field">' +
+        '<label class="liturgy-form-label" for="prayImportFile">Document</label>' +
+        '<input type="file" id="prayImportFile" accept=".pdf,.doc,.docx" class="liturgy-form-input">' +
+      '</div>' +
+      '<div class="lect-import-field">' +
+        '<label class="liturgy-form-label" for="prayImportYear">Year to assume</label>' +
+        '<input type="number" id="prayImportYear" class="liturgy-form-input" value="' + new Date().getFullYear() + '" min="1900" max="2200" style="width:140px;">' +
+        '<p class="lect-import-hint">Used only where the document prints a day and month with no year.</p>' +
+      '</div>' +
+      '<div id="prayImportError" class="bible-passage-error" style="display:none;margin-top:14px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:18px;">' +
+        '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closePrayerImportModal()">Cancel</button>' +
+        '<button type="button" class="modal-btn modal-btn-primary" id="prayImportReadBtn" onclick="LiturgyModule.runPrayerImport()">' +
+          '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Read the document</button>' +
+      '</div>';
+  }
+
+  function _prayImportError(msg) {
+    var e = document.getElementById('prayImportError');
+    if (e) { e.textContent = msg; e.style.display = 'block'; }
+    var b = document.getElementById('prayImportReadBtn');
+    if (b) { b.disabled = false; b.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Read the document'; }
+  }
+
+  function runPrayerImport() {
+    var fileInput = document.getElementById('prayImportFile');
+    var file = fileInput && fileInput.files && fileInput.files[0];
+    var yearEl = document.getElementById('prayImportYear');
+    var yearHint = yearEl ? parseInt(yearEl.value, 10) : null;
+    var err = document.getElementById('prayImportError');
+    if (err) err.style.display = 'none';
+    if (!file) { _prayImportError('Choose a document first.'); return; }
+    var btn = document.getElementById('prayImportReadBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Uploading…'; }
+
+    uploadToSupabase(file, 'prayer-uploads').then(function(res) {
+      if (!res || res.error) throw new Error((res && res.error) || 'Upload failed');
+      var fileUrl = res.url || res.publicUrl;
+      if (!fileUrl) throw new Error('Upload returned no URL');
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Reading…';
+      return fetch('/api/parse-lectionary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: fileUrl, mode: 'prayers', yearHint: yearHint || undefined })
+      }).then(function(r) {
+        // Read as text first: a function stopped for running too long
+        // answers with an HTML page, and r.json() on that says nothing useful.
+        return r.text().then(function(body) {
+          try { return JSON.parse(body); } catch (e) {
+            if (r.status === 504 || /^\s*</.test(body)) {
+              throw new Error('The document took too long to read — a whole year of prayers is a lot of words. ' +
+                'Try a few months at a time; each import adds to what is already saved.');
+            }
+            throw new Error('The server replied with something unreadable (HTTP ' + r.status + ').');
+          }
+        });
+      }).then(function(data) {
+        if (data.error) throw new Error(data.error);
+        var entries = data.entries || [];
+        if (!entries.length) throw new Error((data.warnings && data.warnings[0]) || 'No dated prayers were found in this document.');
+        _prayImport = { fileName: file.name, fileUrl: fileUrl, entries: entries, warnings: data.warnings || [] };
+        var dates = entries.map(function(e) { return e.date; }).sort();
+        return SBQ_PRAYERS.getRange(dates[0], dates[dates.length - 1]).then(function(existing) {
+          _prayImport.existing = existing || {};
+          _renderPrayImportReview();
+        });
+      });
+    }).catch(function(e) {
+      console.error('LiturgyModule: prayer import failed', e);
+      _prayImportError(e.message || String(e));
+    });
+  }
+
+  function _renderPrayImportReview() {
+    var body = document.getElementById('prayImportBody');
+    if (!body || !_prayImport) return;
+    var D = window.lhcDayPrayer;
+    var rows = '', nNew = 0, nClash = 0, nSame = 0;
+    _prayImport.entries.forEach(function(e, i) {
+      var cur = _prayImport.existing[e.date];
+      var cell;
+      if (!cur) {
+        nNew++;
+        cell = '<td class="lect-cell lect-cell-empty"><label><input type="checkbox" data-pi="' + i + '" checked> ' +
+               '<span class="lit-pi-text">' + escapeHtml(e.prayer) + '</span></label></td>';
+      } else if (D.norm(cur.prayer) === D.norm(e.prayer)) {
+        nSame++;
+        cell = '<td class="lect-cell lect-cell-same" title="Already saved"><span class="lit-pi-text">' + escapeHtml(e.prayer) + '</span> <i class="fa-solid fa-check"></i></td>';
+      } else {
+        nClash++;
+        cell = '<td class="lect-cell lect-cell-clash">' +
+          '<label class="lect-opt"><input type="radio" name="pi_' + i + '" value="keep" checked> <span class="lect-keep lit-pi-text">' + escapeHtml(cur.prayer) + '</span></label>' +
+          '<label class="lect-opt"><input type="radio" name="pi_' + i + '" value="use" data-pi="' + i + '"> <span class="lect-new lit-pi-text">' + escapeHtml(e.prayer) + '</span></label>' +
+        '</td>';
+      }
+      rows += '<tr><th scope="row" class="lect-date">' + escapeHtml(_lectPrettyDate(e.date)) +
+              (e.occasion ? '<small>' + escapeHtml(e.occasion) + '</small>' : '') + '</th>' + cell + '</tr>';
+    });
+    var n = _prayImport.entries.length;
+    body.innerHTML =
+      '<div class="lect-import-summary">' +
+        '<strong>' + n + '</strong> prayer' + (n === 1 ? '' : 's') + ' found in <em>' + escapeHtml(_prayImport.fileName) + '</em>. ' +
+        '<span class="lect-tag lect-tag-empty">' + nNew + ' to add</span>' +
+        '<span class="lect-tag lect-tag-clash">' + nClash + ' differ' + (nClash === 1 ? 's' : '') + ' from what is saved</span>' +
+        '<span class="lect-tag lect-tag-same">' + nSame + ' already match' + (nSame === 1 ? 'es' : '') + '</span>' +
+      '</div>' +
+      (nClash ? '<p class="lect-import-hint"><i class="fa-solid fa-circle-info mr-1"></i>Where the document words a prayer differently from the one saved, both are shown and the saved one is kept. Pick the other if you want it changed.</p>' : '') +
+      (_prayImport.warnings.length ? '<div class="bible-passage-error" style="margin:0 0 12px;">' + escapeHtml(_prayImport.warnings.join(' ')) + '</div>' : '') +
+      '<div class="lect-import-tablewrap">' +
+        '<table class="lect-import-table lit-pi-table"><thead><tr><th>Service</th><th>Prayer of the Day</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+      '</div>' +
+      '<div id="prayImportError" class="bible-passage-error" style="display:none;margin-top:12px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:16px;">' +
+        '<button type="button" class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closePrayerImportModal()">Cancel</button>' +
+        '<button type="button" class="modal-btn modal-btn-primary" id="prayImportSaveBtn" onclick="LiturgyModule.savePrayerImport()">' +
+          '<i class="fa-solid fa-check mr-1"></i> Save the ticked prayers</button>' +
+      '</div>';
+  }
+
+  function savePrayerImport() {
+    var body = document.getElementById('prayImportBody');
+    var btn = document.getElementById('prayImportSaveBtn');
+    var errEl = document.getElementById('prayImportError');
+    if (errEl) errEl.style.display = 'none';
+    if (!body || !_prayImport) return;
+    var picked = [];
+    body.querySelectorAll('input[type="checkbox"][data-pi]:checked, input[type="radio"][value="use"][data-pi]:checked').forEach(function(inp) {
+      var e = _prayImport.entries[+inp.getAttribute('data-pi')];
+      if (e) picked.push({ key: e.date, prayer: e.prayer, occasion: e.occasion || '',
+                           sourceFile: _prayImport.fileName, sourceUrl: _prayImport.fileUrl });
+    });
+    if (!picked.length) {
+      if (errEl) { errEl.textContent = 'Nothing is ticked, so there is nothing to save.'; errEl.style.display = 'block'; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving ' + picked.length + '…'; }
+    SBQ_PRAYERS.saveMany(picked).then(function(saved) {
+      closePrayerImportModal();
+      renderReadingSlots();
+      if (typeof showToast !== 'function') return;
+      if (saved < picked.length) {
+        showToast('Saved ' + saved + ' of ' + picked.length + ' prayers. The rest did not read back — try the import again.', 'error');
+      } else {
+        showToast('Saved ' + saved + ' Prayer' + (saved === 1 ? '' : 's') + ' of the Day from ' + _prayImport.fileName, 'success');
+      }
+    }).catch(function(e) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Save the ticked prayers'; }
+      var msg = (e && e.message) || String(e);
+      if (SBQ_PRAYERS._missing) msg = 'The prayers table is not in the database yet. Run migrations/2026-11-13_day_prayers.sql in the Supabase SQL editor, then save again.';
+      if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    });
+  }
+
   function renderLectionaryHome() {
     var container = document.getElementById('lectionaryHomeView');
     if (!container) return;
@@ -103611,10 +104419,13 @@ var LiturgyModule = (function() {
             '<div class="lit-reading-slots-actions">' +
               '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()" title="Read one service out of a bulletin"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
               '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryImportModal()" title="Read a whole lectionary: every service it lists, in one go"><i class="fa-solid fa-file-import mr-1"></i>Import lectionary</button>' +
+              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openPrayerImportModal()" title="Read a document of Prayers of the Day: every dated prayer in it, in one go"><i class="fa-solid fa-hands-praying mr-1"></i>Import prayers</button>' +
               '<span id="lectionaryResetHost"></span>' +
             '</div>' +
           '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
+          // The date's Prayer of the Day, in Day view (_paintDayPrayer).
+          '<div id="lectionaryDayPrayer"></div>' +
           // Provenance goes under the readings, not over them. "Where did
           // this come from?" is asked after reading the references, and in
           // the header the chip sat on top of the liturgical day.
@@ -107146,6 +107957,14 @@ var LiturgyModule = (function() {
     reloadReadings: reloadReadings,
     openLectionaryUploadModal: openLectionaryUploadModal,
     openLectionaryImportModal: openLectionaryImportModal,
+    openPrayerImportModal: openPrayerImportModal,
+    closePrayerImportModal: closePrayerImportModal,
+    runPrayerImport: runPrayerImport,
+    savePrayerImport: savePrayerImport,
+    editDayPrayer: editDayPrayer,
+    closeDayPrayerEditor: closeDayPrayerEditor,
+    saveDayPrayer: saveDayPrayer,
+    removeDayPrayer: removeDayPrayer,
     closeLectionaryImportModal: closeLectionaryImportModal,
     runLectionaryImport: runLectionaryImport,
     saveLectionaryImport: saveLectionaryImport,
@@ -114815,6 +115634,35 @@ function filterLiturgyItems() {
   .lect-source-chip i { color: var(--brand, #188e44); flex-shrink: 0; }
   .lect-source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lect-source-chip small { color: #64748b; flex-shrink: 0; }
+
+  /* ===== PRAYER OF THE DAY (Readings, Day view) ===== */
+  .lit-day-prayer { margin-top: 14px; background: var(--lit-wash, #f4f9f6); border: 1px solid var(--lit-edge, #cfe5d8); border-radius: 14px; padding: 14px 18px; }
+  .lit-day-prayer + .lit-day-prayer { margin-top: 10px; }
+  .lit-day-prayer__hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .lit-day-prayer__ttl { font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 0.86rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--lit-accent-ink, #0b5d36); }
+  .lit-day-prayer__when { font-size: 0.7rem; font-weight: 600; color: #475569; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 8px; }
+  .lit-day-prayer__src { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; font-family: 'Poppins', sans-serif; font-size: 0.7rem; color: #475569; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lit-day-prayer__src i { color: var(--lit-accent, #188e44); }
+  .lit-day-prayer__gap { flex: 1; }
+  .lit-day-prayer__btn { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #d8e2dc; background: #fff; color: #1f2933; font-family: 'Poppins', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+  .lit-day-prayer__btn:hover { border-color: var(--lit-accent, #188e44); color: var(--lit-accent-ink, #0b5d36); }
+  .lit-day-prayer__text { margin: 10px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-size: 1.05rem; line-height: 1.55; color: #1f2933; white-space: pre-line; }
+  .lit-day-prayer__none { margin: 8px 0 0; font-size: 0.84rem; color: #475569; }
+  .lit-day-prayer__where { margin-top: 10px; font-family: 'Poppins', sans-serif; font-size: 0.72rem; color: #475569; display: flex; align-items: center; gap: 6px; }
+  .lit-day-prayer__where i { color: var(--lit-accent, #188e44); }
+  .lit-dp-modal { width: min(620px, 96vw); }
+  .lit-dp-body { padding: 18px 22px 6px; }
+  .lit-dp-when { font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 0.9rem; margin-bottom: 12px; color: #1f2933; }
+  .lit-dp-text { width: 100%; min-height: 170px; font-size: 1rem; line-height: 1.5; resize: vertical; box-sizing: border-box; }
+  .lit-dp-acts { padding: 12px 22px 18px; display: flex; gap: 8px; align-items: center; }
+  .lit-dp-remove { color: #b91c1c !important; }
+  .lit-pi-table td { min-width: 280px; }
+  .lit-pi-text { white-space: normal; line-height: 1.45; }
+  @media (max-width: 640px) {
+    .lit-day-prayer { padding: 12px 14px; }
+    .lit-day-prayer__text { font-size: 1rem; }
+    .lit-pi-table td { min-width: 200px; }
+  }
 
   .lect-import-modal { width: min(1040px, 96vw); max-height: 92vh; display: flex; flex-direction: column; }
   .lect-import-body { padding: 20px 24px 22px; overflow: auto; }
@@ -133482,6 +134330,8 @@ window.LHC_Offline = (function () {
 }
 .blt-dlg__add:hover { background: #f1f5f9; border-color: #475569; }
 .blt-dlg__none { color: #64748b; font-size: .85rem; font-style: italic; padding: 4px 0; }
+.blt-dlg__note { margin: 6px 0 2px; font-size: .8rem; color: #475569; line-height: 1.45; }
+.blt-dlg__link { border: 0; background: none; padding: 0; color: #0b7644; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 
 /* The QR slot, at a size you can actually see, inside the dialogue. */
 .blt-dlg__qr { display: flex; align-items: center; gap: 12px; }
@@ -133669,6 +134519,9 @@ var BLT = (function() {
       v: 1,
       verse: { text: '', ref: '' },
       prayer: '',
+      // The imported Prayer of the Day this bulletin was last given (see
+      // _applyDayPrayer). `prayer` empty means "print the date's prayer".
+      prayerDoc: '',
       notices: [],
       giving: { title: 'Online giving', entries: [
         { purpose: '', name: 'Luther House Chapel', bank: 'RHB Bank',
@@ -133699,6 +134552,7 @@ var BLT = (function() {
     d = d && typeof d === 'object' ? d : {};
     if (d.verse && typeof d.verse === 'object') b.verse = { text: d.verse.text || '', ref: d.verse.ref || '' };
     b.prayer = typeof d.prayer === 'string' ? d.prayer : '';
+    b.prayerDoc = typeof d.prayerDoc === 'string' ? d.prayerDoc : '';
     if (Array.isArray(d.notices)) b.notices = d.notices.map(function(n) {
       return { lead: (n && n.lead) || '', body: (n && n.body) || '' };
     });
@@ -134100,7 +134954,7 @@ var BLT = (function() {
     // Prayer
     h += '<div class="blt-block blt-block--prayer blt-sec"' + _secAttr('prayer') + '>' + _pen('prayer');
     h +=   '<div class="blt-h">PRAYER OF THE DAY</div>';
-    h +=   '<div class="blt-p">' + _edRich('prayer', d.prayer, 'The prayer of the day') + '</div>';
+    h +=   '<div class="blt-p">' + _edRich('prayer', _prayerHtml(d), 'The prayer of the day') + '</div>';
     h += '</div>';
 
     // Announcements -- a numbered list the admin adds to and takes from.
@@ -134381,6 +135235,33 @@ var BLT = (function() {
       (f.rich ? _richClean(value) : _esc(value || '')) + '</div></div>';
   }
 
+  function _dlgPrayerNote(d) {
+    var D = window.lhcDayPrayer;
+    var imp = (_dayPrayer && _dayPrayer.prayer) || '';
+    if (!imp) {
+      return '<div class="blt-dlg__note">No Prayer of the Day is saved for this date. Import the prayers on the Liturgy page ' +
+        '(Readings &rsaquo; Import prayers), or type this one here.</div>';
+    }
+    var own = D && D.plain(d.prayer) && D.norm(D.plain(d.prayer)) !== D.norm(imp);
+    return '<div class="blt-dlg__note">' +
+      (own
+        ? 'This bulletin has a prayer of its own. <button type="button" class="blt-dlg__link" onclick="BLT.usePrayerOfDay()">Use the Prayer of the Day instead</button>'
+        : 'From the Prayers of the Day' + (_dayPrayer.sourceFile ? ' (' + _esc(_dayPrayer.sourceFile) + ')' : '') +
+          '. Typing here changes this bulletin only.') +
+      '</div>';
+  }
+
+  // Back to the date's imported prayer, as one undoable step.
+  function usePrayerOfDay() {
+    if (!_cur || !_dayPrayer) return;
+    _flushTyping(); _pushUndo();
+    _cur.data.prayer = '';
+    _cur.data.prayerDoc = _dayPrayer.prayer;
+    _queueSave();
+    render();
+    if (_dlgKey === 'prayer') openSection('prayer');
+  }
+
   function _dlgHtml(key) {
     var spec = SECTIONS[key], d = _cur.data;
     var h = '';
@@ -134389,7 +135270,11 @@ var BLT = (function() {
       if (b.fields) {
         b.fields.forEach(function(f) {
           if (f.rich) anyRich = true;
-          h += _dlgField(f.p, f, _getPath(d, f.p));
+          // The prayer opens on what the sheet prints: the date's imported
+          // prayer when the bulletin has none of its own. Nothing is stored
+          // until somebody types.
+          h += _dlgField(f.p, f, f.p === 'prayer' ? _prayerHtml(d) : _getPath(d, f.p));
+          if (f.p === 'prayer') h += _dlgPrayerNote(d);
         });
         return;
       }
@@ -134780,10 +135665,76 @@ var BLT = (function() {
   // A new bulletin starts from the most recent one, because most of it --
   // the giving details, the contacts, the theme verse, often half the
   // announcements -- is the same every week. Only what changes is typed.
+  //
+  // Except the prayer, which belongs to its date: carried over, last week's
+  // prayer was printed again, and it hid the date's imported one.
   function _carry() {
     return SBQ_BULLETINS.loadRecent(1).then(function(list) {
-      return list && list.length ? _sane(list[0].data) : _blank();
+      var d = list && list.length ? _sane(list[0].data) : _blank();
+      d.prayer = ''; d.prayerDoc = '';
+      return d;
     }).catch(function() { return _blank(); });
+  }
+
+  // ── the date's Prayer of the Day (2026-11-13) ──────────────────────
+  // Imported per date on the Readings page (SBQ_PRAYERS). A bulletin
+  // with no prayer of its own prints it, read afresh on every open like
+  // the duties. A bulletin given a prayer before the import is given the
+  // imported one instead -- the operator's choice for orders, kept the
+  // same here -- with Undo on the toast; `prayerDoc` notes which version
+  // it was given, so a prayer typed afterwards is the bulletin's own and
+  // stays, until the imported prayer itself changes.
+  var _dayPrayer = null;
+
+  function _isoOf(day) {
+    var dt = day && day.date;
+    if (!(dt instanceof Date) || isNaN(dt)) return '';
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()) +
+      (/\bpm\b/i.test(String(day.dateStr || '')) ? '|pm' : '');
+  }
+
+  function _prayerFor(day) {
+    var iso = _isoOf(day);
+    if (!iso || !window.SBQ_PRAYERS) return Promise.resolve(null);
+    return SBQ_PRAYERS.get(iso).catch(function() { return null; });
+  }
+
+  function _applyDayPrayer() {
+    var D = window.lhcDayPrayer;
+    var imp = (_dayPrayer && _dayPrayer.prayer) || '';
+    var d = _cur && _cur.data;
+    if (!D || !imp || !d) return false;
+    if (D.norm(d.prayerDoc) === D.norm(imp)) return false;
+    var typed = D.plain(d.prayer);
+    if (typed && D.norm(typed) === D.norm(imp)) {
+      // Already says it, perhaps with formatting of its own: noted only.
+      d.prayerDoc = imp; _queueSave();
+      return false;
+    }
+    if (typed) _pushUndo();
+    d.prayer = ''; d.prayerDoc = imp;
+    _queueSave();
+    if (typed && window.showToast) {
+      showToast('Prayer of the Day put in from ' + (_dayPrayer.sourceFile || 'the Readings page'), 'success', {
+        action: 'Undo', duration: 8000,
+        onAction: function() {
+          undo();
+          // Undo means this bulletin keeps its own prayer: noted, so it is
+          // not given the imported one again on the next open.
+          if (_cur && _cur.data) { _cur.data.prayerDoc = imp; _queueSave(); }
+        }
+      });
+    }
+    return true;
+  }
+
+  // What the sheet prints for the prayer: the bulletin's own, else the
+  // date's imported one.
+  function _prayerHtml(d) {
+    var D = window.lhcDayPrayer;
+    if (d.prayer && (!D || D.plain(d.prayer))) return d.prayer;
+    return (_dayPrayer && _dayPrayer.prayer) ? _esc(_dayPrayer.prayer) : '';
   }
 
   function pick(i) {
@@ -134794,13 +135745,16 @@ var BLT = (function() {
     if (badge) badge.textContent = 'Loading...';
     return Promise.all([
       SBQ_BULLETINS.forDate(day.dateStr, day.year),
-      _loadRoster([_days[_pick], _days[_pick + 1]])
+      _loadRoster([_days[_pick], _days[_pick + 1]]),
+      _prayerFor(day)
     ]).then(function(res) {
       _map = res[1] || {};
+      _dayPrayer = res[2] || null;
       _undo.length = 0; _redo.length = 0; _typeSnap = null;
       if (res[0]) {
         _cur = { serviceDate: day.dateStr, year: day.year, title: res[0].title, data: _sane(res[0].data) };
         if (badge) badge.textContent = '';
+        _applyDayPrayer();
         render(); _bind();
         return;
       }
@@ -134808,6 +135762,7 @@ var BLT = (function() {
         _cur = { serviceDate: day.dateStr, year: day.year,
                  title: 'Sunday Bulletin ' + _longDate(day.date), data: data };
         if (badge) badge.textContent = '';
+        _applyDayPrayer();
         render(); _bind();
       });
     });
@@ -134958,7 +135913,7 @@ var BLT = (function() {
     undo: undo, redo: redo, fmt: fmt, fmtColour: fmtColour, fmtFont: fmtFont,
     pickQr: pickQr, clearQr: clearQr, dropQr: dropQr,
     openSection: openSection, closeSection: closeSection, _bindOpeners: _bindOpeners,
-    dlgAdd: dlgAdd, dlgRemove: dlgRemove,
+    dlgAdd: dlgAdd, dlgRemove: dlgRemove, usePrayerOfDay: usePrayerOfDay,
     SECTIONS: SECTIONS, _dlgOpen: function() { return _dlgKey; },
     _qrAccept: _qrAccept, _qrShrink: _qrShrink,
     _richOf: _richOf, _richClean: _richClean,
@@ -134968,8 +135923,9 @@ var BLT = (function() {
     _blank: _blank, _sane: _sane, _clean: _clean, _cell: _cell, _textOf: _textOf,
     _litDay: _litDay, _warnIfLong: _warnIfLong,
     _setPath: _setPath, _serviceDays: _serviceDays,
-    _state: function() { return { days: _days, pick: _pick, cur: _cur, map: _map }; },
-    _inject: function(days, pick, cur, map) { _days = days; _pick = pick; _cur = cur; _map = map; }
+    _state: function() { return { days: _days, pick: _pick, cur: _cur, map: _map, dayPrayer: _dayPrayer }; },
+    _inject: function(days, pick, cur, map, dayPrayer) { _days = days; _pick = pick; _cur = cur; _map = map; if (dayPrayer !== undefined) _dayPrayer = dayPrayer; },
+    _applyDayPrayer: _applyDayPrayer, _prayerHtml: _prayerHtml, _carry: _carry, _isoOf: _isoOf
   };
 })();
 window.BLT = BLT;

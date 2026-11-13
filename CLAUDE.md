@@ -57,8 +57,9 @@ The ones worth knowing; there are around 29 in all.
 | `liturgy_occ_folders` | The Liturgy Library's YEAR folders, per occasion (`occasion_id`, `name` -- "2026"); a library item names one in `occasionFolderId`. A save from the Liturgy page deletes only folders removed on that device. See gotcha 51 |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
+| `day_prayers` | The Prayer of the Day, one row per service: `service_key` ('YYYY-MM-DD', '\|pm' on the end for an evening service), `prayer` (the words), `occasion`, `source_file` / `source_url` (the document it was imported from; null when typed). Imported on the Readings page (Import prayers) or typed there; read by the Liturgy Builder, LCD Projection and the bulletin. NOT a roster row. `migrations/2026-11-13_day_prayers.sql`. See gotcha 96 |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
-| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer (empty = print the date's Prayer of the Day; `prayerDoc` notes which imported one it was given, gotcha 96), `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -121,9 +122,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   service time. Everything below it is typed on the sheet itself.
 - The duty table is the roster: this Sunday and the next, side by side,
   seventeen rows read live from `roster` every time the page opens.
-- Typed: theme verse, prayer of the day, numbered announcements, online
-  giving, attendance figures, offering lines, the two footer contacts, and
-  the two duties the roster has no role for (Acolyte, Flower Offering).
+- Typed: theme verse, numbered announcements, online giving, attendance
+  figures, offering lines, the two footer contacts, and the two duties the
+  roster has no role for (Acolyte, Flower Offering). The **prayer of the
+  day** is the date's imported one (`day_prayers`, gotcha 96) unless the
+  bulletin is given its own; a new bulletin does not carry last week's.
   Every one of those lists can be added to and taken from; **Rows** in the
   toolbar says which duty rows the bulletin carries.
 - A new bulletin opens from the most recent one, because the giving
@@ -3862,6 +3865,68 @@ the anon key -- verify as `postgres`, not as the app.
       (`_edScheduleRelock`); the save's check of what is stored covers it.
     `tools/songbook-small-fixes-harness.js` checks them; the poll is in
     `tools/songbook-live-harness.js`.
+
+96. **The Prayer of the Day is imported per date, and put into an upcoming
+    order once.** From the operator (2026-11-13): a document gives the
+    "Prayer of the Day" under each service date, to be applied on every
+    service -- LCD, Liturgy Builder, bulletin. Measured that day: most
+    orders' Prayer of the Day liturgy still ended in the template's empty
+    "C :", and three Traditional orders carried the same old prayer ("God
+    who calls us into service...") copied from week to week.
+    - **One store, `day_prayers`, not the roster** (`SBQ_PRAYERS`, global,
+      beside `SBQ_LECT_SOURCES`). A prayer is a paragraph; the roster grid
+      has nowhere to show one. Keys are the Readings page's service keys.
+      `get(key)` caches five minutes and falls back from '|pm' to the day;
+      `saveMany` upserts and READS BACK, counting only rows that came back
+      with the words sent. Until the migration is run every read is "no
+      prayer" and `_missing` says why, on the Readings page and in the
+      console.
+    - **Import prayers** (Readings, beside Import lectionary) is the
+      lectionary import's shape: `uploadToSupabase` then
+      `/api/parse-lectionary` with `mode: 'prayers'` (`PRAYERS_SCHEMA`: date,
+      occasion, the prayer word for word), a review of every date, and a
+      prayer saved that the document words differently shown with both and
+      KEPT until somebody picks the other. A year of prayers is far more
+      output than a year of references, so that mode asks the model not to
+      think first (`thinkingBudget: 0`), and asks again without the setting
+      if the model refuses it; still too long, the message says to import a
+      few months at a time. Day view shows the date's prayer under the
+      readings with Edit (`editDayPrayer`, typed = no source file).
+    - **The words become slides by `window.lhcDayPrayer`** (pure, outside the
+      modules): the order's own Prayer of the Day liturgy keeps its shape --
+      every slide before the heading ("Prayer of The Day") as it is, the
+      heading slide's lines up to "Let us pray", then the speaker that slide
+      names (C, A, All...; C by default) and the first part of the prayer;
+      the slides after it were the old prayer and are replaced. Parts break
+      at sentence ends, a long sentence at its commas in about even parts,
+      the first part shorter (140) because it shares the heading slide, the
+      rest up to 220; a closing "Amen." gets a line of its own.
+    - **Replaced, with Undo, once** (the operator chose replace). An upcoming
+      order opened in the Builder (`_woPrayerIntoData`, one `_lbdChange`) or
+      LCD Projection (`_woPrayerIntoLcd`, written into the schedule's slide
+      boxes after `_lcdPushUndo`, backgrounds re-pinned, no box opened for
+      editing, never under words held in the slide editor -- gotchas 35, 60)
+      gets the date's prayer; `_woAutoPrayer` runs beside `_woAutoReadings`,
+      once per order and step a session, never for a past order or a
+      songbook. What it was given is noted, `template.dayPrayer = { iso,
+      text }`, which is NOT in the builder's undo snapshot: Undo puts the
+      order's words back and leaves the note, so it is not given the prayer
+      again. A noted order is left alone -- its words are the liturgist's --
+      until the imported prayer itself changes (`lhcDayPrayer.plan`: apply /
+      note / keep / none). The LCD finds its target by what the schedule
+      shows (the section titled Prayer of the Day and the liturgy drawn in
+      it), since a liturgy the template filled in is on the schedule before
+      it is in the data. An order with no such section (a Special service)
+      is not touched, and none is created.
+    - **The bulletin** reads the date's prayer with the roster on every open
+      (`_prayerFor`). `prayer` empty prints it; `_carry` no longer brings last
+      week's prayer into a new bulletin. A bulletin given another prayer
+      before the import is given the imported one, with Undo
+      (`_applyDayPrayer`, noted in `prayerDoc`); a prayer typed after that is
+      the bulletin's own, and the prayer dialog offers "Use the Prayer of the
+      Day instead" (`usePrayerOfDay`).
+    `tools/day-prayer-harness.js` checks it, running the helpers, the
+    Builder path and the bulletin rule against stubs.
 
 ## Quick Commands for Claude Code
 
