@@ -39,7 +39,7 @@ process.on('unhandledRejection', e => { check('no unexpected error', false, Stri
 const sStart = SRC.indexOf('\nvar SBQ_SONGS = {');
 const sEnd = sStart < 0 ? -1 : SRC.indexOf('\n};', sStart);
 const sbqSrc = sStart < 0 ? '' : SRC.slice(sStart, sEnd + 3);
-if (!/updateForm: function\(song\)/.test(sbqSrc)) {
+if (!/updateForm: function\(song[,)]/.test(sbqSrc)) {
   if (EXPECT_BROKEN) { console.log('--expect-broken: no SBQ_SONGS.updateForm, as expected.'); process.exit(0); }
   console.log('FAIL there is no SBQ_SONGS.updateForm'); process.exit(1);
 }
@@ -80,7 +80,7 @@ function fakeSb(row, opts) {
   const row = { id: 'song_1', title: 'Old', lyrics: 'old', voice_layout: 'two-part', use_count: 7, date_added: '2026-01-01', last_used: 'Sun Nov 08 2026',
     display_style: { lyricFont: 'Lato', recInstruments: 5, recInstrumentNames: { 'instrument-4': 'Cello' }, partColours: { women: '#ff0000' } } };
   const sb = fakeSb(row);
-  const S = new Function('getSupabaseClient', top('songToRow') + '\n' + sbqSrc.replace(/^\n/, '') + '\nreturn SBQ_SONGS;')(() => sb);
+  const S = new Function('getSupabaseClient', top('_songStyleWithEra') + '\n' + top('songToRow') + '\n' + sbqSrc.replace(/^\n/, '') + '\nreturn SBQ_SONGS;')(() => sb);
   const form = { id: 'song_1', title: 'New title', artist: 'A', category: 'Hymn', key: 'G', lyrics: 'new words', youtube: ['https://youtu.be/x'], attachments: [],
     display_style: { lyricFont: 'Georgia', lyricSize: '', lyricColor: '#1f2937', chordFont: '', chordSize: '', chordColor: '#991b1b' } };
   const r = await S.updateForm(form);
@@ -95,12 +95,12 @@ function fakeSb(row, opts) {
   check('it reports success', r && r.success === true);
   const row2 = { id: 'song_2', voice_layout: null, display_style: {} };
   const sb2 = fakeSb(row2, { noScripture: true });
-  const S2 = new Function('getSupabaseClient', top('songToRow') + '\n' + sbqSrc.replace(/^\n/, '') + '\nreturn SBQ_SONGS;')(() => sb2);
+  const S2 = new Function('getSupabaseClient', top('_songStyleWithEra') + '\n' + top('songToRow') + '\n' + sbqSrc.replace(/^\n/, '') + '\nreturn SBQ_SONGS;')(() => sb2);
   await S2.updateForm({ id: 'song_2', title: 'T', scripture: 'Jn 1' });
   check('a database without the scripture column: saved without it', row2.title === 'T' && !('scripture' in row2));
   check('withAppearance keeps every other key (pure)', J(S.withAppearance({ a: 1, lyricFont: 'x' }, { lyricFont: 'y', other: 2 })) === J({ a: 1, lyricFont: 'y' }));
-  check('the form\'s Save goes through it', /SBQ_SONGS\.updateForm\(songData\)\.then/.test(fn('saveEditSong')) && !/SBQ_SONGS\.update\(songData\)/.test(fn('saveEditSong')));
-  check('...and the list shown at once keeps the song\'s other style keys', /merged\.display_style = SBQ_SONGS\.withAppearance\(prev\.display_style, saved\.display_style\);/.test(fn('_applySavedSongLocally')));
+  check('the form\'s Save goes through it', /SBQ_SONGS\.updateForm\(songData(, \{ openedLyrics: _asmOpenedLyrics \})?\)\.then/.test(fn('saveEditSong')) && !/SBQ_SONGS\.update\(songData\)/.test(fn('saveEditSong')));
+  check('...and the list shown at once keeps the song\'s other style keys', /merged\.display_style = (_songStyleWithEra\()?SBQ_SONGS\.withAppearance\(prev\.display_style, saved\.display_style\)(, saved\))?;/.test(fn('_applySavedSongLocally')));
 
   console.log('\n2. The appearance controls keep the other keys');
   const els = { sfLyricFont: { value: 'Lato' }, sfLyricSize: { value: '18' }, sfLyricColor: { value: '#111111' }, sfChordFont: { value: '' }, sfChordSize: { value: '' }, sfChordColor: { value: '#991b1b' } };

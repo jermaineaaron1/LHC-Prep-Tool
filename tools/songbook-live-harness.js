@@ -15,6 +15,7 @@ const EXPECT_BROKEN = args.includes('--expect-broken');
 const INDEX = args.find(a => !a.startsWith('--')) || path.join(__dirname, '..', 'Index.html');
 
 const raw = fs.readFileSync(INDEX, 'utf8');
+const SRC = raw;
 const lines = raw.split('\n');
 
 function extract(pattern, name) {
@@ -47,7 +48,8 @@ let S;
 try {
   const src = extract(/^  function _sbmLiveDiff\(/, '_sbmLiveDiff') + '\n' + extract(/^  function _sbmHash\(/, '_sbmHash');
   S = new Function(src + '\nreturn { diff: _sbmLiveDiff, hash: _sbmHash };')();
-  S.pollSrc = extract(/^  function _sbPollChanged\(/, '_sbPollChanged');
+  S.pollSrc = extract(/^  function _sbPollChanged\(/, '_sbPollChanged') + '\n' +
+    extract(/^  function _sbPollVerdict\(/, '_sbPollVerdict') + '\n' + extract(/^  function _sbPollTake\(/, '_sbPollTake');
 } catch (e) {
   if (EXPECT_BROKEN) {
     console.log('--expect-broken: ' + e.message + ', as expected.');
@@ -83,15 +85,41 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
   let stamp = '2026-10-31T10:00:00.000Z', fail = false;
   const asked = [];
   const sb = { from: t => ({ select: cols => { asked.push(t + ':' + cols); return { eq: () => ({ maybeSingle: () => Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: { last_edited: stamp }, error: null }) }) }; } }) };
-  const P = new Function('SBQ', 'var _sbPollFullRead = {}, _sbLastPollTs = 0;\n' + S.pollSrc + '\nreturn { changed: _sbPollChanged, seen: function(t) { _sbLastPollTs = t; } };')({ _sb: () => sb });
+  const own = [];
+  const P = new Function('SBQ', 'var _sbPollFullRead = {}, _sbPollSeen = {};\n' + S.pollSrc +
+    '\nreturn { changed: _sbPollChanged, take: _sbPollTake, verdict: _sbPollVerdict, seen: function(o, t) { _sbPollSeen[o] = t; }, known: function(o) { return _sbPollSeen[o]; } };')(
+    { _sb: () => sb, _isOwnEdit: (o, t) => own.indexOf(o + '@' + t) !== -1 });
+  const ms = x => new Date(x).getTime();
   check('the first poll of an open reads everything, asking nothing first', [await P.changed('o1'), asked.length], [true, 0]);
-  P.seen(new Date(stamp).getTime());
+  P.seen('o1', ms(stamp));
   check('  after that it asks for the last-edited time alone', [await P.changed('o1'), asked], [false, ['orders:last_edited']]);
   stamp = '2026-10-31T10:00:05.000Z';
   check('  and reads everything again once that time has moved', await P.changed('o1'), true);
+  // The clock skew (review, 2026-11-13): another device's clock a minute
+  // behind this one's stamps its save EARLIER than what this device last
+  // saw. Compared with a clock the poll skipped it; compared by value it is
+  // a change.
+  P.seen('o1', ms('2026-10-31T10:01:00.000Z'));
+  stamp = '2026-10-31T10:00:30.000Z';
+  check('  a save stamped by a slower clock than this one is still a change', await P.changed('o1'), true);
+  check('  ...and a full read of it is applied', P.take('o1', ms(stamp)), true);
+  check('  ...and then known, so the next poll asks and reads nothing more', [P.known('o1'), await P.changed('o1')], [ms(stamp), false]);
+  stamp = '2026-10-31T10:02:00.000Z'; own.push('o1@' + ms(stamp));
+  check('this device\'s own save is not taken for a change', await P.changed('o1'), false);
+  check('  ...and becomes the time known', P.known('o1'), ms(stamp));
+  check('  ...a full read of its own save applies nothing', P.take('o1', ms(stamp)), false);
+  check('a first full read is taken as the start, never applied', [P.take('o9', ms(stamp)), P.known('o9')], [false, ms(stamp)]);
+  check('a full read that cannot tell its time applies nothing', P.take('o1', 0), false);
+  check('the verdict, pure', [P.verdict(0, 5, false), P.verdict(5, undefined, false), P.verdict(5, 5, false), P.verdict(4, 5, true), P.verdict(4, 5, false)],
+    ['unknown', 'adopt', 'same', 'own', 'new']);
   fail = true;
   check('  a probe that cannot tell reads everything, as before', await P.changed('o1'), true);
   check('another order is read in full on its first poll', await P.changed('o2'), true);
+  check('no poll path compares the order\'s time with this device\'s clock', /_sbLastPollTs|remoteTs <= /.test(SRC), false);
+  check('every write of an order notes its time as this device\'s own',
+    (SRC.match(/SBQ\._noteOwnEdit\(/g) || []).length >= 5 &&
+    /SBQ\._noteOwnEdit\(orderId, now\);\s*\r?\n\s*return sb\.from\('orders'\)\.update\(\{ last_edited: now \}\)/.test(SRC) &&
+    /last_edited:  now,\s*\r?\n\s*created_by:[^\n]*\r?\n\s*\};\s*\r?\n\s*SBQ\._noteOwnEdit\(id, now\);/.test(SRC), true);
 
   // -------------------------------------------------------------------
   console.log('\nhow a shared link can be shown inside the app');

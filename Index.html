@@ -14903,6 +14903,11 @@ function _lpRenderEditLivePreview() {
 function lyricsPreviewToggleInlineEdit(enter) {
   var song = currentLyricsPreviewSong;
   if (!song) return;
+  // Held as the Songbook's editors hold a song, so nobody is in it on two
+  // devices at once without being told (review, 2026-11-13).
+  var W = window.WO;
+  if (enter && W && typeof W.sbLibHold === 'function' && !W.sbLibHold(song)) { _lpAbandonPendingChoir(); return; }
+  if (!enter && W && typeof W.sbLibLetGo === 'function') W.sbLibLetGo();
   STATE.lyricsPreviewEditMode = !!enter;
   var editBtn = document.getElementById('lyricsPreviewEditBtn');
   var saveBtn = document.getElementById('lyricsPreviewSaveBtn');
@@ -14928,6 +14933,10 @@ function lyricsPreviewToggleInlineEdit(enter) {
     : (currentLyricsPreviewMode === 'choir' && window.lhcVoiceLines)
       ? window.lhcVoiceLines.toVoiceText(_lpVoiceLineCache[song.id] || [])
       : String((song.lyrics || ''));
+  // ...and the parts as they were, so the save can tell whether they were
+  // changed somewhere else since. A new arrangement has none to compare.
+  STATE._lpEditSig = (enter && currentLyricsPreviewMode === 'choir' && W && typeof W.sbLinesSig === 'function' && _lpChoirPending !== song.id)
+    ? W.sbLinesSig(_lpVoiceLineCache[song.id] || []) : null;
   // Closing the editor on a conversion that was never saved puts the song
   // back. The save path clears _lpChoirPending before it gets here, so a
   // successful save is not undone by its own tidying-up.
@@ -14997,8 +15006,15 @@ function lyricsPreviewSaveInlineEdit() {
     return;
   }
   var newLyrics = ta.value;
+  var W = window.WO;
+  if (W && typeof W.sbEditMayWrite === 'function' && !W.sbEditMayWrite(song.id)) return;
   if (typeof showLoader === 'function') showLoader(true);
-  SBQ_SONGS.updateLyrics(song.id, newLyrics).then(function() {
+  // Checked against what is stored: words changed on another device since
+  // this editor opened are not written over (review, 2026-11-13).
+  var write = (typeof SBQ_SONGS.updateLyricsChecked === 'function')
+    ? SBQ_SONGS.updateLyricsChecked(song.id, newLyrics, STATE._lpEditBaseline)
+    : SBQ_SONGS.updateLyrics(song.id, newLyrics);
+  write.then(function() {
     song.lyrics = newLyrics;
     var idx = -1;
     STATE.songs.forEach(function(s, i) { if (s.id === song.id) idx = i; });
@@ -15007,6 +15023,14 @@ function lyricsPreviewSaveInlineEdit() {
     lyricsPreviewToggleInlineEdit(false);
   }).catch(function(err) {
     console.error(err);
+    if (err && err.code === 'changed') {
+      // Theirs become the song's here, so Cancel shows them and opening the
+      // editor again starts from them; this editor keeps yours.
+      song.lyrics = err.stored || '';
+      STATE.songs.forEach(function(s) { if (s.id === song.id) s.lyrics = song.lyrics; });
+      showToast('These lyrics were changed somewhere else since you opened the editor, so yours were not saved. Your version is still in the editor: copy what you need, then Cancel to see theirs.', 'warning', { duration: 12000 });
+      return;
+    }
     showToast('Failed to save lyrics', 'error');
   }).finally(function() {
     if (typeof showLoader === 'function') showLoader(false);
@@ -15014,8 +15038,12 @@ function lyricsPreviewSaveInlineEdit() {
 }
 window.lyricsPreviewSaveInlineEdit = lyricsPreviewSaveInlineEdit;
 
-// Saving a two-part song rewrites its lines, and replaceAll rewrites the
-// lyrics column and the voice_layout flag along with them.
+// Saving a two-part song rewrites its lines and sets the voice_layout flag;
+// the song's lyrics are never touched. It goes through the Songbook's own
+// write when that is there (WO.sbVoiceWrite): what is stored is read first,
+// parts changed since the editor opened -- or, for a new arrangement, parts
+// that appeared meanwhile -- are not written over, and the drawn remarks
+// move with their lines (review, 2026-11-13).
 //
 // Refuses an empty editor rather than treating it as "make this an ordinary
 // song again". Clearing every line is a real thing to want, but it is not
@@ -15027,14 +15055,20 @@ function _lpSaveVoiceLines(song, text) {
     showToast('Nothing to save \u2014 the editor is empty', 'error');
     return;
   }
+  var W = window.WO;
+  if (W && typeof W.sbEditMayWrite === 'function' && !W.sbEditMayWrite(song.id)) return;
+  var pending = _lpChoirPending === song.id;
   if (typeof showLoader === 'function') showLoader(true);
-  SBQ_VOICE_LINES.replaceAll(song.id, rows).then(function() {
-    // Re-read rather than trust the parsed copy: the rows that come back
-    // carry their new database ids, and those ids are what a per-voice
-    // recording will attach to.
-    delete _lpVoiceLineCache[song.id];
-    return SBQ_VOICE_LINES.forSong(song.id);
-  }).then(function(fresh) {
+  // Re-read rather than trust the parsed copy: the rows that come back
+  // carry their new database ids, and those ids are what a per-voice
+  // recording will attach to.
+  var write = (W && typeof W.sbVoiceWrite === 'function')
+    ? W.sbVoiceWrite(song.id, '', rows, pending ? { onlyIfEmpty: true } : { openSig: STATE._lpEditSig })
+    : SBQ_VOICE_LINES.replaceAll(song.id, rows).then(function() {
+        delete _lpVoiceLineCache[song.id];
+        return SBQ_VOICE_LINES.forSong(song.id);
+      });
+  write.then(function(fresh) {
     _lpVoiceLineCache[song.id] = fresh || [];
     // The conversion is real now: replaceAll has written the rows and the
     // flag. Cleared BEFORE leaving the editor, or the abandon path would
@@ -15050,6 +15084,22 @@ function _lpSaveVoiceLines(song, text) {
     lyricsPreviewToggleInlineEdit(false);
   }).catch(function(err) {
     console.error(err);
+    if (err && (err.code === 'changed' || err.code === 'has-parts')) {
+      // Theirs become the song's here, so Cancel shows them and opening the
+      // editor again starts from them; this editor keeps yours, and a second
+      // Save is refused the same way.
+      _lpChoirPending = null;
+      _lpVoiceLineCache[song.id] = err.rows || [];
+      song.voiceLayout = 'two-part';
+      STATE.songs.forEach(function(s) { if (s.id === song.id) s.voiceLayout = 'two-part'; });
+      _lpSyncChoirEditBtn(song);
+      STATE._lpEditSig = (W && typeof W.sbLinesSig === 'function') ? W.sbLinesSig([]) : null;
+      showToast((err.code === 'has-parts'
+        ? 'This song was given choir parts somewhere else meanwhile'
+        : 'These choir parts were changed somewhere else since you opened the editor') +
+        ', so yours were not saved. Your version is still in the editor: copy what you need, then Cancel to see theirs.', 'warning', { duration: 12000 });
+      return;
+    }
     showToast('Failed to save the choir parts', 'error');
   }).finally(function() {
     if (typeof showLoader === 'function') showLoader(false);
@@ -18070,6 +18120,7 @@ function closeLyricsPreviewModal() {
   var select = document.getElementById('transposeSelect');
   if (select) select.value = '0';
   STATE.lyricsPreviewEditMode = false;
+  if (window.WO && typeof WO.sbLibLetGo === 'function') WO.sbLibLetGo();
   var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.remove('sf-song-active');
   document.querySelectorAll('#songListContainer .song-list-item').forEach(function(row) { row.classList.remove('is-selected'); });
   _lpSyncModalParent(false);
@@ -19396,6 +19447,9 @@ function _asmClearScanBanner() {
 // The key the edit form was opened with, so a save cannot replace a real key
 // with an empty one when the dropdown failed to display it.
 var _asmEditingKey = '';
+// The words the edit form was opened with: the save writes them only if they
+// were changed in the form (SBQ_SONGS.updateForm).
+var _asmOpenedLyrics = null;
 
 // Matches a key to one of a dropdown's options by note rather than by
 // spelling. Used by both forms: the scan fills the add form through it, and
@@ -23500,6 +23554,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       bpm: (s.bpm == null || s.bpm === '') ? '' : (parseInt(s.bpm, 10) || ''),
       serviceSuitability: Array.isArray(s.serviceSuitability) ? s.serviceSuitability : [],
       display_style: (s.display_style && typeof s.display_style === 'object') ? s.display_style : {},
+      // Kept in display_style, there being no column for it.
+      era: String(s.era || (s.display_style && typeof s.display_style === 'object' && s.display_style.era) || '').trim(),
       // normalizeSong builds a fresh object from a fixed key list, so a key
       // missing from here is a key dropped on the floor.
       voiceLayout: s.voiceLayout || null
@@ -26853,6 +26909,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     _asmSetKeyField(song.key, 'editSongKey');
     // Kept so the save can tell "no key" from "a key I could not display".
     _asmEditingKey = String(song.key || '');
+    _asmOpenedLyrics = String(song.lyrics || '');
     $('editSongTempo').value = song.tempo || '';
     $('editSongTheme').value = song.theme || '';
     // Migration-backed fields. bpm uses '' rather than 0 for unset.
@@ -26973,7 +27030,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     merged.bpm = (saved.bpm == null || saved.bpm === '') ? '' : saved.bpm;
     merged.serviceSuitability = copy(saved.serviceSuitability);
     // The appearance keys the form owns, over the rest of the song's style.
-    merged.display_style = SBQ_SONGS.withAppearance(prev.display_style, saved.display_style);
+    merged.display_style = _songStyleWithEra(SBQ_SONGS.withAppearance(prev.display_style, saved.display_style), saved);
     merged.lastEdited = new Date().toISOString();
     STATE.songs[i] = merged;
     return true;
@@ -27024,7 +27081,10 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     showLoader(true);
     // Only the columns the form owns (SBQ_SONGS.updateForm): a full-row write
     // blanked the choir parts flag, the use count and the dates.
-    SBQ_SONGS.updateForm(songData).then(function(result) {
+    SBQ_SONGS.updateForm(songData, { openedLyrics: _asmOpenedLyrics }).then(function(result) {
+      // Words left as they were opened were not written: the list keeps the
+      // song's own, which the refetch below brings.
+      if (result && result.wordsKept) { var _was = (STATE.songs || []).find(function(x) { return x && x.id === songId; }); if (_was) songData.lyrics = _was.lyrics; }
       showToast('Song updated successfully!', 'success');
       closeModal('editSongModal');
       // Repaint from what was just written, before the refetch.
@@ -27037,6 +27097,16 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       loadSongs();
     }).catch(function(err) {
       console.error(err);
+      if (err && err.code === 'changed') {
+        // Nothing was written. The form stays open with its words, and the
+        // song's own are the ones it now counts as opened on, so a second
+        // Save is a choice made knowing.
+        _asmOpenedLyrics = String(err.stored || '');
+        var _s = (STATE.songs || []).find(function(x) { return x && x.id === songId; });
+        if (_s) _s.lyrics = err.stored || '';
+        showToast('These words were changed somewhere else since you opened this song, so nothing was saved. Your words are still in the form: Save again to put yours in their place, or Cancel to keep theirs.', 'warning', { duration: 12000 });
+        return;
+      }
       showToast('Failed to update song', 'error');
     }).finally(function() {
       showLoader(false);
@@ -27150,6 +27220,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     STATE.lyricsCurrentSong = song;
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     STATE.lyricsPreviewEditMode = false;
+    if (window.WO && typeof WO.sbLibLetGo === 'function') WO.sbLibLetGo();
 
     // Every song opens in the same known state. Both of these used to survive
     // from the previous song: an open More panel ate a row of the lyrics, and
@@ -31370,6 +31441,21 @@ var SBQ = {
   // key is compared with what this device LOADED (_tplBase): one it has not
   // changed takes what is stored, another device's change included; one it
   // did change is written. One key, last writer -- not the whole template.
+  // The last_edited values this device has written to each order, so the
+  // Songbook's poll knows its own saves from another device's by VALUE --
+  // never by comparing two devices' clocks (review, 2026-11-13).
+  _ownEdits: {},
+  _noteOwnEdit: function(orderId, iso) {
+    var t = new Date(iso).getTime();
+    if (!orderId || !(t > 0)) return;
+    var l = SBQ._ownEdits[orderId] || (SBQ._ownEdits[orderId] = []);
+    l.push(t);
+    if (l.length > 40) l.splice(0, l.length - 40);
+  },
+  _isOwnEdit: function(orderId, t) {
+    var l = SBQ._ownEdits[orderId];
+    return !!(l && l.indexOf(t) !== -1);
+  },
   _tplBase: {},
   _tplPlain: function(tpl) {
     var o = JSON.parse(JSON.stringify(tpl || {}));
@@ -31563,6 +31649,7 @@ var SBQ = {
       last_edited:  now,
       created_by:   payload.createdBy   || ''
     };
+    SBQ._noteOwnEdit(id, now);
     // Add optional fields only when the table has them (avoids "column does not exist" errors)
     if (payload.occasion) orderRow.occasion = payload.occasion;
     function sbqError(e, context) {
@@ -31902,8 +31989,10 @@ var SBQ = {
   renameOrder: function(id, title) {
     var sb = SBQ._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var at = new Date().toISOString();
+    SBQ._noteOwnEdit(id, at);
     return sb.from('orders')
-      .update({ title: title, last_edited: new Date().toISOString() })
+      .update({ title: title, last_edited: at })
       .eq('id', id)
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
@@ -32004,6 +32093,7 @@ var SBQ = {
         if (!rows.length) return null;
         // Touch the order row's last_edited so the poll's timestamp check fires
         // on other devices.
+        SBQ._noteOwnEdit(orderId, now);
         return sb.from('orders').update({ last_edited: now }).eq('id', orderId)
           .then(function() {
             return sb.from('order_items').upsert(rows, { onConflict: 'id' })
@@ -32036,6 +32126,18 @@ var SBQ = {
 // ================================================================
 
 // Map camelCase song → snake_case Supabase row
+// A song's display_style with the form's era kept in it. The songs table has
+// no era column, so the Era / Decade chips saved nothing and were gone on the
+// next open (review, 2026-11-12). An era cleared in the form is taken out.
+function _songStyleWithEra(ds, song) {
+  var out = Object.assign({}, (ds && typeof ds === 'object') ? ds : {});
+  if (song && Object.prototype.hasOwnProperty.call(song, 'era')) {
+    var era = String(song.era || '').trim();
+    if (era) out.era = era; else delete out.era;
+  }
+  return out;
+}
+
 function songToRow(song) {
   var youtube = song.youtube || '';
   // Normalise: store as array in Supabase
@@ -32065,7 +32167,7 @@ function songToRow(song) {
     time_signature:      song.timeSignature  || '',
     bpm:                 (song.bpm === '' || song.bpm == null) ? null : (parseInt(song.bpm, 10) || null),
     service_suitability: Array.isArray(song.serviceSuitability) ? song.serviceSuitability : [],
-    display_style:       (song.display_style && typeof song.display_style === 'object') ? song.display_style : {},
+    display_style:       _songStyleWithEra(song.display_style, song),
     // A flag, so the Songs list never has to ask song_voice_lines about every
     // song it draws. Null and not '' for an ordinary song: an empty string is
     // a value that reads as present to every filter and sort.
@@ -32104,6 +32206,7 @@ function normalizeSongFromSupabase(row) {
     bpm:                (row.bpm == null || row.bpm === '') ? '' : row.bpm,
     serviceSuitability: Array.isArray(row.service_suitability) ? row.service_suitability : [],
     display_style:      (row.display_style && typeof row.display_style === 'object') ? row.display_style : {},
+    era:                (row.display_style && typeof row.display_style === 'object' && row.display_style.era) ? String(row.display_style.era) : '',
     voiceLayout:        row.voice_layout || null
   };
   return (typeof normalizeSong === 'function') ? normalizeSong(bridged) : bridged;
@@ -32135,8 +32238,10 @@ SBQ.patchInbox = function(orderId, items) {
     // order_media_links table rows from restoring deleted items on next load.
     tpl._inbox = Array.isArray(items) ? items : [];
     tpl._inboxPresent = true;
+    var at = new Date().toISOString();
+    SBQ._noteOwnEdit(orderId, at);
     return sb.from('orders')
-      .update({ template: tpl, last_edited: new Date().toISOString() })
+      .update({ template: tpl, last_edited: at })
       .eq('id', orderId)
       .then(function(res) {
         if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
@@ -34329,18 +34434,36 @@ var SBQ_SONGS = {
   FORM_COLUMNS: ['title', 'artist', 'theme', 'key', 'tempo', 'style', 'season', 'lyrics', 'scripture', 'youtube', 'attachments',
                  'time_signature', 'bpm', 'service_suitability'],
   APPEARANCE_KEYS: ['lyricFont', 'lyricSize', 'lyricColor', 'chordFont', 'chordSize', 'chordColor'],
-  updateForm: function(song) {
+  // opts.openedLyrics: the words the form opened on. Words left as they were
+  // opened are not written -- written, they put back anything saved to the
+  // song since the form opened -- and words changed here AND stored changed
+  // since are refused (code 'changed', the stored words on it) rather than
+  // either being lost (review, 2026-11-13).
+  updateForm: function(song, opts) {
     var sb = SBQ_SONGS._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     var row = songToRow(song), id = row.id, patch = {};
     if (!id) return Promise.reject(new Error('updateForm needs a song id'));
     SBQ_SONGS.FORM_COLUMNS.forEach(function(k) { patch[k] = row[k]; });
     patch.last_edited = new Date().toISOString();
+    var opened = (opts && opts.openedLyrics != null) ? String(opts.openedLyrics) : null;
+    var untouched = opened != null && SBQ_SONGS.sameWords(row.lyrics, opened);
+    if (untouched) delete patch.lyrics;
     var look = (song.display_style && typeof song.display_style === 'object') ? song.display_style : null;
-    var styled = !look ? Promise.resolve() : sb.from('songs').select('display_style').eq('id', id).maybeSingle().then(function(r) {
+    var eraGiven = Object.prototype.hasOwnProperty.call(song, 'era');
+    var cols = [];
+    if (look || eraGiven) cols.push('display_style');
+    if (opened != null && !untouched) cols.push('lyrics');
+    var styled = !cols.length ? Promise.resolve() : sb.from('songs').select(cols.join(',')).eq('id', id).maybeSingle().then(function(r) {
       if (r.error) throw new Error(r.error.message);
-      var cur = (r.data && r.data.display_style && typeof r.data.display_style === 'object') ? r.data.display_style : {};
-      patch.display_style = SBQ_SONGS.withAppearance(cur, look);
+      var d = r.data || {};
+      if (cols.indexOf('lyrics') !== -1 && !SBQ_SONGS.sameWords(d.lyrics, opened) && !SBQ_SONGS.sameWords(d.lyrics, row.lyrics)) {
+        var e = new Error('the words were changed somewhere else since this form opened');
+        e.code = 'changed'; e.stored = d.lyrics || ''; throw e;
+      }
+      if (cols.indexOf('display_style') === -1) return;
+      var cur = (d.display_style && typeof d.display_style === 'object') ? d.display_style : {};
+      patch.display_style = _songStyleWithEra(look ? SBQ_SONGS.withAppearance(cur, look) : cur, song);
     });
     var write = function() { return sb.from('songs').update(patch).eq('id', id); };
     return styled.then(write).then(function(r) {
@@ -34349,9 +34472,30 @@ var SBQ_SONGS = {
       return r;
     }).then(function(r) {
       if (r.error) throw new Error(r.error.message);
-      SBQ_SONGS._announceSongChange(id, patch.lyrics);
-      return { success: true, row: patch };
+      if (patch.lyrics !== undefined) SBQ_SONGS._announceSongChange(id, patch.lyrics);
+      return { success: true, row: patch, wordsKept: untouched };
     });
+  },
+  // The same words, as far as a reader can tell (pure): line endings and
+  // trailing spaces aside.
+  sameWords: function(a, b) {
+    var norm = function(x) { return String(x == null ? '' : x).replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim(); };
+    return norm(a) === norm(b);
+  },
+  // The song library's own lyrics save: refused (code 'changed', the stored
+  // words on it) when what is stored is neither what the editor opened on
+  // nor what is being saved -- changed on another device since (review,
+  // 2026-11-13). A read that fails does not block the save.
+  updateLyricsChecked: function(id, lyrics, openedOn) {
+    var sb = SBQ_SONGS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    if (openedOn == null) return SBQ_SONGS.updateLyrics(id, lyrics);
+    return Promise.resolve(sb.from('songs').select('lyrics').eq('id', id).maybeSingle()).then(function(r) {
+      if (r && !r.error && r.data && !SBQ_SONGS.sameWords(r.data.lyrics, openedOn) && !SBQ_SONGS.sameWords(r.data.lyrics, lyrics)) {
+        var e = new Error('the words were changed somewhere else since this editor opened');
+        e.code = 'changed'; e.stored = r.data.lyrics || ''; throw e;
+      }
+    }, function() {}).then(function() { return SBQ_SONGS.updateLyrics(id, lyrics); });
   },
   // A display_style with the appearance keys of `look` laid over `cur`, every
   // other key of `cur` kept (pure).
@@ -50395,7 +50539,7 @@ var WO = (function() {
   var _sbPresenceChannel = null; // Supabase Realtime Presence channel (tracks who has songbook open)
   var _sbPresenceKey = null;     // unique key for this device/session
   var sbBroadcastDebounce = null; // short debounce for Realtime broadcast
-  var _sbLastPollTs = 0;         // epoch ms of last Supabase poll — skip own writes
+  var _sbPollSeen = {};         // orderId -> its last_edited (ms) as this device last knew it
   var _sbPolling = false;        // guard to prevent concurrent polls
   var _sbSyncWriteTimer = null;  // 2-second debounce for lightweight sync write
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
@@ -60494,6 +60638,7 @@ var WO = (function() {
     }, Promise.resolve()).then(function() {
       if (!done.length) { showToast('Could not set up the choir parts', 'error'); return; }
       var bases = done.map(_sbBaseSongId);
+      bases.forEach(function(b) { _sbmChoirGotAt[b] = Date.now(); });   // its own news
       _sbmChoirShow(bases);
       sbAutoSave();                          // the view, for a service's book
       _sbPersistChoirViews(bases, 'choir');  // ...and for a standalone one, in one write
@@ -60517,8 +60662,14 @@ var WO = (function() {
   }
   // ...and, hearing of it (or finding parts on the 30-second check that were
   // not there before), reads them and shows those songs in Choir.
+  // Once per song: the broadcast and the check usually both bring the same
+  // news -- the device that set them up sends 'changed' as well as 'choir' --
+  // and each said so, so the toast came twice (review, 2026-11-12).
+  var _sbmChoirGotAt = {};
   function _sbmChoirArrived(bases) {
-    bases = (bases || []).filter(Boolean);
+    var now = Date.now();
+    bases = (bases || []).filter(function(b) { return b && !(_sbmChoirGotAt[b] && now - _sbmChoirGotAt[b] < 60000); });
+    bases.forEach(function(b) { _sbmChoirGotAt[b] = now; });
     var copies = bases.length ? (songOrderSections || []).filter(function(x) { return x && bases.indexOf(_sbBaseSongId(x)) !== -1; }) : [];
     if (!copies.length || !window.SBQ_VOICE_LINES) return Promise.resolve(false);
     bases.forEach(function(b) {
@@ -60536,7 +60687,10 @@ var WO = (function() {
       if (cur && bases.indexOf(_sbBaseSongId(cur)) !== -1) showToast('Choir parts were set up on another device: showing them in Choir', 'info', { duration: 6000 });
       if (_sbmLive) _sbmLiveCheck(true);
       return true;
-    }).catch(function() { return false; });
+    }).catch(function() {
+      bases.forEach(function(b) { delete _sbmChoirGotAt[b]; });   // the next check may try again
+      return false;
+    });
   }
   // The songs that have parts now and had none when last looked at (pure):
   // ids in cur not in seen, both lists of song ids joined by ','.
@@ -67064,10 +67218,7 @@ var WO = (function() {
         .then(function() {
           _sbSyncWriteInFlight = false;
           sbSetSaveStatus('saved');
-          // Advance the poll baseline past our own write so the next poll cycle
-          // sees remoteTs ≤ _sbLastPollTs and skips re-applying our own data.
-          // The +3000ms buffer covers server clock skew and network round-trip.
-          _sbLastPollTs = Math.max(_sbLastPollTs, Date.now() + 3000);
+          // The poll knows this write for its own by its time (SBQ._noteOwnEdit).
         })
         .catch(function(e) {
           _sbSyncWriteInFlight = false;
@@ -67084,7 +67235,6 @@ var WO = (function() {
     clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; _sbSyncWritePending = false;
     clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbSetSaveStatus('saving');
-    _sbLastPollTs = Date.now();
     saveCurrentOrder();
   }
 
@@ -67136,8 +67286,39 @@ var WO = (function() {
     return sb.from('orders').select('last_edited').eq('id', oid).maybeSingle().then(function(r) {
       if (!r || r.error || !r.data || !r.data.last_edited) return true;
       var t = new Date(r.data.last_edited).getTime();
-      return !(t > 0) || t > _sbLastPollTs;
+      var v = _sbPollVerdict(t, _sbPollSeen[oid], SBQ._isOwnEdit(oid, t));
+      if (v === 'own') { _sbPollSeen[oid] = t; return false; }
+      return v !== 'same';
     }, function() { return true; });
+  }
+  // What the poll makes of the order's stored last_edited (pure; review,
+  // 2026-11-13). t is that time in ms, seen what this device last knew it to
+  // be (undefined: not yet), own whether this device wrote it. Compared by
+  // VALUE and never with this device's clock: last_edited is stamped by
+  // whichever device saved, so a phone running a minute fast took every save
+  // another device made in that minute for an old one, and the poll -- the
+  // way a change arrives when Realtime is down -- skipped it for good.
+  function _sbPollVerdict(t, seen, own) {
+    if (!(t > 0)) return 'unknown';
+    if (seen == null) return 'adopt';
+    if (t === seen) return 'same';
+    return own ? 'own' : 'new';
+  }
+  // A full read's time: true when it is another device's change, to be
+  // applied. Whichever it is, the time is now known.
+  function _sbPollTake(oid, t) {
+    var v = _sbPollVerdict(t, _sbPollSeen[oid], SBQ._isOwnEdit(oid, t));
+    if (v === 'unknown' || v === 'same') return false;
+    _sbPollSeen[oid] = t;
+    return v === 'new';
+  }
+  // The poll starts from the order as this device loaded it, when it knows
+  // that time; otherwise its first read is taken as the start.
+  function _sbPollStart() {
+    _sbPollSeen = {};
+    var oid = currentOrderData && currentOrderData.id;
+    var t0 = (oid && currentOrderData.lastEdited) ? new Date(currentOrderData.lastEdited).getTime() : 0;
+    if (t0 > 0) _sbPollSeen[oid] = t0;
   }
 
   // 349 — Start fast sync when Songbook is open
@@ -67157,10 +67338,11 @@ var WO = (function() {
     // Realtime is the primary path (instant broadcast); this poll is the fallback that
     // guarantees mobile→desktop sync even when Realtime isn't connected on the sender.
     if (!sbFastSyncInterval) {
-      _sbLastPollTs = Date.now();
+      _sbPollStart();
       sbFastSyncInterval = setInterval(function() {
         // Always run the poll — never skip based on Realtime freshness.
-        // The timestamp guard (_sbLastPollTs) ensures we don't re-apply unchanged state.
+        // The order's last_edited, compared by value (_sbPollTake), keeps it from
+        // re-applying unchanged state or this device's own writes.
         if (document.visibilityState !== 'visible') return;
         if (!currentOrderData || !currentOrderData.id || _sbPolling) return;
 
@@ -67186,8 +67368,8 @@ var WO = (function() {
           // (NOT result.updated_at — that was the old broken check)
           var remoteTs = (result.order && result.order.lastEdited)
             ? new Date(result.order.lastEdited).getTime() : 0;
-          if (remoteTs <= _sbLastPollTs) return;
-          _sbLastPollTs = remoteTs;
+          if (!currentOrderData || currentOrderData.id !== _pollId) return;
+          if (!_sbPollTake(_pollId, remoteTs)) return;
 
           // Apply remote state to local songs
           result.items.forEach(function(item) {
@@ -67233,13 +67415,14 @@ var WO = (function() {
         // 1. Immediate poll — don't wait for the next 2-second tick
         if (!_sbPolling) {
           _sbPolling = true;
-          SBQ.loadOrder(currentOrderData.id).then(function(result) {
+          var _visId = currentOrderData.id;
+          SBQ.loadOrder(_visId).then(function(result) {
             _sbPolling = false;
             if (!result || !result.items) return;
             var remoteTs = (result.order && result.order.lastEdited)
               ? new Date(result.order.lastEdited).getTime() : 0;
-            if (remoteTs <= _sbLastPollTs) return;
-            _sbLastPollTs = remoteTs;
+            if (!currentOrderData || currentOrderData.id !== _visId) return;
+            if (!_sbPollTake(_visId, remoteTs)) return;
             result.items.forEach(function(item) {
               var song = songOrderSections.find(function(s) { return s.id === item.id; });
               if (!song) return;
@@ -67475,8 +67658,11 @@ var WO = (function() {
   function _edEnsureChannel() {
     var sb = SBQ._sb();
     var oid = currentOrderData && currentOrderData.id;
-    if (!sb || !oid) return;
+    if (!sb) return;
+    // The song channel is the app's, not an order's: a song is held from the
+    // song library too, with no order open (review, 2026-11-13).
     _edEnsureSongChannel(sb);
+    if (!oid) { _edEnsureTimers(); return; }
     if (_edLockChannel && _edLockOrderId === oid) return;
     _edTeardownLocks();
     _edLockOrderId = oid;
@@ -67499,7 +67685,11 @@ var WO = (function() {
           _edScheduleRelock();
         }
       });
-
+    _edEnsureTimers();
+  }
+  // The heartbeat: other devices' locks that went quiet are dropped, and
+  // this device's own are said again.
+  function _edEnsureTimers() {
     if (!_edTimers) {
       _edTimers = setInterval(function() {
         var now = Date.now();
@@ -70721,8 +70911,24 @@ var WO = (function() {
   }
   function _sbEditRelease(base) {
     if (!base) return;
-    if ((_sbmEd && _sbmEd.base === base) || (_sbmPad && _sbmPad.o && _sbmPad.o.base === base) || _sbLyricsEditBase === base) return;
+    if ((_sbmEd && _sbmEd.base === base) || (_sbmPad && _sbmPad.o && _sbmPad.o.base === base) || _sbLyricsEditBase === base || _sbLibEditBase === base) return;
     edRelease(_sbEditKey(base));
+  }
+  // The song library's own editors (its Lyrics and Choir parts tabs) hold a
+  // song as the Songbook's do: a phone editing it in a Songbook is told the
+  // desk has it, and the other way round (review, 2026-11-13).
+  var _sbLibEditBase = '';
+  function sbLibHold(song) {
+    if (!song || !song.id) return true;
+    if (_sbLibEditBase && _sbLibEditBase !== song.id) sbLibLetGo();
+    if (!_sbEditClaim(song)) return false;
+    _sbLibEditBase = song.id;
+    return true;
+  }
+  function sbLibLetGo() {
+    var base = _sbLibEditBase;
+    _sbLibEditBase = '';
+    _sbEditRelease(base);
   }
   // The reading view's Edit tile: locked, and who has it, while somebody
   // else is editing the song in front of you.
@@ -71444,13 +71650,15 @@ var WO = (function() {
     if (!worthKeeping) return;
     var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sbc) return;
+    var _at = new Date().toISOString();
+    if (window.SBQ && SBQ._noteOwnEdit) SBQ._noteOwnEdit(id, _at);
     sbc.from('orders').upsert([{
       id: id,
       title: currentOrderData.title || 'Songbook',
       type: currentOrderData.type || 'traditional',
       template: tpl,
       created_date: currentOrderData.createdDate || new Date().toISOString(),
-      last_edited: new Date().toISOString()
+      last_edited: _at
     }]).then(function(r) {
       if (r && r.error) { console.warn('[Songbook] projection settings not saved:', r.error.message); return; }
       _tplLoadedForOrder = id;      // it is now the stored one
@@ -98211,6 +98419,8 @@ var WO = (function() {
     sbmEdReorder: sbmEdReorder, sbmEdDragStart: sbmEdDragStart, sbmEdDragOver: sbmEdDragOver, sbmEdDrop: sbmEdDrop,
     sbmEdDragEnd: sbmEdDragEnd, sbmEdPreview: sbmEdPreview, sbmEdCancel: sbmEdCancel, sbmEdSave: sbmEdSave,
     sbmEdToText: sbmEdToText, sbOpenPartsDialog: sbOpenPartsDialog,
+    sbLibHold: sbLibHold, sbLibLetGo: sbLibLetGo, sbEditMayWrite: _sbEditMayWrite,
+    sbVoiceWrite: _sbVoiceWrite, sbLinesSig: _sbLinesSig,
     sbTranspose: sbTranspose,
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,

@@ -3728,6 +3728,69 @@ the anon key -- verify as `postgres`, not as the app.
     `_tplWithStored`, `_woTplAdopt`, the background capture and restore over
     a redrawn song, and the Songbook's three changes.
 
+95. **The review's smaller leftovers (2026-11-13).**
+    - **The Songbook's 2-second poll compares times by VALUE.** `last_edited`
+      is stamped with the clock of whichever device saved, and the poll
+      compared it with THIS device's clock (`_sbLastPollTs = Date.now()`, and
+      `Date.now() + 3000` after its own write), so on a phone running a minute
+      fast every save another device made in that minute looked old and was
+      skipped for good -- and the poll is how a change arrives when Realtime is
+      down. Now `_sbPollSeen[orderId]` is the stored time this device last
+      knew, and `_sbPollVerdict` (pure) says what a time is: `same`, `new`
+      (another device: read and applied, `_sbPollTake`), `own`, `adopt` (the
+      first read, taken as the start, never applied) or `unknown`. This
+      device's own writes are recognised by the exact time they wrote:
+      `SBQ._noteOwnEdit(orderId, iso)` in `saveOrder`, `syncItems`,
+      `renameOrder`, `patchInbox` and the standalone book's template write,
+      read by `SBQ._isOwnEdit`. The poll starts from `currentOrderData.lastEdited`
+      when it is known (`_sbPollStart`). Anything new that writes an order's
+      `last_edited` notes it the same way. The crash journal's replay
+      (`lhc_pending_order_save`) still compares two clocks; it was left, since
+      telling a half-landed save from another device's needs the save's own
+      time in the journal.
+    - **"Choir parts were set up on another device" is said once.** The device
+      that sets them up sends `changed` as well as `choir`; the `changed` check
+      found the new parts too (`_sbmPartsArrived`) and called
+      `_sbmChoirArrived` a second time. `_sbmChoirGotAt[song]` holds each
+      song's news for a minute (forgotten when its read fails, so the next
+      check can try again), and the device that set them up marks its own.
+    - **The Era / Decade chips are kept.** The songs table has no `era`
+      column and nothing mapped it, so a chosen era was gone on the next open.
+      It lives in `display_style.era` (`_songStyleWithEra`, used by
+      `songToRow`, `updateForm` -- read fresh, with the appearance keys -- and
+      the local repaint), and is read back by `normalizeSongFromSupabase` and
+      `normalizeSong`. An era cleared in the form is taken out.
+    - **The Edit Song form writes the words only when they were changed in
+      it.** `openEditSongModal` keeps `_asmOpenedLyrics`, and
+      `updateForm(song, { openedLyrics })` leaves `lyrics` out of the write
+      when the form's words are those (`SBQ_SONGS.sameWords`: line endings and
+      trailing spaces aside) -- written, they put back whatever was saved to the
+      song since the form opened. Words changed in the form AND stored changed
+      since are refused (code `changed`, the stored words on it): nothing is
+      written, the form stays open, and the stored words become what it counts
+      as opened on, so a second Save is a choice made knowing.
+    - **The song library's own Lyrics and Choir parts saves check what is
+      stored.** Its lyrics save goes through `SBQ_SONGS.updateLyricsChecked(id,
+      lyrics, openedOn)` (refused when what is stored is neither what the
+      editor opened on nor what is being saved; a read that fails does not
+      block it); its parts save through the Songbook's own write
+      (`WO.sbVoiceWrite`: `openSig` from `WO.sbLinesSig` of the parts the editor
+      opened on, `STATE._lpEditSig`, or `onlyIfEmpty` for a new arrangement),
+      which also moves the drawn remarks with their lines. Refused, the editor
+      keeps its text and the stored words or parts become the song's on this
+      device, so Cancel shows them and opening again starts from them.
+    - **...and hold the song.** Opening that editor claims `sbedit:<song>` like
+      the Songbook's editors (`WO.sbLibHold`, released by `WO.sbLibLetGo` on
+      leaving the editor, closing the song or opening another;
+      `_sbEditRelease` leaves `_sbLibEditBase` alone), and a save is refused
+      while another device holds it (`WO.sbEditMayWrite`). For that, the song
+      lock channel (`ed-lock-songs`) and its heartbeat (`_edEnsureTimers`) now
+      run with no order open: `_edEnsureChannel` opens them before it looks for
+      an order. A dropped song channel with no order open is still not rebuilt
+      (`_edScheduleRelock`); the save's check of what is stored covers it.
+    `tools/songbook-small-fixes-harness.js` checks them; the poll is in
+    `tools/songbook-live-harness.js`.
+
 ## Quick Commands for Claude Code
 
 ```bash
