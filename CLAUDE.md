@@ -3385,6 +3385,41 @@ the anon key -- verify as `postgres`, not as the app.
       retry the very first visit, the one that should prepare the device,
       would skip. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
       worked the date out and threw it away; sorting needs it.
+    - **The bar CLOSES, per outage** (the operator, 2026-11-13, having tested
+      a real phone with the data plan and Wi-Fi both off: everything worked,
+      and the bar — fixed at the top — sat over the controls above the header
+      for the whole service). The close is the full height of the bar and
+      40px wide, a real target on a phone; the message keeps clear of it.
+      Dismissal is keyed on `LHC_Net.since()` (`_offSeenAt`), which moves on every
+      change of state, so going offline again — or coming back — says so
+      again. Nothing is said about being back until we have been away
+      (`_offWasOff`).
+    - **Coming back offers a REFRESH, and saves first.** A reload is what
+      picks up what other devices did during the outage — the songs, the
+      roster, the orders list — so the bar turns green and offers it rather
+      than leaving an hour-old screen that looks perfectly normal. But
+      everything typed during the outage failed to save, so `_offRefresh`
+      is a SAVE and then a reload: it reloads at once when
+      `WO.unsavedWork()` is false, otherwise saves and waits, and after five
+      seconds with the save still not landed it says "Your changes still have
+      not saved. Refreshing now would lose them." with a Refresh anyway —
+      never a silent reload over somebody's work. `unsavedWork` counts
+      'pending' (a save waiting on its debounce) as well as 'failed'.
+    - **The internet coming back saves what the outage held**, by itself
+      (the `lhc:net` listener beside `saveImmediately`), at most once per
+      reconnect. Offline every save failed and said so, but nothing retried,
+      so a liturgist's edits sat in memory until somebody pressed Save.
+    - **A failed save no longer marks the network down**, and the reason is
+      worth keeping. It used to — "a save that threw is almost always the
+      uplink" — but that conflates "this write failed" with "we cannot reach
+      the database", and once the retry above existed the two made a LOOP:
+      the retry fails, marks us offline, the next read succeeds and marks us
+      online, which fires the retry again. Measured in the browser with
+      writes refused: `LHC_Net.reachable()` oscillated and the banner would
+      not settle. Reads answer the question on their own, the offline case
+      included (the worker stamps what it served from cache). A write that
+      fails for its own reasons — a lock, a refusal, a bad row — says so in
+      the indicator and leaves the banner alone.
     `tools/offline-service-harness.js` checks it, running `_swRoute` and
     `urlsIn` themselves rather than matching their source. Testing a dead
     REMOTE host without touching the machine's hosts file: serve the app on

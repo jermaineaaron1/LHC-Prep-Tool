@@ -341,8 +341,19 @@ check('there is a "failed" state at all', has(/if \(state === 'failed'\)/));
 check('neither silent failure path blanks the indicator any more',
   !/if \(silent\) \{\s*\r?\n\s*_soSetSaveStatus\(''\);/.test(SRC) &&
   !/Backend save failed:', err\);[^]*?_soSetSaveStatus\(''\);/.test(SRC));
-check('a save that threw raises the banner without waiting for a read to fail',
-  /Backend save failed[^]*?_soSetSaveStatus\('failed'\);[^]*?LHC_Net\.mark\(false\)/.test(SRC));
+// REVERSED on 2026-11-13, and the reason matters. A failed save used to call
+// LHC_Net.mark(false) -- "a save that threw is almost always the uplink".
+// Once the reconnect below began retrying the save, the two made a loop:
+// the retry fails, marks us offline, the next read succeeds and marks us
+// online, which fires the retry again. Measured in the browser: with writes
+// refused, LHC_Net.reachable() oscillated and the banner would not settle.
+// Reads answer the question on their own, the offline case included -- with a
+// warm cache the worker stamps what it served and judge() reads that as not
+// having reached the database.
+check('a failed save no longer claims the network is down',
+  !/Backend save failed[^]*?_soSetSaveStatus\('failed'\);\s*\r?\n\s*(?:\/\*[^]*?\*\/\s*\r?\n\s*)?if \(window\.LHC_Net\) LHC_Net\.mark\(false\)/.test(SRC));
+check('...and it still says so in the indicator',
+  /Backend save failed[^]*?_soSetSaveStatus\('failed'\);/.test(SRC));
 check('nothing is queued to be written later',
   !has(/lhc_offline_queue|_offlineQueue|replayOfflineWrites/));
 
@@ -433,6 +444,64 @@ check('it runs once, from the background orders preload',
 check('one definition of when a service is, shared with _woOrderIsUpcoming',
   !!fn('_woOrderWhen') &&
   fn('_woOrderIsUpcoming').indexOf('_woOrderWhen(order)') !== -1);
+
+// ---------------------------------------------------------------------------
+// The banner closes, and coming back offers a refresh
+// ---------------------------------------------------------------------------
+console.log('\nThe offline bar can be shut, and the internet coming back says so');
+// From the operator (2026-11-13), after testing a real phone with the data
+// plan and Wi-Fi both off: everything worked, and the bar sat over the
+// controls above the header for the whole service.
+check('the bar has a close',
+  has(/<button type="button" class="lhc-off-x" aria-label="Close">/) &&
+  has(/offDiv\.querySelector\('\.lhc-off-x'\)\.onclick = function \(\) \{/));
+check('...a real tap target, the full height of the bar',
+  has(/#lhcOfflineBanner \.lhc-off-x \{[^}]*width: 40px;/) &&
+  has(/#lhcOfflineBanner \.lhc-off-x \{[^}]*top: 0; right: 0; bottom: 0;/));
+check('...and the message is kept clear of it',
+  has(/padding: 8px 44px 8px 16px;/));
+// Dismissed per EPISODE: since() moves on every change of state, so going
+// offline again, or coming back, speaks again.
+check('closing it hides this episode, not every future one',
+  has(/_offSeenAt = _offSince\(\);/) &&
+  has(/if \(!mode \|\| _offSeenAt === _offSince\(\)\) \{ offDiv\.classList\.remove\('show'\); return; \}/));
+check('a dismissal cannot outlive the state it was made in',
+  has(/function _offSince\(\) \{ return window\.LHC_Net \? LHC_Net\.since\(\) : 0; \}/));
+check('nothing is said about being back until we have been away',
+  has(/var mode = off \? 'off' : \(_offWasOff \? 'back' : null\);/));
+check('back online is its own colour and offers the refresh',
+  has(/#lhcOfflineBanner\.is-back \{/) &&
+  has(/Back online \u2014 refresh to load the latest changes\./) &&
+  has(/data-off="refresh"/));
+
+const refSrc = fn('_offRefresh', '    ');
+check('the refresh can be found', !!refSrc);
+// The trap this avoids: everything typed during the outage failed to save, so
+// a reload would throw it away.
+// Matched WITH its indent, and by ORDER. Without the indent this also found
+// the identical line inside the wait loop, so a mutant that deleted the real
+// early return changed nothing the harness could see.
+const _early = refSrc.indexOf(String.fromCharCode(10) + '      if (!unsaved()) { location.reload(); return; }');
+const _saves = refSrc.indexOf('WO.saveImmediately()');
+check('it saves BEFORE reloading, and only reloads once nothing is unsaved',
+  _early !== -1 && _saves !== -1 && _early < _saves);
+check('...and if the save will not land it says so rather than reloading',
+  /if \(\+\+tries > 25\) \{/.test(refSrc) &&
+  refSrc.indexOf('Refreshing now would lose them') !== -1 &&
+  refSrc.indexOf("btn.textContent = 'Refresh anyway'") !== -1);
+check('"unsaved" covers a save waiting on its debounce as well as one that failed',
+  has(/_soUnsaved = \(state === 'pending' \|\| state === 'failed'\);/) &&
+  has(/function unsavedWork\(\) \{ return !!\(_soUnsaved && currentOrderData\); \}/) &&
+  has(/    unsavedWork: unsavedWork,/));
+// Bounded to the listener itself. A lazy [^]*? run across the whole file
+// found a saveImmediately() belonging to something else and passed on a
+// mutant that had taken this one out (gotcha 82).
+const _netListen = (SRC.match(/\n  window\.addEventListener\('lhc:net', function \(e\) \{[^]*?\r?\n  \}\);/) || [''])[0];
+check('the internet coming back saves what the outage held',
+  _netListen.indexOf('if (!unsavedWork()) return;') !== -1 &&
+  _netListen.indexOf('saveImmediately();') !== -1);
+check('...at most once per reconnect',
+  has(/if \(Date\.now\(\) - _soRetryAt < 15000\) return;/));
 
 // ---------------------------------------------------------------------------
 // 8. Registration
