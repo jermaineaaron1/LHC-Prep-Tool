@@ -3523,6 +3523,35 @@ the anon key -- verify as `postgres`, not as the app.
       library's parts editor (`sbmEdCancel`) both use it; while it is up their
       key handlers stand down, and closing the editor takes it down
       (`_sbmUnsavedDrop`).
+    - **Chords are saved by MOMENT** (review, 2026-11-12). Each chord line
+      the pad reads carries `m`, its moment in the text being saved, and
+      `_sbmPadSaveChords` matches the pad's chords to the saved groups by
+      `g.sortOrder` (other editors still match by words): by words, a chord
+      line deleted was simply not written ("Arrangement saved", the chord
+      still there) and a refrain sung three times shifted its chords one
+      moment along. `_sbCpChordsToSave` pairs each typed line with a shown
+      one -- same words and chords, then same chords (words edited: the
+      STORED line exactly, never moved back through the key, which rewrote
+      F#m as Gbm), then same words (chords edited: moved back by the steps)
+      -- and a shown line left unpaired is `drop`ped: the moment with those
+      words whose chords are still the ones shown loses them, so a line
+      nobody saw is never taken.
+    - + Chords goes to the moment's lead line, and never puts an empty line
+      INSIDE a moment (that is a gap, and parted lines sung together): when
+      the lead is not the moment's first line it says so instead.
+    - The save reads with the pad's live part names (`_sbmPad.parts`), so a
+      part made with + New part whose name holds a section's word ("Kids
+      Chorus") is not saved as a section; `[B]` is everyone, as `B:` is.
+    - A save whose parts were kept and whose chords failed can be tried
+      again: `_sbmPadSaveSong`'s `onLines` moves the pad's signature on.
+    - The toolbar keeps the cursor in the pad (`pointerdown`/`mousedown`
+      prevented on its buttons, as the notepad's bar does) and acts only
+      where the cursor is -- never the first line by default; opening the
+      pad lets the song's hold go whatever goes wrong; Esc while a word is
+      being composed is the keyboard's.
+    - `parseVoiceText` takes a section as ONE bracket alone on its line
+      (`[^\[\]]+`): "[Melody] [ad lib]" is the Melody singing "[ad lib]",
+      not a section called "Melody] [ad lib" that took every line after it.
     - Book Mode's choir notepad (gotcha 67) is untouched: its own inline
       format ("Women: ..."), its own save path.
     `tools/songbook-choir-pad-harness.js` checks it, running the reader and

@@ -17522,7 +17522,10 @@ window.lhcVoiceLines = {
       // Nothing after the closing bracket: a section header. It closes the
       // group above it, so the first line of a new verse can never be
       // glued onto the last line of the old one.
-      var sec = /^\s*\[(.+)\]\s*$/.exec(line);
+      // One bracket and nothing else: "[Melody] [ad lib]" is the Melody
+      // singing "[ad lib]", not a section called "Melody] [ad lib" that took
+      // the line and every line after it (review, 2026-11-12).
+      var sec = /^\s*\[([^\[\]]+)\]\s*$/.exec(line);
       if (sec) { section = sec[1].trim(); cur = null; return; }
 
       var rest = line, bs = null, be = null, hasBars = false;
@@ -58073,12 +58076,20 @@ var WO = (function() {
     var isChord = _sbmIsChord();
     var lyrics = _sbChoirChordWords(copy, base), changed = false, orphans = [];
     var groups = V.group(rows), ci = 0, used = {}, wrote = {};
+    // The choir pad's chords say which moment they are over (m); matched by
+    // that, a deleted line or a refrain sung three times cannot take another
+    // moment's chords (review, 2026-11-12). Other editors match by words.
+    var byM = chords.some(function(c) { return typeof c.m === 'number' && c.m > -1; });
     groups.forEach(function(g) {
       var want = V.leadText(g);
       if (!want) return;
       var k = -1;
-      for (var x = ci; x < chords.length; x++) {
-        if (V._sameWords ? V._sameWords(chords[x].words, want) : chords[x].words === want) { k = x; break; }
+      if (byM) {
+        for (var z = 0; z < chords.length; z++) if (!used[z] && chords[z].drop == null && chords[z].m === g.sortOrder) { k = z; break; }
+      } else {
+        for (var x = ci; x < chords.length; x++) {
+          if (V._sameWords ? V._sameWords(chords[x].words, want) : chords[x].words === want) { k = x; break; }
+        }
       }
       if (k === -1) return;
       used[k] = true;
@@ -58097,6 +58108,23 @@ var WO = (function() {
       wrote[inserted ? hit.lyricAt + 1 : hit.lyricAt] = true;   // a new chord row pushes its lyric down one
       changed = true;
     });
+    // Chord lines taken away on the pad: that moment's chords go from the
+    // words -- the moment with those words whose chords are still the ones
+    // shown, so a line nobody saw is never taken.
+    chords.forEach(function(c, x) {
+      if (c.drop == null || used[x]) return;
+      used[x] = true;
+      var idx2 = V.chordIndex(lyrics, isChord), cur2 = {}, gone = String(c.drop || '').replace(/\s+$/, '');
+      for (var y = 0; y < groups.length; y++) {
+        var h = V.chordFor(idx2, groups[y], cur2);
+        if (!h || !(h.chordAt != null && h.chordAt >= 0)) continue;
+        if (!(V._sameWords ? V._sameWords(c.words, V.leadText(groups[y])) : c.words === V.leadText(groups[y]))) continue;
+        if (String(h.chord || '').replace(/\s+$/, '') !== gone) continue;
+        lyrics = V.withChord(lyrics, h.lyricAt, h.chordAt, '');
+        changed = true;
+        break;
+      }
+    });
     chords.forEach(function(c, x) { if (!used[x]) orphans.push(c.words); });
     if (!changed) return Promise.resolve({ written: false, orphans: orphans });
     return _sbChoirChordSave(copy, base, lyrics).then(function() { return { written: true, orphans: orphans }; });
@@ -58113,6 +58141,9 @@ var WO = (function() {
     var chords = o.mapChords ? o.mapChords(split.chords) : split.chords;
     if (typeof showLoader === 'function') showLoader(true);
     return _sbVoiceWrite(base, sid, parsed, { openSig: openSig }).then(function() {
+      // The parts are kept: what is stored is what this editor wrote, so a
+      // second try after the chords failed is not refused as "changed".
+      if (typeof o.onLines === 'function') o.onLines(_sbVoiceLines[base] || []);
       return _sbmPadSaveChords(base, _sbVoiceLines[base], chords, sid);
     }).then(function(r) {
       return _sbPartColoursSave(base, colours).then(function() { return r; });
@@ -58167,7 +58198,7 @@ var WO = (function() {
   function _sbCpPartName(inner, known, sections, colon) {
     var V = window.lhcVoiceLines, name = String(inner == null ? '' : inner).trim().replace(/\s+/g, ' '), k = name.toLowerCase();
     if (!name || /^section\s*:/i.test(name)) return null;
-    if (/^(?:all|both|everyone|everybody|unison|tutti)$/.test(k)) return 'both';
+    if (/^(?:all|both|b|everyone|everybody|unison|tutti)$/.test(k)) return 'both';
     if (k === 'w' || k === 'women') return 'women';
     if (k === 'm' || k === 'men') return 'men';
     var have = (known || []).filter(function(p) { return V.partKey(p) === k; })[0];
@@ -58276,15 +58307,18 @@ var WO = (function() {
     // of the moment is marked lead: false.
     var leadAt = {};
     V.group(rows).forEach(function(g) { var r = rows.indexOf(V.leadLine(g)); if (r > -1) leadAt[idx[r]] = true; });
+    Object.keys(leadAt).forEach(function(i) { info[i].lead = true; });
     var chords = [];
     info.forEach(function(f, i) {
       if (f.kind !== 'chord') return;
       var cl = lines[i].replace(/\s+$/, '');
-      if (f.over < 0) { chords.push({ words: '', chord: cl, lead: false }); return; }
+      if (f.over < 0) { chords.push({ words: '', chord: cl, lead: false, m: -1 }); return; }
       var wl = lines[f.over], ws = (/^\s*/.exec(wl) || [''])[0].length, lab = V.labelOf(wl.slice(ws), known), cut = ws + (lab ? lab.len : 0);
       if (wl.charAt(cut) === '~') cut++;
       var lead = (/^ */.exec(cl) || [''])[0].length;
-      chords.push({ words: _sbmPadWords(wl, known), chord: cl.slice(Math.min(cut, lead)), lead: !!leadAt[f.over] });
+      // m: its moment in THIS text, which the save matches it by -- by its
+      // words, a refrain sung three times took the wrong one's chords.
+      chords.push({ words: _sbmPadWords(wl, known), chord: cl.slice(Math.min(cut, lead)), lead: !!leadAt[f.over], m: info[f.over].m });
     });
     return { lines: lines, info: info, text: out.join('\n'), chords: chords, known: known };
   }
@@ -58333,10 +58367,33 @@ var WO = (function() {
   // is as it was shown, as one with nowhere to sit when it was typed or
   // changed.
   function _sbCpChordsToSave(typed, shown, stored, steps, fn) {
+    var V = window.lhcVoiceLines;
     var isLead = function(c) { return c.lead !== false; };
+    var sL = shown.filter(isLead), tL = stored.filter(isLead), pair = sL.length === tL.length, used = {};
+    var back = function(c) { return (steps && typeof fn === 'function') ? V._transposeAligned(c, -steps, fn) : c; };
+    var tLead = typed.filter(isLead), at = {};
+    // Each typed chord line paired with one shown: same words and chords, then
+    // the same chords with the words edited (the stored line exactly -- moved
+    // back through the key it rewrote F#m as Gbm, review 2026-11-12), then
+    // the same words with the chords edited (moved back by the steps).
+    [function(c, x) { return x.words === c.words && x.chord === c.chord; },
+     function(c, x) { return x.chord === c.chord; },
+     function(c, x) { return x.words === c.words; }].forEach(function(same, pass) {
+      tLead.forEach(function(c, j) {
+        if (at[j] != null || !pair) return;
+        for (var i = 0; i < sL.length; i++) if (!used[i] && same(c, sL[i])) { used[i] = true; at[j] = { i: i, pass: pass }; return; }
+      });
+    });
+    var out = tLead.map(function(c, j) {
+      var p = at[j];
+      var chord = (p && p.pass < 2) ? tL[p.i].chord : back(c.chord);
+      return { words: c.words, chord: chord, m: c.m };
+    });
+    // A chord line shown and taken away: its chords go from the song's words.
+    if (pair) sL.forEach(function(x, i) { if (!used[i] && x.words) out.push({ words: x.words, chord: '', drop: tL[i].chord }); });
+    // Off the lead line: left out -- quietly when as shown, as nowhere to sit when typed.
     var asShown = function(c) { return shown.some(function(x) { return x.words === c.words && x.chord === c.chord; }); };
-    var lead = _sbChNpChords(typed.filter(isLead), shown.filter(isLead), stored.filter(isLead), steps, fn);
-    return lead.concat(typed.filter(function(c) { return !isLead(c) && !asShown(c); }).map(function(c) { return { words: '', chord: c.chord }; }));
+    return out.concat(typed.filter(function(c) { return !isLead(c) && !asShown(c); }).map(function(c) { return { words: '', chord: c.chord }; }));
   }
   // The moments' boxes (pure): runs of lines in one moment.
   function _sbCpBoxes(info) {
@@ -58420,7 +58477,14 @@ var WO = (function() {
     var w = (f.kind === 'words') ? li : -1;
     if (w < 0) for (var k = li + 1; k < info.length; k++) { if (info[k].kind === 'words') { w = k; break; } if (info[k].kind === 'sec') break; }
     if (w < 0) return null;
+    // A moment's chords sit over its LEAD line, the one they are read from.
+    if (!info[w].lead && info[w].m > -1) for (var q = 0; q < info.length; q++) if (info[q].m === info[w].m && info[q].lead) { w = q; break; }
     for (var c = 0; c < info.length; c++) if (info[c].kind === 'chord' && info[c].over === w) return { lines: lines, caret: c, off: lines[c].length };
+    // An empty line inside a moment is a gap, and would part lines sung
+    // together (review, 2026-11-12): only over a moment's first words.
+    for (var u = 0; u < w; u++) if (info[u].kind === 'words' && info[u].m === info[w].m) {
+      return { lines: lines, caret: w, off: 0, toast: 'These lines sing together: type their chords on a line just above the first of them, over the words they go with' };
+    }
     lines.splice(w, 0, '');
     return { lines: lines, caret: w, off: 0 };
   }
@@ -58492,6 +58556,14 @@ var WO = (function() {
     el.addEventListener('paste', _sbCpPaste);
     el.addEventListener('compositionstart', function() { P.composing = true; });
     el.addEventListener('compositionend', function() { P.composing = false; sbmPadInput(); });
+    // A toolbar button pressed keeps the cursor in the pad, as the notepad's
+    // bar does: a phone could drop the selection on the press, and the button
+    // then acted on the first line (review, 2026-11-12).
+    P.host.querySelectorAll('.sbm-pad__tools').forEach(function(t) {
+      ['pointerdown', 'mousedown'].forEach(function(ev) {
+        t.addEventListener(ev, function(e) { if (e.target.closest && e.target.closest('button')) e.preventDefault(); });
+      });
+    });
     if (window.ResizeObserver) { P.ro = new ResizeObserver(function() { if (_sbmPad === P) _sbCpPaint(true); }); P.ro.observe(el.parentNode); }
     _sbCpPaint();
     setTimeout(function() {
@@ -58554,23 +58626,28 @@ var WO = (function() {
   function _sbCpTool(kind, arg) {
     var P = _sbmPad, el = _sbCpEl(); if (!P || !el) return;
     var lines = _sbCpLinesNow();
-    var sel = _sbChNpSelLines(el) || { a: 0, b: 0, collapsed: true };
+    var sel = _sbChNpSelLines(el);
+    // Nowhere to act: never the song's first line by default.
+    if (!sel) { showToast('Put the cursor on a line of the pad first', 'info'); el.focus(); return; }
     var R = _sbCpRead(lines.join('\n'), _sbmIsChord(), P.parts, P.sections);
     var r = (kind === 'part') ? _sbCpSetPart(R, sel.a, sel.b, arg)
           : (kind === 'hold') ? _sbCpHold(R, sel.a)
           : (kind === 'chords') ? _sbCpAddChords(R, sel.a)
           : _sbCpAddSection(R, sel.a, arg);
     if (!r) { el.focus(); return; }
+    P.composing = false;   // the lines are replaced: no word is being composed now
     el.innerHTML = r.lines.map(_sbCpRowHtml).join('');
     P.dirty = true; P.hit = null;
     _sbCpPaint();
     el.focus();
     if (r.caret > -1) _sbChNpCaret(el, Math.min(r.caret, r.lines.length - 1), r.off || 0);
+    if (r.toast) showToast(r.toast, 'info', { duration: 6000 });
   }
   // + New part: a name asked for, and the lines the cursor is on sung by it.
   function sbmPadNewPart() {
     var P = _sbmPad, el = _sbCpEl(); if (!P || !el) return;
-    var lines = _sbCpLinesNow(), sel = _sbChNpSelLines(el) || { a: 0, b: 0, collapsed: true };
+    var lines = _sbCpLinesNow(), sel = _sbChNpSelLines(el);
+    if (!sel) { showToast('Put the cursor on the line the new part sings first', 'info'); el.focus(); return; }
     var ask = (typeof window.customPrompt === 'function') ? window.customPrompt('A new part', 'What is the part called? Harmony 1, Kids, Solo\u2026', '')
                                                           : Promise.resolve(window.prompt('What is the part called?', ''));
     Promise.resolve(ask).then(function(v) {
@@ -58582,6 +58659,7 @@ var WO = (function() {
       var R = _sbCpRead(lines.join('\n'), _sbmIsChord(), P.parts, P.sections);
       var r = _sbCpSetPart(R, sel.a, sel.b, part);
       if (!r) { el.focus(); return; }
+      P.composing = false;
       el.innerHTML = r.lines.map(_sbCpRowHtml).join('');
       P.dirty = true; P.hit = null;
       _sbCpPaint();
@@ -58718,6 +58796,7 @@ var WO = (function() {
   }
   function _sbmPadKey(ev) {
     if (!_sbmPad || document.getElementById('sbmUnsaved')) return;   // the toast has the keys
+    if (ev.isComposing) return;   // Esc ends a word being composed, not the pad
     // A question asked over the pad (+ New part) keeps its own keys.
     if (ev.target && ev.target !== document.body && _sbmPad.host && !_sbmPad.host.contains(ev.target)) return;
     if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); sbmPadCancel(); }
@@ -58824,8 +58903,14 @@ var WO = (function() {
   function _sbOverviewOpen(base, sid, title, sectionName, run, anchor) {
     var V = window.lhcVoiceLines; if (!V || !base) return;
     if (!_sbEditClaim({ songId: base, title: title })) return;
-    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run, anchor); },
-      function(e) { _sbEditRelease(base); _sbLinesUnread(e); });
+    // Let go whatever goes wrong -- the read, or the opening itself -- or the
+    // song stayed held until the page was reloaded (review, 2026-11-12).
+    _sbLinesReady(base).then(function() { _sbOverviewOpenNow(base, sid, title, sectionName, run, anchor); })
+      .catch(function(e) {
+        _sbEditRelease(base);
+        if (e && e.message === 'unread') _sbLinesUnread(e);
+        else { console.error(e); showToast('The choir parts could not be opened', 'error'); }
+      });
   }
   // The choir pad (gotcha 91): the whole arrangement, its chords in the key
   // sung, opened at the moment or section asked for. A song with no parts
@@ -58859,7 +58944,10 @@ var WO = (function() {
       text: text, roles: _sbmPadRoles(rows), colours: _sbPartColours(base), parts: parts, sections: sections, focus: focus,
       onSave: function(t, colours) {
         return _sbmPadSaveSong(base, sid, t, colours, openSig, { parts: parts,
-          read: function(x, ic) { return _sbCpRead(x, ic, parts, sections); },
+          // the parts named here too (+ New part): a name with a section's
+          // word in it was read back as a section
+          read: function(x, ic) { return _sbCpRead(x, ic, (_sbmPad && _sbmPad.parts) || parts, sections); },
+          onLines: function(rows) { openSig = _sbLinesSig(rows); },
           mapChords: function(ch) { return _sbCpChordsToSave(ch, shownChords, storedChords, steps, fn); } });
       } });
   }
