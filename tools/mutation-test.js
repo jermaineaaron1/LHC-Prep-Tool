@@ -782,18 +782,19 @@ const CASES = [
                    '    if (!currentOrderData) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;')],
   // The bug itself: the words changed everywhere except the one place a
   // congregation reads them.
+  // Through _sbSlidesFollow since 2026-11-12 (gotcha 93).
   ['live-projection-harness.js', 'saving the words leaves the slides as they were',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });', '')],
+    s => s.replace('    // running projection, so the slide is sent again (gotcha 82).\r\n    _sbSlidesFollow(song, before);\r\n', '    // running projection, so the slide is sent again (gotcha 82).\r\n')],
   ['live-projection-harness.js', 'the rebuild runs after the save that reads the DOM',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n', '')
+    s => s.replace('    // running projection, so the slide is sent again (gotcha 82).\r\n    _sbSlidesFollow(song, before);\r\n', '    // running projection, so the slide is sent again (gotcha 82).\r\n')
           .replace('    renderSongbookLive();\r\n  }\r\n  // The editor closed',
-                   '    refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n    renderSongbookLive();\r\n  }\r\n  // The editor closed')],
+                   '    renderSongbookLive();\r\n    _sbSlidesFollow(song, before);\r\n  }\r\n  // The editor closed')],
   ['live-projection-harness.js', 'the wall is not sent the slide again',
     s => s.replace("    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }", '')],
   // song.lyrics here is the Songbook's own words, chords and all.
   ['live-projection-harness.js', 'the rebuild takes the Songbook chords away',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });',
-                   '      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics));')],
+    s => s.replace('    refreshSongSlidesInOrder(song.id, now, { keepLyrics: true });',
+                   '    refreshSongSlidesInOrder(song.id, now);')],
   ['live-projection-harness.js', 'keepLyrics is accepted and ignored',
     s => s.replace('    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;', '    song.lyrics = newLyrics;')],
   // A heading the operator typed is not the parser's to throw away.
@@ -2222,6 +2223,17 @@ const CASES = [
     s => s.replace("      if (v === 'discard') _sbmPadClose();\r\n      else if (v === 'save') sbmPadSave();", "      if (v !== 'save') _sbmPadClose();\r\n      else if (v === 'save') sbmPadSave();")],
   ['songbook-choir-pad-harness.js', 'Esc on the unsaved-changes toast discards',
     s => s.replace("e.stopImmediatePropagation(); e.preventDefault(); done('keep'); } };", "e.stopImmediatePropagation(); e.preventDefault(); done('discard'); } };")],
+  // Songbook <-> LCD / Builder (review, 2026-11-12, gotcha 93).
+  ['songbook-lcd-builder-harness.js', 'a chord-only change re-splits the slides again',
+    s => s.replace('    if (before != null && _sbProjectionWords(before) === now) return false;\r\n', '')],
+  ['songbook-lcd-builder-harness.js', 'a song drawn in from elsewhere takes the wall again',
+    s => s.replace('    if (firstSlideBox && !noSelect) {\r\n      selectSlideBox(firstSlideBox);', '    if (firstSlideBox) {\r\n      selectSlideBox(firstSlideBox);')],
+  ['songbook-lcd-builder-harness.js', 'another device\'s words are only drawn, not taken',
+    s => s.replace("        if (typeof inc.customLyrics === 'string' && inc.customLyrics !== (song.customLyrics || '')) {", '        if (false) {')],
+  ['songbook-lcd-builder-harness.js', 'a version\'s words never reach the slides',
+    s => s.replace('    _sbSlidesFollow(song, before);\r\n  }\r\n  function _sbVerSetKey(song, want) {', '  }\r\n  function _sbVerSetKey(song, want) {')],
+  ['songbook-lcd-builder-harness.js', 'a song inserted after a medley\'s song goes into it',
+    s => s.replace('      if (md && md.medley.songs.length) afterSong = _lbdSong(', '      if (false) afterSong = _lbdSong(')],
   ['songbook-choir-pad-harness.js', 'the pad is saved with the old reader',
     s => s.replace('    var split = o.read ? o.read(fullText, _sbmIsChord(), o.parts) : _sbmPadSplit(fullText, _sbmIsChord(), o.parts);', '    var split = _sbmPadSplit(fullText, _sbmIsChord(), o.parts);')],
   ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
