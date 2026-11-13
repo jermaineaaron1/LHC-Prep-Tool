@@ -280,6 +280,23 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
   check('Book Mode\'s choir notepad is left as it was (its own format, its own save)',
     /_sbmPadSaveSong\(N\.base, N\.sid, text, null, N\.openSig, \{ parts: N\.parts, quiet: true,/.test(fn('_sbChNpEnd')) && !/read:/.test(fn('_sbChNpEnd')));
 
+  // -------------------------------------------------------------------------
+  console.log('\n8. Closing with changes not saved: a toast, not the browser\'s box (2026-11-12)');
+  const ask = fn('_sbmAskUnsaved');
+  check('the pad and the parts editor no longer ask through confirm()', !/confirm\('Discard your changes/.test(SRC) && !/confirm\('Discard your changes to the parts\?'\)/.test(SRC));
+  check('Cancel with changes asks; Discard closes, Save saves, anything else keeps editing',
+    /if \(!P\.dirty\) \{ _sbmPadClose\(\); return; \}\n\s*_sbmAskUnsaved\(/.test(fn('sbmPadCancel')) &&
+    /if \(v === 'discard'\) _sbmPadClose\(\);\n\s*else if \(v === 'save'\) sbmPadSave\(\);\n\s*else \{/.test(fn('sbmPadCancel')) &&
+    /if \(v === 'discard'\) _sbmEdClose\(\);\n\s*else if \(v === 'save'\) sbmEdSave\(\);/.test(fn('sbmEdCancel')));
+  check('the toast offers Keep editing (focused), Discard and Save',
+    /data-unsaved="keep">Keep editing</.test(ask) && /data-unsaved="discard"/.test(ask) && /data-unsaved="save"/.test(ask) && /querySelector\('\[data-unsaved="keep"\]'\); if \(k\) k\.focus\(\);/.test(ask));
+  check('Esc, and a tap anywhere else, keep editing', /if \(e\.key === 'Escape'\) \{[^}]*done\('keep'\); \}/.test(ask) && /var away = function\(e\) \{ if \(!el\.contains\(e\.target\)\) done\('keep'\); \};/.test(ask));
+  check('asked again while it is up: a nudge, never a second toast', /if \(was && was\.__ask && !was\.__gone\) \{[^\n]*is-nudge[^\n]*return was\.__ask; \}/.test(ask));
+  check('while it is up the editors leave the keys to it, and closing an editor takes it down',
+    /if \(!_sbmPad \|\| document\.getElementById\('sbmUnsaved'\)\) return;/.test(fn('_sbmPadKey')) && /_sbmUnsavedDrop\(\);/.test(fn('_sbmPadClose')) &&
+    /if \(!_sbmEd \|\| _sbmPad \|\| document\.getElementById\('sbmUnsaved'\)\) return;/.test(fn('_sbmEdKey')));
+  check('it sits over the pad and the editors (z-index above 3650), from the foot of the screen', /\.sbm-unsaved \{\n\s*position: fixed; left: 50%; bottom: calc\(18px[^\n]*z-index: 10004;/.test(SRC));
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();
