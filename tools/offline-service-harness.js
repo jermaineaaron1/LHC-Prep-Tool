@@ -409,11 +409,27 @@ check('it leaves the SAME record a hand-pressed download leaves',
 check('a switch governs it, default on',
   has(/function autoOn\(\) \{\s*\r?\n\s*try \{ return localStorage\.getItem\(AUTO\) !== '0'; \}/));
 check('...and the sheet offers that switch',
-  has(/id="lhcOffAuto"/) && has(/au\.onchange = function \(\) \{ setAuto\(au\.checked\); \};/));
+  has(/id="lhcOffAuto"/) && has(/au\.onchange = function \(\) \{ setAuto\(au\.checked\);/));
+// A line explaining why nothing happens automatically is nonsense beside a
+// switch that is off, so the sheet is redrawn when it changes.
+check('the notice goes when the switch goes',
+  has(/au\.onchange = function \(\) \{ setAuto\(au\.checked\); _draw\(orderId, title, busyNote\); \};/));
 // This spends somebody's data and battery, so each refusal is its own check.
 check('it refuses when the switch is off', skipSrc.indexOf("if (!autoOn())") !== -1);
+// ONE decision, shared with the sheet that explains it -- not two that happen
+// to agree today. _connRefuses returns the reason and the sheet prints it.
+const connSrc = fn('_connRefuses');
 check('it refuses on Data Saver or a 2g connection',
-  skipSrc.indexOf('c.saveData') !== -1 && /slow-2g/.test(skipSrc));
+  connSrc.indexOf('c.saveData') !== -1 && /slow-2g/.test(connSrc) &&
+  skipSrc.indexOf('var conn = _connRefuses();') !== -1);
+// A switch that is ON and doing nothing is worse than one that is off: the
+// phone looks prepared and is not (the operator, 2026-11-13).
+check('the sheet says when this device will not download it by itself',
+  has(/\(autoOn\(\) && _connRefuses\(\)\)/) && has(/id="lhcOffWhy"/));
+check('...giving the reason the warm itself would give, not a second wording',
+  has(/_esc\(_connRefuses\(\)\)/));
+check('...and pointing at the button that does work',
+  has(/Use <b>Download now<\/b> when you are on Wi-Fi\./));
 check('it refuses while a download the operator started is running',
   skipSrc.indexOf('if (_busy)') !== -1);
 check('it refuses more than once a day per order',

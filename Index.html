@@ -130627,17 +130627,25 @@ window.LHC_Offline = (function () {
     try { localStorage.setItem(AUTO, on ? '1' : '0'); } catch (e) {}
   }
 
-  function _warmSkip(orderId) {
-    if (!autoOn())  return 'the switch is off';
-    if (_busy)      return 'a download is already running';
-    if (!ready())   return 'the offline store is not running';
-    if (!orderId)   return 'no upcoming service';
-    /* Respect Data Saver and a connection the phone calls metered. */
+  /* Is this a connection to spend ten megabytes of somebody's allowance on?
+     Returns why not, or null. Shared with the sheet, so what the warm refuses
+     and what the sheet says are one decision and not two. */
+  function _connRefuses() {
     try {
       var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
       if (c && c.saveData) return 'Data Saver is on';
       if (c && /^(slow-2g|2g)$/.test(String(c.effectiveType || ''))) return 'the connection is too slow';
     } catch (e) {}
+    return null;
+  }
+
+  function _warmSkip(orderId) {
+    if (!autoOn())  return 'the switch is off';
+    if (_busy)      return 'a download is already running';
+    if (!ready())   return 'the offline store is not running';
+    if (!orderId)   return 'no upcoming service';
+    var conn = _connRefuses();
+    if (conn) return conn;
     var rec = readyFor(orderId);
     if (rec && rec.at && (Date.now() - rec.at) < WARM_EVERY) return 'already downloaded today';
     return null;
@@ -130870,6 +130878,20 @@ window.LHC_Offline = (function () {
             '<span>Keep the next service downloaded automatically, ' +
               'so nobody has to remember.</span>' +
           '</label>' +
+          /* A switch that is on and doing nothing is worse than one that is
+             off: the phone looks prepared and is not. The warm stands down on
+             Data Saver and on a 2g connection, deliberately -- it is somebody's
+             data allowance -- so the sheet says so, where they are already
+             looking, and points at the button that does it anyway. */
+          ((autoOn() && _connRefuses())
+            ? '<div id="lhcOffWhy" style="margin:8px 0 0 26px;font-size:.76rem;' +
+                'color:#9a3412;background:#fff7ed;border:1px solid #fdba74;' +
+                'border-radius:8px;padding:7px 10px;line-height:1.5;">' +
+                '<i class="fa-solid fa-circle-info"></i> ' + _esc(_connRefuses()) +
+                ', so this device will not download it on its own. ' +
+                'Use <b>Download now</b> when you are on Wi-Fi.' +
+              '</div>'
+            : '') +
           prog +
           '<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">' +
             '<button id="lhcOffGo" style="flex:1;min-width:150px;background:#4a6da7;color:#fff;' +
@@ -130889,7 +130911,10 @@ window.LHC_Offline = (function () {
     var fg = _sheet.querySelector('#lhcOffForget');
     if (fg) fg.onclick = function () { forget(orderId); _draw(orderId, title); };
     var au = _sheet.querySelector('#lhcOffAuto');
-    if (au) au.onchange = function () { setAuto(au.checked); };
+    // Redrawn, so the notice under it goes when the switch does: a line
+    // explaining why nothing happens automatically is nonsense beside a
+    // switch that is off.
+    if (au) au.onchange = function () { setAuto(au.checked); _draw(orderId, title, busyNote); };
   }
 
   function _run(orderId, title) {
