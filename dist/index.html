@@ -6185,12 +6185,36 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
       background: linear-gradient(90deg,#f59e0b,#d97706);
       color: #1f2933; font-size: 0.78em; font-weight: 600;
-      padding: 8px 16px; display: flex; align-items: center;
+      /* Room on the right for the close, which is the full height of the bar. */
+      padding: 8px 44px 8px 16px; display: flex; align-items: center;
       justify-content: center; gap: 8px; letter-spacing: 0.01em;
       transform: translateY(-100%);
       transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
     }
     #lhcOfflineBanner.show { transform: translateY(0); }
+    /* Back on the internet: a different colour, and the Refresh that is the
+       whole point of saying so. */
+    #lhcOfflineBanner.is-back {
+      background: linear-gradient(90deg,#34d399,#059669); color: #06281c;
+    }
+    #lhcOfflineBanner .lhc-off-btn {
+      flex: none; border: none; border-radius: 999px; padding: 4px 12px;
+      font: inherit; font-weight: 700; background: rgba(255,255,255,.94);
+      color: #065f46; cursor: pointer; white-space: nowrap;
+    }
+    #lhcOfflineBanner .lhc-off-btn[disabled] { opacity: .7; cursor: default; }
+    /* The close is the whole right-hand end, so it is a real target on a
+       phone even though the bar itself is only about 33px tall. */
+    #lhcOfflineBanner .lhc-off-x {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 40px;
+      border: none; background: none; color: inherit; cursor: pointer;
+      font-size: 1.15em; line-height: 1; opacity: .75;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #lhcOfflineBanner .lhc-off-x:hover { opacity: 1; }
+    @media (max-width: 600px) {
+      #lhcOfflineBanner { font-size: .72em; padding: 7px 40px 7px 10px; gap: 6px; }
+    }
 
     /* ==================== PHASE 4: SHARE BOTTOM SHEET ==================== */
     .share-sheet-overlay { padding: 0 !important; }
@@ -37285,7 +37309,14 @@ var WO = (function() {
 
   // Auto-save disabled - only save when Save button is pressed
   // Auto-save status indicator (shown next to Save Order button)
+  /* Is there work the database has not got? 'pending' is a save waiting on
+     its debounce, 'failed' one that was tried and did not land -- both mean
+     the same thing to anybody about to reload the page. */
+  var _soUnsaved = false;
+  function unsavedWork() { return !!(_soUnsaved && currentOrderData); }
+
   function _soSetSaveStatus(state) {
+    _soUnsaved = (state === 'pending' || state === 'failed');
     var el = $('woAutoSaveStatus');
     if (!el) return;
     if (!state)              { el.textContent = ''; return; }
@@ -37315,6 +37346,24 @@ var WO = (function() {
   }
 
   // Bypass the 2s debounce — call before navigating away or on page hide
+  /* The moment the internet comes back is the moment to land anything the
+     outage would otherwise lose. Offline every save failed and said so
+     (⚠ Not saved), but nothing ever retried, so a liturgist's edits sat in
+     memory until somebody happened to press Save -- and a reload, or the
+     Refresh the banner now offers, would have thrown them away. */
+  var _soRetryAt = 0;
+  window.addEventListener('lhc:net', function (e) {
+    if (!e || !e.detail || !e.detail.reachable) return;
+    if (!unsavedWork()) return;
+    // Once per reconnect. Belt and braces now that a failed save no longer
+    // marks us offline, but a save that keeps failing must never become a
+    // machine that saves every time a read comes back.
+    if (Date.now() - _soRetryAt < 15000) return;
+    _soRetryAt = Date.now();
+    console.info('[LHC] back online — saving what the outage held');
+    saveImmediately();
+  });
+
   function saveImmediately() {
     if (!currentOrderData || _sbStandaloneId) return;
     if (_loadingOrder) {
@@ -38108,10 +38157,17 @@ var WO = (function() {
         console.error('Backend save failed:', err);
         if (!silent) showToast('Failed to save. Please try again.', 'error');
         _soSetSaveStatus('failed');
-        /* A save that threw is the one signal we have that is not a read, and
-           on this path it is almost always the network. Telling LHC_Net
-           raises the banner without waiting for the next read to fail. */
-        if (window.LHC_Net) LHC_Net.mark(false);
+        /* It does NOT tell LHC_Net the network is down. It used to, on the
+           reasoning that a save which threw is almost always the uplink --
+           but that conflates "this write failed" with "we cannot reach the
+           database", and once the reconnect above began retrying the save the
+           two made a loop: the retry fails, marks us offline, the next read
+           succeeds and marks us online, which fires the retry again. Reads
+           answer the question on their own now, including the offline case:
+           with a warm cache the worker stamps what it served and judge()
+           reads that as not having reached the database. A write that fails
+           for its own reasons -- a lock, a refusal, a bad row -- says so in
+           the indicator and leaves the banner alone. */
       });
   }
 
@@ -97853,6 +97909,7 @@ var WO = (function() {
     saveCurrentOrder: saveCurrentOrder,
     autoSaveOrder: autoSaveOrder,
     saveImmediately: saveImmediately,
+    unsavedWork: unsavedWork,
     _replayPendingOrderSave: _replayPendingOrderSave,
     _rescueDeletedOrderAsNew: _rescueDeletedOrderAsNew,
     saveOrderAs: saveOrderAs,
@@ -130172,9 +130229,19 @@ window.LHC_Install = (function() {
     //
     // z-index 9998, under the presenter overlay's 10000, so it cannot appear
     // on a screen the congregation can see.
+    //
+    // CLOSEABLE, and dismissed PER EPISODE rather than for good. The operator
+    // tested a real phone with the data plan and Wi-Fi both off (2026-11-13):
+    // everything worked, and the bar -- fixed at the top -- sat over the
+    // controls above the header for the whole service. _offSeenAt holds the
+    // LHC_Net.since() stamp it was dismissed at, and since() moves on every
+    // change of state, so going offline again, or coming back, says so again.
     var offDiv = document.createElement('div');
     offDiv.id = 'lhcOfflineBanner';
     document.body.insertBefore(offDiv, document.body.firstChild);
+    var _offSeenAt = -1, _offWasOff = false;
+    function _offSince() { return window.LHC_Net ? LHC_Net.since() : 0; }
+
     function _offText() {
       var ready = window.LHC_Offline && LHC_Offline.readyHere();
       return '<i class="fa-solid fa-wifi-slash"></i> '
@@ -130182,10 +130249,65 @@ window.LHC_Install = (function() {
             ? 'Offline — running from the copy of this service you downloaded. Changes cannot be saved.'
             : 'Offline — cannot reach the database. Nothing new will load and changes cannot be saved.');
     }
+
+    /* Back online. A reload is what picks up everything another device did
+       while this one was out -- the songs, the roster, the orders list -- so
+       the bar says so and offers it, rather than leaving the operator reading
+       an hour-old screen that looks perfectly normal. */
+    function _offRefresh(btn) {
+      function unsaved() {
+        try { return !!(window.WO && WO.unsavedWork && WO.unsavedWork()); }
+        catch (e) { return false; }
+      }
+      if (!unsaved()) { location.reload(); return; }
+      /* Anything typed during the outage never reached the database. Reloading
+         first would throw it away, so this saves and WAITS, and if the save
+         still has not landed it says so rather than reloading anyway. */
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving…';
+      try { if (window.WO && WO.saveImmediately) WO.saveImmediately(); } catch (e) {}
+      var tries = 0;
+      (function wait() {
+        if (!unsaved()) { location.reload(); return; }
+        if (++tries > 25) {           // five seconds
+          offDiv.querySelector('.lhc-off-msg').innerHTML =
+            '<i class="fa-solid fa-triangle-exclamation"></i> Your changes still have not saved. '
+            + 'Refreshing now would lose them.';
+          btn.disabled = false;
+          btn.textContent = 'Refresh anyway';
+          btn.onclick = function () { location.reload(); };
+          return;
+        }
+        setTimeout(wait, 200);
+      })();
+    }
+
+    function _offDraw(mode) {
+      var back = (mode === 'back');
+      offDiv.classList.toggle('is-back', back);
+      offDiv.innerHTML =
+        '<span class="lhc-off-msg">'
+        + (back ? '<i class="fa-solid fa-rotate"></i> Back online — refresh to load the latest changes.'
+                : _offText())
+        + '</span>'
+        + (back ? '<button type="button" class="lhc-off-btn" data-off="refresh">Refresh</button>' : '')
+        + '<button type="button" class="lhc-off-x" aria-label="Close">×</button>';
+      offDiv.querySelector('.lhc-off-x').onclick = function () {
+        _offSeenAt = _offSince();
+        offDiv.classList.remove('show');
+      };
+      var r = offDiv.querySelector('[data-off="refresh"]');
+      if (r) r.onclick = function () { _offRefresh(r); };
+    }
+
     function _syncOnline() {
       var off = window.LHC_Net ? LHC_Net.offline() : !navigator.onLine;
-      if (off) offDiv.innerHTML = _offText();
-      offDiv.classList.toggle('show', !!off);
+      if (off) _offWasOff = true;
+      // Nothing to say about being back until we have actually been away.
+      var mode = off ? 'off' : (_offWasOff ? 'back' : null);
+      if (!mode || _offSeenAt === _offSince()) { offDiv.classList.remove('show'); return; }
+      _offDraw(mode);
+      offDiv.classList.add('show');
     }
     window.addEventListener('online',  _syncOnline);
     window.addEventListener('offline', _syncOnline);
