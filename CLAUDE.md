@@ -3383,7 +3383,14 @@ the anon key -- verify as `postgres`, not as the app.
       orders preload, retried up to five times at 15s while the worker is
       still installing -- `silentPreloadOrders` runs ONCE, so without the
       retry the very first visit, the one that should prepare the device,
-      would skip. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
+      would skip. **A switch that is ON and doing nothing is worse than one
+      that is off**, so the sheet says when this device will not download it
+      by itself (`_connRefuses`, shared with `_warmSkip` so the reason shown
+      and the reason acted on are one decision): "Data Saver is on, so this
+      device will not download it on its own. Use Download now when you are
+      on Wi-Fi." Shown only while the switch is on, and the sheet is redrawn
+      when it changes — a line explaining why nothing happens automatically
+      is nonsense beside a switch that is off. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
       worked the date out and threw it away; sorting needs it.
     - **The bar CLOSES, per outage** (the operator, 2026-11-13, having tested
       a real phone with the data plan and Wi-Fi both off: everything worked,

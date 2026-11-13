@@ -4,6 +4,34 @@ _Last updated: 2026-11-13 by Claude Code_
 
 ---
 
+## 2026-11-13 — The sheet says when a phone will not download by itself (branch `feat/offline-service`)
+
+The last item left open from the offline work. The automatic download stands
+down on Data Saver and on a 2g connection — deliberately, it is somebody's
+data allowance — but nothing said so, and a switch that is **on and doing
+nothing** is worse than one that is off: the phone looks prepared and is not.
+
+The Download sheet now says, under the switch, in the amber the app uses for
+warnings:
+
+> **Data Saver is on**, so this device will not download it on its own. Use
+> **Download now** when you are on Wi-Fi.
+
+`_connRefuses` was split out of `_warmSkip`, so the reason shown and the
+reason acted on are **one decision** rather than two that happen to agree
+today — verified in the browser: with Data Saver simulated, `warm()` skipped
+with "Data Saver is on" and the sheet printed that same string.
+
+Shown only while the switch is on, and the sheet redraws when it changes.
+Checked on a 2g connection ("the connection is too slow"), on an ordinary one
+(no notice at all), and at 390px, where the card is 358x536 and fits.
+
+Green: `python tools/check-inline-scripts.py --check Index.html` (19 blocks),
+`npm run check` (755 mutation cases, 0 missed, 0 stale — 5 new), the offline
+harness at 131 passed / 0 failed.
+
+---
+
 ## 2026-11-13 — A replay never deletes (branch `feat/offline-service`)
 
 #455 landed the clock half of the crash-journal hazard while this branch was
