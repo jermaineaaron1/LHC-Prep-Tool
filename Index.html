@@ -37460,6 +37460,33 @@ var WO = (function() {
         console.log('[LHC] interrupted save for', payload.id, 'not replayed: the order was saved elsewhere since');
         localStorage.removeItem('lhc_pending_order_save'); return;
       }
+      /* A REPLAY ADDS AND UPDATES; IT NEVER DELETES.
+       *
+       * The check above settles whether anybody wrote since. This settles what
+       * happens if it is ever wrong, and it is the half that matters, because
+       * SBQ.saveOrder is upsert-then-PRUNE: it deletes every stored row the
+       * payload does not carry.
+       *
+       * Whether that is safe rests on SBQ._knownItems, the record of which
+       * rows this client has read -- and left undefined it reads as "no
+       * record, so prune freely". On a page that has just booted that is the
+       * worst possible reading: it has read NONE of those rows, which is a
+       * reason to delete nothing, not everything. Recorded as an empty set,
+       * which is exactly true, every stored row the journal does not carry is
+       * spared. `|| {}` so a load that has already happened in this session
+       * keeps what it recorded.
+       *
+       * The cost, stated rather than left to be discovered: an item DELETED in
+       * the save that crashed comes back. That is one press to undo, where
+       * deleting somebody else's work is not.
+       */
+      SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};
+      /* The permissions a save carries say what the SCREEN had established at
+         that moment -- that the sections were on show and genuinely held
+         nothing. That context died with the page, so a replay never inherits
+         permission to empty anything. */
+      delete payload.allowEmptyItems;
+      delete payload.allowClearTypes;
       SBQ.saveOrder(payload).then(function(r) {
         if (r && r.success) {
           localStorage.removeItem('lhc_pending_order_save');

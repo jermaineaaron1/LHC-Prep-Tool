@@ -97,15 +97,22 @@ const ms = x => new Date(x).getTime();
   check('...and so does the Songbook\'s poll', /SBQ\._noteSeenEdit\(oid, r\.data\.last_edited\);/.test(fn('_sbPollChanged')));
 
   console.log('\n4. The replay at boot');
-  const run = async (journal, cloudIso, own) => {
+  const run = async (journal, cloudIso, own, seedKnown) => {
     const st = { lhc_pending_order_save: JSON.stringify(journal) };
-    const ctx = { saved: [], toasts: [] };
+    const ctx = { saved: [], toasts: [], seedKnown: seedKnown || {} };
     const R = new Function('ctx', 'st', 'cloudIso', 'own', `
       var localStorage = { getItem: function(k) { return k in st ? st[k] : null; }, removeItem: function(k) { delete st[k]; } };
       var console = { log: function() {}, warn: function() {} };
       function getSupabaseClient() { return { from: function() { var api = { select: function() { return api; }, eq: function() { return api; },
         maybeSingle: function() { return Promise.resolve({ error: null, data: { last_edited: cloudIso } }); } }; return api; } }; }
-      var SBQ = { _ownEditsKept: function() { return own || []; }, saveOrder: function(p, o) { ctx.saved.push([p.id, o]); return Promise.resolve({ success: true }); } };
+      var SBQ = { _knownItems: ctx.seedKnown, _ownEditsKept: function() { return own || []; },
+        saveOrder: function(p, o) {
+          ctx.saved.push([p.id, o]);
+          // What the write is actually handed, at the moment it is handed it.
+          ctx.knownAtSave = SBQ._knownItems[p.id];
+          ctx.permsAtSave = { empty: p.allowEmptyItems, clear: p.allowClearTypes };
+          return Promise.resolve({ success: true });
+        } };
       function showToast(m) { ctx.toasts.push(m); }
       ${fn('_journalMayReplay')}
       ${fn('_replayPendingOrderSave')}
@@ -128,6 +135,30 @@ const ms = x => new Date(x).getTime();
   check('this device\'s own quick sync stored since: replayed', r.ctx.saved.length === 1, J(r));
   r = await run({ savedAt: tMine, payload }, tOther, []);
   check('a journal from before: the old rule (an earlier stamp is replayed)', r.ctx.saved.length === 1, J(r));
+
+  // ---------------------------------------------------------------------
+  // A REPLAY ADDS AND UPDATES; IT NEVER DELETES.
+  //
+  // Everything above settles whether anybody wrote since. This settles what
+  // happens if that is ever wrong -- and it is the half that matters, because
+  // SBQ.saveOrder is upsert-then-PRUNE: it deletes every stored row the
+  // payload does not carry. Whether that is safe rests on SBQ._knownItems,
+  // which on a page that has just booted is undefined, and undefined reads as
+  // "no record, so prune freely" -- the worst possible reading of a page that
+  // has read NONE of those rows.
+  // ---------------------------------------------------------------------
+  const loaded = { savedAt: tMine, at: tMine, known: [ms(t0), ms(tMine)],
+    payload: Object.assign({}, payload, { allowEmptyItems: true, allowClearTypes: { song: true } }) };
+  r = await run(loaded, t0, []);
+  check('a replay records having read NONE of the order\'s rows, so the prune spares them',
+    r.ctx.saved.length === 1 && J(r.ctx.knownAtSave) === '{}', J(r.ctx));
+  check('...and never inherits the permission to empty the order',
+    r.ctx.permsAtSave && r.ctx.permsAtSave.empty === undefined && r.ctx.permsAtSave.clear === undefined,
+    J(r.ctx.permsAtSave));
+  // A deep link can load the order before the replay fires 1200ms in.
+  r = await run(loaded, t0, [], { o1: { i1: true, i2: true } });
+  check('what a load in this session already recorded is kept, not thrown away',
+    J(r.ctx.knownAtSave) === J({ i1: true, i2: true }), J(r.ctx.knownAtSave));
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
