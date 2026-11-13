@@ -3528,6 +3528,45 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-choir-pad-harness.js` checks it, running the reader and
     writer on real arrangements through the real parser.
 
+92. **The Edit Song form writes only the columns it owns, and the songbook
+    paths that build a whole order or book keep everything a save writes.**
+    From a review of the Songbook and its links (2026-11-12):
+    - `saveEditSong` used `SBQ_SONGS.update` -- the full row through
+      `songToRow` -- and the form never knew `voice_layout`, `use_count`,
+      `last_used`, `date_added` or `last_edited`, so every Save blanked them:
+      a choir song lost its parts flag to a link fixed in the form, and the
+      Songbook then offered Set up choir parts over the real arrangement. On
+      2026-11-12 no flag had been lost yet, but 81 of 82 songs had no dates
+      and every use count was 0. It now goes through `SBQ_SONGS.updateForm`:
+      `FORM_COLUMNS` and nothing else, `last_edited` stamped, and
+      `display_style` read FRESH and only the `APPEARANCE_KEYS` laid over it
+      (`withAppearance`), so the Songbook's instrument names and part colours
+      survive. `_sfApplyAppearance` merges the same way, and a new song is
+      dated (`saveNewSong`). `update()` is left for anything that truly means
+      the whole row; nothing calls it now.
+    - A standalone songbook's full save writes each song's `choirView`
+      (gotcha 16): without it every close put everyone back on Choir, which
+      undid Set up choir parts' "everyone goes to Choir" for those books.
+    - The shared-link Songbook (`openSongbookByOrderId`: Home chips, the
+      Songbooks tab, `?sb=order-` links, Refresh) built `currentOrderData`
+      but left `window.serviceSectionItems` and `currentOrderType` as the
+      order opened before. A save made away from the LCD collects liturgy,
+      readings and text from `serviceSectionItems`, so the previous order's
+      were saved into this one (moving their rows, by id) and this one's
+      pruned. It now builds them as a full load does (`_absorbOrderItem` into
+      a scratch, `allItems`, `SBQ._noteKnownItems`), sets the type, and --
+      for a DIFFERENT order only -- takes the editor over as a standalone
+      book does (gotcha 49). The same order is left alone: Refresh while the
+      LCD projects must not take the schedule down.
+    - The library's Add choir parts (`_lpStartChoirParts`) reads the stored
+      lines first, and parts found are shown and their flag written back
+      instead of being seeded over; Set up choir parts' `has-parts` path
+      writes a missing flag back too.
+    - Overwrite the Master Copy (`_sbVerReplaceMain`) reads the stored words
+      and key before keeping them as the earlier master.
+    `tools/songs-data-loss-harness.js` checks it, running `updateForm`
+    against a fake database.
+
 ## Quick Commands for Claude Code
 
 ```bash
