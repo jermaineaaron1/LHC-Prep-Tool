@@ -1,6 +1,85 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-11-11 by Claude Code_
+_Last updated: 2026-11-13 by Claude Code_
+
+---
+
+## 2026-11-13 — Offline, actually tested — and two things it turned up (branch `feat/offline-service`)
+
+"I haven't done any testing with the offline function. Would it be possible to
+load up the app without internet ... just enough to access the last saved
+Worship Orders? So that the users can access the songbook, LCD and Liturgy
+builder even if the internet is down."
+
+That is the gap #443 shipped with: it proved the app boots with the ORIGIN
+dead, never with Supabase dead.
+
+### How to test a dead remote host
+
+You cannot unplug supabase.co, and editing the machine's hosts file is not
+worth it. Serve the app **on the same origin** with a broken anon key: every
+read comes back 401, which is the worker's "an answer I cannot use" branch —
+the same one a dead uplink takes — with the page, the cache and the worker
+untouched. It is also safer than the usual local setup: with the key broken no
+write can reach production even in principle.
+
+(Warm the cache through `.claude/preview-server.js` first. Its write guard
+makes `localStorage` writes memory-only, so the download RECORD does not
+survive the swap even though the caches do — that cost me a confusing five
+minutes.)
+
+### The answer: yes
+
+Booted cold with every Supabase read 401'd:
+
+| | Result |
+|---|---|
+| Home | Fully populated — order chips, songbooks, roster names, trending songs |
+| **Liturgy Builder** | 17 sections, 55 slides, the liturgy word for word |
+| **Songbook** | All 6 songs, the medley intact, keys, chords, tiles |
+| **LCD Projection** | 17 sections, 125 slide boxes, Program/Live showing the slide |
+
+`— Not saved` appeared beside Save, exactly as designed. Production untouched:
+15 orders, 82 songs, before and after.
+
+### What it turned up
+
+**1. The banner never showed.** `LHC_Net.reachable()` was TRUE through the
+whole thing. Two causes, both now fixed:
+
+- A **resolved promise is not success**. A 401, a 500 and a captive portal's
+  login page all resolve, and `mark(true)` ran on every one.
+- The worker **answers from the cache**, which also resolves. So the better
+  the offline support worked, the more certainly the banner stayed hidden.
+
+The worker now stamps cache-served answers `X-LHC-From-Cache` and `judge(res)`
+reads it. `LHC_Net` watches `/rest/v1/` only — a Storage picture out of the
+cache says nothing about the database. And the banner follows the open order,
+so it can upgrade from "cannot reach the database" to "running from the copy
+of this service you downloaded"; both wordings verified on screen.
+
+**2. Readiness depended on somebody remembering.** `_woAutoOffline` now keeps
+the SOONEST upcoming service on the device while online — not the most
+recently edited, never a songbook pseudo-order. Verified unprompted: on
+2026-11-13 it chose **"Service - 15 Nov 2026"**, correctly, 30 seconds after
+load. It is quiet (console only), governed by a switch in the sheet (default
+on), and refuses on Data Saver, a 2g connection, a download already running,
+once-per-20h per order, and a worker not yet up — each refusal checked, each
+with a mutation case.
+
+### Two checks of my own that did not bite
+
+The mutation test caught both: one matched the word `bestWhen` rather than the
+comparison `if (when < bestWhen)`, and passed on a mutant that took whichever
+upcoming order came first in the array; the other matched a fragment of the
+`watch` condition rather than the whole assignment, and passed on
+`var watch = true || ...`. Third and fourth instances of gotcha 82 in this one
+harness. Anchor at the statement, not at a word inside it.
+
+Green: `python tools/check-inline-scripts.py --check Index.html` (19 blocks),
+`npm run check` (700 mutation cases, 0 missed, 0 stale — 12 new), the
+harness at 113 passed / 0 failed, and against `a2ddc8c` with
+`--expect-broken` (38 passed, 65 failed).
 
 ---
 

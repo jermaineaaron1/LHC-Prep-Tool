@@ -207,7 +207,7 @@ check('...nor as the app shell',
 check('a 5xx or a portal page falls back to what we have',
   swHas(/if \(!good\) \{ fallBack\(res\); return; \}/));
 check('...but with nothing cached the real answer is passed on, not Response.error',
-  swHas(/resolve\(hit \|\| res \|\| Response\.error\(\)\);/));
+  swHas(/resolve\(hit \? _fromCache\(hit\) : \(res \|\| Response\.error\(\)\)\);/));
 check('an opaque asset is still replayable -- it has no readable headers',
   swHas(/if \(res\.type === 'opaque'\) return kind === 'asset' \|\| kind === 'media';/));
 
@@ -283,9 +283,16 @@ check('a missing library is reported as the network being down',
 // 5. The banner tells the truth
 // ---------------------------------------------------------------------------
 console.log('\n"Offline" means a read actually failed, not navigator.onLine');
+// Anchored at `var watch =`, not at the method test on its own: a fragment
+// match passed on `var watch = true || String(method)...`, which watches
+// writes too.
 check('LHC_Net watches Supabase GETs by wrapping fetch',
   has(/window\.LHC_Net = \{/) &&
-  has(/String\(method\)\.toUpperCase\(\) === 'GET' && String\(url\)\.indexOf\(SUPA\) !== -1/));
+  has(/var watch = String\(method\)\.toUpperCase\(\) === 'GET' &&/));
+// A Storage picture served from the offline cache says nothing about whether
+// the DATABASE is there, and counting it was one of the two ways this lied.
+check('...and only REST reads count, not a cached Storage picture',
+  has(/String\(url\)\.indexOf\('\/rest\/v1\/'\) !== -1/));
 check('it is installed BEFORE the supabase-js tag, so the library captures it',
   SRC.indexOf('window.LHC_Net = {') <
   SRC.indexOf('src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'));
@@ -293,6 +300,25 @@ check('a write is never counted -- a refused write is not a dead uplink',
   has(/Only GETs are\s*\r?\n\s*watched/));
 check('"not asked yet" is null, not offline, so the banner is quiet at boot',
   has(/var reachable = null/) && has(/return reachable === false \|\| navigator\.onLine === false;/));
+// ---------------------------------------------------------------------------
+// Measured 2026-11-13, running the app with every Supabase read failing: the
+// app worked perfectly off the cache and LHC_Net.reachable() was still TRUE,
+// so the banner never appeared. Two causes, one check each.
+// ---------------------------------------------------------------------------
+check('a resolved response is NOT success -- a 401 or a portal page resolves too',
+  !has(/return p\.then\(function \(res\) \{ mark\(true\); return res; \}/) &&
+  /function judge\(res\)[^]*?if \(res\.ok\) \{ mark\(true\); return; \}/.test(SRC));
+check('a CACHE-SERVED read means we did not reach the database',
+  /function judge\(res\)[^]*?if \(cached\) \{ mark\(false\); return; \}/.test(SRC) &&
+  has(/res\.headers\.get\('X-LHC-From-Cache'\)/));
+check('...and the worker is what stamps it',
+  swHas(/h\.set\('X-LHC-From-Cache', '1'\);/) &&
+  swHas(/resolve\(hit \? _fromCache\(hit\) : \(res \|\| Response\.error\(\)\)\);/));
+check('an opaque response is never re-wrapped -- it has no readable headers',
+  swHas(/if \(!res \|\| res\.type === 'opaque'\) return res;/));
+check('a 4xx leaves the flag alone: the server answered, so the uplink is fine',
+  /function judge\(res\)[^]*?if \(res\.status >= 500 \|\| res\.status === 0\) mark\(false\);/.test(SRC));
+
 check('the banner reads LHC_Net',
   has(/var off = window\.LHC_Net \? LHC_Net\.offline\(\) : !navigator\.onLine;/));
 check('...and no longer toggles on navigator.onLine alone',
@@ -357,6 +383,56 @@ check('the sheet says practice recordings are not downloaded',
   has(/Practice[^]{0,40}recordings are not downloaded/));
 check('the sheet says plainly that nothing can be saved offline',
   has(/nothing can be saved/));
+
+// ---------------------------------------------------------------------------
+// The next service keeps itself downloaded
+// ---------------------------------------------------------------------------
+console.log('\nThe next service is kept on the device without anybody remembering');
+const warmSrc = fn('warm');
+const skipSrc = fn('_warmSkip');
+check('there is a quiet warm, separate from the sheet\'s download', !!warmSrc);
+check('it is quiet -- a failure is a console line, never a toast',
+  warmSrc.indexOf('showToast') === -1 && warmSrc.indexOf('console.warn') !== -1);
+check('it leaves the SAME record a hand-pressed download leaves',
+  warmSrc.indexOf('download(orderId, title)') !== -1);
+check('a switch governs it, default on',
+  has(/function autoOn\(\) \{\s*\r?\n\s*try \{ return localStorage\.getItem\(AUTO\) !== '0'; \}/));
+check('...and the sheet offers that switch',
+  has(/id="lhcOffAuto"/) && has(/au\.onchange = function \(\) \{ setAuto\(au\.checked\); \};/));
+// This spends somebody's data and battery, so each refusal is its own check.
+check('it refuses when the switch is off', skipSrc.indexOf("if (!autoOn())") !== -1);
+check('it refuses on Data Saver or a 2g connection',
+  skipSrc.indexOf('c.saveData') !== -1 && /slow-2g/.test(skipSrc));
+check('it refuses while a download the operator started is running',
+  skipSrc.indexOf('if (_busy)') !== -1);
+check('it refuses more than once a day per order',
+  skipSrc.indexOf('WARM_EVERY') !== -1 &&
+  has(/var WARM_EVERY = 20 \* 60 \* 60 \* 1000;/));
+check('it refuses before the worker is running', skipSrc.indexOf('if (!ready())') !== -1);
+
+const pickSrc = fn('_woAutoOffline');
+check('the WO module picks which service, since only it knows', !!pickSrc);
+// The COMPARISON, not the word "bestWhen": a first version of this check
+// looked for the variable name, and passed on a mutant that kept the name and
+// took whichever upcoming order came first in the array. The mutation test is
+// what caught it (gotcha 82, yet again).
+check('the SOONEST upcoming service, not the most recently edited',
+  /if \(when < bestWhen\) \{ bestWhen = when; next = o; \}/.test(pickSrc) &&
+  pickSrc.indexOf('_woOrderIsUpcoming(o)') !== -1);
+check("...and never a songbook's pseudo-order, which is not a service",
+  pickSrc.indexOf("indexOf('standalone_') === 0") !== -1);
+check('it waits well past boot, so it never competes with the app painting',
+  /\}, tries \? 15000 : 20000\);/.test(pickSrc));
+check('it retries while the worker is still installing on a first visit',
+  pickSrc.indexOf('!LHC_Offline.ready() && ++tries < 5') !== -1);
+check('...but not for ever', pickSrc.indexOf('tries < 5') !== -1);
+check('it runs once, from the background orders preload',
+  has(/_woFetchOrderCounts\(\);\s*\r?\n\s*_woAutoOffline\(\);/) &&
+  pickSrc.indexOf('if (_woAutoOfflineDone) return;') !== -1);
+// _woOrderIsUpcoming worked the date out and threw it away; sorting needs it.
+check('one definition of when a service is, shared with _woOrderIsUpcoming',
+  !!fn('_woOrderWhen') &&
+  fn('_woOrderIsUpcoming').indexOf('_woOrderWhen(order)') !== -1);
 
 // ---------------------------------------------------------------------------
 // 8. Registration

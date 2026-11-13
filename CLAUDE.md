@@ -3349,8 +3349,51 @@ the anon key -- verify as `postgres`, not as the app.
       offline (a worker cannot intercept a websocket), `pdf.worker.min.js` is a
       cross-origin worker so PDF/PPTX import stays online-only, and the shell
       alone is 7.3 MB.
+    - **A WORKER DOING ITS JOB MAKES THE BANNER LIE** (2026-11-13, found by
+      running the app with every Supabase read failing: it worked perfectly
+      off the cache and `LHC_Net.reachable()` was still TRUE, so nothing was
+      ever said). Two causes. A RESOLVED promise is not success -- a 401, a
+      500 and a captive portal's login page all resolve, and `mark(true)` ran
+      on every one. And the worker answers from the CACHE, which also
+      resolves, so the better offline worked the more certainly the banner
+      stayed hidden. `_networkFirst` now stamps a cache-served answer
+      `X-LHC-From-Cache` (`_fromCache`, never on an opaque response: no
+      readable headers, and a `new Response` built from one is broken), and
+      `judge(res)` reads it: from cache -> false, `res.ok` -> true, 5xx ->
+      false, any other 4xx -> unchanged, because the server answering us
+      means the uplink is fine. `LHC_Net` also watches `/rest/v1/` only: a
+      Storage picture served from cache says nothing about the database.
+      The banner follows the ORDER too -- `LHC_Offline.here()` fires
+      `lhc:offline-here`, since the banner is drawn at boot, long before an
+      order is opened, and without it the harsh wording stayed up over a
+      service that was in fact fully downloaded.
+    - **The next service keeps itself downloaded.** Offline readiness used to
+      depend on somebody pressing Download for Sunday on the right device
+      before the internet went -- a thing to remember on a Saturday, and the
+      one Sunday it is forgotten is the Sunday it matters. `_woAutoOffline`
+      (the WO module, because only it knows which service is next) picks the
+      SOONEST upcoming order -- not the most recently edited, and never a
+      songbook's `standalone_` pseudo-order -- and hands it to
+      `LHC_Offline.warm`, which is `download` with no sheet, no toast and a
+      console line for a failure: the operator did not ask for it and must
+      not be nagged by it. It refuses on the switch being off
+      (`lhc_offline_auto`, offered in the sheet, default on), Data Saver or a
+      2g connection, a download the operator started, `WARM_EVERY` (20h) per
+      order, and a worker not yet running. Armed 20s after the background
+      orders preload, retried up to five times at 15s while the worker is
+      still installing -- `silentPreloadOrders` runs ONCE, so without the
+      retry the very first visit, the one that should prepare the device,
+      would skip. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
+      worked the date out and threw it away; sorting needs it.
     `tools/offline-service-harness.js` checks it, running `_swRoute` and
-    `urlsIn` themselves rather than matching their source.
+    `urlsIn` themselves rather than matching their source. Testing a dead
+    REMOTE host without touching the machine's hosts file: serve the app on
+    the SAME origin with a broken anon key, so every Supabase read is
+    answered 401 -- the worker's "answer I cannot use" branch is the same one
+    a dead uplink takes. Warm the cache through the normal preview server
+    first; note its write guard makes `localStorage` writes memory-only
+    (gotcha 33), so the download RECORD does not persist across that swap
+    even though the caches do.
 
 89. **Set up choir parts reaches the medley and everyone, and a song has
     one set of chords.** From the operator (2026-11-11), on a screenshot of

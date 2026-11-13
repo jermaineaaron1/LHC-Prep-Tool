@@ -491,7 +491,10 @@ console.log('\n[readings put in by themselves]');
   try {
     R = new Function(buildModule([
       extractFn('_monthFromDateStr'), extractFn('_yearForOrder'), extractFn('_woReadingsNoted'),
-      extractFn('_woReadingsTodo'), extractFn('_woNoteReadings'), extractFn('_woOrderIsUpcoming')
+      extractFn('_woReadingsTodo'), extractFn('_woNoteReadings'), extractFn('_woOrderIsUpcoming'),
+      // _woOrderWhen was split out of _woOrderIsUpcoming when the auto-warm
+      // needed to SORT services by date, not just ask yes or no.
+      extractFn('_woOrderWhen')
     ], "var _RFR_MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']; var STATE = { rosterYear: 2026 };"))();
   } catch (e) {
     check('the automatic readings helpers exist', false, e.message.split('\n')[0]);
