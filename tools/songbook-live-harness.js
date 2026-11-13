@@ -88,7 +88,7 @@ check('  and different text differently', S.hash('abc') === S.hash('abd'), false
   const own = [];
   const P = new Function('SBQ', 'var _sbPollFullRead = {}, _sbPollSeen = {};\n' + S.pollSrc +
     '\nreturn { changed: _sbPollChanged, take: _sbPollTake, verdict: _sbPollVerdict, seen: function(o, t) { _sbPollSeen[o] = t; }, known: function(o) { return _sbPollSeen[o]; } };')(
-    { _sb: () => sb, _isOwnEdit: (o, t) => own.indexOf(o + '@' + t) !== -1 });
+    { _sb: () => sb, _isOwnEdit: (o, t) => own.indexOf(o + '@' + t) !== -1, _noteSeenEdit: () => {} });
   const ms = x => new Date(x).getTime();
   check('the first poll of an open reads everything, asking nothing first', [await P.changed('o1'), asked.length], [true, 0]);
   P.seen('o1', ms(stamp));

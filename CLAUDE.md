@@ -3779,10 +3779,24 @@ the anon key -- verify as `postgres`, not as the app.
       `renameOrder`, `patchInbox` and the standalone book's template write,
       read by `SBQ._isOwnEdit`. The poll starts from `currentOrderData.lastEdited`
       when it is known (`_sbPollStart`). Anything new that writes an order's
-      `last_edited` notes it the same way. The crash journal's replay
-      (`lhc_pending_order_save`) still compares two clocks; it was left, since
-      telling a half-landed save from another device's needs the save's own
-      time in the journal.
+      `last_edited` notes it the same way.
+    - **The crash journal is replayed by value too.** `lhc_pending_order_save`
+      was replayed at boot unless the stored `last_edited` was later than the
+      journal's `savedAt` -- another device's clock against this one's, so a
+      phone running fast replayed its old journal over a later save from
+      another device, and one running slow dropped its own unsaved changes.
+      `saveCurrentOrder` now decides the save's stamp first (`_saveAt`, handed
+      to `SBQ.saveOrder(payload, { at })`) and journals `at` and `known`: every
+      stored time this device had READ for the order (`SBQ._noteSeenEdit`, from
+      `loadOrder` and the Songbook poll's probe) and its own stamps
+      (`_knownEditsFor`). `_journalMayReplay` (pure) replays only when what is
+      stored is one of those or one of this device's own writes since -- kept
+      on the device in `lhc_order_own_edits` by `_noteOwnEdit`, 40 an order,
+      the last 20 orders (`_ownEditsKept`) -- so nobody else has saved since.
+      A journal written before this keeps the clock rule. A save that lands
+      clears its own journal only (`_pj.at === _saveAt`): matched by the order
+      alone, a save landing late cleared the journal of the one after it.
+      `tools/crash-journal-harness.js` checks it.
     - **"Choir parts were set up on another device" is said once.** The device
       that sets them up sends `changed` as well as `choir`; the `changed` check
       found the new parts too (`_sbmPartsArrived`) and called

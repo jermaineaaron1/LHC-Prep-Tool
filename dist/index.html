@@ -31475,10 +31475,44 @@ var SBQ = {
     var l = SBQ._ownEdits[orderId] || (SBQ._ownEdits[orderId] = []);
     l.push(t);
     if (l.length > 40) l.splice(0, l.length - 40);
+    // ...and kept on the device, so the crash journal's replay at the next
+    // boot still knows them (_journalMayReplay).
+    try {
+      var kept = JSON.parse(localStorage.getItem('lhc_order_own_edits') || '{}') || {};
+      var k = Array.isArray(kept[orderId]) ? kept[orderId] : [];
+      k.push(t);
+      if (k.length > 40) k = k.slice(-40);
+      delete kept[orderId]; kept[orderId] = k;          // the newest order last
+      var ids = Object.keys(kept);
+      if (ids.length > 20) ids.slice(0, ids.length - 20).forEach(function(x) { delete kept[x]; });
+      localStorage.setItem('lhc_order_own_edits', JSON.stringify(kept));
+    } catch (e) { /* storage is best-effort */ }
   },
   _isOwnEdit: function(orderId, t) {
     var l = SBQ._ownEdits[orderId];
     return !!(l && l.indexOf(t) !== -1);
+  },
+  _ownEditsKept: function(orderId) {
+    try {
+      var k = (JSON.parse(localStorage.getItem('lhc_order_own_edits') || '{}') || {})[orderId];
+      return Array.isArray(k) ? k : [];
+    } catch (e) { return []; }
+  },
+  // Every stored last_edited this device has READ for an order (a load, the
+  // Songbook's poll), so the crash journal can say which saves its payload
+  // was built on top of (review, 2026-11-13).
+  _seenEdits: {},
+  _noteSeenEdit: function(orderId, iso) {
+    var t = new Date(iso).getTime();
+    if (!orderId || !(t > 0)) return;
+    var l = SBQ._seenEdits[orderId] || (SBQ._seenEdits[orderId] = []);
+    if (l.indexOf(t) === -1) { l.push(t); if (l.length > 60) l.splice(0, l.length - 60); }
+  },
+  // The order's stamps this device knows: read from what is stored, or its own.
+  _knownEditsFor: function(orderId) {
+    var out = (SBQ._seenEdits[orderId] || []).slice();
+    (SBQ._ownEdits[orderId] || []).forEach(function(t) { if (out.indexOf(t) === -1) out.push(t); });
+    return out;
   },
   _tplBase: {},
   _tplPlain: function(tpl) {
@@ -31608,6 +31642,7 @@ var SBQ = {
       var or = results[0], ir = results[1];
       if (or.error) throw new Error(or.error.message);
       if (!or.data) throw new Error('Order not found: ' + id);
+      SBQ._noteSeenEdit(id, or.data.last_edited);
       var order = SBQ._orderFromRow(or.data);
       // Straight from the database, so these fingerprints are the truth about
       // what is stored right now. Taken from the raw rows, before they are
@@ -31624,10 +31659,12 @@ var SBQ = {
   },
 
   // Create or update an order and all its items (clear-and-reinsert)
-  saveOrder: function(payload) {
+  // opts.at: the last_edited to stamp, when the caller has journalled it
+  // (saveCurrentOrder), so the journal knows this save's stamp by value.
+  saveOrder: function(payload, opts) {
     var sb = SBQ._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    var now = new Date().toISOString();
+    var now = (opts && typeof opts.at === 'string' && Date.parse(opts.at) > 0) ? opts.at : new Date().toISOString();
     // Filled in by the prune step; reported back so a caller can say that the
     // order on screen is now behind what is stored.
     var _sparedCount = 0;
@@ -37374,6 +37411,21 @@ var WO = (function() {
     saveCurrentOrder(true);
   }
 
+  // Whether a journalled save may be replayed (pure; review, 2026-11-13).
+  // cloudMs is the order's stored last_edited now; pending.known the stored
+  // times this device knew the order by when it journalled (read, or its
+  // own); own its own stamps written since, kept on the device. Replayed only
+  // when what is stored is one of those -- nobody else has saved since. The
+  // stamps are other devices' clocks, so they are compared by value: against
+  // this device's clock a phone running fast replayed its journal over a
+  // later save from another device, and one running slow dropped its own
+  // unsaved changes. A journal from before (no known) keeps the clock rule.
+  function _journalMayReplay(cloudMs, pending, own) {
+    if (!(cloudMs > 0)) return true;
+    if (!Array.isArray(pending.known)) return !(cloudMs > new Date(pending.savedAt).getTime());
+    return pending.known.indexOf(cloudMs) !== -1 || (own || []).indexOf(cloudMs) !== -1;
+  }
+
   // Replay a save whose network write died with the page. saveCurrentOrder
   // journals its payload to localStorage before calling SBQ.saveOrder and
   // clears the journal on success; if the journal is still there at boot, the
@@ -37402,8 +37454,10 @@ var WO = (function() {
       var row = res && res.data;
       if (!row) { localStorage.removeItem('lhc_pending_order_save'); return; } // order deleted
       var cloudEdited = row.last_edited ? new Date(row.last_edited).getTime() : 0;
-      if (cloudEdited > new Date(pending.savedAt).getTime()) {
-        // The cloud moved on after our crash -- the journal is stale, drop it.
+      if (!_journalMayReplay(cloudEdited, pending, SBQ._ownEditsKept(payload.id))) {
+        // Somebody else saved the order since -- their save wins over our
+        // stale journal, which is dropped.
+        console.log('[LHC] interrupted save for', payload.id, 'not replayed: the order was saved elsewhere since');
         localStorage.removeItem('lhc_pending_order_save'); return;
       }
       SBQ.saveOrder(payload).then(function(r) {
@@ -37922,6 +37976,8 @@ var WO = (function() {
     // next load correctly restored from Supabase, which never got it. That is
     // the "added songs don't stick" report. _replayPendingOrderSave() pushes
     // this journal to Supabase on the next boot if it never landed.
+    // This save's stamp, decided here so the journal knows it by value.
+    var _saveAt = new Date().toISOString();
     if (orderPayload.id && itemsForSave.length) {
       try {
         // Saved projection versions are left out. They have their own rows,
@@ -37936,7 +37992,13 @@ var WO = (function() {
           _jPayload = Object.assign({}, orderPayload, { template: _jTpl });
         }
         localStorage.setItem('lhc_pending_order_save', JSON.stringify({
-          savedAt: new Date().toISOString(),
+          savedAt: _saveAt,
+          // This save's own stamp, and every stored time this device knew the
+          // order by when it built the save -- so the replay can tell by VALUE
+          // whether anyone else has saved since (_journalMayReplay), never by
+          // comparing this device's clock with another's.
+          at: _saveAt,
+          known: SBQ._knownEditsFor(orderPayload.id).concat([new Date(_saveAt).getTime()]),
           payload: _jPayload
         }));
       } catch (e) { /* quota -- the journal is best-effort */ }
@@ -37944,12 +38006,14 @@ var WO = (function() {
 
     // Save directly to Supabase (bypasses GAS proxy for ~100ms vs ~2-3s round-trip)
     // Return the promise so callers (e.g. backToMainMenu) can chain .then()
-    return SBQ.saveOrder(orderPayload).then(function(result) {
+    return SBQ.saveOrder(orderPayload, { at: _saveAt }).then(function(result) {
         // The write landed; the crash journal is no longer needed. Only this
-        // save's own journal is cleared -- a newer save may have re-written it.
+        // save's own journal is cleared -- a newer save may have re-written it,
+        // and it is told apart by its stamp (by the order alone, a save that
+        // landed late cleared the journal of the one after it).
         try {
           var _pj = JSON.parse(localStorage.getItem('lhc_pending_order_save') || 'null');
-          if (_pj && _pj.payload && _pj.payload.id === _savedOrderId) {
+          if (_pj && _pj.payload && _pj.payload.id === _savedOrderId && (!_pj.at || _pj.at === _saveAt)) {
             localStorage.removeItem('lhc_pending_order_save');
           }
         } catch (e) {}
@@ -67342,6 +67406,7 @@ var WO = (function() {
     return sb.from('orders').select('last_edited').eq('id', oid).maybeSingle().then(function(r) {
       if (!r || r.error || !r.data || !r.data.last_edited) return true;
       var t = new Date(r.data.last_edited).getTime();
+      SBQ._noteSeenEdit(oid, r.data.last_edited);
       var v = _sbPollVerdict(t, _sbPollSeen[oid], SBQ._isOwnEdit(oid, t));
       if (v === 'own') { _sbPollSeen[oid] = t; return false; }
       return v !== 'same';
