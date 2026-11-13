@@ -31362,6 +31362,65 @@ var SBQ = {
     }
   },
 
+  // \u2500\u2500 The order's template, merged with what is stored (review, 2026-11-12)
+  // `template` is one JSON column, and every save wrote it whole from this
+  // device's copy -- so a Songbook left open on a phone since nine put back
+  // the sections and medleys someone changed in the builder at half past,
+  // and a song moved into a new section fell out of every list. Now each
+  // key is compared with what this device LOADED (_tplBase): one it has not
+  // changed takes what is stored, another device's change included; one it
+  // did change is written. One key, last writer -- not the whole template.
+  _tplBase: {},
+  _tplPlain: function(tpl) {
+    var o = JSON.parse(JSON.stringify(tpl || {}));
+    delete o._inbox; delete o._inboxPresent;
+    return o;
+  },
+  _tplNote: function(orderId, tpl) { if (orderId) SBQ._tplBase[orderId] = SBQ._tplPlain(tpl); },
+  // A key's value for comparing (pure): keys in a fixed order, and nothing,
+  // null, [] and {} all the same nothing.
+  _tplJson: function(v) {
+    var norm = function(x) {
+      if (x == null) return null;
+      if (Array.isArray(x)) return x.length ? x.map(norm) : null;
+      if (typeof x === 'object') {
+        var ks = Object.keys(x).filter(function(k) { return x[k] !== undefined; }).sort();
+        if (!ks.length) return null;
+        var o = {}; ks.forEach(function(k) { o[k] = norm(x[k]); }); return o;
+      }
+      return x;
+    };
+    var n = norm(v);
+    return n == null ? '' : JSON.stringify(n);
+  },
+  // (pure) -> { template, taken: the keys whose stored value was kept over this device's }
+  _tplMerge: function(local, stored, base) {
+    var L = local || {}, S = stored || {}, J = SBQ._tplJson, out = {}, taken = [], keys = {};
+    Object.keys(L).forEach(function(k) { keys[k] = 1; });
+    Object.keys(S).forEach(function(k) { keys[k] = 1; });
+    Object.keys(keys).forEach(function(k) {
+      var v;
+      if (k === '_inbox' || k === '_inboxPresent') v = (k in L) ? L[k] : S[k];   // the inbox keeps its own rules
+      else if (!base) v = (k in L) ? L[k] : S[k];                                // nothing loaded to compare: as before, keys it lacks kept
+      else if (J(L[k]) !== J(base[k])) v = L[k];                                 // changed here: written (or taken out)
+      else { v = S[k]; if (J(S[k]) !== J(L[k])) taken.push(k); }                 // not changed here: as stored
+      if (v !== undefined) out[k] = v;
+    });
+    return { template: out, taken: taken };
+  },
+  _tplWithStored: function(sb, id, row) {
+    var local = row.template || {};
+    var plain = function() { return { template: SBQ._tplPlain(local), taken: [] }; };
+    var q;
+    try { q = sb.from('orders').select('template').eq('id', id).maybeSingle(); } catch (e) { return Promise.resolve(plain()); }
+    return Promise.resolve(q).then(function(r) {
+      if (!r || r.error || !r.data) return plain();
+      var m = SBQ._tplMerge(local, r.data.template || {}, SBQ._tplBase[id] || null);
+      row.template = m.template;
+      return { template: SBQ._tplPlain(m.template), taken: m.taken };
+    }, plain);
+  },
+
   _noteKnownItems: function(orderId, ids) {
     if (!orderId || !ids) return;
     var seen = SBQ._knownItems[orderId] || (SBQ._knownItems[orderId] = {});
@@ -31517,14 +31576,21 @@ var SBQ = {
     // A create may build the row. An edit may only find it: update...eq(id)
     // returns the rows it touched, so an empty result is the order telling us
     // it is gone.
+    var _tplMerged = null, _tplTaken = [];
     var _orderRowWritten = _isNewOrder
       ? sb.from('orders').upsert(orderRow, { onConflict: 'id' }).then(function(r) {
           if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
+          SBQ._tplNote(id, orderRow.template);
           return true;
         })
-      : sb.from('orders').update(orderRow).eq('id', id).select('id').then(function(r) {
+      : SBQ._tplWithStored(sb, id, orderRow).then(function(m) {
+          _tplMerged = m.template; _tplTaken = m.taken;
+          return sb.from('orders').update(orderRow).eq('id', id).select('id');
+        }).then(function(r) {
           if (r.error) sbqError(r.error, 'saveOrder/orders-update');
-          return !!(r.data && r.data.length);
+          var ok = !!(r.data && r.data.length);
+          if (ok) SBQ._tplNote(id, orderRow.template);   // what is stored now is what this device has
+          return ok;
         });
     return _orderRowWritten
       .then(function(_found) {
@@ -31759,9 +31825,9 @@ var SBQ = {
         // devices -- rather than each caller remembering to.
         try { if (window._orderTouchSend) window._orderTouchSend(id); } catch (e) {}
         if (res && res.__itemsPreserved) {
-          return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
+          return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved, template: _tplMerged, tplTaken: _tplTaken };
         }
-        return { success: true, id: id, lastEdited: now,
+        return { success: true, id: id, lastEdited: now, template: _tplMerged, tplTaken: _tplTaken,
                  // The number of rows the order now has, not the number the
                  // caller handed over. Those differ by every duplicate the
                  // filters above dropped -- measured at 22 collected for 13
@@ -35363,6 +35429,7 @@ var WO = (function() {
           console.log('getOrderFromSupabase result - items:', result && result.items ? result.items.length : 0);
           if (result && result.order) {
             _tplLoadedForOrder = result.order.id;   // this template IS the stored one
+            SBQ._tplNote(result.order.id, result.order.template);   // what the save compares with
             setTimeout(function() { _sbProjHydrate(result.order.id); }, 0);
             // Build complete order from Supabase data
             var completeOrder = {
@@ -35979,6 +36046,10 @@ var WO = (function() {
     var outer = scroller && typeof _scrollParentOf === 'function' ? _scrollParentOf(scroller) : null;
     var keepOuter = outer ? outer.scrollTop : null;
 
+    // Which slide has which background, before anything comes off: a redraw
+    // compacted the map and the song came back with none (review, 2026-11-12).
+    var _bgSnap = (typeof _lcdCaptureAllBgs === 'function') ? _lcdCaptureAllBgs() : null;
+
     // Redrawn items come off first, then go back on with the rest of the
     // additions -- one path in, not two.
     toRemove.concat(redrawLocs).forEach(_orderSyncRemoveOne);
@@ -36012,6 +36083,9 @@ var WO = (function() {
     reorderSections.forEach(function(sec) {
       if (wantOrder[sec]) _orderSyncReorderSection(sec, wantOrder[sec]);
     });
+    // Each background back on its slide -- a redrawn song's by its place in
+    // the song -- before the slide on the wall is sent again with its own.
+    if (_bgSnap) _lcdRestoreAllBgs(_bgSnap);
 
     // Back to the slide that was on the wall, which re-sends it: selecting
     // a slide is what projects it, so this is the same path a click takes.
@@ -37388,6 +37462,9 @@ var WO = (function() {
           backgrounds:             s.backgrounds || {},
           richLyrics:              s.richLyrics || null,
           liturgistNotes:          s.liturgistNotes || '',
+          // its name, so a song later deleted from the library is still named
+          title:                   s.libTitle || s.title || '',
+          artist:                  s.artist || '',
           versionId:               s.versionId || '',
           // The book's shared choice of pages (gotcha 16): left out, every
           // close of the book put everyone back on Choir (review, 2026-11-12).
@@ -37692,6 +37769,9 @@ var WO = (function() {
           }
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
+          // What another device changed and this one had not: taken in, so
+          // the screen and the next save have it (review, 2026-11-12).
+          if (result.tplTaken && result.tplTaken.length) _woTplAdopt(result.template, result.tplTaken);
           // What we just wrote is what the screen shows, so the poll starts
           // comparing from here. Items the save deliberately kept because
           // another device added them are NOT in this list, which is exactly
@@ -42239,6 +42319,30 @@ var WO = (function() {
   // rebuilds the copies a save reads from the order's data -- must not run.
   function _woLcdInPage() {
     return !!document.querySelector('#woWorshipOrder .wo-worship-section');
+  }
+
+  // Template keys another device changed, taken into this one's copy after
+  // a save merged them (SBQ._tplMerge): the sections, the medleys, the
+  // backgrounds. The builder and an open Songbook are drawn again; the LCD's
+  // schedule is left as it is (it is drawn from its own page).
+  function _woTplAdopt(tpl, keys) {
+    if (!currentOrderData || !tpl || !keys || !keys.length) return;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var redraw = false;
+    keys.forEach(function(k) {
+      if (tpl[k] === undefined) delete currentOrderData.template[k]; else currentOrderData.template[k] = tpl[k];
+      if (k === 'sectionLayout') { if (Array.isArray(tpl.sectionLayout)) currentOrderData.sectionLayout = tpl.sectionLayout; redraw = true; }
+      else if (k === 'clearedSections') currentOrderData.clearedSections = Array.isArray(tpl.clearedSections) ? tpl.clearedSections : [];
+      else if (k === 'medleys') redraw = true;
+      else if (k === 'sectionBackgrounds') {
+        sectionBackgrounds = (tpl.sectionBackgrounds && typeof tpl.sectionBackgrounds === 'object') ? tpl.sectionBackgrounds : {};
+        try { localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds)); } catch (e) {}
+        if (typeof updateSlideBgIndicators === 'function') updateSlideBgIndicators();
+      }
+    });
+    if (!redraw) return;
+    if (_lbdIsActive() && !_woLcdInPage()) lbdRender();
+    if (typeof _sbmBookOpen === 'function' && _sbmBookOpen()) renderSongbookLive();
   }
 
   // A change to the order's songs made from outside the builder's page (the
@@ -50555,6 +50659,7 @@ var WO = (function() {
       }
       _sbStandaloneId = null;
       _tplLoadedForOrder = orderMeta.id;      // this template IS the stored one
+      SBQ._tplNote(orderMeta.id, orderMeta.template);   // what the save compares with
       setTimeout(function() { _sbProjHydrate(orderMeta.id); }, 0);   // rows win over the template mirror
       currentOrderData = {
         id: orderMeta.id, title: orderMeta.title || 'Songbook',
@@ -50639,11 +50744,22 @@ var WO = (function() {
       _sbOriginalSongIds = songIds.slice(); // preserve for wipe-guard
       // If saved items exist (full item data with transpositions etc.), restore them
       var savedItems = Array.isArray(sb.items) ? sb.items : [];
+      // The library has loaded: a song it no longer has (deleted there) stays
+      // in the book as what the book kept of it -- its name, its own words --
+      // instead of being dropped, when the next save wrote it out of the book
+      // for good (review, 2026-11-12). Before the library loads nothing is
+      // taken for deleted.
+      var libLoaded = !!(window.STATE && Array.isArray(window.STATE.songs) && window.STATE.songs.length);
       var songs = songIds.map(function(sid, idx) {
         var song = window.STATE && Array.isArray(window.STATE.songs) && window.STATE.songs.find(function(s) { return s.id === sid; });
-        if (!song) return null;
         // Restore saved item data (transpositions, custom lyrics, etc.) if available
         var saved = savedItems.find(function(it) { return it.songId === sid; }) || {};
+        if (!song) {
+          if (!libLoaded) return null;
+          song = { id: sid, title: (saved.title ? saved.title + ' (removed from the song library)' : 'A song removed from the song library'),
+                   artist: saved.artist || '', theme: '', lyrics: saved.customLyrics || '', youtube: [], attachments: [],
+                   __removed: true, __title: saved.title || '' };
+        }
         return {
           id: 'sbsong_' + sid + '_' + idx, songId: song.id,
           title: song.title, artist: song.artist || '', theme: song.theme || '',
@@ -50667,7 +50783,11 @@ var WO = (function() {
           sectionId: '', backgrounds: saved.backgrounds || {},
           richLyrics: saved.richLyrics || null, masterRichLyrics: null,
           liturgistNotes: saved.liturgistNotes || '',
-          versionId: saved.versionId || ''
+          versionId: saved.versionId || '',
+          // the library's own name, kept with the book's copy (and shown, if
+          // the song is ever deleted from the library)
+          libTitle: song.__removed ? song.__title : (song.title || ''),
+          removedFromLibrary: !!song.__removed
         };
       }).filter(Boolean);
       // The order that was open steps aside first: an edit still waiting to
@@ -70009,6 +70129,8 @@ var WO = (function() {
     // and the next clicker press went to the top of the service.
     var selAt = -1;
     existingBoxes.forEach(function(box, i) { if (box.classList.contains('selected')) selAt = i; });
+    // The backgrounds too, re-pinned after: the song's own by their place in it.
+    var _bgSnap = _lcdCaptureSectionBgs(sectionId);
     existingBoxes.forEach(function(box) { box.remove(); });
     var addSlideRow = boxesContainer.querySelector('.wo-add-slide-row[data-song-id="' + songId + '"]');
     if (addSlideRow) addSlideRow.remove();
@@ -70039,6 +70161,7 @@ var WO = (function() {
       '<i class="fa-solid fa-plus"></i> Add Slide</button>' +
       '<span class="wo-add-slide-hint">or dbl-click slide → <kbd>Shift+Enter</kbd> to split</span></div>';
     insertAfter.insertAdjacentHTML('afterend', addSlideBtnHtml);
+    if (_bgSnap) _lcdRestoreSectionBgs(sectionId, _bgSnap);
     if (selAt > -1) {
       var again = boxesContainer.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]');
       var back = again[Math.min(selAt, again.length - 1)];
@@ -85926,14 +86049,22 @@ var WO = (function() {
     if (!confirm('Remove this song from the songbook?')) return;
     // sid may be a virtual id (song.id__sb__sectionId) — get the base song id
     var baseSongId = sid.indexOf('__sb__') !== -1 ? sid.split('__sb__')[0] : sid;
+    if (!_sbStandaloneId) {
+      // One step the builder's Undo knows (review, 2026-11-12): made straight
+      // on the list, the builder's next Undo put the whole list back and the
+      // song reappeared. Taken out on purpose, so a save may clear the last
+      // one; and off LCD Projection's schedule if that is in the page.
+      _woSongsChange(function() {
+        songOrderSections = songOrderSections.filter(function(s) { return s.id !== baseSongId; });
+        _woUserClearedTypes.song = true;
+      });
+      _woLcdDropSong(baseSongId);
+      renderSongbookLive();
+      showToast('Song removed from songbook', 'success');
+      return;
+    }
     // Remove from songOrderSections
     songOrderSections = songOrderSections.filter(function(s) { return s.id !== baseSongId; });
-    if (!_sbStandaloneId) {
-      // Taken out on purpose, so a save may clear the last one; and off
-      // LCD Projection's schedule if that is in the page underneath.
-      _woUserClearedTypes.song = true;
-      _woLcdDropSong(baseSongId);
-    }
     renderSongbookLive();
     autoSaveOrder();
     // If standalone, persist to localStorage
@@ -85981,6 +86112,15 @@ var WO = (function() {
   // The book's songs in a new order, and what follows from that: the book
   // redrawn, the order saved, a standalone songbook's list written.
   function _sbApplySongOrder(next) {
+    if (!_sbStandaloneId) {
+      // One step the builder's Undo knows (review, 2026-11-12).
+      _woSongsChange(function() {
+        songOrderSections.length = 0;
+        Array.prototype.push.apply(songOrderSections, next);
+      });
+      renderSongbookLive();
+      return true;
+    }
     songOrderSections.length = 0;
     Array.prototype.push.apply(songOrderSections, next);
     renderSongbookLive();
@@ -89746,28 +89886,56 @@ var WO = (function() {
   // capture the element->background pairing first and rewrite the map from the
   // boxes' new positions afterwards; node identity survives a move, so the
   // pairing stays correct however far things shift.
+  // Each slide is also named by its item and its place among that item's
+  // slides, so a box drawn AGAIN -- a song another device changed, a song
+  // whose words were split again -- is found by that when the box it was is
+  // gone (review, 2026-11-12): node identity alone dropped the redrawn
+  // song's backgrounds and moved the later slides' onto their neighbours.
+  function _lcdBgItemOf(b) { return (b && b.getAttribute) ? (b.getAttribute('data-song-id') || b.getAttribute('data-liturgy-id') || '') : ''; }
   function _lcdCaptureSectionBgs(sectionId) {
     var container = document.getElementById(sectionId + '-boxes');
     if (!container || typeof getBackgroundForSlideInSection !== 'function') return null;
+    var nth = {};
     return Array.from(container.querySelectorAll('.wo-slide-box')).map(function(b, i) {
-      return { box: b, bg: getBackgroundForSlideInSection(sectionId, i) };
+      var k = _lcdBgItemOf(b), n = k ? (nth[k] = (nth[k] || 0) + 1) - 1 : -1;
+      return { box: b, bg: getBackgroundForSlideInSection(sectionId, i), item: k, nth: n };
     }).filter(function(e) { return !!e.bg; });
   }
 
-  function _lcdRestoreSectionBgs(sectionId, captured) {
+  function _lcdRestoreSectionBgs(sectionId, captured, opts) {
     if (!captured) return;
     var container = document.getElementById(sectionId + '-boxes');
     if (!container) return;
     var boxes = Array.from(container.querySelectorAll('.wo-slide-box'));
+    var at = {}, byItem = {};
+    boxes.forEach(function(b, i) { var k = _lcdBgItemOf(b); if (k) byItem[k + '#' + ((at[k] = (at[k] || 0) + 1) - 1)] = i; });
     var rebuilt = {};
     captured.forEach(function(e) {
       var ni = boxes.indexOf(e.box);
+      if (ni < 0 && e.item) { var j = byItem[e.item + '#' + e.nth]; if (j != null) ni = j; }
       if (ni >= 0) rebuilt[ni] = e.bg;
     });
     if (Object.keys(rebuilt).length) sectionBackgrounds[sectionId] = rebuilt;
     else delete sectionBackgrounds[sectionId];
     // One write rather than one per slide -- setBackgroundForSlideInSection()
     // would also fire autoSaveOrder() on every iteration.
+    if (!(opts && opts.noSave) && typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+  }
+  // Every section of the schedule at once: around a change from another
+  // device, which may touch any of them.
+  function _lcdCaptureAllBgs() {
+    var out = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#woWorshipOrder .wo-worship-section'), function(sec) {
+      if (!sec.id) return;
+      var c = _lcdCaptureSectionBgs(sec.id);
+      if (c && c.length) out[sec.id] = c;
+    });
+    return out;
+  }
+  function _lcdRestoreAllBgs(snap) {
+    var ids = Object.keys(snap || {});
+    if (!ids.length) return;
+    ids.forEach(function(id) { _lcdRestoreSectionBgs(id, snap[id], { noSave: true }); });
     if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
   }
 
@@ -97052,13 +97220,14 @@ var WO = (function() {
 
   // 357 — Insert a blank notes page immediately after the given song ID
   function sbAddBlankPageAfter(afterId) {
-    var afterIdx = songOrderSections.findIndex(function(s) { return s.id === afterId; });
     var page = { id: 'sbblank_' + Date.now(), itemType: 'blank', title: '', richContent: '' };
-    if (afterIdx >= 0) {
-      songOrderSections.splice(afterIdx + 1, 0, page);
-    } else {
-      songOrderSections.push(page);
-    }
+    var put = function() {
+      var afterIdx = songOrderSections.findIndex(function(s) { return s.id === afterId; });
+      if (afterIdx >= 0) songOrderSections.splice(afterIdx + 1, 0, page);
+      else songOrderSections.push(page);
+    };
+    // A service's book: one step the builder's Undo knows (review, 2026-11-12).
+    if (_sbStandaloneId) put(); else _woSongsChange(put);
     renderSongbookLive();
     sbAutoSave();
     setTimeout(function() { sbScrollToSong(page.id); }, 300);
