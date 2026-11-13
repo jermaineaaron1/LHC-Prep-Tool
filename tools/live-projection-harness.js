@@ -179,7 +179,7 @@ check('  and does not start a second channel over a live one',
 check('every save says so, from the one place they all go through',
   /\.then\(function\(res\) \{[\s\S]{0,400}?window\._orderTouchSend\(id\)/.test(SRC), true);
 check('  and that place is SBQ.saveOrder, which every path uses',
-  /saveOrder: function\(payload\)[\s\S]*?window\._orderTouchSend\(id\)/.test(SRC), true);
+  /saveOrder: function\(payload(, opts)?\)[\s\S]*?window\._orderTouchSend\(id\)/.test(SRC), true);
 check('  and the other devices listen for it',
   /\.on\('broadcast', \{ event: 'order_touch' \}/.test(SRC), true);
 check('  for this order only',
