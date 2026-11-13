@@ -2302,6 +2302,13 @@ const CASES = [
     s => s.replace("      SBQ._noteSeenEdit(id, or.data.last_edited);\r\n", '')],
   ['crash-journal-harness.js', 'a save that lands clears the newer save\'s journal again',
     s => s.replace('_pj.payload.id === _savedOrderId && (!_pj.at || _pj.at === _saveAt)', '_pj.payload.id === _savedOrderId')],
+  // A replay must add and update, never delete -- the half #455 did not cover.
+  ['crash-journal-harness.js', 'the replay prunes again: _knownItems undefined reads as permission to delete',
+    s => s.replace("      SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};\r\n", '')],
+  ['crash-journal-harness.js', 'it throws away what a load in this session had already recorded',
+    s => s.replace("SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};", "SBQ._knownItems[payload.id] = {};")],
+  ['crash-journal-harness.js', 'the replay inherits a dead screen\'s permission to empty the order',
+    s => s.replace("      delete payload.allowEmptyItems;\r\n      delete payload.allowClearTypes;\r\n", '')],
   ['crash-journal-harness.js', 'own stamps are not kept on the device for the next boot',
     s => s.replace("      localStorage.setItem('lhc_order_own_edits', JSON.stringify(kept));\r\n", '')],
   ['songbook-small-fixes-harness.js', 'a Songbook editor closing lets the library\'s hold of the song go',

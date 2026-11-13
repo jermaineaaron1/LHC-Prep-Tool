@@ -3796,7 +3796,23 @@ the anon key -- verify as `postgres`, not as the app.
       A journal written before this keeps the clock rule. A save that lands
       clears its own journal only (`_pj.at === _saveAt`): matched by the order
       alone, a save landing late cleared the journal of the one after it.
-      `tools/crash-journal-harness.js` checks it.
+    - **AND A REPLAY NEVER DELETES.** The rule above settles whether anybody
+      wrote since; this settles what happens if it is ever wrong, and it is
+      the half that matters. `SBQ.saveOrder` is upsert-then-PRUNE, and whether
+      the prune is safe rests on `SBQ._knownItems`, the record of which rows
+      this client has READ. Left undefined it reads as "no record, so prune
+      freely" — on a page that has just booted, the worst possible reading of
+      a page that has read NONE of them, which is a reason to delete nothing.
+      The replay records an empty set, which is exactly true, so every stored
+      row the journal does not carry is spared; `|| {}` so a load that has
+      already happened this session (a deep link, before the replay fires at
+      1200ms) keeps what it recorded. It also strips `allowEmptyItems` and
+      `allowClearTypes`, which say what the SCREEN had established at that
+      moment and died with the page. The cost, stated rather than left to be
+      discovered: an item DELETED in the save that crashed comes back — one
+      press to undo, where deleting somebody else's work is not.
+      `tools/crash-journal-harness.js` checks it, running the replay in a
+      sandbox and reading what `saveOrder` is actually handed.
     - **"Choir parts were set up on another device" is said once.** The device
       that sets them up sends `changed` as well as `choir`; the `changed` check
       found the new parts too (`_sbmPartsArrived`) and called

@@ -4,6 +4,57 @@ _Last updated: 2026-11-13 by Claude Code_
 
 ---
 
+## 2026-11-13 — A replay never deletes (branch `feat/offline-service`)
+
+#455 landed the clock half of the crash-journal hazard while this branch was
+open — and did it better than this branch had. It journals the stamp the save
+is about to write along with every stored time the device has read, so our own
+interrupted save landing is a reason to replay rather than to drop; this
+branch had a single `baseEdited` and dropped that case. Its version, its
+harness and its docs were taken wholesale and this branch's were discarded.
+
+What #455 does not cover is the other half, and it is the half that matters.
+
+### The prune
+
+`SBQ.saveOrder` is upsert-then-**prune**: it deletes every stored row the
+payload does not carry. Whether that is safe rests on `SBQ._knownItems` — the
+record of which rows this client has READ — and left undefined it reads as
+"no record, so prune freely".
+
+On a page that has just booted that is the worst possible reading. It has read
+**none** of those rows, which is a reason to delete nothing, not everything.
+The replay now records an empty set, which is exactly true, so every stored
+row the journal does not carry is spared. `|| {}` rather than `= {}`, because
+a deep link can load the order before the replay fires at 1200 ms.
+
+It also strips `allowEmptyItems` and `allowClearTypes`. Those say what the
+*screen* had established at that moment — that the sections were on show and
+genuinely held nothing — and that context died with the page.
+
+**The cost, stated rather than left to be discovered:** an item *deleted* in
+the save that crashed comes back. One press to undo. Deleting somebody else's
+work is not.
+
+### Verified
+
+#455's harness runs `_replayPendingOrderSave` in a sandbox, which made this
+testable behaviourally rather than by regex: the stub's `saveOrder` now records
+what it is actually handed, so the checks read `_knownItems` at the moment of
+the write and the payload's permissions with it. Against master without the
+guard, two of the three fail.
+
+Green: `python tools/check-inline-scripts.py --check Index.html` (19 blocks),
+`npm run check` (750 mutation cases, 0 missed, 0 stale — 3 new), the harness
+at 25 passed / 0 failed.
+
+### Still open
+
+- A singer's phone on mobile data skips the automatic download when Data Saver
+  is on. Deliberate, but a phone can quietly be unprepared.
+
+---
+
 ## 2026-11-13 — The offline bar closes, and coming back asks for a refresh (branch `feat/offline-service`)
 
 The operator tested a real phone with the data plan AND Wi-Fi off: the app
