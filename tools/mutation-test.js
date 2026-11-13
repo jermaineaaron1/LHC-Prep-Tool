@@ -2367,6 +2367,17 @@ const CASES = [
     s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
   ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
     s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
+  // The Prayer of the Day (2026-11-13): a noted order keeps its own words,
+  // a new bulletin does not carry last week's prayer, an old prayer's second
+  // slide does not survive, and a past order is never given one.
+  ['day-prayer-harness.js', "an order given the prayer before is given it again over the liturgist's words",
+    s => s.replace("if (noted && _dpNorm(noted.text) === _dpNorm(prayer)) return 'keep';", "")],
+  ['day-prayer-harness.js', "a new bulletin carries last week's prayer",
+    s => s.replace("d.prayer = ''; d.prayerDoc = '';", "")],
+  ['day-prayer-harness.js', "the old prayer's second slide survives",
+    s => s.replace("return keep.concat([first], parts.slice(1));", "return keep.concat([first], parts.slice(1), old.slice(h + 1));")],
+  ['day-prayer-harness.js', 'a past order is given the prayer',
+    s => s.replace("if (_woAutoPrayerDone[key] || !_woOrderIsUpcoming(o)) return;", "if (_woAutoPrayerDone[key]) return;")],
   // Dragging a section (2026-11-11): the numbers follow the drag, a finger
   // that moves first scrolls, the phone shows its grip, the songs follow.
   ['builder-section-drag-harness.js', 'the numbers stay put while a section is dragged',

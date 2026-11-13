@@ -246,7 +246,9 @@ console.log('\nwhat the import is wired to');
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'parse-lectionary', 'route.ts'), 'utf8');
   check('the route can read a whole calendar', /mode === 'calendar'/.test(route), true);
   check('it still answers the single-service callers unchanged',
-    /responseSchema: isCalendar \? CALENDAR_SCHEMA : RESPONSE_SCHEMA/.test(route), true);
+    // (a prayers document came in front of it on 2026-11-13; the last
+    // fallback is still the single-service schema)
+    /responseSchema: (isPrayers \? PRAYERS_SCHEMA : )?isCalendar \? CALENDAR_SCHEMA : RESPONSE_SCHEMA,/.test(route), true);
   check('it drops entries with no usable date', /\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(e\.date\)/.test(route), true);
   check('it keeps one row per date', /seen\.has\(e\.date\)/.test(route), true);
   check('and still refuses a file this app did not upload', /isOwnStorage\(url\)/.test(route), true);
