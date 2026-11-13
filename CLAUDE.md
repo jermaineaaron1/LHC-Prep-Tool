@@ -3826,6 +3826,52 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-small-fixes-harness.js` checks them; the poll is in
     `tools/songbook-live-harness.js`.
 
+96. **The crash journal replays by VALUE, and a replay never deletes.**
+    `saveCurrentOrder` writes its payload to localStorage before calling
+    `SBQ.saveOrder` and clears it on success; a journal still there at the next
+    boot means the page died mid-flight, so `_replayPendingOrderSave` pushes it
+    (1200ms after boot). That recovers the "added songs don't stick" case and
+    is the single most dangerous write in the app, because `SBQ.saveOrder` is
+    upsert-then-PRUNE and the rails that make the prune safe — `_knownItems`,
+    `_lastWritten`, `allowClearTypes` — live in page memory, which a page that
+    has just booted has none of.
+    - **Two client clocks decided it, and that was the hazard.** The old rule
+      compared the crashed device's `savedAt` with the order row's
+      `last_edited`, stamped by whichever device wrote last. A phone ten
+      minutes fast read another device's later edit as earlier, replayed its
+      stale payload and pruned what that edit had added: the 9:58 snapshot
+      deleting the four slides somebody put in at 10:04. The journal now
+      records what this device believed was STORED (`baseEdited`, from
+      `currentOrderData.lastEdited`) and `_replayVerdict` (pure:
+      'drop' | 'fetch' | 'replay') replays only when the stored value is still
+      exactly that one. Not newer, not older — the same. Anything else means
+      somebody wrote, our own interrupted save having landed included, and in
+      both there is nothing we should push.
+    - **Compared by INSTANT, not by spelling.** `currentOrderData.lastEdited`
+      is written from a LOAD (`2026-11-10T17:32:41.881+00:00`, Postgres) AND
+      from a save's own stamp (`...881Z`, `toISOString`). A string comparison
+      matched the first journal of a session and nothing after it — every
+      later one unmatchable, recovery silently off, with a harness comparing
+      strings it made up staying green. Caught against the real row; the two
+      spellings now have a check each.
+    - **A replay adds and updates; it never deletes.** `_knownItems` left
+      undefined reads as "no record, so prune freely", which on a freshly
+      booted page is the worst possible reading: it has read none of those
+      rows, which is a reason to delete nothing. The replay records an empty
+      set — exactly true — so every stored row the journal does not carry is
+      spared, and it strips `allowEmptyItems` / `allowClearTypes`, which were
+      what a screen that no longer exists had established. The cost, stated
+      rather than discovered: an item DELETED in the save that crashed comes
+      back, which is one press to undo, where deleting somebody else's work is
+      not.
+    - Unchanged and still true: a read that fails leaves the journal for the
+      next boot, an order deleted since drops it, saved projection decks are
+      left out of the journal (megabytes on the main thread, and the quota),
+      and a brand-new order whose very first save never landed is still
+      dropped rather than re-created — a ghost order is the worse failure.
+    `tools/crash-journal-harness.js` checks it, running `_replayVerdict`
+    itself over the 9:58/10:04 case with the clocks skewed both ways.
+
 ## Quick Commands for Claude Code
 
 ```bash

@@ -37380,6 +37380,63 @@ var WO = (function() {
   // page went away mid-flight and Supabase never got that state. Push it now,
   // BUT only if the cloud has not moved on since -- someone else (or another
   // device) editing the order after the crash must win over our stale journal.
+  /* What to do with a crash journal, given the order row as it is STORED.
+   * 'drop' | 'fetch' | 'replay'. Called with `row` undefined it answers
+   * only what it can know without a round trip: 'fetch' means go and look.
+   * Pure, so tools/crash-journal-harness.js can run it.
+   *
+   * THE HAZARD THIS CLOSES. SBQ.saveOrder is upsert-then-PRUNE: it deletes
+   * every stored row the payload does not carry. Whether that is safe rests
+   * on rails that live in page memory (_knownItems, _lastWritten), and a
+   * replay happens on a page that has just booted and read nothing. So the
+   * question "has anybody written since my save was built?" has to be
+   * answered exactly, and it used to be answered by comparing two CLIENT
+   * CLOCKS -- the crashed device's `savedAt` against the cloud row's
+   * `last_edited`, which whichever device wrote last had stamped itself. A
+   * phone ten minutes fast therefore read another device's later edit as
+   * earlier, replayed its own stale payload, and pruned what that edit had
+   * added: the 9:58 snapshot deleting the four slides somebody put in at
+   * 10:04.
+   *
+   * Now the journal records what this device believed was stored
+   * (`baseEdited`) and the only safe case is the cloud still holding exactly
+   * that. Not newer, not older -- the SAME value. Anything else means
+   * somebody wrote, including our own interrupted save having landed after
+   * all, and in both of those there is nothing we should be pushing.
+   */
+  function _replayVerdict(pending, row, nowMs) {
+    var payload = pending && pending.payload;
+    // Nothing that could wipe: no id, and no items to put back.
+    if (!payload || !payload.id || !Array.isArray(payload.items) || !payload.items.length) return 'drop';
+    var savedAt = pending.savedAt ? new Date(pending.savedAt).getTime() : 0;
+    // A journal so old its context is gone. This one IS a clock comparison,
+    // but only against ourselves, and only as an upper bound -- it can make
+    // the replay less willing, never more.
+    if (!savedAt || (nowMs - savedAt) > 7 * 86400000) return 'drop';
+    if (row === undefined) return 'fetch';         // worth a round trip
+    if (!row) return 'drop';                       // the order was deleted
+    var cloud = String(row.last_edited || '');
+    if (typeof pending.baseEdited === 'string') {
+      /* The SAME recorded value, which ISO spells two ways. A load gives
+         "2026-11-10T17:32:41.881+00:00" (Postgres) and a save's own stamp
+         gives "...881Z" (toISOString), and currentOrderData.lastEdited is
+         written from BOTH -- the load on open, the result on every save. So
+         comparing the strings matched the first journal of a session and
+         nothing after it: every later one unmatchable, recovery silently
+         off, and a harness comparing strings it made up would never see it.
+         Measured against the real row.
+         This is still a value comparison and not two clocks being ordered:
+         it asks only whether what is stored is the one we last saw. */
+      if (!cloud || !pending.baseEdited) return cloud === pending.baseEdited ? 'replay' : 'drop';
+      var ca = new Date(cloud).getTime(), cb = new Date(pending.baseEdited).getTime();
+      return (ca > 0 && ca === cb) ? 'replay' : 'drop';
+    }
+    // A journal written before this change carries no base, so fall back to
+    // the clocks it was written for. These age out in seven days.
+    var cloudMs = cloud ? new Date(cloud).getTime() : 0;
+    return cloudMs > savedAt ? 'drop' : 'replay';
+  }
+
   function _replayPendingOrderSave() {
     var raw;
     try { raw = localStorage.getItem('lhc_pending_order_save'); } catch (e) { return; }
@@ -37389,10 +37446,8 @@ var WO = (function() {
       localStorage.removeItem('lhc_pending_order_save'); return;
     }
     var payload = pending && pending.payload;
-    // Never replay something that could wipe: no id, no items, or a journal so
-    // old its context is gone (7 days).
-    if (!payload || !payload.id || !Array.isArray(payload.items) || !payload.items.length ||
-        !pending.savedAt || (Date.now() - new Date(pending.savedAt).getTime()) > 7 * 86400000) {
+    // Hopeless or long stale: drop it without asking the database.
+    if (_replayVerdict(pending, undefined, Date.now()) !== 'fetch') {
       localStorage.removeItem('lhc_pending_order_save'); return;
     }
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
@@ -37400,12 +37455,29 @@ var WO = (function() {
     sb.from('orders').select('last_edited').eq('id', payload.id).maybeSingle().then(function(res) {
       if (res && res.error) return; // leave the journal for the next boot
       var row = res && res.data;
-      if (!row) { localStorage.removeItem('lhc_pending_order_save'); return; } // order deleted
-      var cloudEdited = row.last_edited ? new Date(row.last_edited).getTime() : 0;
-      if (cloudEdited > new Date(pending.savedAt).getTime()) {
-        // The cloud moved on after our crash -- the journal is stale, drop it.
+      if (_replayVerdict(pending, row, Date.now()) !== 'replay') {
         localStorage.removeItem('lhc_pending_order_save'); return;
       }
+      /* A REPLAY ADDS AND UPDATES; IT NEVER DELETES.
+       *
+       * _knownItems is saveOrder's record of which rows this client has read,
+       * and left undefined it reads as "no record, so prune freely". On a page
+       * that has just booted that is the worst possible reading: it has read
+       * none of them, which is a reason to delete nothing, not everything.
+       * Recorded as an empty set -- which is exactly true -- every stored row
+       * the journal does not carry is spared.
+       *
+       * The cost, stated rather than discovered: an item DELETED in the save
+       * that crashed comes back. That is recoverable in one press, where
+       * deleting somebody else's work is not.
+       */
+      SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};
+      /* The permissions a save carries (allowEmptyItems, allowClearTypes) are
+         what the screen had established at that moment -- that the sections
+         were on screen and genuinely held nothing. That context died with the
+         page, so a replay never inherits permission to empty anything. */
+      delete payload.allowEmptyItems;
+      delete payload.allowClearTypes;
       SBQ.saveOrder(payload).then(function(r) {
         if (r && r.success) {
           localStorage.removeItem('lhc_pending_order_save');
@@ -37937,6 +38009,11 @@ var WO = (function() {
         }
         localStorage.setItem('lhc_pending_order_save', JSON.stringify({
           savedAt: new Date().toISOString(),
+          // What this device believed was STORED when it built this save.
+          // The replay compares the cloud's value with this one BY VALUE, so
+          // it never has to weigh two machines' clocks against each other --
+          // the same rule _ownEdits follows for the poll.
+          baseEdited: (currentOrderData && currentOrderData.lastEdited) || '',
           payload: _jPayload
         }));
       } catch (e) { /* quota -- the journal is best-effort */ }
@@ -97911,6 +97988,7 @@ var WO = (function() {
     saveImmediately: saveImmediately,
     unsavedWork: unsavedWork,
     _replayPendingOrderSave: _replayPendingOrderSave,
+    _replayVerdict: _replayVerdict,
     _rescueDeletedOrderAsNew: _rescueDeletedOrderAsNew,
     saveOrderAs: saveOrderAs,
     closeSaveAsModal: closeSaveAsModal,
