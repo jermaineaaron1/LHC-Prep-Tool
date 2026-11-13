@@ -85,8 +85,10 @@ let STATE;
 const SRC_ALL = fs.readFileSync(INDEX, 'utf8').replace(/\r\n/g, '\n');
 const appKeys = (SRC_ALL.match(/APPEARANCE_KEYS: (\[[^\]]*\])/) || [, '[]'])[1];
 const withApp = (SRC_ALL.match(/withAppearance: (function\(cur, look\) \{[^]*?\n  \})/) || [, 'function(cur, look) { return look || {}; }'])[1];
+// The era kept in display_style (2026-11-13); a pass-through in older source.
+const eraFn = (SRC_ALL.match(/\nfunction _songStyleWithEra\([^)]*\) \{[^]*?\n\}/) || ['function _songStyleWithEra(ds) { return ds; }'])[0];
 const apply = new Function('STATE_REF',
-  'var STATE = STATE_REF;\nvar SBQ_SONGS = { APPEARANCE_KEYS: ' + appKeys + ' };\nSBQ_SONGS.withAppearance = ' + withApp + ';\n' + fn + '\nreturn _applySavedSongLocally;');
+  'var STATE = STATE_REF;\nvar SBQ_SONGS = { APPEARANCE_KEYS: ' + appKeys + ' };\nSBQ_SONGS.withAppearance = ' + withApp + ';\n' + eraFn + '\n' + fn + '\nreturn _applySavedSongLocally;');
 
 const results = [];
 function check(label, actual, expected) {
@@ -137,7 +139,9 @@ check('lyrics', s.lyrics, 'new lyrics');
 check('youtube', s.youtube, ['https://b', 'https://c']);
 check('bpm', s.bpm, 90);
 // The form owns the appearance keys only; the rest of the style is the song's.
-check('display_style: the appearance it set, over the song\'s own keys', s.display_style, { size: 1, lyricFont: 'Georgia' });
+// Since 2026-11-13 the form's era is kept in display_style too (no column for it).
+check('display_style: the appearance it set, over the song\'s own keys', s.display_style,
+  /function _songStyleWithEra/.test(SRC_ALL) ? { size: 1, lyricFont: 'Georgia', era: 'Modern' } : { size: 1, lyricFont: 'Georgia' });
 
 console.log('\nthe list reads `category`, the column is `style` -- both move together');
 check('category', s.category, 'Contemporary');

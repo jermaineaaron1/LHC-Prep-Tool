@@ -81,7 +81,7 @@ function extractFn(name) {
 
 const saveOrder = extractMethod('saveOrder');
 // The template merge's methods, as text "function(...) {...}", when the source has them.
-const TPL_METHODS = ['_tplPlain', '_tplNote', '_tplJson', '_tplMerge', '_tplWithStored'].map(name => {
+const TPL_METHODS = ['_tplPlain', '_tplNote', '_tplJson', '_tplMerge', '_tplWithStored', '_noteOwnEdit', '_isOwnEdit'].map(name => {
   let m = null; try { m = extractMethod(name); } catch (e) { m = null; }
   return m ? { name, body: m.text.replace(/^\s*[\w$]+:\s*/, '').replace(/,\s*$/, '') } : null;
 }).filter(Boolean);
@@ -146,7 +146,8 @@ function run(payload, rowsMatched) {
     _itemFromRow: r => r,
     _stableKeys: o => JSON.stringify(o),
     _rowFromItem: i => i,
-    _tplBase: {}
+    _tplBase: {},
+    _ownEdits: {}
   };
   // The template merge the save goes through since 2026-11-13 (gotcha 94),
   // the real methods; absent in older source.

@@ -149,7 +149,7 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
   await (async () => {
     const env = new Function('ctx', `
       var window = { lhcVoiceLines: ctx.V, SBQ_VOICE_LINES: {}, STATE: ctx.STATE }, STATE = ctx.STATE, songOrderSections = ctx.copies;
-      var _sbVoiceLines = {};
+      var _sbVoiceLines = {}, _sbmChoirGotAt = {};
       function _sbmSong() { return ctx.copies[0]; }
       function _sbBaseSongId(s) { return s.songId; }
       function _woMedleys() { return ctx.medleys; }
@@ -197,7 +197,7 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
   await (async () => {
     const env = new Function('ctx', `
       var window = { SBQ_VOICE_LINES: { forSong: function(b) { ctx.log.push('read:' + b); return Promise.resolve([{ id: 1 }]); } }, STATE: ctx.STATE }, STATE = ctx.STATE, songOrderSections = ctx.copies;
-      var _sbVoiceLines = {}, _sbVoiceWanted = { A: true }, _sbVoiceRetryAt = {}, _sbmLive = {};
+      var _sbVoiceLines = {}, _sbVoiceWanted = { A: true }, _sbVoiceRetryAt = {}, _sbmLive = {}, _sbmChoirGotAt = {};
       function _sbBaseSongId(s) { return s.songId; }
       function _sbmBookOpen() { return true; }
       function _sbmSong() { return ctx.copies[0]; }
