@@ -156,6 +156,31 @@ function _looksRight(kind, res) {
   return true;
 }
 
+/* Say so when an answer came out of the cache rather than off the network.
+ *
+ * WITHOUT THIS THE PAGE CANNOT TELL, and that is not a small thing: a worker
+ * doing its job makes every read RESOLVE, so window.LHC_Net saw success and
+ * the offline banner stayed hidden through a whole service running on cached
+ * data. Measured -- with every Supabase read failing, LHC_Net.reachable() was
+ * still true and the operator got no word that they were offline. The header
+ * is the only channel a worker has to the page that rides along with the
+ * response itself.
+ *
+ * Only ever added to a response the page is about to read as data, never to
+ * an opaque one (no readable headers, and a new Response built from one is
+ * broken).
+ */
+function _fromCache(res) {
+  if (!res || res.type === 'opaque') return res;
+  try {
+    var h = new Headers(res.headers);
+    h.set('X-LHC-From-Cache', '1');
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+  } catch (e) {
+    return res;      /* better the un-stamped answer than none */
+  }
+}
+
 function _networkFirst(kind, request, timeoutMs) {
   var key = _keyFor(kind, request);
   var cache = CACHE_OF[kind];
@@ -170,7 +195,7 @@ function _networkFirst(kind, request, timeoutMs) {
         /* With nothing cached, hand back whatever the network said -- a real
            500 or a portal page is more use to the caller than Response.error,
            which the app reports as "Supabase not ready". */
-        resolve(hit || res || Response.error());
+        resolve(hit ? _fromCache(hit) : (res || Response.error()));
       }).catch(function () { resolve(res || Response.error()); });
     }
     var timer = timeoutMs ? setTimeout(function () { fallBack(null); }, timeoutMs) : 0;

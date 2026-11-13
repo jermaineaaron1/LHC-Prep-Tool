@@ -159,14 +159,44 @@
     window.fetch = function (input, init) {
       var url = (typeof input === 'string') ? input : (input && input.url) || '';
       var method = (init && init.method) || (input && input.method) || 'GET';
-      var watch = String(method).toUpperCase() === 'GET' && String(url).indexOf(SUPA) !== -1;
+      /* Only a DATABASE read answers the question. A Storage picture served
+         from the offline cache says nothing about whether the database is
+         there, and counting it was one of two ways this flag lied. */
+      var watch = String(method).toUpperCase() === 'GET' &&
+                  String(url).indexOf(SUPA) !== -1 &&
+                  String(url).indexOf('/rest/v1/') !== -1;
       var p;
       try { p = _fetch.apply(this, arguments); }
       catch (e) { if (watch) mark(false); throw e; }
       if (!watch || !p || !p.then) return p;
-      return p.then(function (res) { mark(true); return res; },
+      return p.then(function (res) { judge(res); return res; },
                     function (err) { mark(false); throw err; });
     };
+
+    /* WHAT "REACHABLE" MEANS, and why this is not just `mark(true)`.
+       Measured on 2026-11-13, with every Supabase read failing and the app
+       running entirely on cached data: LHC_Net.reachable() was still TRUE and
+       the offline banner never appeared. Two separate reasons, both fixed
+       here:
+         - a RESOLVED promise is not a good answer. A 401, a 500 and a captive
+           portal's login page all resolve. The old code marked every one of
+           them as the database being reachable.
+         - the service worker, doing exactly its job, makes a read resolve
+           from the CACHE. Success, as far as the page could see -- so the
+           better the offline support worked, the more certainly the banner
+           stayed hidden. The worker now stamps what it served from cache
+           (X-LHC-From-Cache) and that is the signal this reads.
+       A 4xx other than from-cache leaves the flag alone: the server answered
+       us, so the uplink is fine and this is somebody's key or policy, not the
+       church's internet. */
+    function judge(res) {
+      if (!res) return;
+      var cached = false;
+      try { cached = !!(res.headers && res.headers.get('X-LHC-From-Cache')); } catch (e) {}
+      if (cached) { mark(false); return; }   // the worker had to cover for us
+      if (res.ok) { mark(true); return; }
+      if (res.status >= 500 || res.status === 0) mark(false);
+    }
   })();
   </script>
 
@@ -34482,6 +34512,7 @@ var WO = (function() {
         // Update the DOM only if the orders panel is already showing
         if (document.getElementById('woSavedOrdersContainer')) renderSavedOrders();
         _woFetchOrderCounts();
+        _woAutoOffline();
       })
       .catch(function() { _ordersPreloaded = false; }); // allow retry
   }
@@ -78578,14 +78609,60 @@ var WO = (function() {
   }
   // Is the order's service today or later? An order keeps "Nov 1", with the
   // year in its title or taken from the roster (_yearForOrder).
-  function _woOrderIsUpcoming(order, now) {
+  // When is this service? NaN when the title says nothing useful.
+  // Split out of _woOrderIsUpcoming, which worked it out and threw it away --
+  // the auto-warm has to SORT by it, not just ask yes or no.
+  function _woOrderWhen(order) {
     var ds = String((order && order.serviceDate) || '').trim();
     var mo = _monthFromDateStr(ds), dm = ds.match(/\b(\d{1,2})\b/);
-    if (mo < 0 || !dm) return false;
-    var when = new Date(_yearForOrder(order), mo, parseInt(dm[1], 10));
+    if (mo < 0 || !dm) return NaN;
+    return new Date(_yearForOrder(order), mo, parseInt(dm[1], 10)).getTime();
+  }
+
+  function _woOrderIsUpcoming(order, now) {
+    var when = _woOrderWhen(order);
+    if (isNaN(when)) return false;
     var today = now ? new Date(now) : new Date();
     today.setHours(0, 0, 0, 0);
-    return when.getTime() >= today.getTime();
+    return when >= today.getTime();
+  }
+
+  /* Keep the NEXT service on this device while we are online.
+   *
+   * The soonest upcoming order, not the most recently edited: what the church
+   * needs on a Sunday with no internet is this Sunday's service, and that is
+   * rarely the one somebody touched last. A songbook's pseudo-order is not a
+   * service and is skipped.
+   *
+   * Deferred well past boot -- it pulls the song library and the service's
+   * pictures, and must never compete with the app painting. Once a session is
+   * enough; LHC_Offline.warm does the rest of the refusing (the switch, Data
+   * Saver, already-downloaded-today).
+   */
+  var _woAutoOfflineDone = false;
+  function _woAutoOffline() {
+    if (_woAutoOfflineDone) return;
+    if (!window.LHC_Offline || !LHC_Offline.autoOn()) return;
+    _woAutoOfflineDone = true;
+    var tries = 0;
+    (function go() {
+      setTimeout(function () {
+        // On a first-ever visit the worker is still installing while this
+        // fires, and silentPreloadOrders runs ONCE -- so without a retry the
+        // very visit that should have prepared the device would skip, and
+        // nothing would ask again until the app was next opened.
+        if (!LHC_Offline.ready() && ++tries < 5) { go(); return; }
+        var next = null, bestWhen = Infinity;
+        (savedOrders || []).forEach(function (o) {
+          if (!o || !o.id || String(o.id).indexOf('standalone_') === 0) return;
+          var when = _woOrderWhen(o);
+          if (isNaN(when) || !_woOrderIsUpcoming(o)) return;
+          if (when < bestWhen) { bestWhen = when; next = o; }
+        });
+        if (!next) return;
+        LHC_Offline.warm(next.id, next.title || 'Untitled');
+      }, tries ? 15000 : 20000);
+    })();
   }
   var _woAutoReadingsDone = {};
   // step: 'liturgy' (the builder, the order's data) or 'service' (the LCD's
@@ -129474,6 +129551,8 @@ window.LHC_Install = (function() {
     window.addEventListener('online',  _syncOnline);
     window.addEventListener('offline', _syncOnline);
     window.addEventListener('lhc:net', _syncOnline);
+    // The order on screen changes which of the two sentences is true.
+    window.addEventListener('lhc:offline-here', _syncOnline);
     _syncOnline();
 
     // Chrome / Edge A2HS prompt — intercept and surface it nicely
@@ -129652,12 +129731,80 @@ window.LHC_Offline = (function () {
     if (!orderId) return null;
     return _store()[orderId] || null;
   }
-  function here(orderId) { _here = orderId || null; }
+  /* Which order is on screen, so the banner can tell "running from the copy
+     you downloaded" from "cannot reach the database". It fires an event
+     because the banner is drawn at boot, long before an order is opened:
+     without this the harsh wording stayed up over a service that was in fact
+     fully downloaded. */
+  function here(orderId) {
+    var was = _here;
+    _here = orderId || null;
+    if (was === _here) return;
+    try { window.dispatchEvent(new CustomEvent('lhc:offline-here')); } catch (e) {}
+  }
   function readyHere() { return !!(_here && readyFor(_here)); }
   function forget(orderId) {
     var m = _store();
     delete m[orderId];
     _saveStore(m);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Keeping the next service downloaded, without being asked
+   *
+   * WHY: offline readiness used to depend on somebody pressing "Download for
+   * Sunday" on the right device before the internet went. That is a thing to
+   * remember on a Saturday, and the one Sunday it is forgotten is the Sunday
+   * it matters. So while the app is online it quietly keeps the NEXT service
+   * on the device.
+   *
+   * WHAT IT WILL NOT DO, because this spends somebody's data and battery:
+   *   - not on a metered or save-data connection
+   *   - not more than once in WARM_EVERY per order
+   *   - not while a download the operator started is running
+   *   - not at all once the switch is off
+   * ---------------------------------------------------------------- */
+  var AUTO = 'lhc_offline_auto';
+  var WARM_EVERY = 20 * 60 * 60 * 1000;   // a service is weekly; once a day is plenty
+
+  function autoOn() {
+    try { return localStorage.getItem(AUTO) !== '0'; } catch (e) { return true; }
+  }
+  function setAuto(on) {
+    try { localStorage.setItem(AUTO, on ? '1' : '0'); } catch (e) {}
+  }
+
+  function _warmSkip(orderId) {
+    if (!autoOn())  return 'the switch is off';
+    if (_busy)      return 'a download is already running';
+    if (!ready())   return 'the offline store is not running';
+    if (!orderId)   return 'no upcoming service';
+    /* Respect Data Saver and a connection the phone calls metered. */
+    try {
+      var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (c && c.saveData) return 'Data Saver is on';
+      if (c && /^(slow-2g|2g)$/.test(String(c.effectiveType || ''))) return 'the connection is too slow';
+    } catch (e) {}
+    var rec = readyFor(orderId);
+    if (rec && rec.at && (Date.now() - rec.at) < WARM_EVERY) return 'already downloaded today';
+    return null;
+  }
+
+  /* Quiet by design: no sheet, no toast, no progress. A failure is a console
+     line, because the operator did not ask for this and must not be nagged
+     by it. What it DOES leave behind is the same record a hand-pressed
+     download leaves, so the sheet and the banner read it the same way. */
+  function warm(orderId, title) {
+    var why = _warmSkip(orderId);
+    if (why) return Promise.resolve({ skipped: why });
+    return download(orderId, title).then(function (rec) {
+      console.info('[LHC] kept "' + (title || orderId) + '" ready to run offline (' +
+        rec.kept + ' files, ' + Math.round((rec.bytes || 0) / 1048576 * 10) / 10 + ' MB)');
+      return rec;
+    }).catch(function (e) {
+      console.warn('[LHC] could not keep the next service offline:', e && e.message);
+      return { failed: true };
+    });
   }
 
   /* ---------------------------------------------------------------- *
@@ -129863,6 +130010,13 @@ window.LHC_Offline = (function () {
             'devices will not see your changes until you are back on. Practice ' +
             'recordings are not downloaded.' +
           '</p>' +
+          '<label style="display:flex;align-items:flex-start;gap:8px;margin:12px 0 0;' +
+            'font-size:.8rem;color:#334155;line-height:1.5;cursor:pointer;">' +
+            '<input type="checkbox" id="lhcOffAuto"' + (autoOn() ? ' checked' : '') +
+              ' style="margin-top:2px;flex:none;">' +
+            '<span>Keep the next service downloaded automatically, ' +
+              'so nobody has to remember.</span>' +
+          '</label>' +
           prog +
           '<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">' +
             '<button id="lhcOffGo" style="flex:1;min-width:150px;background:#4a6da7;color:#fff;' +
@@ -129881,6 +130035,8 @@ window.LHC_Offline = (function () {
     if (go) go.onclick = function () { _run(orderId, title); };
     var fg = _sheet.querySelector('#lhcOffForget');
     if (fg) fg.onclick = function () { forget(orderId); _draw(orderId, title); };
+    var au = _sheet.querySelector('#lhcOffAuto');
+    if (au) au.onchange = function () { setAuto(au.checked); };
   }
 
   function _run(orderId, title) {
@@ -129915,6 +130071,9 @@ window.LHC_Offline = (function () {
     forget: forget,
     clearAll: clearAll,
     download: download,
+    warm: warm,
+    autoOn: autoOn,
+    setAuto: setAuto,
     open: open,
     close: close
   };
