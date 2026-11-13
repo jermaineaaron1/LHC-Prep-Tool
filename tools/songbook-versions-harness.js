@@ -238,7 +238,7 @@ console.log('\nThe wiring');
   check('another device is told, and follows', has(/versionId:       s\.versionId \|\| '',/) &&
     has(/if \(typeof inc\.versionId === 'string' && inc\.versionId !== \(song\.versionId \|\| ''\)\) \{/));
   check('the polls carry it', (SRC.match(/versionId:\s+typeof c\.versionId === 'string' \? c\.versionId : ''/g) || []).length === 2);
-  check('a standalone songbook keeps it', has(/versionId: saved\.versionId \|\| ''/) && has(/versionId:\s+s\.versionId \|\| ''\r?\n\s*\};/));
+  check('a standalone songbook keeps it', has(/versionId: saved\.versionId \|\| ''/) && has(/versionId:\s+s\.versionId \|\| '',?\r?\n(?:\s*\/\/[^\n]*\r?\n)*(?:\s*choirView:\s+s\.choirView \|\| ''\r?\n)?\s*\};/));
   check('a link to one song opens the book at it',
     has(/window\.__DEEPLINK_SBSONG\s+= p\.get\('sbSong'\)/) && has(/localStorage\.setItem\('lhc_sbm_song_' \+ _deepSb\.replace\(\/\^\(order\|sb\)-\/, ''\), _deepSbSong\)/));
   check('versions are offered only once the database has them', has(/_sbVerOk = !rs\[0\]\.error && !rs\[1\]\.error;/));

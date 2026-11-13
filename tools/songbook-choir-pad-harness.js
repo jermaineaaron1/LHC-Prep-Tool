@@ -39,7 +39,8 @@ function check(name, ok, detail) {
   else { failed++; console.log('  FAIL ' + name + (detail ? '\n       ' + String(detail).slice(0, 700) : '')); }
 }
 const J = JSON.stringify;
-process.on('unhandledRejection', e => check('no unexpected error', false, String(e && e.message || e)));
+// An error part-way is a failure, and the exit code must say so.
+process.on('unhandledRejection', e => { check('no unexpected error', false, String(e && e.message || e)); console.log('\n' + passed + ' passed, ' + failed + ' failed'); process.exit(1); });
 
 const vStart = SRC.indexOf('\nwindow.lhcVoiceLines = {');
 const vEnd = vStart < 0 ? -1 : SRC.indexOf('\n};', vStart);

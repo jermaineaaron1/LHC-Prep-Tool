@@ -411,18 +411,22 @@ console.log('\nwords edited in the Songbook reach the wall');
 // still read the old text. The LCD projects `slides`, a separate array
 // from the lyric fields, and nothing rebuilt it.
 const setWords = extractFn('_sbSetCopyWords');
+// Through _sbSlidesFollow since 2026-11-12 (gotcha 93): the same rebuild,
+// only when the projected words changed.
+const follow = extractFn('_sbSlidesFollow');
 check('saving the words rebuilds the slides',
-  /refreshSongSlidesInOrder\(sid, _sbProjectionWords\(lyrics\)/.test(setWords), true);
+  /_sbSlidesFollow\(song, before\);/.test(setWords) && /refreshSongSlidesInOrder\(song\.id, now, \{ keepLyrics: true \}\);/.test(follow) &&
+  /var now = _sbProjectionWords\(song\.lyrics \|\| ''\);/.test(follow), true);
 // A save serialises the schedule's DOM whenever it is on the page
 // (gotcha 35), and the rebuild is what brings that DOM into line.
 check('  before the saves, not after',
-  setWords.indexOf('refreshSongSlidesInOrder(') < setWords.indexOf('sbAutoSave();'), true);
+  setWords.indexOf('_sbSlidesFollow(') > -1 && setWords.indexOf('_sbSlidesFollow(') < setWords.indexOf('sbAutoSave();'), true);
 // Projecting on this device: the schedule just changed underneath it.
 check('  and the slide on the wall is sent again',
-  /_lcdReproject\(\)/.test(setWords), true);
+  /_lcdReproject\(\)/.test(follow), true);
 // song.lyrics here is the Songbook's own words, chords and all.
 check('the rebuild does not take the Songbook\'s words away',
-  /\{ keepLyrics: true \}/.test(setWords), true);
+  /\{ keepLyrics: true \}/.test(follow), true);
 const slideRebuild = extractFn('refreshSongSlidesInOrder');
 check('  and that is what keepLyrics means',
   /if \(!\(opts && opts\.keepLyrics\)\) song\.lyrics = newLyrics;/.test(slideRebuild), true);

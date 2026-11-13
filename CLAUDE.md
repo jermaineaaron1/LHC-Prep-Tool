@@ -3557,6 +3557,84 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-choir-pad-harness.js` checks it, running the reader and
     writer on real arrangements through the real parser.
 
+92. **The Edit Song form writes only the columns it owns, and the songbook
+    paths that build a whole order or book keep everything a save writes.**
+    From a review of the Songbook and its links (2026-11-12):
+    - `saveEditSong` used `SBQ_SONGS.update` -- the full row through
+      `songToRow` -- and the form never knew `voice_layout`, `use_count`,
+      `last_used`, `date_added` or `last_edited`, so every Save blanked them:
+      a choir song lost its parts flag to a link fixed in the form, and the
+      Songbook then offered Set up choir parts over the real arrangement. On
+      2026-11-12 no flag had been lost yet, but 81 of 82 songs had no dates
+      and every use count was 0. It now goes through `SBQ_SONGS.updateForm`:
+      `FORM_COLUMNS` and nothing else, `last_edited` stamped, and
+      `display_style` read FRESH and only the `APPEARANCE_KEYS` laid over it
+      (`withAppearance`), so the Songbook's instrument names and part colours
+      survive. `_sfApplyAppearance` merges the same way, and a new song is
+      dated (`saveNewSong`). `update()` is left for anything that truly means
+      the whole row; nothing calls it now.
+    - A standalone songbook's full save writes each song's `choirView`
+      (gotcha 16): without it every close put everyone back on Choir, which
+      undid Set up choir parts' "everyone goes to Choir" for those books.
+    - The shared-link Songbook (`openSongbookByOrderId`: Home chips, the
+      Songbooks tab, `?sb=order-` links, Refresh) built `currentOrderData`
+      but left `window.serviceSectionItems` and `currentOrderType` as the
+      order opened before. A save made away from the LCD collects liturgy,
+      readings and text from `serviceSectionItems`, so the previous order's
+      were saved into this one (moving their rows, by id) and this one's
+      pruned. It now builds them as a full load does (`_absorbOrderItem` into
+      a scratch, `allItems`, `SBQ._noteKnownItems`), sets the type, and --
+      for a DIFFERENT order only -- takes the editor over as a standalone
+      book does (gotcha 49). The same order is left alone: Refresh while the
+      LCD projects must not take the schedule down.
+    - The library's Add choir parts (`_lpStartChoirParts`) reads the stored
+      lines first, and parts found are shown and their flag written back
+      instead of being seeded over; Set up choir parts' `has-parts` path
+      writes a missing flag back too.
+    - Overwrite the Master Copy (`_sbVerReplaceMain`) reads the stored words
+      and key before keeping them as the earlier master.
+    `tools/songs-data-loss-harness.js` checks it, running `updateForm`
+    against a fake database.
+
+93. **What the Songbook changes reaches the wall when it should, and only
+    then.** From the same review (2026-11-12):
+    - `addSongToServiceSection` selected -- and so PROJECTED -- the first
+      slide of every song it drew. Another device's change redraws its songs
+      through it (`_orderSyncApplyDelta`), so a key moved on a phone put that
+      song's first verse up over the Gospel, and `_orderSyncRememberLive` only
+      puts back a song or liturgy slide, not a reading's. It takes `noSelect`
+      now, passed by the sync path and by the Songbook's Add a song
+      (`_woAddSongToSection`); the LCD's own inserts still select.
+    - `sbApplyBroadcast` took another device's `richLyrics` and never its
+      `customLyrics`, so this device SHOWED the new words and kept the old
+      ones underneath: its editor opened on them, the save's check (gotcha 61)
+      compared them with themselves, and the save put the old words back --
+      on the wall too. It takes the words now (outside typing in that song),
+      and an editor open on the copy sees the change and refuses its save.
+    - `_sbSlidesFollow(song, before)` is the one way a copy's slides follow
+      its words: split again (`refreshSongSlidesInOrder`, gotcha 84) and the
+      wall sent again -- ONLY when `_sbProjectionWords` of the words changed.
+      `_sbSetCopyWords` used to re-split on every call, so a few lines
+      transposed or a chord typed on the choir pad threw away the operator's
+      own slide work for no change on the wall. Versions and earlier
+      arrangements (`_sbVerSetWords`, `_sbVerRestore`, and so `_sbArrApply`,
+      `_sbArrRestore` and every Undo) never re-split at all: a version's verse
+      3 reached the band and not the congregation.
+    - `refreshSongSlidesInOrder` writes on the page the heading the data
+      kept (the song's marker, or the one the operator typed, gotcha 73) --
+      the same-count path used to remove a typed one from the page, which is
+      what gets saved -- and a re-split with a different count selects again
+      the slide that was selected, at its place, so the wall gets the new
+      words and the clicker does not jump to the top of the service.
+    - The builder's Insert -> Song after a medley's song (`_lbdAddSong`) goes
+      after the whole medley, never into it (gotcha 42).
+    Not done, by size: backgrounds after a remote redraw are re-pinned by
+    position only within the map the redraw compacts; a Songbook open on
+    another device writes back the template (sections, medleys) it loaded;
+    the builder's Undo restores `songOrderSections` whole, over Songbook
+    changes made since. `tools/songbook-lcd-builder-harness.js` checks the
+    rest, running `_sbSlidesFollow`, `_sbVerSetWords` and `_lbdAddSong`.
+
 ## Quick Commands for Claude Code
 
 ```bash

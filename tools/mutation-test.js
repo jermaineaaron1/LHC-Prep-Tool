@@ -782,18 +782,19 @@ const CASES = [
                    '    if (!currentOrderData) return;\r\n    if (!currentOrderData.template || !currentOrderData.template.lbdTyping) return;')],
   // The bug itself: the words changed everywhere except the one place a
   // congregation reads them.
+  // Through _sbSlidesFollow since 2026-11-12 (gotcha 93).
   ['live-projection-harness.js', 'saving the words leaves the slides as they were',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });', '')],
+    s => s.replace('    // running projection, so the slide is sent again (gotcha 82).\r\n    _sbSlidesFollow(song, before);\r\n', '    // running projection, so the slide is sent again (gotcha 82).\r\n')],
   ['live-projection-harness.js', 'the rebuild runs after the save that reads the DOM',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n', '')
+    s => s.replace('    // running projection, so the slide is sent again (gotcha 82).\r\n    _sbSlidesFollow(song, before);\r\n', '    // running projection, so the slide is sent again (gotcha 82).\r\n')
           .replace('    renderSongbookLive();\r\n  }\r\n  // The editor closed',
-                   '    refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });\r\n    renderSongbookLive();\r\n  }\r\n  // The editor closed')],
+                   '    renderSongbookLive();\r\n    _sbSlidesFollow(song, before);\r\n  }\r\n  // The editor closed')],
   ['live-projection-harness.js', 'the wall is not sent the slide again',
     s => s.replace("    if (typeof _lcdReproject === 'function') { try { _lcdReproject(); } catch (e) {} }", '')],
   // song.lyrics here is the Songbook's own words, chords and all.
   ['live-projection-harness.js', 'the rebuild takes the Songbook chords away',
-    s => s.replace('      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics), { keepLyrics: true });',
-                   '      refreshSongSlidesInOrder(sid, _sbProjectionWords(lyrics));')],
+    s => s.replace('    refreshSongSlidesInOrder(song.id, now, { keepLyrics: true });',
+                   '    refreshSongSlidesInOrder(song.id, now);')],
   ['live-projection-harness.js', 'keepLyrics is accepted and ignored',
     s => s.replace('    if (!(opts && opts.keepLyrics)) song.lyrics = newLyrics;', '    song.lyrics = newLyrics;')],
   // A heading the operator typed is not the parser's to throw away.
@@ -2233,6 +2234,30 @@ const CASES = [
     s => s.replace("    for (var u = 0; u < w; u++) if (info[u].kind === 'words' && info[u].m === info[w].m) {", "    for (var u = 0; u < 0; u++) if (info[u].kind === 'words' && info[u].m === info[w].m) {")],
   ['songbook-choir-pad-harness.js', 'a part\'s line ending in a bracket is taken for a section',
     s => s.replace('      var sec = /^\\s*\\[([^\\[\\]]+)\\]\\s*$/.exec(line);', '      var sec = /^\\s*\\[(.+)\\]\\s*$/.exec(line);')],
+  // Songbook <-> LCD / Builder (review, 2026-11-12, gotcha 93).
+  ['songbook-lcd-builder-harness.js', 'a chord-only change re-splits the slides again',
+    s => s.replace('    if (before != null && _sbProjectionWords(before) === now) return false;\r\n', '')],
+  ['songbook-lcd-builder-harness.js', 'a song drawn in from elsewhere takes the wall again',
+    s => s.replace('    if (firstSlideBox && !noSelect) {\r\n      selectSlideBox(firstSlideBox);', '    if (firstSlideBox) {\r\n      selectSlideBox(firstSlideBox);')],
+  ['songbook-lcd-builder-harness.js', 'another device\'s words are only drawn, not taken',
+    s => s.replace("        if (typeof inc.customLyrics === 'string' && inc.customLyrics !== (song.customLyrics || '')) {", '        if (false) {')],
+  ['songbook-lcd-builder-harness.js', 'a version\'s words never reach the slides',
+    s => s.replace('    _sbSlidesFollow(song, before);\r\n  }\r\n  function _sbVerSetKey(song, want) {', '  }\r\n  function _sbVerSetKey(song, want) {')],
+  ['songbook-lcd-builder-harness.js', 'a song inserted after a medley\'s song goes into it',
+    s => s.replace('      if (md && md.medley.songs.length) afterSong = _lbdSong(', '      if (false) afterSong = _lbdSong(')],
+  // The songs-library and songbook data-loss fixes (review, 2026-11-12, gotcha 92).
+  ['songs-data-loss-harness.js', 'the Edit Song form writes the whole row again',
+    s => s.replace('    SBQ_SONGS.updateForm(songData).then(function(result) {', '    SBQ_SONGS.update(songData).then(function(result) {')],
+  ['songs-data-loss-harness.js', 'the form writes the choir parts flag it never knew',
+    s => s.replace("    SBQ_SONGS.FORM_COLUMNS.forEach(function(k) { patch[k] = row[k]; });", "    Object.keys(row).forEach(function(k) { if (k !== 'id') patch[k] = row[k]; });")],
+  ['songs-data-loss-harness.js', 'the appearance controls replace the whole style',
+    s => s.replace("  currentDisplayStyle = Object.assign({}, (currentDisplayStyle && typeof currentDisplayStyle === 'object') ? currentDisplayStyle : {},\r\n    { lyricFont: lf,", "  currentDisplayStyle = Object.assign({}, {},\r\n    { lyricFont: lf,")],
+  ['songs-data-loss-harness.js', 'a standalone book forgets its Choir / Lyrics view on save',
+    s => s.replace("          choirView:               s.choirView || ''\r\n", "          noView:                  ''\r\n")],
+  ['songs-data-loss-harness.js', 'the shared-link Songbook keeps the last order\'s liturgy',
+    s => s.replace("        window.serviceSectionItems = _scr.serviceSectionItems;\r\n", '')],
+  ['songs-data-loss-harness.js', 'Add choir parts seeds over parts already there',
+    s => s.replace('    if (rows && rows.length) {\r\n      _lpVoiceLineCache[song.id] = rows;', '    if (false) {\r\n      _lpVoiceLineCache[song.id] = rows;')],
   ['songbook-choir-pad-harness.js', 'the pad is saved with the old reader',
     s => s.replace('    var split = o.read ? o.read(fullText, _sbmIsChord(), o.parts) : _sbmPadSplit(fullText, _sbmIsChord(), o.parts);', '    var split = _sbmPadSplit(fullText, _sbmIsChord(), o.parts);')],
   ['songbook-reading-view-harness.js', 'the song view still edits a choir line on a double-click',
