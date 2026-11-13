@@ -3837,8 +3837,27 @@ the anon key -- verify as `postgres`, not as the app.
       run with no order open: `_edEnsureChannel` opens them before it looks for
       an order. A dropped song channel with no order open is still not rebuilt
       (`_edScheduleRelock`); the save's check of what is stored covers it.
+    - **The review's tidy-ups.** The builder's WhatsApp list and Export run a
+      section's songs through `_woRunWithMedleys` before `_woUnits`, or a
+      medley split by another song was listed as two. `_woSaveMedley` refuses
+      to move a song into a section that already sings it (`_woSongCopyIn`),
+      as Move to section does: it made two copies of one song in one section.
+      The A4 pages' drag (`sbInitDrag`) refuses a drop in another section with
+      the song view's own toast (`_sbmSameSection`); every view sorts by
+      section, so it used to do nothing, silently. A saved medley's song added
+      to a standalone book (`_mdsAddToBook`) takes the first free
+      `sbsong_<lib>_<n>`, not the count, which after a removal named an entry
+      still there. The Songbook's shared list (`_sbShareRows`) carries each
+      section's id as well as its name, and `_sbShareMessage` heads by both:
+      two sections side by side called "Song" were merged. `SBQ_SONGBOOKS._fromRow`
+      carries `createdBy`, so `save` -- the whole row -- does not blank it. The
+      Songbook's lyrics editor lets its hold go when its window is missing
+      (`sbLyricsEditorClosed`). A tap away from the unsaved-changes toast is
+      Keep editing and its click is swallowed: it reached the pad's backdrop,
+      which is Cancel, and asked again.
     `tools/songbook-small-fixes-harness.js` checks them; the poll is in
-    `tools/songbook-live-harness.js`.
+    `tools/songbook-live-harness.js`, the tidy-ups in
+    `tools/review-tidy-harness.js`.
 
 ## Quick Commands for Claude Code
 

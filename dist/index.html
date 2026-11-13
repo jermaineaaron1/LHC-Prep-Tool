@@ -15507,10 +15507,11 @@ function _sfBindResourceActions(container, song) {
 }
 
 // ============ Display appearance (Phase 3, render-only) ============
-// currentDisplayStyle is session-scoped per open song right now. Pre-filled
-// from song.display_style when openLyricsPreviewModal() runs, which is a
-// harmless no-op today (the column doesn't exist in Supabase yet -- see
-// migrations/2026-07-17_add_songs_display_style.sql, proposed but not run).
+// currentDisplayStyle is the open song's appearance, pre-filled from
+// song.display_style when openLyricsPreviewModal() runs. The column exists
+// (migrations/2026-07-17_add_songs_display_style.sql) and also holds the
+// Songbook's instrument names and part colours and the song's era, so every
+// write of it merges rather than replaces (SBQ_SONGS.withAppearance).
 // Nothing here touches formatLyricsWithTranspose() or the lyrics text --
 // purely a CSS custom-property overlay on the preview container.
 function _sfSyncAppearanceControls() {
@@ -23766,7 +23767,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       return f.keys.some(function(fk) {
         // Each filter key may be "C# / D♭" — split and test each enharmonic spelling
         var parts = fk.split(/[\/]+/).map(function(p) { return p.trim().toLowerCase().replace('♭','b').replace('♯','#'); });
-        return parts.some(function(p) { return songKeys.some(function(sk) { return sk.replace('♭','b').replace('♯','#').replace('b','b') === p || sk === p; }); });
+        return parts.some(function(p) { return songKeys.some(function(sk) { return sk.replace('♭','b').replace('♯','#') === p || sk === p; }); });
       });
     });
     if (f.style) {
@@ -34194,6 +34195,8 @@ var SBQ_SONGBOOKS = {
       items:       row.items        || [],
       songCount:   (row.song_ids    || []).length,
       createdDate: row.created_date || '',
+      // Carried, so save() -- which writes the whole row -- keeps it.
+      createdBy:   row.created_by   || '',
       shareUrl:    ''
     };
   },
@@ -42648,6 +42651,17 @@ var WO = (function() {
         showToast('“' + (away[0].title || 'A song') + '” is in another section. Move it in the Liturgy Builder first.', 'info');
         return false;
       }
+    }
+    // A song moving into a section that already sings it would be two
+    // copies of one song in one section, which Move to section refuses too.
+    var clash = sec ? songs.filter(function(s) {
+      if (_woSongFirstSec(s, list) === sec) return false;
+      var c = _woSongCopyIn(s.songId, sec, list);
+      return c && c !== s;
+    })[0] : null;
+    if (clash) {
+      showToast('“' + (clash.title || 'That song') + '” is already sung in ' + _lbdSecTitle(sec) + '.', 'info');
+      return false;
     }
     return _woSongsChange(function() {
       if (!currentOrderData.template) currentOrderData.template = {};
@@ -57416,7 +57430,12 @@ var WO = (function() {
     var e;
     if (_sbStandaloneId) {
       e = _woNewSongEntry(lib, '');
-      e.id = 'sbsong_' + lib.id + '_' + songOrderSections.length;
+      // By place, as the book numbers its songs -- but a place not taken: after
+      // a song is taken out the count can name an entry that is still there.
+      var n = songOrderSections.length;
+      var taken = function(x) { return songOrderSections.some(function(q) { return q && q.id === x; }); };
+      while (taken('sbsong_' + lib.id + '_' + n)) n++;
+      e.id = 'sbsong_' + lib.id + '_' + n;
       e.serviceSections = []; e.sectionId = '';
       songOrderSections.push(e);
       currentOrderData.songs = songOrderSections.slice();
@@ -59337,7 +59356,17 @@ var WO = (function() {
         '<button type="button" class="sbm-btn sbm-unsaved__discard" data-unsaved="discard"><i class="fa-solid fa-trash-can"></i>Discard</button>' +
         '<button type="button" class="sbm-btn sbm-btn--primary sbm-unsaved__save" data-unsaved="save"><i class="fa-solid fa-floppy-disk"></i>' + escapeHtml(c.save || 'Save') + '</button></div>';
     var key = function(e) { if (e.key === 'Escape') { e.stopPropagation(); e.stopImmediatePropagation(); e.preventDefault(); done('keep'); } };
-    var away = function(e) { if (!el.contains(e.target)) done('keep'); };
+    // A tap elsewhere is Keep editing -- and that tap's click is swallowed,
+    // or it reached what was under it (the pad's backdrop is its Cancel) and
+    // asked all over again.
+    var away = function(e) {
+      if (el.contains(e.target)) return;
+      done('keep');
+      var until = Date.now() + 700;
+      var eat = function(ev) { document.removeEventListener('click', eat, true); if (Date.now() <= until) { ev.stopPropagation(); ev.stopImmediatePropagation(); ev.preventDefault(); } };
+      document.addEventListener('click', eat, true);
+      setTimeout(function() { document.removeEventListener('click', eat, true); }, 700);
+    };
     var done = function(v) {
       if (el.__gone) return;
       el.__gone = true;
@@ -70821,7 +70850,9 @@ var WO = (function() {
     var modal = document.getElementById('lyricsEditorModal');
     var textarea = document.getElementById('lyricsEditorTextarea');
     var richEditor = document.getElementById('lyricsRichEditor');
-    if (!modal || !textarea) return;
+    // No editor to open: the song held above is let go, or nobody else
+    // could edit it until this page was closed.
+    if (!modal || !textarea) { sbLyricsEditorClosed(); return; }
 
     // Set up state the editor expects
     if (typeof currentLyricsMode !== 'undefined') currentLyricsMode = '__sb__';
@@ -82178,7 +82209,8 @@ var WO = (function() {
     return list.map(function(sec, i) {
       var so = _lbdSecOrder(sec, list);
       var lines = [];
-      _woUnits(so.songs, md).forEach(function(u) {
+      // Together first: a medley split by another song was listed as two.
+      _woUnits(_woRunWithMedleys(so.songs, md), md).forEach(function(u) {
         var bits = u.items.map(function(s) { var k = _sbSungKey(s); return (s.title || 'Song') + (k ? ' (' + k + ')' : ''); });
         lines.push({ text: '♪ ' + (u.md ? 'Medley: ' + bits.join(' + ') : bits[0]), words: '' });
       });
@@ -82339,7 +82371,7 @@ var WO = (function() {
       notes: String((o.template && o.template.serviceNotes) || '').trim(),
       sections: list.map(function(sec, i) {
         var so = _lbdSecOrder(sec, list), parts = [];
-        _woUnits(so.songs, md).forEach(function(u) {
+        _woUnits(_woRunWithMedleys(so.songs, md), md).forEach(function(u) {
           u.items.forEach(function(s, j) {
             var lib = _lbdLibSong(s.songId), k = _sbSungKey(s);
             var words = (s.hasCustomLyrics && s.customLyrics) ? s.customLyrics : (s.lyrics || s.masterLyrics || (lib && lib.lyrics) || '');
@@ -86496,6 +86528,11 @@ var WO = (function() {
       var targetBase = targetSid.split('__sb__')[0];
       _sbDragSongId = null;
       _sbDragOverSid = null;
+      // Every view sorts by section, so a drop into another section did
+      // nothing at all; the song view's list says why, and so does this.
+      var _da = songOrderSections.filter(function(x) { return x && x.id === dragBase; })[0];
+      var _db = songOrderSections.filter(function(x) { return x && x.id === targetBase; })[0];
+      if (_da && _db && !_sbmSameSection(_da, _db)) { _sbmOtherSectionToast(); return; }
       _sbReorderSongs(dragBase, targetBase);
     });
 
@@ -97411,12 +97448,16 @@ var WO = (function() {
   // marked: the first opens it ('start'), the others follow it ('in').
   function _sbShareRows() {
     var md = currentOrderData ? _woMedleys() : [];
+    var list = (currentOrderData && !_sbStandaloneId) ? _woSectionList() : [];
     var rows = [];
     _woUnits(_sbmSongs(), md).forEach(function(u) {
       var sec = _sbmSectionLabel(u.items[0], true);
+      // The section's id as well as its name: two sections side by side with
+      // one name ("Song", "Song") were merged under one heading.
+      var secId = list.length ? (_woSongFirstSec(u.items[0], list) || '') : '';
       u.items.forEach(function(s, k) {
         var key = _sbSungKey(s);
-        rows.push({ section: sec, text: (s.title || 'Untitled') + (key ? ' (' + key + ')' : ''), medley: u.md ? (k ? 'in' : 'start') : '' });
+        rows.push({ section: sec, secId: secId, text: (s.title || 'Untitled') + (key ? ' (' + key + ')' : ''), medley: u.md ? (k ? 'in' : 'start') : '' });
       });
     });
     return rows;
@@ -97428,10 +97469,11 @@ var WO = (function() {
     if (o.date) lines.push('_' + o.date + '_');
     var sec = null, n = 0, inMd = false;
     (o.rows || []).forEach(function(r) {
-      if (r.section !== sec) {
+      var at = (r.secId ? r.secId + '|' : '') + (r.section || '');
+      if (at !== sec) {
         lines.push('');
         if (r.section) lines.push('*' + r.section + '*');
-        sec = r.section;
+        sec = at;
       } else if (inMd && r.medley !== 'in') lines.push('');
       // A medley under a line of its own, and a gap after it.
       if (r.medley === 'start') lines.push('_Medley_');
