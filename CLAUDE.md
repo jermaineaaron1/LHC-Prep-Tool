@@ -380,6 +380,21 @@ than a bash heredoc, which quietly eats a level of backslashes.
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
 
+### 5. Liturgy Library (as folders)
+- The Liturgy page's three ways in are Readings, **Library** (it was
+  Services; the nav key is still `all-services`) and Memories. Library is a
+  folder view (`#liturgyFolderPanel`, `LiturgyModule.openLibrary`): down the
+  left This Sunday, Prayers of the Day, Recently added, every service with
+  its year folders, Memories and Not filed; on the right the folder's whole
+  liturgies, liturgy texts and files, each to open (words or the file) and
+  share. A folder's **Planning & notes** opens the old occasion panel
+  (notes, team planning, checklist, slide editor), whose back button comes
+  back to the folder. On a phone it is the folders, then one folder.
+- **Share** on any item, folder, date (readings + Prayer of the Day) or the
+  whole library: the words or just a link, by WhatsApp, email or copied
+  link, the phone's own share, or a stored file as itself. A link is
+  `?lib=<target>` and opens a view-only page over the app. See gotcha 97.
+
 ## Known Issues (Fixed)
 
 ### Issue 1: Song Card Display Problems ✅ FIXED (2025-01-17)
@@ -3927,6 +3942,65 @@ the anon key -- verify as `postgres`, not as the app.
       Day instead" (`usePrayerOfDay`).
     `tools/day-prayer-harness.js` checks it, running the helpers, the
     Builder path and the bulletin rule against stubs.
+
+97. **The Library is a front over the same data, and its links open a page
+    that edits nothing.** From the operator (2026-11-13): a redesign so the
+    library can be got at and shared by WhatsApp or email. Of three drawn
+    (https://claude.ai/artifact/LMZFV9a3zh2m1psRFFb6e6) they chose B,
+    "Folders", and all four kinds of sharing.
+    - **No second store.** Items are `liturgyItems`, year folders
+      `occFolders` (read once by `openLibrary`, with `_currentOccasion` null
+      while it reads), whole liturgies `service_liturgies` through the
+      library's own read (`_lfSvlRows`) -- `_occSvlLoad` redraws the occasion
+      panel's year bar. A year folder lists that year's things AND those filed
+      under no year, as the occasion panel does.
+    - **Choosing a service sets `_currentOccasion` / `_currentOccFolder`**, so
+      Upload and New liturgy file into it. That exposed the year bar's
+      auto-seed: `renderOccFolderBar` made a folder named for this year on any
+      occasion without one, whenever it ran with `_currentOccasion` set -- and
+      `loadOccFolders` and `syncFromBackend` run it. It now seeds only while
+      `#liturgyOccasionPanel` is on screen (the visit it was written for), so
+      browsing the library makes no folders.
+    - **A fifth panel.** `selectOccasion`, `selectGeneralFolder` and
+      `openMemories` call `_lfHide()`; `openLibrary` hides the other three
+      (each switcher must hide every other panel, or two show at once). `showAllServices()` is `openLibrary()`;
+      the old Services card grid (`#occasionGridView`) is no longer reached.
+      Item changes redraw the library through `renderOccasionItems` (after its
+      `renderOccSvl()`, which `svl-year-folder-harness` pins first) and
+      `syncFromBackend`.
+    - **Its rows follow the pane, not the screen**: `.lf-pane` is a size
+      container, rows stacked unless it is 620px or wider (`@container
+      lfpane`), because beside the tree on a narrow desk the pane is a phone's
+      width and the name column had shrunk to nothing. A browser without
+      container queries keeps the stacked rows (gotcha 71). Nothing fixed is
+      inside the pane: the viewer (`#lfViewer`, z 10020, under the delete
+      confirm's 10030) and the share sheet (`#lfShare`, z 10040) are on
+      `<body>`.
+    - **One share sheet** (`_lfShareOpen`) over a model `{ title, sub, link,
+      words, linkText, file }` built by `_lfItemModel`, `_lfFolderModel`,
+      `_lfDayModel`, `_lfSvlModel`, `_lfLibraryModel`. WhatsApp only through
+      `lhcWhatsAppUrl` (gotcha 68), BMP-only text; past 3,500 characters the
+      phone's share sheet takes it, else it is copied and WhatsApp opened; an
+      email body past 1,800 is the link, with the words copied. "The file"
+      appears only for a file in our own storage on a device with
+      `navigator.share`, and is sent only if `navigator.canShare({ files })`
+      says yes; otherwise its link goes. A stored file's Download adds
+      Supabase's `?download=<name>` (a cross-origin `download` attribute is
+      ignored).
+    - **The view-only page** (`_lfOpenShared`, `window.__DEEPLINK_LIB` from
+      `?lib=`): `all` (services with counts), `occ:<id>[:<year name>]`,
+      `item:<id>`, `svl:<id>` (the outline, its parts opening through WO's
+      `svlItemToggle`) and `day:<key>`. A full-screen layer (z 100050) over the
+      app, which still boots underneath; it reads straight from Supabase and
+      draws no control that edits. "View only" is what it offers, not a lock:
+      "Open the app" is one tap away with the same key in it.
+    - **The collapsed rail**: the Liturgy entries were cut to "Re", "Se", "Me"
+      (the operator circled it). In `.sidebar-collapsed` at desk width they
+      are 44px icons, named by the rail's own `::after` tooltip from their
+      `title`; the phone strip's buttons carry the same titles, so the two
+      copies stay alike (a mutation case finds the button twice).
+    `tools/liturgy-library-harness.js` checks it, running the share models,
+    links and view-only rows against stubs.
 
 ## Quick Commands for Claude Code
 

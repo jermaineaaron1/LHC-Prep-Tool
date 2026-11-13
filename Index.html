@@ -370,6 +370,7 @@
       window.__DEEPLINK_ORDER    = p.get('order')        || '';
       window.__DEEPLINK_VIEW     = p.get('view')         || '';
       window.__DEEPLINK_PLAYLIST = p.get('playlist')     || '';
+      window.__DEEPLINK_LIB      = p.get('lib')          || '';
       window.__DEEPLINK_SONGBOOK = p.get('sb')           || '';
       window.__DEEPLINK_SBSONG   = p.get('sbSong')       || '';
       window.__DEEPLINK_DATE     = p.get('date')         || '';
@@ -1264,6 +1265,26 @@
       }
       .sidebar-collapsed #playlistSidebar .lhc-pill-button:hover::after,
       .sidebar-collapsed #playlistSidebar .lhc-navlist-btn:hover::after { opacity: 1; }
+      /* The Liturgy section's own entries (Readings, Library, Memories):
+         cut to "Re", "Se", "Me" in the rail until 2026-11-13. Icons only
+         there, named by the same tooltip as the rest of the rail. */
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection { padding-left: 0 !important; padding-right: 0 !important; overflow: visible !important; }
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-group-label,
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn > span,
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-gen-plus-btn { display: none !important; }
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn {
+        position: relative; flex: 0 0 44px; width: 44px; height: 40px; margin: 2px auto; padding: 0; justify-content: center;
+      }
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn i { width: auto !important; font-size: 0.95rem !important; opacity: 1 !important; }
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn::after {
+        content: attr(title);
+        position: absolute; left: 52px; top: 50%; transform: translateY(-50%);
+        background: #1f2937; color: #fff; font-size: 0.72rem; font-weight: 600;
+        padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+        opacity: 0; pointer-events: none; transition: opacity 150ms ease; z-index: 60;
+      }
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn:hover::after,
+      .sidebar-collapsed #playlistSidebar #liturgyStatsSection .lit-nav-occ-btn:focus-visible::after { opacity: 1; }
     }
 
     /* ==================== SCROLLBARS ==================== */
@@ -6847,23 +6868,23 @@
         <div class="lit-nav-group">
           <div class="lit-nav-group-label">Liturgy</div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
+            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">
               <span class="lit-nav-dot" style="background:#0b7644;"></span>
               <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
               <span>Readings</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Library">
               <span class="lit-nav-dot" style="background:#188e44;"></span>
-              <i class="fa-solid fa-church" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Services</span>
+              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Library</span>
             </button>
           </div>
           <div class="lit-occ-row">
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()" title="Memories">
               <span class="lit-nav-dot" style="background:#10b981;"></span>
               <i class="fa-solid fa-camera-retro" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
               <span>Memories</span>
@@ -8910,15 +8931,15 @@
                three gestures to change tab, on the page a musician is most
                likely to be holding a phone in front of. -->
           <nav id="litTopNav" class="lit-topnav" aria-label="Liturgy sections">
-            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
+            <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">
               <span class="lit-nav-dot" style="background:#0b7644;"></span>
               <i class="fa-solid fa-book-bible" aria-hidden="true"></i><span>Readings</span>
             </button>
-            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Library">
               <span class="lit-nav-dot" style="background:#188e44;"></span>
-              <i class="fa-solid fa-church" aria-hidden="true"></i><span>Services</span>
+              <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Library</span>
             </button>
-            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()" title="Memories">
               <span class="lit-nav-dot" style="background:#10b981;"></span>
               <i class="fa-solid fa-camera-retro" aria-hidden="true"></i><span>Memories</span>
             </button>
@@ -9296,8 +9317,8 @@
             <!-- Header (gradient set dynamically by JS) -->
             <div class="lit-occ-panel-header" id="litOccPanelHeader">
               <div class="lit-occ-panel-header-inner">
-                <button class="lit-back-btn" onclick="LiturgyModule.selectOccasion(null)">
-                  <i class="fa-solid fa-arrow-left mr-1"></i> All Services
+                <button class="lit-back-btn" onclick="LiturgyModule.backToLibrary()">
+                  <i class="fa-solid fa-arrow-left mr-1"></i> Library
                 </button>
                 <div class="lit-occ-panel-title-row">
                   <div class="lit-occ-panel-icon" id="litOccPanelIcon"><i class="fa-solid fa-church"></i></div>
@@ -9491,6 +9512,11 @@
             <div id="memoriesFilterRow" class="lit-occ-content-filter-row" style="padding:0 20px 12px;"></div>
             <div id="memoriesBody" class="lit-mem-body"></div>
           </div>
+
+          <!-- ===== THE LIBRARY, AS FOLDERS (2026-11-13) =====
+               Drawn by LiturgyModule.renderLibrary; see "THE LITURGY LIBRARY,
+               AS FOLDERS" there. -->
+          <div id="liturgyFolderPanel" class="lf" style="display:none;"></div>
 
 
         </div>
@@ -99976,6 +100002,7 @@ var LiturgyModule = (function() {
       updateCategoryCounts();
       renderSidebarFolderTree();
       if (_currentOccasion) renderOccasionItems('');
+      _lfRefreshSoon();
       // Memories lists the photographs and programmes too, and this is the
       // load that brings them in -- it lands after the panel has painted, so
       // without this the gallery stays empty until you navigate away and back.
@@ -103224,8 +103251,12 @@ var LiturgyModule = (function() {
     var bar = document.getElementById('litOccFolderBar');
     if (!bar) return;
 
-    // Auto-seed current year folder on first visit — only after load completes
-    if (_occFoldersLoaded && (!occFolders[occId] || occFolders[occId].length === 0)) {
+    // Auto-seed current year folder on first visit — only after load completes,
+    // and only while the occasion panel is the one on screen: the library
+    // sets _currentOccasion too, and browsing it must not make folders.
+    var _occOnScreen = document.getElementById('liturgyOccasionPanel');
+    if (_occFoldersLoaded && _occOnScreen && _occOnScreen.style.display !== 'none' &&
+        (!occFolders[occId] || occFolders[occId].length === 0)) {
       var currentYear = new Date().getFullYear().toString();
       if (!occFolders[occId]) occFolders[occId] = [];
       occFolders[occId].push({ id: 'occ-fold-' + Date.now(), name: currentYear });
@@ -103478,24 +103509,994 @@ var LiturgyModule = (function() {
     if (occView) occView.style.display = which === 'occasions' ? '' : 'none';
   }
 
-  // Sidebar "All Services" entry point -- same panel reset as
-  // selectOccasion(null), but surfaces the old occasion grid (and the real,
-  // working Occasion Panel it leads to) instead of the new Lectionary home.
-  function showAllServices() {
-    // No single service is on screen here, so no season either -- otherwise
-    // the overview quietly keeps the colour of whatever was looked at last.
-    var _host = document.getElementById('liturgyView');
-    if (_host) _host.removeAttribute('data-altar');
-    _currentOccasion = null;
-    var welcome  = document.getElementById('liturgyWelcome');
+  // ════════════════════════════════════════════════════════════════════
+  // THE LITURGY LIBRARY, AS FOLDERS (2026-11-13)
+  //
+  // From the operator: a redesign so the library can be got at and shared by
+  // WhatsApp or email. They chose direction B, "Folders", of three drawn
+  // (https://claude.ai/artifact/LMZFV9a3zh2m1psRFFb6e6), and all four kinds
+  // of sharing: one item, a service's folder, a view-only link to the
+  // library, and a date's readings with its Prayer of the Day.
+  //
+  // It is a FRONT, not a second library. Down the left, folders: This Sunday,
+  // Prayers of the Day and Recently added; then every service (OCCASIONS),
+  // the one open showing its year folders (liturgy_occ_folders); then
+  // Memories. On the right the folder's things -- whole liturgies
+  // (service_liturgies), liturgy texts and files (liturgy_items, the same
+  // liturgyItems everything else here reads) -- each with Share. Opening one
+  // shows its words or the file. Editing, notes, team planning, the checklist
+  // and the slide editor stay where they were: the folder's "Planning &
+  // notes" opens the occasion panel, whose back button now comes back here.
+  // Choosing a service sets _currentOccasion / _currentOccFolder, which is
+  // what makes Upload and New liturgy file into it.
+  //
+  // Every Share goes through one sheet (_lfShareOpen): the words or just a
+  // link, WhatsApp (lhcWhatsAppUrl, gotcha 68), email, copy, the phone's own
+  // share, and for a file kept in our storage the file itself. A link is
+  // ?lib=<target> (all, occ:<id>[:<year>], item:<id>, svl:<id>,
+  // day:<key>), which opens the view-only page (_lfOpenShared) over the app:
+  // anyone can read and download there, nothing there edits. "View only" is
+  // what the page offers, not a lock -- the app itself is still one tap away,
+  // with the same key in it (CLAUDE.md, Migration).
+  // ════════════════════════════════════════════════════════════════════
+  var _lf = { sel: 'sunday', year: '', kind: 'all', q: '', pane: false };
+  var _lfSvlRows = {};        // occasion id -> service_liturgies rows (its own read:
+                              // _occSvlLoad redraws the occasion panel's year bar)
+  var _lfFoldersAsked = false;
+  var _lfSunday = null, _lfSundayAt = 0;
+  var _lfPrayers = null, _lfPrayersAt = 0;
+  var _lfRefreshT = null;
+  var LF_ORDINARY = ['ordinary-traditional', 'ordinary-contemporary'];
+
+  function _lfEl() { return document.getElementById('liturgyFolderPanel'); }
+  function _lfShown() { var p = _lfEl(); return !!(p && p.style.display !== 'none'); }
+  function _lfHide() { var p = _lfEl(); if (p) p.style.display = 'none'; }
+  function _lfRefreshSoon() {
+    if (!_lfShown()) return;
+    clearTimeout(_lfRefreshT);
+    _lfRefreshT = setTimeout(renderLibrary, 60);
+  }
+  function _lfE(s) { return escapeHtml(s == null ? '' : String(s)); }
+
+  function _lfSwatch(colourName) {
+    var k = String(colourName || '').trim().toLowerCase();
+    var d = (window.LITURGICAL_COLOURS || {})[k.charAt(0).toUpperCase() + k.slice(1)];
+    return d ? { bg: d.swatch, edge: d.border || d.swatch } : { bg: '#64748b', edge: '#64748b' };
+  }
+  function _lfDot(colourName) {
+    var s = _lfSwatch(colourName);
+    return '<span class="lf-dot" style="background:' + s.bg + ';border-color:' + s.edge + '" aria-hidden="true"></span>';
+  }
+
+  // What a thing is, as a badge and a word. Inks are dark enough to read at
+  // 10px on their tints.
+  var LF_FILE_LOOK = {
+    PDF:   ['PDF', '#b91c1c', '#fde8e8'], Word: ['DOC', '#1d4ed8', '#e0ebff'],
+    Excel: ['XLS', '#15803d', '#dcfce7'], CSV: ['CSV', '#15803d', '#dcfce7'],
+    PPT:   ['PPT', '#c2410c', '#ffedd5'], Image: ['IMG', '#a16207', '#fff4d6'],
+    Video: ['VID', '#0b5d36', '#d1fae5'], Audio: ['AUD', '#92400e', '#fef3c7'],
+    Text:  ['TXT', '#374151', '#f3f4f6'], Link: ['LINK', '#0f766e', '#ccfbf1'],
+    File:  ['FILE', '#374151', '#f3f4f6']
+  };
+  function _lfKind(item) {
+    if (item && item._svl) return { badge: 'LIT', ink: '#6d28d9', bg: '#efe7ff', label: 'Whole liturgy', group: 'svl' };
+    var url = String((item && item.fileUrl) || '');
+    if (!url && !(item && item.fileData)) return { badge: 'TXT', ink: '#0b5d36', bg: '#e3f4ea', label: 'Liturgy text', group: 'text' };
+    if (/docs\.google\.com\/document/i.test(url)) return { badge: 'G', ink: '#1d4ed8', bg: '#e0ebff', label: 'Google Doc', group: 'files' };
+    if (/docs\.google\.com\/presentation/i.test(url)) return { badge: 'G', ink: '#b45309', bg: '#fff4d6', label: 'Google Slides', group: 'files' };
+    if (/docs\.google\.com\/spreadsheets/i.test(url)) return { badge: 'G', ink: '#15803d', bg: '#dcfce7', label: 'Google Sheet', group: 'files' };
+    var v = getFileVisuals(item), look = LF_FILE_LOOK[v.label] || LF_FILE_LOOK.File;
+    return { badge: look[0], ink: look[1], bg: look[2], label: v.label, group: 'files' };
+  }
+  function _lfBadge(k) {
+    return '<span class="lf-badge" style="color:' + k.ink + ';background:' + k.bg + '" aria-hidden="true">' + _lfE(k.badge) + '</span>';
+  }
+
+  function _lfYears(occId) {
+    return (occFolders[occId] || []).slice().sort(function(a, b) {
+      var na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+      if (!isNaN(na) && !isNaN(nb)) return nb - na;
+      return String(a.name).localeCompare(String(b.name));
+    });
+  }
+  function _lfYearName(occId, folderId) {
+    var f = (occFolders[occId] || []).filter(function(x) { return x.id === folderId; })[0];
+    return f ? String(f.name) : '';
+  }
+  // Newest first: by when changed, or (by: 'created') by when added. One
+  // bulk save on 2026-07-30 touched every row, so the other is the
+  // tie-breaker either way.
+  function _lfNewest(list, by) {
+    var seen = {};
+    var k1 = by === 'created' ? 'created' : 'modified', k2 = by === 'created' ? 'modified' : 'created';
+    return list.filter(function(i) { if (!i || seen[i.id]) return false; seen[i.id] = true; return true; })
+      .sort(function(a, b) { return ((b[k1] || 0) - (a[k1] || 0)) || ((b[k2] || 0) - (a[k2] || 0)); });
+  }
+  // A service's things in a year: those filed under that year and those
+  // filed under no year, which the occasion panel shows under every year.
+  function _lfItemsOf(occId, yearId) {
+    return _lfNewest(liturgyItems.filter(function(i) {
+      return i && i.occasionId === occId && (!yearId || i.occasionFolderId === yearId || !i.occasionFolderId);
+    }));
+  }
+  function _lfSvlOf(occId, yearId) {
+    var y = yearId ? _lfYearName(occId, yearId) : '';
+    return (_lfSvlRows[occId] || []).filter(function(r) { return !yearId || String(r.year) === y; })
+      .map(function(r) {
+        return { _svl: true, id: r.id, title: r.title || 'Saved liturgy', year: r.year, occasionId: occId,
+                 orderType: r.order_type || '', modified: Date.parse(r.updated_at || '') || 0 };
+      }).sort(function(a, b) { return b.modified - a.modified; });
+  }
+  function _lfSvlLoad(occId) {
+    if (!occId || _lfSvlRows[occId]) return;
+    _lfSvlRows[occId] = [];
+    var sb = SBQ_LITURGY._sb();
+    if (!sb) return;
+    sb.from('service_liturgies').select('id,title,year,order_type,updated_at').eq('occasion_id', occId).then(function(r) {
+      _lfSvlRows[occId] = r.error ? [] : (r.data || []);
+      _lfRefreshSoon();
+    }, function() {});
+  }
+
+  function _lfShortDate(key) {
+    var p = String(key || '').slice(0, 10).split('-');
+    if (p.length !== 3) return '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+  function _lfLongDate(key) {
+    var p = String(key || '').slice(0, 10).split('-');
+    if (p.length !== 3) return String(key || '');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    if (isNaN(d)) return String(key || '');
+    return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+      (/\|pm$/.test(String(key)) ? ' (evening)' : '');
+  }
+  function _lfWhen(ms) {
+    if (!ms) return '';
+    var d = new Date(ms);
+    return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  // ── The coming service, and the Prayers of the Day ──────────────────
+  function _lfNextKey() {
+    var today = _todayISO(), y = +today.slice(0, 4);
+    var pick = function(list) {
+      return (list || []).slice().sort().filter(function(k) { return SBQ_READINGS.keyDate(k) >= today; })[0];
+    };
+    return _serviceDatesFor(y).then(function(d) {
+      return pick(d) || _serviceDatesFor(y + 1).then(function(m) { return pick(m) || today; });
+    });
+  }
+  function _lfDayData(key) {
+    var day = SBQ_READINGS.keyDate(key);
+    return Promise.all([
+      SBQ_READINGS.getRange(day, day).catch(function() { return {}; }),
+      SBQ_READINGS.getServiceMeta(day, day).catch(function() { return {}; }),
+      (typeof SBQ_PRAYERS !== 'undefined') ? SBQ_PRAYERS.get(key) : Promise.resolve(null)
+    ]).then(function(res) {
+      var refs = (res[0] || {})[key] || {}, meta = (res[1] || {})[key] || {};
+      return {
+        key: key, day: meta.day || '', colour: meta.color || '',
+        refs: SBQ_READINGS.SLOTS.map(function(s) { return { label: s.label, ref: refs[s.role] || '' }; }),
+        prayer: res[2] ? res[2].prayer : '', prayerSource: res[2] ? res[2].sourceFile : ''
+      };
+    });
+  }
+  function _lfLoadSunday() {
+    if (_lfSunday && Date.now() - _lfSundayAt < 120000) return;
+    _lfSundayAt = Date.now();
+    _lfNextKey().then(_lfDayData).then(function(d) { _lfSunday = d; _lfRefreshSoon(); }, function() {});
+  }
+  function _lfLoadPrayers() {
+    if (typeof SBQ_PRAYERS === 'undefined' || (_lfPrayers && Date.now() - _lfPrayersAt < 120000)) return;
+    _lfPrayersAt = Date.now();
+    var from = new Date(); from.setDate(from.getDate() - 7);
+    var to = new Date(); to.setDate(to.getDate() + 400);
+    SBQ_PRAYERS.getRange(_isoFromDate(from), _isoFromDate(to)).then(function(rows) {
+      _lfPrayers = rows || {};
+      _lfRefreshSoon();
+    });
+  }
+
+  // ── Opening the library ─────────────────────────────────────────────
+  function openLibrary(sel, year) {
+    var welcome = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var memPanel = document.getElementById('liturgyMemoriesPanel');
-    if (memPanel) memPanel.style.display = 'none';
-    if (welcome)  welcome.style.display = '';
+    if (welcome) welcome.style.display = 'none';
     if (occPanel) occPanel.style.display = 'none';
+    if (memPanel) memPanel.style.display = 'none';
+    var p = _lfEl();
+    if (p) p.style.display = '';
     _litSyncNav('all-services');
-    showWelcomeSubview('occasions');
+    if (!_lfFoldersAsked) {
+      _lfFoldersAsked = true;
+      // Read without a service current, so the occasion panel's year bar is
+      // not drawn (and seeded) for whichever service the library is on.
+      var keep = _currentOccasion;
+      _currentOccasion = null;
+      loadOccFolders().then(_lfRefreshSoon);
+      _currentOccasion = keep;
+    }
+    _lfLoadSunday();
+    _lfLoadPrayers();
+    if (sel) lfSelect(sel, year);
+    else { _lf.pane = false; lfSelect(_lf.sel, _lf.year, true); }
   }
+
+  function showAllServices() { openLibrary(); }
+
+  // The occasion panel's back button: to this service's folder.
+  function backToLibrary() {
+    var occ = _currentOccasion;
+    openLibrary(occ ? 'occ:' + occ : null, occ ? (_currentOccFolder || '') : '');
+  }
+
+  function lfSelect(sel, year, keepPane) {
+    _lf.sel = sel || 'sunday';
+    _lf.year = year || '';
+    _lf.kind = 'all';
+    if (!keepPane) _lf.pane = true;
+    if (_lf.q) { _lf.q = ''; var s = document.getElementById('lfSearch'); if (s) s.value = ''; }
+    var host = document.getElementById('liturgyView');
+    var m = /^occ:(.+)$/.exec(_lf.sel);
+    if (m) {
+      _currentOccasion = m[1];
+      _currentOccFolder = _lf.year || null;
+      _lfSvlLoad(m[1]);
+      var occ = getOccasionById(m[1]);
+      if (host) { if (occ && occ.colour) host.setAttribute('data-altar', occ.colour); else host.removeAttribute('data-altar'); }
+    } else {
+      _currentOccasion = null;
+      _currentOccFolder = null;
+      if (host) host.removeAttribute('data-altar');
+    }
+    if (_lf.sel === 'sunday') _lfLoadSunday();
+    if (_lf.sel === 'prayers') _lfLoadPrayers();
+    renderLibrary();
+    if (!keepPane) {
+      var p = _lfEl();
+      if (p && window.matchMedia && window.matchMedia('(max-width: 768px)').matches && p.scrollIntoView) {
+        try { p.scrollIntoView({ block: 'start' }); } catch (e) {}
+      }
+    }
+  }
+  function lfBack() { _lf.pane = false; renderLibrary(); }
+  function lfKind(k) { _lf.kind = k || 'all'; renderLibrary(); }
+  function lfSearch(q) {
+    _lf.q = String(q || '');
+    if (_lf.q.trim()) _lf.pane = true;
+    var p = _lfEl();
+    if (!p) return;
+    p.classList.toggle('lf--pane', !!_lf.pane);
+    var pane = p.querySelector('.lf-pane');
+    if (pane) pane.innerHTML = _lfPaneHtml();
+  }
+  function lfUpload() {
+    openQuickAddModal(null, null, _currentOccasion ? 'season' : 'general', null);
+  }
+  function lfNew() {
+    if (typeof openAddLiturgyModal === 'function') openAddLiturgyModal();
+  }
+  function lfPlanning() {
+    var m = /^occ:(.+)$/.exec(_lf.sel);
+    if (!m) return;
+    var year = _lf.year;
+    selectOccasion(m[1]);
+    if (year && typeof selectOccFolder === 'function') selectOccFolder(year);
+  }
+  function lfOpenDay(key) {
+    var day = SBQ_READINGS.keyDate(key);
+    _readingDatePrimed = true;
+    _currentReadingDate = day;
+    _lfHide();
+    selectOccasion(null);
+  }
+
+  // ── Drawing ─────────────────────────────────────────────────────────
+  function renderLibrary() {
+    var p = _lfEl();
+    if (!p) return;
+    if (!p.querySelector('.lf-body')) p.innerHTML = _lfShellHtml();
+    p.classList.toggle('lf--pane', !!_lf.pane);
+    var tree = p.querySelector('.lf-tree'), pane = p.querySelector('.lf-pane');
+    if (tree) tree.innerHTML = _lfTreeHtml();
+    if (pane) pane.innerHTML = _lfPaneHtml();
+  }
+
+  function _lfShellHtml() {
+    return '<div class="lf-head">' +
+        '<div class="lf-head__id"><span class="lf-head__ico" aria-hidden="true"><i class="fa-solid fa-book-open"></i></span>' +
+          '<h1 class="font-cinzel">Liturgy Library</h1></div>' +
+        '<label class="lf-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>' +
+          '<span class="sr-only">Search the library</span>' +
+          '<input type="search" id="lfSearch" placeholder="Search every folder" autocomplete="off" oninput="LiturgyModule.lfSearch(this.value)"></label>' +
+        '<div class="lf-head__acts">' +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.lfShareLibrary()"><i class="fa-solid fa-link" aria-hidden="true"></i><span>Share library</span></button>' +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.lfUpload()"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Upload</span></button>' +
+          '<button type="button" class="lf-btn lf-btn--primary" onclick="LiturgyModule.lfNew()"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>New liturgy</span></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="lf-body"><nav class="lf-tree" aria-label="Library folders"></nav><section class="lf-pane" aria-live="polite"></section></div>';
+  }
+
+  function _lfNode(sel, iconOrDot, label, count, isOn) {
+    return '<button type="button" class="lf-node' + (isOn ? ' is-on' : '') + '" data-sel="' + _lfE(sel) + '" ' +
+      'onclick="LiturgyModule.lfSelect(this.dataset.sel)"' + (isOn ? ' aria-current="true"' : '') + '>' +
+      iconOrDot + '<span class="lf-node__name">' + _lfE(label) + '</span>' +
+      (count !== '' && count != null ? '<span class="lf-node__n">' + _lfE(count) + '</span>' : '') +
+      '<i class="fa-solid fa-chevron-right lf-node__go" aria-hidden="true"></i></button>';
+  }
+  function _lfIco(icon) { return '<i class="fa-solid ' + icon + ' lf-node__ico" aria-hidden="true"></i>'; }
+
+  function _lfTreeHtml() {
+    var h = '<div class="lf-tree__lbl">Quick</div>';
+    h += _lfNode('sunday', _lfIco('fa-calendar-day'), 'This Sunday', _lfSunday ? _lfShortDate(_lfSunday.key) : '', _lf.sel === 'sunday' && !_lf.q);
+    h += _lfNode('prayers', _lfIco('fa-hands-praying'), 'Prayers of the Day', _lfPrayers ? (Object.keys(_lfPrayers).length || '') : '', _lf.sel === 'prayers' && !_lf.q);
+    h += _lfNode('recent', _lfIco('fa-clock-rotate-left'), 'Recently added', '', _lf.sel === 'recent' && !_lf.q);
+    var groups = [
+      { label: 'Sundays', list: OCCASIONS.filter(function(o) { return LF_ORDINARY.indexOf(o.id) !== -1; }) },
+      { label: 'Church year', list: OCCASIONS.filter(function(o) { return _occasionKind(o) === 'season' && LF_ORDINARY.indexOf(o.id) === -1; }) },
+      { label: 'Other services', list: OCCASIONS.filter(function(o) { return _occasionKind(o) !== 'season'; }) }
+    ];
+    groups.forEach(function(g) {
+      if (!g.list.length) return;
+      h += '<div class="lf-tree__lbl">' + _lfE(g.label) + '</div>';
+      g.list.forEach(function(o) {
+        var sel = 'occ:' + o.id, on = _lf.sel === sel && !_lf.q;
+        var n = liturgyItems.filter(function(i) { return i && i.occasionId === o.id; }).length;
+        h += _lfNode(sel, _lfDot(o.colour), o.label, n || '', on);
+        if (on) {
+          var years = _lfYears(o.id);
+          if (years.length) {
+            h += '<div class="lf-years" role="group" aria-label="' + _lfE(o.label) + ' by year">' +
+              '<button type="button" class="lf-year' + (!_lf.year ? ' is-on' : '') + '" data-sel="' + _lfE(sel) + '" data-year="" onclick="LiturgyModule.lfSelect(this.dataset.sel, this.dataset.year)">All years</button>' +
+              years.map(function(f) {
+                return '<button type="button" class="lf-year' + (_lf.year === f.id ? ' is-on' : '') + '" data-sel="' + _lfE(sel) + '" data-year="' + _lfE(f.id) + '" onclick="LiturgyModule.lfSelect(this.dataset.sel, this.dataset.year)">' + _lfE(f.name) + '</button>';
+              }).join('') + '</div>';
+          }
+        }
+      });
+    });
+    h += '<div class="lf-tree__lbl">More</div>';
+    h += '<button type="button" class="lf-node" onclick="LiturgyModule.openMemories()">' + _lfIco('fa-camera-retro') +
+      '<span class="lf-node__name">Memories</span><i class="fa-solid fa-chevron-right lf-node__go" aria-hidden="true"></i></button>';
+    var loose = liturgyItems.filter(function(i) { return i && !i.occasionId; }).length;
+    if (loose) h += _lfNode('unfiled', _lfIco('fa-inbox'), 'Not filed', loose, _lf.sel === 'unfiled' && !_lf.q);
+    return h;
+  }
+
+  function _lfBackBtn() {
+    return '<button type="button" class="lf-back" onclick="LiturgyModule.lfBack()"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i>Folders</button>';
+  }
+  function _lfShareBtns(fn, label) {
+    return '<button type="button" class="lf-btn lf-btn--wa" onclick="' + fn + '()"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i><span>' + _lfE(label) + '</span></button>' +
+      '<button type="button" class="lf-btn" onclick="' + fn + '(\'email\')"><i class="fa-solid fa-envelope" aria-hidden="true"></i><span>Email</span></button>' +
+      '<button type="button" class="lf-btn" onclick="' + fn + '(\'copy\')"><i class="fa-solid fa-link" aria-hidden="true"></i><span>Copy link</span></button>';
+  }
+
+  function _lfRowHtml(it, showWhere) {
+    var k = _lfKind(it);
+    var name = it.title || it.fileName || 'Untitled';
+    var where = '';
+    if (showWhere) {
+      var occ = it.occasionId ? getOccasionById(it.occasionId) : null;
+      where = occ ? occ.label : 'Not filed';
+    }
+    var when = it._svl ? (it.year ? String(it.year) : _lfWhen(it.modified)) : _lfWhen(it.modified || it.created);
+    var svl = it._svl ? '1' : '';
+    return '<div class="lf-row">' +
+      '<button type="button" class="lf-row__main" data-id="' + _lfE(it.id) + '" data-svl="' + svl + '" onclick="LiturgyModule.lfOpen(this.dataset.id, this.dataset.svl)">' +
+        _lfBadge(k) +
+        '<span class="lf-row__name">' + _lfE(name) + '</span>' +
+        '<span class="lf-row__meta"><span class="lf-row__kind">' + _lfE(k.label + (where ? ' · ' + where : '')) + '</span>' +
+        '<span class="lf-row__when">' + _lfE(when) + '</span></span>' +
+      '</button>' +
+      '<button type="button" class="lf-row__share" aria-label="Share ' + _lfE(name) + '" data-id="' + _lfE(it.id) + '" data-svl="' + svl + '" onclick="LiturgyModule.lfShareItem(this.dataset.id, this.dataset.svl)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
+    '</div>';
+  }
+  function _lfListHtml(list, showWhere, empty) {
+    if (!list.length) return '<div class="lf-empty">' + empty + '</div>';
+    return '<div class="lf-list"><div class="lf-list__hd" aria-hidden="true"><span>Name</span><span>Kind</span><span>Updated</span><span>Share</span></div>' +
+      list.map(function(it) { return _lfRowHtml(it, showWhere); }).join('') + '</div>';
+  }
+
+  function _lfPaneHtml() {
+    var q = String(_lf.q || '').trim();
+    if (q) return _lfSearchHtml(q);
+    if (_lf.sel === 'sunday') return _lfSundayHtml();
+    if (_lf.sel === 'prayers') return _lfPrayersHtml();
+    if (_lf.sel === 'recent') {
+      return _lfBackBtn() + '<div class="lf-pane__hd"><h2 class="lf-title">Recently added</h2></div>' +
+        _lfListHtml(_lfNewest(liturgyItems.slice(), 'created').slice(0, 30), true, 'Nothing in the library yet.');
+    }
+    if (_lf.sel === 'unfiled') {
+      return _lfBackBtn() + '<div class="lf-pane__hd"><h2 class="lf-title">Not filed</h2>' +
+        '<p class="lf-pane__sub">Things kept under no service. Open one and use Move to file it.</p></div>' +
+        _lfListHtml(_lfNewest(liturgyItems.filter(function(i) { return i && !i.occasionId; })), false, 'Everything is filed.');
+    }
+    var m = /^occ:(.+)$/.exec(_lf.sel);
+    if (m) return _lfFolderHtml(m[1]);
+    return '';
+  }
+
+  function _lfFolderHtml(occId) {
+    var occ = getOccasionById(occId);
+    if (!occ) return '';
+    var yr = _lf.year ? _lfYearName(occId, _lf.year) : '';
+    var svl = _lfSvlOf(occId, _lf.year), items = _lfItemsOf(occId, _lf.year);
+    var texts = items.filter(function(i) { return _lfKind(i).group === 'text'; });
+    var files = items.filter(function(i) { return _lfKind(i).group === 'files'; });
+    var shown = _lf.kind === 'svl' ? svl : _lf.kind === 'text' ? texts : _lf.kind === 'files' ? files : svl.concat(items);
+    var chip = function(k, label, n) {
+      return '<button type="button" class="lf-chip' + (_lf.kind === k ? ' is-on' : '') + '" aria-pressed="' + (_lf.kind === k) + '" onclick="LiturgyModule.lfKind(\'' + k + '\')">' +
+        _lfE(label) + ' <span>' + n + '</span></button>';
+    };
+    var years = _lfYears(occId);
+    var yearChips = years.length
+      ? '<div class="lf-chips lf-chips--years" role="group" aria-label="Year">' +
+          '<button type="button" class="lf-chip' + (!_lf.year ? ' is-on' : '') + '" data-sel="occ:' + _lfE(occId) + '" data-year="" onclick="LiturgyModule.lfSelect(this.dataset.sel, this.dataset.year)">All years</button>' +
+          years.map(function(f) {
+            return '<button type="button" class="lf-chip' + (_lf.year === f.id ? ' is-on' : '') + '" data-sel="occ:' + _lfE(occId) + '" data-year="' + _lfE(f.id) + '" onclick="LiturgyModule.lfSelect(this.dataset.sel, this.dataset.year)">' + _lfE(f.name) + '</button>';
+          }).join('') + '</div>'
+      : '';
+    return _lfBackBtn() +
+      '<div class="lf-pane__hd">' +
+        '<div class="lf-crumb">' + _lfE(_occasionKind(occ) === 'season' ? 'Services' : 'Other services') + ' › ' + _lfE(occ.label) + (yr ? ' › ' + _lfE(yr) : '') + '</div>' +
+        '<h2 class="lf-title">' + _lfDot(occ.colour) + _lfE(occ.label + (yr ? ' · ' + yr : '')) + '</h2>' +
+        '<div class="lf-acts">' + _lfShareBtns('LiturgyModule.lfShareFolder', 'Share folder') +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.lfPlanning()"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i><span>Planning &amp; notes</span></button>' +
+        '</div>' +
+      '</div>' +
+      yearChips +
+      '<div class="lf-chips" role="group" aria-label="What to show">' +
+        chip('all', 'Everything', svl.length + items.length) + chip('svl', 'Whole liturgies', svl.length) +
+        chip('text', 'Liturgy texts', texts.length) + chip('files', 'Files', files.length) +
+      '</div>' +
+      _lfListHtml(shown, false,
+        'Nothing here yet. <button type="button" class="lf-link" onclick="LiturgyModule.lfUpload()">Upload a file or paste a link</button>' +
+        ' or <button type="button" class="lf-link" onclick="LiturgyModule.lfNew()">write a liturgy</button>.');
+  }
+
+  function _lfSearchHtml(q) {
+    var n = q.toLowerCase();
+    var hits = _lfNewest(liturgyItems.filter(function(i) {
+      return i && ((i.title || '').toLowerCase().indexOf(n) !== -1 || (i.fileName || '').toLowerCase().indexOf(n) !== -1 ||
+                   (i.content || '').toLowerCase().indexOf(n) !== -1);
+    }));
+    return _lfBackBtn() + '<div class="lf-pane__hd"><h2 class="lf-title">Search</h2>' +
+      '<p class="lf-pane__sub">' + hits.length + ' found for “' + _lfE(q) + '”, across every folder</p></div>' +
+      _lfListHtml(hits, true, 'Nothing matches. Try a shorter word.');
+  }
+
+  function _lfDayCardHtml(d) {
+    var reads = d.refs.map(function(r) {
+      return '<div class="lf-day__read"><span>' + _lfE(r.label) + '</span><b>' + (r.ref ? _lfE(r.ref) : '<i>not set</i>') + '</b></div>';
+    }).join('');
+    return '<div class="lf-day">' +
+      '<div class="lf-day__when">' + _lfE(_lfLongDate(d.key)) + '</div>' +
+      (d.day ? '<div class="lf-day__name">' + _lfDot(d.colour) + _lfE(d.day) + (d.colour ? ' <small>' + _lfE(String(d.colour).toUpperCase()) + '</small>' : '') + '</div>' : '') +
+      '<div class="lf-day__reads">' + reads + '</div>' +
+      '<div class="lf-day__prayer"><div class="lf-day__ph">Prayer of the Day</div>' +
+        (d.prayer ? '<p>' + _lfE(d.prayer) + '</p>' : '<p class="lf-muted">No prayer saved for this date yet.</p>') + '</div>' +
+    '</div>';
+  }
+  function _lfSundayHtml() {
+    var d = _lfSunday;
+    var head = _lfBackBtn() + '<div class="lf-pane__hd"><h2 class="lf-title">This Sunday</h2>' +
+      '<p class="lf-pane__sub">The coming service: its readings and its Prayer of the Day</p></div>';
+    if (!d) return head + '<div class="lf-empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the roster…</div>';
+    return head + _lfDayCardHtml(d) +
+      '<div class="lf-acts lf-acts--foot">' + _lfShareBtns('LiturgyModule.lfShareSunday', 'Share this Sunday') +
+        '<button type="button" class="lf-btn" data-key="' + _lfE(d.key) + '" onclick="LiturgyModule.lfOpenDay(this.dataset.key)"><i class="fa-solid fa-book-bible" aria-hidden="true"></i><span>Open in Readings</span></button>' +
+      '</div>';
+  }
+  function _lfPrayersHtml() {
+    var head = _lfBackBtn() + '<div class="lf-pane__hd"><h2 class="lf-title">Prayers of the Day</h2>' +
+      '<p class="lf-pane__sub">One for each service date, put into its order and its bulletin</p>' +
+      '<div class="lf-acts"><button type="button" class="lf-btn lf-btn--primary" onclick="LiturgyModule.openPrayerImportModal()"><i class="fa-solid fa-file-import" aria-hidden="true"></i><span>Import prayers</span></button></div></div>';
+    if (typeof SBQ_PRAYERS !== 'undefined' && SBQ_PRAYERS._missing) {
+      return head + '<div class="lf-empty">The prayers table is not in the database yet. Run <code>migrations/2026-11-13_day_prayers.sql</code> in the Supabase SQL editor.</div>';
+    }
+    if (!_lfPrayers) return head + '<div class="lf-empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the prayers…</div>';
+    var keys = Object.keys(_lfPrayers).sort();
+    if (!keys.length) return head + '<div class="lf-empty">No prayers saved for the coming year. Import your Prayers of the Day document.</div>';
+    return head + '<div class="lf-list lf-list--prayers">' + keys.map(function(k) {
+      var r = _lfPrayers[k], text = String(r.prayer || '');
+      var peek = text.length > 140 ? text.slice(0, 139).trim() + '…' : text;
+      return '<div class="lf-row lf-row--prayer">' +
+        '<button type="button" class="lf-row__main" data-key="' + _lfE(k) + '" onclick="LiturgyModule.lfOpenDay(this.dataset.key)">' +
+          '<span class="lf-pdate"><b>' + _lfE(_lfShortDate(k)) + '</b>' + (r.occasion ? '<small>' + _lfE(r.occasion) + '</small>' : '') + '</span>' +
+          '<span class="lf-row__name lf-row__name--wrap">' + _lfE(peek) + '</span>' +
+        '</button>' +
+        '<button type="button" class="lf-row__share" aria-label="Share the readings and prayer for ' + _lfE(_lfShortDate(k)) + '" data-key="' + _lfE(k) + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  // ── Opening one thing ───────────────────────────────────────────────
+  // The words of a liturgy, slide by slide; the people's lines bold.
+  function _lfWordsHtml(content) {
+    var slides = String(content || '').split(/\n?═{5,}\n?/).map(function(s) { return s.trim(); }).filter(Boolean);
+    if (!slides.length) return '<p class="lf-muted">No words in this one yet.</p>';
+    return slides.map(function(s) {
+      return '<div class="lf-slide">' + s.split('\n').map(function(line) {
+        var t = _lfE(line);
+        if (!line.trim()) return '<br>';
+        return /^\s*(C|A|All|P|People|Congregation)\s*:/i.test(line) ? '<b>' + t + '</b><br>' : t + '<br>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  function _lfStorageFile(url) { return /supabase\.co\/storage\/v1\/object\/public\//i.test(String(url || '')); }
+  function _lfFilePreview(item) {
+    var url = String(item.fileUrl || '');
+    var ext = String(item.fileName || url.split('?')[0]).split('.').pop().toLowerCase();
+    if (!url || url.indexOf('data:') === 0) return '<p class="lf-muted">This file has no address to show it from.</p>';
+    if (/^(jpg|jpeg|png|gif|webp|svg)$/.test(ext)) return '<img class="lf-prev-img" src="' + _lfE(url) + '" alt="' + _lfE(item.title || '') + '">';
+    if (/^(mp4|webm|mov)$/.test(ext)) return '<video class="lf-prev-media" controls src="' + _lfE(url) + '"></video>';
+    if (/^(mp3|wav|m4a)$/.test(ext)) return '<audio class="lf-prev-audio" controls src="' + _lfE(url) + '"></audio>';
+    if (ext === 'pdf' && _lfStorageFile(url)) return '<iframe class="lf-prev-frame" src="' + _lfE(url) + '" title="' + _lfE(item.title || 'File') + '"></iframe>';
+    if (_lfStorageFile(url)) {
+      return '<iframe class="lf-prev-frame" src="https://docs.google.com/gview?embedded=true&url=' + encodeURIComponent(url) + '" title="' + _lfE(item.title || 'File') + '"></iframe>';
+    }
+    return '<div class="lf-prev-card"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>' +
+      '<p>This is kept on another site, which shows it in its own tab.</p>' +
+      '<a class="lf-btn lf-btn--primary" href="' + _lfE(url) + '" target="_blank" rel="noopener">Open it</a></div>';
+  }
+  function _lfDownloadUrl(item) {
+    var url = String(item.fileUrl || '');
+    if (!_lfStorageFile(url)) return '';
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + 'download=' + encodeURIComponent(item.fileName || item.title || 'file');
+  }
+
+  function lfCloseViewer() { var v = document.getElementById('lfViewer'); if (v) v.remove(); }
+
+  function lfOpen(id, svl) {
+    lfCloseViewer();
+    var item = svl ? null : getItem(id);
+    var row = svl ? _lfSvlFind(id) : null;
+    if (!item && !row) return;
+    var k = _lfKind(item || row);
+    var title = (item ? (item.title || item.fileName) : row.title) || 'Untitled';
+    var occId = item ? item.occasionId : row.occasionId;
+    var occ = occId ? getOccasionById(occId) : null;
+    var yr = item ? (item.occasionFolderId ? _lfYearName(occId, item.occasionFolderId) : '') : (row.year ? String(row.year) : '');
+    var sub = [k.label, occ && occ.label, yr].filter(Boolean).join(' · ');
+    var body, acts = '';
+    var idAttr = ' data-id="' + _lfE(id) + '"';
+    if (row) {
+      body = '<div class="lf-svl" data-svl-id="' + _lfE(id) + '"><p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading it…</p></div>';
+      acts = '<p class="lf-vw__hint">To use it, load it into an order from the Liturgy Builder (Load).</p>';
+    } else if (k.group === 'text') {
+      body = _lfWordsHtml(item.content);
+      acts = '<button type="button" class="lf-btn"' + idAttr + ' onclick="LiturgyModule.lfEdit(this.dataset.id)"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit</span></button>';
+    } else {
+      body = _lfFilePreview(item);
+      var dl = _lfDownloadUrl(item);
+      acts = (item.fileUrl ? '<a class="lf-btn" href="' + _lfE(item.fileUrl) + '" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span>Open</span></a>' : '') +
+        (dl ? '<a class="lf-btn" href="' + _lfE(dl) + '"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Download</span></a>' : '') +
+        '<button type="button" class="lf-btn"' + idAttr + ' onclick="LiturgyModule.lfEdit(this.dataset.id)"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Rename</span></button>';
+    }
+    if (item) {
+      acts += '<label class="lf-move"><span>Move to</span><select' + idAttr + ' onchange="LiturgyModule.lfMove(this.dataset.id, this.value)">' +
+        '<option value="">Choose a service…</option>' +
+        OCCASIONS.filter(function(o) { return o.id !== item.occasionId; }).map(function(o) {
+          return '<option value="' + _lfE(o.id) + '">' + _lfE(o.label) + '</option>';
+        }).join('') + '</select></label>' +
+        '<button type="button" class="lf-btn lf-btn--danger"' + idAttr + ' onclick="LiturgyModule.lfDelete(this.dataset.id)"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span>Delete</span></button>';
+    }
+    var el = document.createElement('div');
+    el.id = 'lfViewer';
+    el.className = 'lf-vw';
+    el.innerHTML = '<div class="lf-vw__card" role="dialog" aria-modal="true" aria-labelledby="lfVwTtl">' +
+        '<div class="lf-vw__hd">' + _lfBadge(k) +
+          '<div class="lf-vw__ttl"><h2 id="lfVwTtl">' + _lfE(title) + '</h2><p>' + _lfE(sub) + '</p></div>' +
+          '<button type="button" class="lf-vw__x" onclick="LiturgyModule.lfCloseViewer()" aria-label="Close">&times;</button></div>' +
+        '<div class="lf-vw__body">' + body + '</div>' +
+        '<div class="lf-vw__ft">' +
+          '<button type="button" class="lf-btn lf-btn--wa"' + idAttr + ' data-svl="' + (row ? '1' : '') + '" onclick="LiturgyModule.lfShareItem(this.dataset.id, this.dataset.svl)"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i><span>Share</span></button>' +
+          acts + '</div>' +
+      '</div>';
+    el.addEventListener('click', function(e) { if (e.target === el) lfCloseViewer(); });
+    el.addEventListener('keydown', function(e) { if (e.key === 'Escape') lfCloseViewer(); });
+    document.body.appendChild(el);
+    var x = el.querySelector('.lf-vw__x');
+    if (x) x.focus();
+    if (row) _lfSvlFill(el.querySelector('.lf-svl'), id);
+  }
+  function _lfSvlFind(id) {
+    var out = null;
+    Object.keys(_lfSvlRows).forEach(function(occId) {
+      (_lfSvlRows[occId] || []).forEach(function(r) {
+        if (r.id === id) out = { _svl: true, id: r.id, title: r.title || 'Saved liturgy', year: r.year, occasionId: occId, modified: Date.parse(r.updated_at || '') || 0 };
+      });
+    });
+    return out;
+  }
+  // A whole liturgy's outline, its parts opening to their words (WO's own).
+  function _lfSvlFill(host, id) {
+    if (!host) return;
+    var draw = function(d) {
+      var W = window.WO || {};
+      host.innerHTML = (d && W.svlOutlineHtml)
+        ? W.svlOutlineHtml(d, 'lit-svl-outline', 'LiturgyModule.lfSvlItem', 'data-id="' + _lfE(id) + '"', '')
+        : '<p class="lf-muted">This liturgy could not be read.</p>';
+    };
+    if (_occSvlData[id]) { draw(_occSvlData[id]); return; }
+    var sb = SBQ_LITURGY._sb();
+    if (!sb) { draw(null); return; }
+    sb.from('service_liturgies').select('data').eq('id', id).then(function(r) {
+      _occSvlData[id] = (!r.error && r.data && r.data[0] && r.data[0].data) || null;
+      draw(_occSvlData[id]);
+    }, function() { draw(null); });
+  }
+  function lfSvlItem(btn) {
+    var id = btn && btn.getAttribute('data-id');
+    if (id && window.WO && WO.svlItemToggle) WO.svlItemToggle(btn, _occSvlData[id]);
+  }
+  function lfEdit(id) {
+    var item = getItem(id);
+    if (!item) return;
+    lfCloseViewer();
+    if (item.fileUrl || item.fileData) {
+      if (typeof customPrompt !== 'function') return;
+      customPrompt('Rename', '', item.title || item.fileName || '').then(function(name) {
+        name = String(name || '').trim();
+        if (!name || name === item.title) return;
+        updateItem(id, { title: name });
+        _lfRefreshSoon();
+        showToast('Renamed', 'success');
+      });
+      return;
+    }
+    openModal(item);
+  }
+  function lfMove(id, occId) {
+    if (!occId) return;
+    var occ = getOccasionById(occId);
+    updateItem(id, { occasionId: occId, occasionFolderId: null });
+    lfCloseViewer();
+    _lfRefreshSoon();
+    showToast('Moved to ' + (occ ? occ.label : 'that service'), 'success');
+  }
+  function lfDelete(id) { lfCloseViewer(); confirmDelete(id); }
+
+  // ── Sharing ─────────────────────────────────────────────────────────
+  function _lfLink(target) {
+    var base = window.__WEBAPP_URL || (location.origin + location.pathname);
+    // A colon is allowed in a query and reads better left as it is.
+    return base + '?lib=' + encodeURIComponent(target).replace(/%3A/gi, ':');
+  }
+  function _lfPlainWords(content) {
+    return String(content || '').replace(/\r/g, '').split(/\n?═{5,}\n?/)
+      .map(function(s) { return s.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); })
+      .filter(Boolean).join('\n\n');
+  }
+  function _lfItemModel(item) {
+    var occ = item.occasionId ? getOccasionById(item.occasionId) : null;
+    var yr = item.occasionFolderId ? _lfYearName(item.occasionId, item.occasionFolderId) : '';
+    var sub = [occ && occ.label, yr].filter(Boolean).join(' · ');
+    var title = item.title || item.fileName || 'Untitled';
+    var link = _lfLink('item:' + item.id);
+    var head = '*' + title + '*' + (sub ? '\n' + sub : '');
+    var k = _lfKind(item);
+    if (k.group === 'files') {
+      var url = String(item.fileUrl || '');
+      return { title: title, sub: sub, link: link, words: null,
+               linkText: head + (url && url.indexOf('data:') !== 0 ? '\n' + url : '') + '\n\nIn the Liturgy Library: ' + link,
+               file: _lfStorageFile(url) ? { url: url, name: item.fileName || title } : null };
+    }
+    return { title: title, sub: sub, link: link,
+             words: head + '\n\n' + _lfPlainWords(item.content) + '\n\nIn the Liturgy Library: ' + link,
+             linkText: head + '\n' + link };
+  }
+  function _lfSvlModel(row) {
+    var occ = row.occasionId ? getOccasionById(row.occasionId) : null;
+    var sub = [occ && occ.label, row.year ? String(row.year) : ''].filter(Boolean).join(' · ');
+    var link = _lfLink('svl:' + row.id);
+    return { title: row.title, sub: sub, link: link, words: null,
+             linkText: '*' + row.title + '*' + (sub ? '\n' + sub : '') + '\nThe whole liturgy: ' + link };
+  }
+  function _lfFolderModel(occId, yearId) {
+    var occ = getOccasionById(occId);
+    var yr = yearId ? _lfYearName(occId, yearId) : '';
+    var title = (occ ? occ.label : 'Service') + (yr ? ' · ' + yr : '');
+    var link = _lfLink('occ:' + occId + (yr ? ':' + yr : ''));
+    var lines = [], n = 1;
+    _lfSvlOf(occId, yearId).forEach(function(r) { lines.push(n++ + '. ' + r.title + ' (whole liturgy)\n' + _lfLink('svl:' + r.id)); });
+    _lfItemsOf(occId, yearId).forEach(function(it) {
+      var k = _lfKind(it), url = String(it.fileUrl || '');
+      lines.push(n++ + '. ' + (it.title || it.fileName || 'Untitled') + (k.group === 'text' ? ' (liturgy text)' : '') + '\n' +
+        (k.group === 'files' && url && url.indexOf('data:') !== 0 ? url : _lfLink('item:' + it.id)));
+    });
+    return { title: title, sub: 'A folder of the Liturgy Library', link: link,
+             words: '*' + title + '*\nFrom the Liturgy Library, Luther House Chapel\n\n' +
+                    (lines.length ? lines.join('\n') : 'Nothing in it yet.') + '\n\nThe whole folder: ' + link,
+             linkText: '*' + title + '*\nFrom the Liturgy Library: ' + link };
+  }
+  function _lfDayModel(d) {
+    var when = _lfLongDate(d.key);
+    var head = d.day ? '*' + d.day + '*\n' + when : '*' + when + '*';
+    var reads = d.refs.filter(function(r) { return r.ref; }).map(function(r) { return r.label + ': ' + r.ref; });
+    var link = _lfLink('day:' + d.key);
+    return { title: d.day || when, sub: d.day ? when : '', link: link,
+             words: head + (reads.length ? '\n\n*Readings*\n' + reads.join('\n') : '') +
+                    (d.prayer ? '\n\n*Prayer of the Day*\n' + d.prayer : '') + '\n\nIn the Liturgy Library: ' + link,
+             linkText: head + '\nThe readings and Prayer of the Day: ' + link };
+  }
+  function _lfLibraryModel() {
+    var link = _lfLink('all');
+    return { title: 'Liturgy Library', sub: 'Luther House Chapel', link: link, words: null,
+             linkText: '*Liturgy Library* · Luther House Chapel\nReadings, prayers, liturgies and files for every service, to read and download: ' + link };
+  }
+
+  function lfShareItem(id, svl) {
+    if (svl) { var r = _lfSvlFind(id); if (r) _lfShareOpen(_lfSvlModel(r)); return; }
+    var item = getItem(id);
+    if (item) _lfShareOpen(_lfItemModel(item));
+  }
+  function lfShareFolder(how) {
+    var m = /^occ:(.+)$/.exec(_lf.sel);
+    if (!m) return;
+    var model = _lfFolderModel(m[1], _lf.year);
+    if (how === 'email') _lfSend('email', model, 'words');
+    else if (how === 'copy') _lfCopy(model.link, 'Link to the folder copied');
+    else _lfShareOpen(model);
+  }
+  function lfShareSunday(how) {
+    if (!_lfSunday) return;
+    var model = _lfDayModel(_lfSunday);
+    if (how === 'email') _lfSend('email', model, 'words');
+    else if (how === 'copy') _lfCopy(model.link, 'Link copied');
+    else _lfShareOpen(model);
+  }
+  function lfShareDay(key) {
+    _lfDayData(key).then(function(d) { _lfShareOpen(_lfDayModel(d)); });
+  }
+  function lfShareLibrary() { _lfShareOpen(_lfLibraryModel()); }
+
+  var _lfSh = null;
+  function _lfShMessage() {
+    return (_lfSh.mode === 'words' && _lfSh.model.words) ? _lfSh.model.words : _lfSh.model.linkText;
+  }
+  function _lfShareOpen(model) {
+    lfCloseShare();
+    _lfSh = { model: model, mode: model.words ? 'words' : 'link' };
+    var canMore = !!navigator.share;
+    var el = document.createElement('div');
+    el.id = 'lfShare';
+    el.className = 'lf-sh';
+    el.innerHTML = '<div class="lf-sh__card" role="dialog" aria-modal="true" aria-labelledby="lfShTtl">' +
+        '<div class="lf-sh__grab" aria-hidden="true"></div>' +
+        '<div class="lf-sh__hd"><div><h2 id="lfShTtl">Share ' + _lfE(model.title) + '</h2>' +
+          (model.sub ? '<p>' + _lfE(model.sub) + '</p>' : '') + '</div>' +
+          '<button type="button" class="lf-vw__x" onclick="LiturgyModule.lfCloseShare()" aria-label="Close">&times;</button></div>' +
+        (model.words
+          ? '<div class="lf-seg" role="radiogroup" aria-label="What to send">' +
+              '<button type="button" role="radio" data-m="words" onclick="LiturgyModule.lfShareMode(this.dataset.m)">The words</button>' +
+              '<button type="button" role="radio" data-m="link" onclick="LiturgyModule.lfShareMode(this.dataset.m)">Just a link</button></div>'
+          : '') +
+        '<div class="lf-sh__prev"><div class="lf-sh__bubble" id="lfShPrev"></div></div>' +
+        '<div class="lf-sh__go">' +
+          '<button type="button" onclick="LiturgyModule.lfSend(\'whatsapp\')"><span class="lf-sh__ico lf-sh__ico--wa"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i></span>WhatsApp</button>' +
+          '<button type="button" onclick="LiturgyModule.lfSend(\'email\')"><span class="lf-sh__ico lf-sh__ico--mail"><i class="fa-solid fa-envelope" aria-hidden="true"></i></span>Email</button>' +
+          '<button type="button" onclick="LiturgyModule.lfSend(\'copy\')"><span class="lf-sh__ico"><i class="fa-solid fa-link" aria-hidden="true"></i></span>Copy link</button>' +
+          (model.file && canMore ? '<button type="button" onclick="LiturgyModule.lfSend(\'file\')"><span class="lf-sh__ico"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i></span>The file</button>' : '') +
+          (canMore ? '<button type="button" onclick="LiturgyModule.lfSend(\'more\')"><span class="lf-sh__ico"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span>More</button>' : '') +
+        '</div>' +
+        '<p class="lf-sh__note">A link opens a page anyone can read and download from. It shows nothing that can be changed.</p>' +
+      '</div>';
+    el.addEventListener('click', function(e) { if (e.target === el) lfCloseShare(); });
+    el.addEventListener('keydown', function(e) { if (e.key === 'Escape') lfCloseShare(); });
+    document.body.appendChild(el);
+    lfShareMode(_lfSh.mode);
+    var first = el.querySelector('.lf-sh__go button');
+    if (first) first.focus();
+  }
+  function lfCloseShare() { var s = document.getElementById('lfShare'); if (s) s.remove(); }
+  function lfShareMode(m) {
+    if (!_lfSh) return;
+    _lfSh.mode = (m === 'words' && _lfSh.model.words) ? 'words' : 'link';
+    var prev = document.getElementById('lfShPrev');
+    if (prev) prev.textContent = _lfShMessage();
+    document.querySelectorAll('#lfShare .lf-seg button').forEach(function(b) {
+      var on = b.getAttribute('data-m') === _lfSh.mode;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  function lfSend(how) { if (_lfSh) _lfSend(how, _lfSh.model, _lfSh.mode); }
+
+  function _lfCopy(text, msg) {
+    var ok = function() { showToast(msg || 'Copied', 'success'); };
+    var fallback = function() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); ok();
+      } catch (e) { showToast('Could not copy. The link is: ' + text, 'info'); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback);
+    else fallback();
+  }
+  // WhatsApp takes the message in its link up to a few thousand characters;
+  // past that the phone's share sheet takes it whole, or it is copied to be
+  // pasted (as _lbdSendWhatsApp does for the liturgy).
+  var LF_WA_MAX = 3500, LF_MAIL_MAX = 1800;
+  function _lfSend(how, model, mode) {
+    var text = (mode === 'words' && model.words) ? model.words : model.linkText;
+    if (how === 'whatsapp') {
+      if (text.length <= LF_WA_MAX) { window.open(window.lhcWhatsAppUrl(text), '_blank'); return; }
+      if (navigator.share) { navigator.share({ title: model.title, text: text }).catch(function() {}); return; }
+      _lfCopy(text, 'Too long for a WhatsApp link, so it was copied: paste it into the chat');
+      window.open(window.lhcWhatsAppUrl(''), '_blank');
+      return;
+    }
+    if (how === 'email') {
+      var body = text;
+      if (body.length > LF_MAIL_MAX) {
+        _lfCopy(text, 'The words were copied: paste them into the email');
+        body = model.linkText;
+      }
+      window.location.href = 'mailto:?subject=' + encodeURIComponent(model.title + ' – Luther House Chapel') +
+        '&body=' + encodeURIComponent(body.replace(/\*/g, ''));
+      return;
+    }
+    if (how === 'copy') { _lfCopy(model.link, 'Link copied'); return; }
+    if (how === 'more') {
+      if (navigator.share) navigator.share({ title: model.title, text: text }).catch(function() {});
+      return;
+    }
+    if (how === 'file' && model.file) {
+      fetch(model.file.url).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.blob();
+      }).then(function(blob) {
+        var f = new File([blob], model.file.name, { type: blob.type || 'application/octet-stream' });
+        if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: model.title });
+        throw new Error('This device cannot send files from a page.');
+      }).catch(function(e) {
+        if (e && e.name === 'AbortError') return;
+        showToast('The file could not be sent from here, so its link was sent instead.', 'info');
+        window.open(window.lhcWhatsAppUrl(model.linkText), '_blank');
+      });
+    }
+  }
+
+  // ── The view-only page a link opens ─────────────────────────────────
+  function _lfSharedTarget() { return String(window.__DEEPLINK_LIB || '').trim(); }
+
+  function _lfOpenShared(target) {
+    if (!target || document.getElementById('lhcLibView')) return;
+    document.documentElement.classList.add('lfv-open');
+    var el = document.createElement('div');
+    el.id = 'lhcLibView';
+    el.className = 'lfv';
+    el.innerHTML = '<header class="lfv-hd"><div class="lfv-hd__row"><span class="lfv-church">Luther House Chapel</span>' +
+        '<span class="lfv-pill"><i class="fa-solid fa-eye" aria-hidden="true"></i>View only</span></div>' +
+        '<h1 id="lfvTitle" class="lfv-title">Liturgy Library</h1><p id="lfvSub" class="lfv-sub"></p></header>' +
+      '<main class="lfv-body" id="lfvBody"><p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Opening…</p></main>' +
+      '<footer class="lfv-ft">Shared from LHC Worship Prep. To change anything here, ask the worship team.' +
+        '<br><a href="' + _lfE(window.__WEBAPP_URL || '/') + '">Open the app</a></footer>';
+    document.body.appendChild(el);
+    var head = function(title, sub) {
+      var t = document.getElementById('lfvTitle'), s = document.getElementById('lfvSub');
+      if (t) t.textContent = title;
+      if (s) s.textContent = sub || '';
+      try { document.title = title + ' – Luther House Chapel'; } catch (e) {}
+    };
+    var body = function(html) { var b = document.getElementById('lfvBody'); if (b) b.innerHTML = html; };
+    var fail = function() { body('<p class="lf-muted">This could not be opened. The link may be out of date, or the internet may be down.</p>'); };
+    var parts = target.split(':'), kind = parts[0], rest = parts.slice(1).join(':');
+
+    if (kind === 'day') {
+      _lfDayData(rest).then(function(d) {
+        head(d.day || _lfLongDate(d.key), d.day ? _lfLongDate(d.key) : '');
+        body(_lfDayCardHtml(d));
+      }, fail);
+      return;
+    }
+    if (kind === 'svl') {
+      var sb = SBQ_LITURGY._sb();
+      if (!sb) return fail();
+      sb.from('service_liturgies').select('id,title,year,occasion_id').eq('id', rest).then(function(r) {
+        var row = r.data && r.data[0];
+        if (r.error || !row) return fail();
+        var occ = row.occasion_id ? getOccasionById(row.occasion_id) : null;
+        head(row.title || 'Saved liturgy', [occ && occ.label, row.year ? String(row.year) : ''].filter(Boolean).join(' · '));
+        body('<div class="lf-svl" data-svl-id="' + _lfE(row.id) + '"></div>');
+        _lfSvlFill(document.querySelector('#lfvBody .lf-svl'), row.id);
+      }, fail);
+      return;
+    }
+    Promise.all([SBQ_LITURGY.loadItems(), _lfSharedFolders()]).then(function(res) {
+      var items = res[0] || [], folders = res[1] || {};
+      if (kind === 'item') {
+        var it = items.filter(function(x) { return x.id === rest; })[0];
+        if (!it) return fail();
+        var occ = it.occasionId ? getOccasionById(it.occasionId) : null;
+        head(it.title || it.fileName || 'Untitled', [_lfKind(it).label, occ && occ.label].filter(Boolean).join(' · '));
+        body(_lfSharedRow(it, true));
+        return;
+      }
+      if (kind === 'occ') {
+        var occId = parts[1], yr = parts.slice(2).join(':');
+        var o = getOccasionById(occId);
+        if (!o) return fail();
+        var yearIds = (folders[occId] || []).filter(function(f) { return String(f.name) === yr; }).map(function(f) { return f.id; });
+        var list = _lfNewest(items.filter(function(i) {
+          return i.occasionId === occId && (!yr || !i.occasionFolderId || yearIds.indexOf(i.occasionFolderId) !== -1);
+        }));
+        var sb2 = SBQ_LITURGY._sb();
+        var svlP = sb2 ? sb2.from('service_liturgies').select('id,title,year,updated_at').eq('occasion_id', occId).then(function(r) { return r.error ? [] : (r.data || []); }, function() { return []; }) : Promise.resolve([]);
+        svlP.then(function(rows) {
+          var svl = rows.filter(function(r) { return !yr || String(r.year) === yr; });
+          head(o.label + (yr ? ' · ' + yr : ''), 'From the Liturgy Library · ' + (svl.length + list.length) + ' item' + (svl.length + list.length === 1 ? '' : 's'));
+          var html = svl.map(function(r) {
+            return '<div class="lfv-row" data-svl-id="' + _lfE(r.id) + '">' +
+              '<button type="button" class="lfv-row__main" aria-expanded="false" onclick="LiturgyModule.lfvToggle(this)">' +
+                _lfBadge(_lfKind({ _svl: true })) + '<span class="lfv-row__name">' + _lfE(r.title || 'Saved liturgy') + '</span>' +
+                '<span class="lfv-row__kind">Whole liturgy' + (r.year ? ' · ' + _lfE(r.year) : '') + '</span></button>' +
+              '<div class="lfv-row__more" hidden><div class="lf-svl" data-svl-id="' + _lfE(r.id) + '"></div></div></div>';
+          }).join('') + list.map(function(it) { return _lfSharedRow(it, false); }).join('');
+          body(html || '<p class="lf-muted">Nothing in this folder yet.</p>');
+        });
+        return;
+      }
+      // 'all', or anything not understood: the library's services.
+      head('Liturgy Library', 'Readings, prayers, liturgies and files for every service');
+      var counts = {};
+      items.forEach(function(i) { if (i.occasionId) counts[i.occasionId] = (counts[i.occasionId] || 0) + 1; });
+      body('<div class="lfv-list">' + OCCASIONS.filter(function(o) { return counts[o.id]; }).map(function(o) {
+        return '<a class="lfv-row lfv-row--link" href="' + _lfE(_lfLink('occ:' + o.id)) + '">' + _lfDot(o.colour) +
+          '<span class="lfv-row__name">' + _lfE(o.label) + '</span><span class="lfv-row__kind">' + counts[o.id] + '</span>' +
+          '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a>';
+      }).join('') + '</div>');
+    }, fail);
+  }
+  function _lfSharedFolders() {
+    var sb = SBQ_LITURGY._sb();
+    if (!sb) return Promise.resolve({});
+    return sb.from('liturgy_occ_folders').select('id,occasion_id,name').then(function(r) {
+      var out = {};
+      (r.data || []).forEach(function(f) { (out[f.occasion_id] = out[f.occasion_id] || []).push({ id: f.id, name: f.name }); });
+      return out;
+    }, function() { return {}; });
+  }
+  function _lfSharedRow(it, open) {
+    var k = _lfKind(it);
+    var url = String(it.fileUrl || '');
+    var acts = '';
+    if (k.group === 'files' && url && url.indexOf('data:') !== 0) {
+      var dl = _lfDownloadUrl(it);
+      acts = '<div class="lfv-row__acts"><a class="lf-btn" href="' + _lfE(url) + '" target="_blank" rel="noopener">Open</a>' +
+        (dl ? '<a class="lf-btn" href="' + _lfE(dl) + '">Download</a>' : '') + '</div>';
+    }
+    var more = k.group === 'text' ? _lfWordsHtml(it.content) : (k.group === 'files' ? _lfFilePreview(it) : '');
+    return '<div class="lfv-row">' +
+      '<button type="button" class="lfv-row__main" aria-expanded="' + (open ? 'true' : 'false') + '" onclick="LiturgyModule.lfvToggle(this)">' +
+        _lfBadge(k) + '<span class="lfv-row__name">' + _lfE(it.title || it.fileName || 'Untitled') + '</span>' +
+        '<span class="lfv-row__kind">' + _lfE(k.label) + '</span></button>' + acts +
+      '<div class="lfv-row__more"' + (open ? '' : ' hidden') + '>' + more + '</div></div>';
+  }
+  function lfvToggle(btn) {
+    var row = btn && btn.closest('.lfv-row');
+    var more = row && row.querySelector('.lfv-row__more');
+    if (!more) return;
+    var open = more.hasAttribute('hidden');
+    if (open) more.removeAttribute('hidden'); else more.setAttribute('hidden', '');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    var svl = open && more.querySelector('.lf-svl');
+    if (svl && !svl.firstChild) _lfSvlFill(svl, svl.getAttribute('data-svl-id'));
+  }
+
+  (function() {
+    if (!_lfSharedTarget()) return;
+    var go = function() { setTimeout(function() { _lfOpenShared(_lfSharedTarget()); }, 50); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+    else go();
+  })();
 
   function goToToday() { selectReadingDate(_todayISO()); }
 
@@ -104113,6 +105114,7 @@ var LiturgyModule = (function() {
       '<div class="lit-day-prayer__hd">' +
         '<span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + src +
         '<span class="lit-day-prayer__gap"></span>' +
+        '<button type="button" class="lit-day-prayer__btn" data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)" title="Share this date\u2019s readings and prayer"><i class="fa-solid fa-share-nodes"></i>Share</button>' +
         (SBQ_PRAYERS._missing ? '' :
           '<button type="button" class="lit-day-prayer__btn" onclick="LiturgyModule.editDayPrayer(\'' + k + '\')">' +
             '<i class="fa-solid ' + (row ? 'fa-pen' : 'fa-plus') + '"></i>' + (row ? 'Edit' : 'Type it') + '</button>') +
@@ -104179,6 +105181,7 @@ var LiturgyModule = (function() {
     }).then(function() {
       closeDayPrayerEditor();
       renderReadingSlots();
+      _lfPrayers = null; _lfSunday = null;
       if (typeof showToast === 'function') showToast('Prayer of the Day saved for ' + _prayerKeyLabel(key), 'success');
     }).catch(function(e) {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i>Save'; }
@@ -104378,6 +105381,8 @@ var LiturgyModule = (function() {
     SBQ_PRAYERS.saveMany(picked).then(function(saved) {
       closePrayerImportModal();
       renderReadingSlots();
+      _lfPrayers = null; _lfSunday = null;
+      if (_lfShown()) { _lfLoadPrayers(); _lfLoadSunday(); }
       if (typeof showToast !== 'function') return;
       if (saved < picked.length) {
         showToast('Saved ' + saved + ' of ' + picked.length + ' prayers. The rest did not read back — try the import again.', 'error');
@@ -105204,6 +106209,7 @@ var LiturgyModule = (function() {
   }
 
   function selectOccasion(occasionId) {
+    _lfHide();
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
@@ -105428,6 +106434,7 @@ var LiturgyModule = (function() {
 
   function renderOccasionItems(searchQuery) {
     renderOccSvl();
+    _lfRefreshSoon();
     var grid = document.getElementById('litOccItemsGrid');
     if (!grid) return;
     var occ = _currentOccasion ? getOccasionById(_currentOccasion) : null;
@@ -106977,6 +107984,7 @@ var LiturgyModule = (function() {
       btn.classList.toggle('active', btn.getAttribute('data-gen-folder') === folderId);
     });
     // Show library panel
+    _lfHide();
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var memPanel = document.getElementById('liturgyMemoriesPanel');
@@ -107023,6 +108031,7 @@ var LiturgyModule = (function() {
     _currentOccasion = null;
     _currentGeneralFolder = null;
     _litSyncNav('memories');
+    _lfHide();
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var memPanel = document.getElementById('liturgyMemoriesPanel');
@@ -107958,6 +108967,15 @@ var LiturgyModule = (function() {
     openLectionaryUploadModal: openLectionaryUploadModal,
     openLectionaryImportModal: openLectionaryImportModal,
     openPrayerImportModal: openPrayerImportModal,
+    openLibrary: openLibrary, backToLibrary: backToLibrary, renderLibrary: renderLibrary,
+    lfSelect: lfSelect, lfBack: lfBack, lfKind: lfKind, lfSearch: lfSearch, lfUpload: lfUpload, lfNew: lfNew,
+    lfPlanning: lfPlanning, lfOpenDay: lfOpenDay, lfOpen: lfOpen, lfCloseViewer: lfCloseViewer,
+    lfSvlItem: lfSvlItem, lfEdit: lfEdit, lfMove: lfMove, lfDelete: lfDelete,
+    lfShareItem: lfShareItem, lfShareFolder: lfShareFolder, lfShareSunday: lfShareSunday,
+    lfShareDay: lfShareDay, lfShareLibrary: lfShareLibrary, lfShareMode: lfShareMode, lfSend: lfSend,
+    lfCloseShare: lfCloseShare, lfvToggle: lfvToggle,
+    // for the harness
+    _lfItemModel: _lfItemModel, _lfFolderModel: _lfFolderModel, _lfDayModel: _lfDayModel, _lfKind: _lfKind,
     closePrayerImportModal: closePrayerImportModal,
     runPrayerImport: runPrayerImport,
     savePrayerImport: savePrayerImport,
@@ -115634,6 +116652,206 @@ function filterLiturgyItems() {
   .lect-source-chip i { color: var(--brand, #188e44); flex-shrink: 0; }
   .lect-source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lect-source-chip small { color: #64748b; flex-shrink: 0; }
+
+  /* ===== THE LIBRARY, AS FOLDERS (2026-11-13, direction B) ===== */
+  .lf { padding: 18px 20px 40px; font-family: 'Lato', system-ui, sans-serif; color: #1f2933; }
+  .lf-head { background: #fff; border-radius: 18px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; box-shadow: 0 1px 2px rgba(15,40,25,0.06); }
+  .lf-head__id { display: flex; align-items: center; gap: 12px; }
+  .lf-head__ico { width: 44px; height: 44px; border-radius: 12px; background: #e3f4ea; color: #0b7644; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .lf-head h1 { margin: 0; font-size: 1.45rem; font-weight: 700; color: #1f2933; }
+  .lf-search { flex: 1 1 260px; display: flex; align-items: center; gap: 10px; background: #f1f5f3; border-radius: 12px; padding: 0 14px; height: 44px; color: #46525c; }
+  .lf-search:focus-within { box-shadow: inset 0 0 0 2px #0b7644; }
+  .lf-search input { border: 0; outline: 0; background: transparent; flex: 1; min-width: 0; font-family: 'Poppins', sans-serif; font-size: 0.9rem; color: #1f2933; }
+  .lf-head__acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lf-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #d8e2dc; background: #fff; color: #1f2933; font-family: 'Poppins', sans-serif; font-size: 0.84rem; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .lf-btn:hover { border-color: #0b7644; color: #0b5d36; }
+  .lf-btn:focus-visible, .lf-node:focus-visible, .lf-chip:focus-visible, .lf-row__main:focus-visible, .lf-row__share:focus-visible, .lf-year:focus-visible { outline: 2px solid #0b7644; outline-offset: 2px; }
+  .lf-btn--primary { background: #0b7644; border-color: #0b7644; color: #fff; }
+  .lf-btn--primary:hover { background: #075a33; border-color: #075a33; color: #fff; }
+  .lf-btn--wa { background: #1b8a4c; border-color: #1b8a4c; color: #fff; }
+  .lf-btn--wa:hover { background: #146f3d; border-color: #146f3d; color: #fff; }
+  .lf-btn--danger { color: #b91c1c; }
+  .lf-btn--danger:hover { border-color: #b91c1c; color: #991b1b; }
+  .lf-body { display: grid; grid-template-columns: minmax(240px, 290px) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+  .lf-tree, .lf-pane { background: #fff; border-radius: 18px; box-shadow: 0 1px 2px rgba(15,40,25,0.06); min-width: 0; }
+  .lf-tree { padding: 10px 8px 12px; font-family: 'Poppins', sans-serif; }
+  .lf-tree__lbl { padding: 12px 10px 4px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6670; }
+  .lf-node { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 10px; background: transparent; color: #1f2933; font: inherit; font-size: 0.86rem; text-align: left; cursor: pointer; }
+  .lf-node:hover { background: #f1f5f3; }
+  .lf-node.is-on { background: #e3f4ea; color: #0b5d36; font-weight: 600; }
+  .lf-node__ico { width: 16px; text-align: center; color: #0b7644; flex-shrink: 0; }
+  .lf-node__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lf-node__n { font-size: 0.74rem; color: #5b6670; font-weight: 500; }
+  .lf-node__go { display: none; font-size: 0.7rem; color: #94a3b8; }
+  .lf-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid transparent; flex-shrink: 0; display: inline-block; }
+  .lf-years { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px 30px; }
+  .lf-year { text-align: left; border: 0; background: transparent; border-radius: 8px; min-height: 34px; padding: 6px 10px; font: inherit; font-size: 0.8rem; color: #46525c; cursor: pointer; }
+  .lf-year:hover { background: #f1f5f3; }
+  .lf-year.is-on { background: #e3f4ea; color: #0b5d36; font-weight: 600; }
+  .lf-pane { padding: 18px 20px 20px; }
+  .lf-back { display: none; }
+  .lf-pane__hd { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid #edf1ee; margin-bottom: 12px; }
+  .lf-crumb { font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #5b6670; }
+  .lf-title { margin: 0; font-family: 'Cinzel', Georgia, serif; font-size: 1.35rem; font-weight: 700; display: flex; align-items: center; gap: 10px; color: #1f2933; }
+  .lf-title .lf-dot { width: 12px; height: 12px; }
+  .lf-pane__sub { margin: 0; font-size: 0.84rem; color: #5b6670; }
+  .lf-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .lf-acts--foot { margin-top: 16px; }
+  .lf-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px; }
+  .lf-chips--years { display: none; }
+  .lf-chip { min-height: 36px; padding: 0 13px; border-radius: 999px; border: 1px solid #d8e2dc; background: #fff; font-family: 'Poppins', sans-serif; font-size: 0.8rem; color: #1f2933; cursor: pointer; }
+  .lf-chip span { color: #5b6670; }
+  .lf-chip.is-on { background: #0b7644; border-color: #0b7644; color: #fff; font-weight: 600; }
+  .lf-chip.is-on span { color: #d8f5e4; }
+  /* The rows follow the PANE's width, not the screen's: beside the folder
+     tree on a narrow desk the pane is a phone's width. Stacked unless the
+     pane has room for columns (@container below); a browser without
+     container queries keeps the stacked rows, which work at any width. */
+  .lf-pane { container-type: inline-size; container-name: lfpane; }
+  .lf-list { display: flex; flex-direction: column; }
+  .lf-list__hd { display: none; grid-template-columns: 34px minmax(0, 1fr) 150px 110px 50px; column-gap: 12px; padding: 6px 4px 8px 10px; font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6670; }
+  .lf-list__hd span:first-child { grid-column: 1 / 3; }
+  .lf-list__hd span:last-child { text-align: right; }
+  .lf-row { display: flex; align-items: center; gap: 8px; border-top: 1px solid #edf1ee; }
+  .lf-row__main { flex: 1; min-width: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-items: center; padding: 10px 6px; border: 0; background: transparent; text-align: left; font-family: 'Poppins', sans-serif; font-size: 0.88rem; color: #1f2933; cursor: pointer; border-radius: 10px; }
+  .lf-row__main:hover { background: #f6faf7; }
+  .lf-row__main .lf-badge { grid-row: 1 / 3; width: 38px; height: 38px; }
+  .lf-row__meta { display: block; grid-column: 2; grid-row: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lf-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .lf-row__name--wrap { white-space: normal; line-height: 1.45; font-weight: 400; color: #374151; }
+  .lf-row__kind, .lf-row__when { display: inline; color: #46525c; font-size: 0.76rem; white-space: nowrap; }
+  .lf-row__when:not(:empty)::before { content: '\00a0\00b7\00a0'; }
+  @container lfpane (min-width: 620px) {
+    .lf-list__hd { display: grid; }
+    .lf-row__main { grid-template-columns: 34px minmax(0, 1fr) 150px 110px; grid-template-rows: auto; row-gap: 0; padding: 10px; }
+    .lf-row__main .lf-badge { grid-row: auto; width: 34px; height: 34px; }
+    .lf-row__meta { display: contents; }
+    .lf-row__kind, .lf-row__when { display: block; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; }
+    .lf-row__when:not(:empty)::before { content: none; }
+    .lf-row--prayer .lf-row__main { grid-template-columns: 110px minmax(0, 1fr); }
+    .lf-day__reads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .lf-row__share { width: 44px; height: 44px; flex-shrink: 0; margin-right: 4px; border-radius: 11px; border: 1px solid #d8e2dc; background: #fff; color: #0b7644; cursor: pointer; font-size: 0.95rem; }
+  .lf-row__share:hover { border-color: #0b7644; background: #f4f9f6; }
+  .lf-row--prayer .lf-row__main { grid-template-columns: 78px minmax(0, 1fr); grid-template-rows: auto; }
+  .lf-pdate b { display: block; font-weight: 600; }
+  .lf-pdate small { display: block; color: #5b6670; font-size: 0.72rem; line-height: 1.3; }
+  .lf-badge { width: 34px; height: 34px; border-radius: 9px; font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.02em; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .lf-empty { padding: 28px 12px; text-align: center; color: #5b6670; font-size: 0.9rem; line-height: 1.6; }
+  .lf-link { border: 0; background: none; padding: 0; color: #0b7644; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .lf-muted { color: #5b6670; }
+  .lf-day { display: flex; flex-direction: column; gap: 12px; }
+  .lf-day__when { font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 1.1rem; }
+  .lf-day__name { display: flex; align-items: center; gap: 8px; font-family: 'Poppins', sans-serif; font-weight: 600; color: #15803d; font-size: 0.9rem; }
+  .lf-day__name small { color: #5b6670; letter-spacing: 0.06em; font-weight: 500; font-size: 0.7rem; }
+  .lf-day__reads { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .lf-day__read { border: 1px solid #e3e8e5; border-radius: 12px; padding: 11px 14px; }
+  .lf-day__read span { display: block; font-family: 'Poppins', sans-serif; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6670; }
+  .lf-day__read b { display: block; font-family: 'Poppins', sans-serif; font-size: 0.95rem; margin-top: 3px; }
+  .lf-day__read i { color: #64748b; font-weight: 400; }
+  .lf-day__prayer { background: #f4f9f6; border: 1px solid #cfe5d8; border-radius: 14px; padding: 14px 16px; }
+  .lf-day__ph { font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; color: #0b5d36; }
+  .lf-day__prayer p { margin: 8px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-size: 1.05rem; line-height: 1.55; }
+
+  /* One thing, opened */
+  .lf-vw { position: fixed; inset: 0; z-index: 10020; background: rgba(15,23,42,0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .lf-vw__card { background: #fff; border-radius: 18px; width: min(760px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,0.3); overflow: hidden; }
+  .lf-vw__hd { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #edf1ee; }
+  .lf-vw__ttl { flex: 1; min-width: 0; }
+  .lf-vw__ttl h2 { margin: 0; font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #1f2933; overflow-wrap: anywhere; }
+  .lf-vw__ttl p { margin: 2px 0 0; font-size: 0.78rem; color: #5b6670; }
+  .lf-vw__x { width: 44px; height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; background: #fff; font-size: 1.4rem; line-height: 1; cursor: pointer; color: #1f2933; flex-shrink: 0; }
+  .lf-vw__body { padding: 16px 18px; overflow: auto; flex: 1; min-height: 120px; }
+  .lf-vw__ft { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid #edf1ee; }
+  .lf-vw__hint { margin: 0; font-size: 0.8rem; color: #5b6670; }
+  .lf-move { display: inline-flex; align-items: center; gap: 6px; font-family: 'Poppins', sans-serif; font-size: 0.8rem; color: #46525c; }
+  .lf-move select { min-height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; padding: 0 8px; font: inherit; max-width: 190px; background: #fff; }
+  .lf-slide { padding: 10px 12px; border: 1px solid #edf1ee; border-radius: 10px; margin-bottom: 8px; font-size: 0.95rem; line-height: 1.5; color: #1f2933; }
+  .lf-prev-img { max-width: 100%; border-radius: 10px; display: block; margin: 0 auto; }
+  .lf-prev-frame { width: 100%; height: 60vh; border: 0; border-radius: 10px; background: #f1f5f3; }
+  .lf-prev-media { width: 100%; border-radius: 10px; }
+  .lf-prev-audio { width: 100%; }
+  .lf-prev-card { text-align: center; padding: 24px 12px; color: #46525c; }
+  .lf-prev-card i { font-size: 1.8rem; color: #0b7644; display: block; margin-bottom: 8px; }
+  .lf-svl .lit-svl-outline { margin: 0; }
+
+  /* The share sheet */
+  .lf-sh { position: fixed; inset: 0; z-index: 10040; background: rgba(15,23,42,0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .lf-sh__card { background: #fff; border-radius: 20px; width: min(460px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; padding: 10px 18px 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.3); }
+  .lf-sh__grab { width: 44px; height: 5px; border-radius: 3px; background: #d8e2dc; align-self: center; display: none; }
+  .lf-sh__hd { display: flex; align-items: flex-start; gap: 10px; }
+  .lf-sh__hd > div { flex: 1; min-width: 0; }
+  .lf-sh__hd h2 { margin: 6px 0 0; font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 1.05rem; color: #1f2933; overflow-wrap: anywhere; }
+  .lf-sh__hd p { margin: 2px 0 0; font-family: 'Poppins', sans-serif; font-size: 0.8rem; color: #5b6670; }
+  .lf-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; background: #f1f5f3; border-radius: 12px; padding: 4px; }
+  .lf-seg button { min-height: 40px; border: 0; border-radius: 9px; background: transparent; font-family: 'Poppins', sans-serif; font-size: 0.84rem; color: #46525c; cursor: pointer; }
+  .lf-seg button.is-on { background: #fff; color: #1f2933; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .lf-sh__prev { background: #e6ddd4; border-radius: 14px; padding: 12px; }
+  .lf-sh__bubble { background: #dcf8c6; border-radius: 10px 10px 2px 10px; padding: 10px 12px; font-size: 0.84rem; line-height: 1.45; white-space: pre-line; color: #1f2933; max-height: 260px; overflow: auto; overflow-wrap: anywhere; }
+  .lf-sh__go { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 10px; }
+  .lf-sh__go button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: transparent; font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #1f2933; cursor: pointer; padding: 4px 0; border-radius: 12px; }
+  .lf-sh__go button:focus-visible { outline: 2px solid #0b7644; outline-offset: 2px; }
+  .lf-sh__ico { width: 56px; height: 56px; border-radius: 16px; background: #f1f5f3; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: #1f2933; }
+  .lf-sh__ico--wa { background: #1b8a4c; color: #fff; }
+  .lf-sh__ico--mail { background: #e0ebff; color: #1d4ed8; }
+  .lf-sh__note { margin: 0; font-size: 0.75rem; color: #5b6670; text-align: center; }
+
+  @media (max-width: 768px) {
+    .lf { padding: 12px 12px 90px; }
+    .lf-head { padding: 12px; gap: 10px; }
+    .lf-head h1 { font-size: 1.15rem; }
+    .lf-head__ico { width: 38px; height: 38px; font-size: 1rem; }
+    .lf-head__acts { width: 100%; }
+    .lf-head__acts .lf-btn { flex: 1 1 0; padding: 0 8px; font-size: 0.78rem; }
+    .lf-body { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }
+    .lf.lf--pane .lf-tree { display: none; }
+    .lf:not(.lf--pane) .lf-pane { display: none; }
+    .lf-node { min-height: 48px; }
+    .lf-node__go { display: inline; }
+    .lf-pane { padding: 14px; }
+    .lf-back { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; border: 0; background: transparent; color: #0b7644; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 0.86rem; padding: 0 4px; margin: -6px 0 6px; cursor: pointer; }
+    .lf-title { font-size: 1.15rem; }
+    .lf-acts .lf-btn { flex: 1 1 auto; }
+    .lf-chips--years { display: flex; }
+    .lf-chips { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+    .lf-chip { flex-shrink: 0; }
+  }
+  @media (max-width: 640px) {
+    .lf-vw { align-items: flex-end; padding: 0; }
+    .lf-vw__card { width: 100%; border-radius: 18px 18px 0 0; max-height: 92vh; max-height: 92dvh; }
+    .lf-vw__ft { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+    .lf-prev-frame { height: 55vh; }
+    .lf-sh { align-items: flex-end; padding: 0; }
+    .lf-sh__card { width: 100%; border-radius: 22px 22px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
+    .lf-sh__grab { display: block; }
+  }
+
+  /* The view-only page a shared link opens */
+  html.lfv-open, html.lfv-open body { overflow: hidden !important; }
+  .lfv { position: fixed; inset: 0; z-index: 100050; background: #f4f6f5; overflow-y: auto; -webkit-overflow-scrolling: touch; font-family: 'Lato', system-ui, sans-serif; color: #1f2933; }
+  .lfv-hd { background: #0b7644; color: #fff; padding: 18px 20px 22px; padding-top: calc(18px + env(safe-area-inset-top, 0px)); }
+  .lfv-hd__row { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto; }
+  .lfv-church { flex: 1; font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .lfv-pill { display: inline-flex; align-items: center; gap: 6px; background: #fff; color: #0b5d36; border-radius: 999px; padding: 4px 10px; font-family: 'Poppins', sans-serif; font-size: 0.74rem; font-weight: 600; }
+  .lfv-title { max-width: 760px; margin: 10px auto 0; font-family: 'Cinzel', Georgia, serif; font-weight: 700; font-size: 1.5rem; color: #fff; overflow-wrap: anywhere; }
+  .lfv-sub { max-width: 760px; margin: 4px auto 0; font-size: 0.88rem; color: rgba(255,255,255,0.92); }
+  .lfv-body { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .lfv-row { background: #fff; border-radius: 14px; padding: 6px; }
+  .lfv-row__main { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px; border: 0; background: transparent; text-align: left; cursor: pointer; font-family: 'Poppins', sans-serif; font-size: 0.9rem; color: #1f2933; border-radius: 10px; }
+  .lfv-row__main:focus-visible { outline: 2px solid #0b7644; outline-offset: 2px; }
+  .lfv-row__name { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+  .lfv-row__kind { font-size: 0.76rem; color: #5b6670; white-space: nowrap; }
+  .lfv-row__acts { display: flex; gap: 8px; padding: 0 8px 8px 54px; flex-wrap: wrap; }
+  .lfv-row__more { padding: 4px 10px 10px; }
+  .lfv-list { display: flex; flex-direction: column; gap: 8px; }
+  .lfv-row--link { display: flex; align-items: center; gap: 12px; padding: 14px 16px; min-height: 48px; text-decoration: none; color: #1f2933; font-family: 'Poppins', sans-serif; }
+  .lfv-row--link i { color: #94a3b8; font-size: 0.75rem; }
+  .lfv .lf-day { background: #fff; border-radius: 16px; padding: 16px; }
+  /* The page's own header already names the day and the date. */
+  .lfv .lf-day__when, .lfv .lf-day__name { display: none; }
+  .lfv .lf-svl { background: #fff; border-radius: 14px; padding: 12px; }
+  .lfv-ft { max-width: 760px; margin: 0 auto; padding: 8px 16px 32px; text-align: center; font-size: 0.8rem; color: #5b6670; line-height: 1.6; }
+  .lfv-ft a { color: #0b7644; font-weight: 700; }
 
   /* ===== PRAYER OF THE DAY (Readings, Day view) ===== */
   .lit-day-prayer { margin-top: 14px; background: var(--lit-wash, #f4f9f6); border: 1px solid var(--lit-edge, #cfe5d8); border-radius: 14px; padding: 14px 18px; }
