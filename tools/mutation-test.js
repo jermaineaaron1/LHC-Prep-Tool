@@ -117,7 +117,7 @@ const SET_REF   = '        return SBQ_READINGS.setReference(dateStr, entry.idx, 
 const SAVE_SLOT = '        SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, { reference: canonical });';
 // Two copies of this line exist, the sidebar's and the strip's; the mutation
 // below takes the SECOND, which is the strip.
-const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">';
+const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">';
 
 // The loose-comparison line, as it appears in the source: \u2010 there is the
 // literal escape, not the character, so these are written raw.
@@ -2367,6 +2367,16 @@ const CASES = [
     s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
   ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
     s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
+  // The library as folders (2026-11-13): browsing makes no year folder, the
+  // view-only rows edit nothing, a year folder holds the unfiled-year things.
+  ['liturgy-library-harness.js', 'browsing the library seeds a year folder again',
+    s => s.replace("if (_occFoldersLoaded && _occOnScreen && _occOnScreen.style.display !== 'none' &&", "if (_occFoldersLoaded && (true || _occOnScreen) &&")],
+  ['liturgy-library-harness.js', "a shared folder's rows carry an Edit button",
+    s => s.replace("return '<div class=\"lfv-row\">' +", "return '<div class=\"lfv-row\"><button onclick=\"LiturgyModule.lfEdit(1)\">Edit</button>' +")],
+  ['liturgy-library-harness.js', 'a year folder drops the things filed under no year',
+    s => s.replace("return i && i.occasionId === occId && (!yearId || i.occasionFolderId === yearId || !i.occasionFolderId);", "return i && i.occasionId === occId && (!yearId || i.occasionFolderId === yearId);")],
+  ['liturgy-library-harness.js', 'the library stays on screen under the Readings page',
+    s => s.replace("  function selectOccasion(occasionId) {\r\n    _lfHide();", "  function selectOccasion(occasionId) {")],
   // The Prayer of the Day (2026-11-13): a noted order keeps its own words,
   // a new bulletin does not carry last week's prayer, an old prayer's second
   // slide does not survive, and a past order is never given one.
