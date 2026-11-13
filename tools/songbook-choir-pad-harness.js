@@ -131,7 +131,7 @@ check('every part named is known', J(R.known) === J(['Harmony 1', 'Group A', 'Me
 const rowsT = V.parseVoiceText(R.text, { parts: R.known });
 check('the parser gets every line of words, once, with its part', rowsT.length === 12 && J(rowsT.slice(0, 4).map(r => [r.part, r.text, r.section])) ===
   J([['both', 'Said the night wind to the little lamb', 'Verse 1'], ['men', 'Do you see what I see', 'Verse 1'], ['men', 'Do you hear what I hear', 'Verse 1'], ['women', 'oh....', 'Verse 1']]), J(rowsT.map(r => [r.part, r.text])));
-check('the chord line goes to the save as the chords over its words', J(R.chords) === J([{ words: 'Do you see what I see', chord: 'G           C', lead: true }]), J(R.chords));
+check('the chord line goes to the save as the chords over its words', J(R.chords) === J([{ words: 'Do you see what I see', chord: 'G           C', lead: true, m: 1 }]), J(R.chords));
 const bx = C.boxes(R.info);
 check('each moment is one box, the ones sung at once marked', bx.length === new Set(R.info.filter(f => f.m > -1).map(f => f.m)).size && bx.filter(b => b.tg).length === 2, J(bx));
 
@@ -179,7 +179,7 @@ const offLead = C.read(['[Women]', 'That glorious song of old', '[Men]', 'D     
 check('a chord line over a line that is not the moment\'s lead is marked so', offLead.chords.length === 1 && offLead.chords[0].lead === false, J(offLead.chords));
 check('...left out of the save quietly when it is as it was shown', C.toSave(offLead.chords, [{ words: 'oh', chord: 'D          G' }], [], 0, XP).length === 0);
 check('...and as a chord with nowhere to sit when it was typed', J(C.toSave(offLead.chords, [], [], 0, XP)) === J([{ words: '', chord: 'D          G' }]));
-check('a chord line over nothing is one with nowhere to sit', J(C.read('G  C\n\nwords', isChord, [], []).chords) === J([{ words: '', chord: 'G  C', lead: false }]));
+check('a chord line over nothing is one with nowhere to sit', J(C.read('G  C\n\nwords', isChord, [], []).chords) === J([{ words: '', chord: 'G  C', lead: false, m: -1 }]));
 
 // ---------------------------------------------------------------------------
 console.log('\n5. The toolbar');
@@ -216,7 +216,7 @@ check('written again: a name only where the part changes', J(N.lines) === J(['[W
 console.log('\n6. Opened and saved, end to end (the database stubbed)');
 const OPEN = ['_sbOverviewOpenNow', '_sbmPadSaveSong', '_sbmEdMomentAt', '_sbmPadRoles', '_sbmPadSplit'];
 const env = new Function('ctx', 'window', secVar + '\n' + NAMES.map(fn).join('\n') + '\n' + OPEN.map(fn).join('\n') + `
-  var _sbVoiceLines = ctx.lines;
+  var _sbVoiceLines = ctx.lines, _sbmPad = null;
   function _sbLinesSig(r) { return 'sig' + (r || []).length; }
   function _sbCopyById(id) { return ctx.copy; }
   function _sbChoirChordWords() { return ctx.lyrics; }
@@ -297,6 +297,79 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
     /if \(!_sbmPad \|\| document\.getElementById\('sbmUnsaved'\)\) return;/.test(fn('_sbmPadKey')) && /_sbmUnsavedDrop\(\);/.test(fn('_sbmPadClose')) &&
     /if \(!_sbmEd \|\| _sbmPad \|\| document\.getElementById\('sbmUnsaved'\)\) return;/.test(fn('_sbmEdKey')));
   check('it sits over the pad and the editors (z-index above 3650), from the foot of the screen', /\.sbm-unsaved \{\n\s*position: fixed; left: 50%; bottom: calc\(18px[^\n]*z-index: 10004;/.test(SRC));
+
+  // -------------------------------------------------------------------------
+  console.log('\n9. The review of 2026-11-12');
+  check('[B] is everyone, as B: is', C.partName('B', [], [], false) === 'both');
+  const Rm = C.read(['[Women]', 'D          G', 'That glorious song of old', '[Men]', '~oh'].join('\n'), isChord, [], []);
+  check('a chord line knows its moment and whether it is over the lead line', Rm.chords[0].m === 0 && Rm.chords[0].lead === true && Rm.info[2].lead === true);
+  // chords in the key sung: words edited, chords as shown -> the stored line exactly
+  const sh = [{ words: 'Is there room', chord: 'G#m  D#m', lead: true, m: 0 }];
+  const st = [{ words: 'Is there room', chord: 'F#m  C#m', lead: true, m: 0 }];
+  const keep = C.toSave([{ words: 'Is there room, Lord', chord: 'G#m  D#m', lead: true, m: 0 }], sh, st, 2, XP);
+  check('words edited under chords left as shown: the stored chords exactly (no F#m turned Gbm)', keep[0].chord === 'F#m  C#m', J(keep));
+  const moved = C.toSave([{ words: 'Is there room', chord: 'A    E', lead: true, m: 0 }], sh, st, 2, XP);
+  check('chords edited: moved back by the steps', /^G\s+D$/.test(moved[0].chord), J(moved));
+  const goneOne = C.toSave([], sh, st, 0, XP);
+  check('a chord line shown and taken away: asked to come out of the words', J(goneOne) === J([{ words: 'Is there room', chord: '', drop: 'F#m  C#m' }]), J(goneOne));
+  // the save, by moment: a refrain sung three times, its first chord line deleted
+  const SC = (lyrics) => {
+    const out = { lyrics: null };
+    const E = new Function('window', 'out', `
+      var STATE = window.STATE;
+      function _sbCopyById() { return null; }
+      function _sbmIsChord() { return window.isChord; }
+      function _sbChoirChordWords() { return window.STATE.songs[0].lyrics; }
+      function _sbChoirChordSave(copy, base, l) { out.lyrics = l; return Promise.resolve(); }
+      ${fn('_sbmPadSaveChords')}
+      return _sbmPadSaveChords;`)({ lhcVoiceLines: V, STATE: { songs: [{ id: 'song_1', lyrics }] }, isChord }, out);
+    return { E, out };
+  };
+  const REF = [0, 1, 2].map(i => ({ part: 'both', text: 'Glory to God', section: '', sortOrder: i, sustained: false }));
+  const RLYR = 'C\nGlory to God\n\nF\nGlory to God\n\nG\nGlory to God';
+  const shownR = C.read(C.text(REF, RLYR, isChord, { parts: [] }), isChord, [], []).chords;
+  const padT = C.text(REF, RLYR, isChord, { parts: [] }).split('\n');
+  padT.splice(padT.indexOf('C'), 1);                     // the first chord line taken out
+  const typedR = C.read(padT.join('\n'), isChord, [], []).chords;
+  const toSaveR = C.toSave(typedR, shownR, shownR, 0, XP);
+  const sc = SC(RLYR);
+  const res = await sc.E('song_1', REF, toSaveR, 'c1');
+  check('a refrain sung three times, its first chord line deleted: only the first loses its chords',
+    sc.out.lyrics === 'Glory to God\n\nF\nGlory to God\n\nG\nGlory to God' && res.orphans.length === 0, J([sc.out.lyrics, res]));
+  const sc2 = SC(RLYR);
+  await sc2.E('song_1', REF, C.toSave(C.read(C.text(REF, RLYR, isChord, { parts: [] }), isChord, [], []).chords, shownR, shownR, 0, XP), 'c1');
+  check('...nothing changed: nothing written', sc2.out.lyrics === null);
+  const one = C.text(REF.slice(1, 2).map(r => Object.assign({}, r, { sortOrder: 0 })), 'D  G\nGlory to God', isChord, { parts: [] }).split('\n');
+  const sh1 = C.read(one.join('\n'), isChord, [], []).chords;
+  one.splice(one.indexOf('D  G'), 1);
+  const sc3 = SC('D  G\nGlory to God');
+  await sc3.E('song_1', [Object.assign({}, REF[0])], C.toSave(C.read(one.join('\n'), isChord, [], []).chords, sh1, sh1, 0, XP), 'c1');
+  check('a single chord line deleted: the chords come out of the words (it used to say "saved" and keep them)', sc3.out.lyrics === 'Glory to God', J(sc3.out));
+  // + Chords on the men's line of a moment sung together
+  const RT = C.read(['[Women]', 'Do you see', '[Men]', 'A star'].join('\n'), isChord, [], []);
+  const ac3 = C.addChords(RT, 3);
+  check('+ Chords on the second line of a moment sung together goes to its lead line, the first: a line over it, no gap inside',
+    ac3.lines[1] === '' && ac3.lines[2] === 'Do you see' && ac3.lines[3] === '[Men]' && ac3.lines[4] === 'A star' && !ac3.toast, J(ac3));
+  const ac4 = C.addChords(RT, 1);
+  check('...on its first line: a line for chords over it, as before', ac4.lines[1] === '' && ac4.lines[2] === 'Do you see' && !ac4.toast);
+  // the lead not the first line (the women hold, the men lead): no line can go in without parting them
+  const RH = C.read(['[Women]', '~oh', '[Men]', 'A star'].join('\n'), isChord, [], []);
+  const ac5 = C.addChords(RH, 1);
+  check('...a lead that is not the moment\'s first line: nothing put in (it would part them), and it says why',
+    J(ac5.lines) === J(RH.lines) && /sing together/.test(ac5.toast || ''), J(ac5));
+  // a part's line that ends in a bracket
+  const pv = V.parseVoiceText('[Verse]\n[Melody] [ad lib]\nnext line');
+  check('"[Melody] [ad lib]" is the Melody singing "[ad lib]", not a section that takes the lines after it',
+    J(pv.map(r => [r.part, r.text, r.section])) === J([['Melody', '[ad lib]', 'Verse'], ['both', 'next line', 'Verse']]), J(pv));
+  check('...a bracket alone is still a section', V.parseVoiceText('[Chorus (x2)]\nla').map(r => r.section).join() === 'Chorus (x2)');
+  // source: the rest
+  check('the save reads with the parts named in the pad (+ New part)', /read: function\(x, ic\) \{ return _sbCpRead\(x, ic, \(_sbmPad && _sbmPad\.parts\) \|\| parts, sections\); \}/.test(fn('_sbOverviewOpenNow')));
+  check('a save that half failed can be tried again (the signature moves on once the parts are kept)',
+    /onLines: function\(rows\) \{ openSig = _sbLinesSig\(rows\); \}/.test(fn('_sbOverviewOpenNow')) && /if \(typeof o\.onLines === 'function'\) o\.onLines\(_sbVoiceLines\[base\] \|\| \[\]\);/.test(fn('_sbmPadSaveSong')));
+  check('the toolbar keeps the cursor in the pad, and acts only where the cursor is',
+    /\['pointerdown', 'mousedown'\]\.forEach/.test(fn('_sbCpMount')) && /if \(!sel\) \{ showToast\('Put the cursor on a line of the pad first'/.test(fn('_sbCpTool')) && !/\|\| \{ a: 0, b: 0, collapsed: true \}/.test(fn('_sbCpTool')));
+  check('opening the pad lets the song go whatever goes wrong', /_sbOverviewOpenNow\(base, sid, title, sectionName, run, anchor\); \}\)\n\s*\.catch\(function\(e\) \{\n\s*_sbEditRelease\(base\);/.test(fn('_sbOverviewOpen')));
+  check('Esc while a word is being composed is the keyboard\'s', /if \(ev\.isComposing\) return;/.test(fn('_sbmPadKey')));
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
