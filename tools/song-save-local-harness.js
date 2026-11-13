@@ -80,8 +80,13 @@ if (!fn) {
 }
 
 let STATE;
+// The style merge is SBQ_SONGS.withAppearance's (gotcha 92), checked in
+// songs-data-loss-harness.js; sliced from the source here so this one runs.
+const SRC_ALL = fs.readFileSync(INDEX, 'utf8').replace(/\r\n/g, '\n');
+const appKeys = (SRC_ALL.match(/APPEARANCE_KEYS: (\[[^\]]*\])/) || [, '[]'])[1];
+const withApp = (SRC_ALL.match(/withAppearance: (function\(cur, look\) \{[^]*?\n  \})/) || [, 'function(cur, look) { return look || {}; }'])[1];
 const apply = new Function('STATE_REF',
-  'var STATE = STATE_REF;\n' + fn + '\nreturn _applySavedSongLocally;');
+  'var STATE = STATE_REF;\nvar SBQ_SONGS = { APPEARANCE_KEYS: ' + appKeys + ' };\nSBQ_SONGS.withAppearance = ' + withApp + ';\n' + fn + '\nreturn _applySavedSongLocally;');
 
 const results = [];
 function check(label, actual, expected) {
@@ -117,7 +122,7 @@ const SAVED = {
   season: 'Easter', scripture: 'Luke 2', lyrics: 'new lyrics',
   youtube: ['https://b', 'https://c'], attachments: [{ url: 'u2', name: 'n2' }],
   timeSignature: '3/4', bpm: 90, serviceSuitability: ['closing'],
-  display_style: { size: 2 }
+  display_style: { size: 2, lyricFont: 'Georgia' }
 };
 
 console.log('the edited fields reach the list');
@@ -131,7 +136,8 @@ check('key', s.key, 'D');
 check('lyrics', s.lyrics, 'new lyrics');
 check('youtube', s.youtube, ['https://b', 'https://c']);
 check('bpm', s.bpm, 90);
-check('display_style', s.display_style, { size: 2 });
+// The form owns the appearance keys only; the rest of the style is the song's.
+check('display_style: the appearance it set, over the song\'s own keys', s.display_style, { size: 1, lyricFont: 'Georgia' });
 
 console.log('\nthe list reads `category`, the column is `style` -- both move together');
 check('category', s.category, 'Contemporary');
@@ -177,7 +183,7 @@ const e = STATE.songs[0];
 check('artist', e.artist, '');
 check('bpm', e.bpm, '');
 check('youtube', e.youtube, []);
-check('display_style', e.display_style, {});
+check('display_style: the song\'s own, kept', e.display_style, { size: 1 });
 check('  but useCount is still carried', e.useCount, 12);
 
 console.log('\nand saveEditSong actually uses it');

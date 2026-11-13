@@ -14732,6 +14732,27 @@ function _lpStartChoirParts(song) {
     showToast('Add some lyrics first \u2014 the parts start from them', 'error');
     return;
   }
+  // A song can have parts its flag does not say it has (review, 2026-11-12):
+  // seeding from the words and saving replaced them. Asked first; parts
+  // found are shown, and the flag is put right.
+  var ask = (window.SBQ_VOICE_LINES && typeof SBQ_VOICE_LINES.forSong === 'function') ? SBQ_VOICE_LINES.forSong(song.id) : Promise.resolve([]);
+  Promise.resolve(ask).catch(function() { return []; }).then(function(rows) {
+    if (currentLyricsPreviewSong && currentLyricsPreviewSong.id !== song.id) return;   // moved on to another song
+    if (rows && rows.length) {
+      _lpVoiceLineCache[song.id] = rows;
+      song.voiceLayout = 'two-part';
+      if (window.SBQ_SONGS && SBQ_SONGS.updateFields) SBQ_SONGS.updateFields(song.id, { voice_layout: 'two-part' }).catch(function() {});
+      _lpSyncChoirEditBtn(song);
+      var tab0 = document.getElementById('lyricsPreviewChoirBtn');
+      if (tab0) tab0.style.display = '';
+      switchLyricsPreviewMode('choir');
+      showToast('This song already has choir parts \u2014 here they are', 'info');
+      return;
+    }
+    _lpSeedChoirParts(song);
+  });
+}
+function _lpSeedChoirParts(song) {
   var seeded = window.lhcVoiceLines.fromLyrics(song.lyrics);
   if (!seeded.length) {
     showToast('No words to start from \u2014 these lyrics are all chords', 'error');
@@ -15405,7 +15426,10 @@ function _sfApplyAppearance() {
   var cf = (document.getElementById('sfChordFont') || {}).value || '';
   var cs = (document.getElementById('sfChordSize') || {}).value || '';
   var cc = (document.getElementById('sfChordColor') || {}).value || '';
-  currentDisplayStyle = { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc };
+  // Over the song's other keys (instrument names, part colours), never in
+  // place of them (review, 2026-11-12).
+  currentDisplayStyle = Object.assign({}, (currentDisplayStyle && typeof currentDisplayStyle === 'object') ? currentDisplayStyle : {},
+    { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc });
   _sfPaintAppearance();
 }
 
@@ -26915,7 +26939,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     merged.timeSignature = saved.timeSignature || '';
     merged.bpm = (saved.bpm == null || saved.bpm === '') ? '' : saved.bpm;
     merged.serviceSuitability = copy(saved.serviceSuitability);
-    merged.display_style = (saved.display_style && typeof saved.display_style === 'object') ? saved.display_style : {};
+    // The appearance keys the form owns, over the rest of the song's style.
+    merged.display_style = SBQ_SONGS.withAppearance(prev.display_style, saved.display_style);
     merged.lastEdited = new Date().toISOString();
     STATE.songs[i] = merged;
     return true;
@@ -26964,7 +26989,9 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     };
 
     showLoader(true);
-    SBQ_SONGS.update(songData).then(function(result) {
+    // Only the columns the form owns (SBQ_SONGS.updateForm): a full-row write
+    // blanked the choir parts flag, the use count and the dates.
+    SBQ_SONGS.updateForm(songData).then(function(result) {
       showToast('Song updated successfully!', 'success');
       closeModal('editSongModal');
       // Repaint from what was just written, before the refetch.
@@ -28127,6 +28154,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       attachments: attachmentsArr,
       lyrics: lyricsData
     };
+    // Dated, or the Recent tab and the Latest sort never see it.
+    songData.dateAdded = songData.lastEdited = new Date().toISOString();
 
     // Auto-assign ID before inserting
     songData.id = 'song_' + Date.now();
@@ -34169,7 +34198,6 @@ var SBQ_SONGS = {
     // Exclude id from update payload; filter by id instead
     var id = row.id;
     delete row.id;
-    console.log('[SBQ_SONGS.update] scripture =', JSON.stringify(row.scripture));
     return sb.from('songs').update(row).eq('id', id)
       .then(function(r) {
         if (r.error) {
@@ -34189,6 +34217,49 @@ var SBQ_SONGS = {
         SBQ_SONGS._announceSongChange(id, row.lyrics);
         return { success: true };
       });
+  },
+
+  // The Edit Song form's save (review, 2026-11-12). update() above writes the
+  // WHOLE row, and the form never knew the song's choir parts flag, its use
+  // count or its dates -- so every Save from the form blanked them (a choir
+  // song lost its parts flag to a link fixed in the form, and 81 of 82 songs
+  // had no dates left). This writes the columns the form owns and no other,
+  // keeps display_style's other keys (instrument names, part colours) by
+  // reading it fresh and setting only the appearance keys, and stamps
+  // last_edited.
+  FORM_COLUMNS: ['title', 'artist', 'theme', 'key', 'tempo', 'style', 'season', 'lyrics', 'scripture', 'youtube', 'attachments',
+                 'time_signature', 'bpm', 'service_suitability'],
+  APPEARANCE_KEYS: ['lyricFont', 'lyricSize', 'lyricColor', 'chordFont', 'chordSize', 'chordColor'],
+  updateForm: function(song) {
+    var sb = SBQ_SONGS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var row = songToRow(song), id = row.id, patch = {};
+    if (!id) return Promise.reject(new Error('updateForm needs a song id'));
+    SBQ_SONGS.FORM_COLUMNS.forEach(function(k) { patch[k] = row[k]; });
+    patch.last_edited = new Date().toISOString();
+    var look = (song.display_style && typeof song.display_style === 'object') ? song.display_style : null;
+    var styled = !look ? Promise.resolve() : sb.from('songs').select('display_style').eq('id', id).maybeSingle().then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var cur = (r.data && r.data.display_style && typeof r.data.display_style === 'object') ? r.data.display_style : {};
+      patch.display_style = SBQ_SONGS.withAppearance(cur, look);
+    });
+    var write = function() { return sb.from('songs').update(patch).eq('id', id); };
+    return styled.then(write).then(function(r) {
+      // the scripture column, on a database from before it
+      if (r.error && r.error.message && r.error.message.indexOf('scripture') >= 0) { delete patch.scripture; return write(); }
+      return r;
+    }).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      SBQ_SONGS._announceSongChange(id, patch.lyrics);
+      return { success: true, row: patch };
+    });
+  },
+  // A display_style with the appearance keys of `look` laid over `cur`, every
+  // other key of `cur` kept (pure).
+  withAppearance: function(cur, look) {
+    var out = Object.assign({}, (cur && typeof cur === 'object') ? cur : {});
+    SBQ_SONGS.APPEARANCE_KEYS.forEach(function(k) { if (look && Object.prototype.hasOwnProperty.call(look, k)) out[k] = look[k]; });
+    return out;
   },
 
   delete: function(id) {
@@ -37283,7 +37354,10 @@ var WO = (function() {
           backgrounds:             s.backgrounds || {},
           richLyrics:              s.richLyrics || null,
           liturgistNotes:          s.liturgistNotes || '',
-          versionId:               s.versionId || ''
+          versionId:               s.versionId || '',
+          // The book's shared choice of pages (gotcha 16): left out, every
+          // close of the book put everyone back on Choir (review, 2026-11-12).
+          choirView:               s.choirView || ''
         };
       });
 
@@ -50433,6 +50507,18 @@ var WO = (function() {
           versionId: cust.versionId || ''
         });
       });
+      // The order that was open steps aside first (review, 2026-11-12), as it
+      // does for a standalone songbook (gotcha 49): an edit still waiting is
+      // saved as THAT order, and its builder or LCD page leaves the editor,
+      // whose stamp would otherwise refuse every save this book makes.
+      var _prevId = currentOrderData && currentOrderData.id;
+      if (_prevId && _prevId !== orderMeta.id && !_sbStandaloneId && String(_prevId).indexOf('standalone_') !== 0) {
+        if (_autoSaveTimer && !_loadingOrder) { clearTimeout(_autoSaveTimer); _autoSaveTimer = null; saveCurrentOrder(true); }
+        _lbdSetActive(false);
+        var _woc = $('woWorshipOrder');
+        if (_woc) { _woc.innerHTML = ''; _woc.removeAttribute('data-order-id'); }
+        _woHideEditor();
+      }
       _sbStandaloneId = null;
       _tplLoadedForOrder = orderMeta.id;      // this template IS the stored one
       setTimeout(function() { _sbProjHydrate(orderMeta.id); }, 0);   // rows win over the template mirror
@@ -50468,6 +50554,19 @@ var WO = (function() {
             }).catch(function() {});
           })(orderMeta.id);
         }
+        // Its own type and its own liturgy, readings and text, as a full load
+        // builds them (review, 2026-11-12). A save made away from the LCD
+        // collects those from serviceSectionItems, which still held the order
+        // opened before: that order's liturgy and readings were saved into
+        // this one, and this one's pruned. And with the type left as the last
+        // order's, a song was placed by the wrong template's sections.
+        currentOrderType = orderMeta.type || 'traditional';
+        var _scr = { songs: [], serviceSectionSongs: {}, serviceSectionItems: {} };
+        items.forEach(function(it) { if (it.itemType !== 'song' && it.itemType !== 'blank') _absorbOrderItem(it, _scr); });
+        currentOrderData.allItems = result.items || [];
+        currentOrderData.serviceSectionItems = _scr.serviceSectionItems;
+        window.serviceSectionItems = _scr.serviceSectionItems;
+        if (SBQ._noteKnownItems) SBQ._noteKnownItems(orderMeta.id, (result.items || []).map(function(it) { return it.id; }));
         songOrderSections = songs;
         _woSplitSharedSongs(songOrderSections, _woSectionList());
         openSongbook();
@@ -60129,6 +60228,8 @@ var WO = (function() {
         // Set up somewhere else meanwhile: those are shown, nothing written.
         _sbVoiceLines[base] = err.rows || [];
         var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+        // Its flag said none, or Set up would not have been offered: put right.
+        if (lib && lib.voiceLayout !== 'two-part' && window.SBQ_SONGS && SBQ_SONGS.updateFields) SBQ_SONGS.updateFields(base, { voice_layout: 'two-part' }).catch(function() {});
         if (lib) lib.voiceLayout = 'two-part';
         c.voiceLayout = 'two-part';
         return true;
@@ -61230,7 +61331,17 @@ var WO = (function() {
   // The library song's words and key replaced by m ({ lyrics, key, moved }
   // from _sbVerMainOf), the song as it was kept first. Resolves what an undo
   // needs; rejects with nothing half done.
+  // What is kept is the master as it is STORED now (review, 2026-11-12): the
+  // library in memory may be from before another device's edit, which was
+  // then lost, and Undo put the older words back.
   function _sbVerReplaceMain(base, lib, m) {
+    var sup = window._supabase;
+    return sup.from('songs').select('lyrics, key').eq('id', base).maybeSingle().then(function(r0) {
+      if (r0 && !r0.error && r0.data) { lib.lyrics = String(r0.data.lyrics || ''); lib.key = String(r0.data.key || ''); }
+      return _sbVerReplaceMainNow(base, lib, m);
+    });
+  }
+  function _sbVerReplaceMainNow(base, lib, m) {
     var sup = window._supabase;
     var old = { lyrics: String(lib.lyrics || ''), key: String(lib.key || '').trim(), lastEdited: lib.lastEdited || '' };
     var d = m.moved, others = (_sbVers[base] || []).slice(), keep = null, written = false, moved = [];
