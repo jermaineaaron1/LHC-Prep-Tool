@@ -57,8 +57,9 @@ The ones worth knowing; there are around 29 in all.
 | `liturgy_occ_folders` | The Liturgy Library's YEAR folders, per occasion (`occasion_id`, `name` -- "2026"); a library item names one in `occasionFolderId`. A save from the Liturgy page deletes only folders removed on that device. See gotcha 51 |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
 | `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
+| `day_prayers` | The Prayer of the Day, one row per service: `service_key` ('YYYY-MM-DD', '\|pm' on the end for an evening service), `prayer` (the words), `occasion`, `source_file` / `source_url` (the document it was imported from; null when typed). Imported on the Readings page (Import prayers) or typed there; read by the Liturgy Builder, LCD Projection and the bulletin. NOT a roster row. `migrations/2026-11-13_day_prayers.sql`. See gotcha 96 |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
-| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer, `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
+| `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer (empty = print the date's Prayer of the Day; `prayerDoc` notes which imported one it was given, gotcha 96), `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 
@@ -121,9 +122,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   service time. Everything below it is typed on the sheet itself.
 - The duty table is the roster: this Sunday and the next, side by side,
   seventeen rows read live from `roster` every time the page opens.
-- Typed: theme verse, prayer of the day, numbered announcements, online
-  giving, attendance figures, offering lines, the two footer contacts, and
-  the two duties the roster has no role for (Acolyte, Flower Offering).
+- Typed: theme verse, numbered announcements, online giving, attendance
+  figures, offering lines, the two footer contacts, and the two duties the
+  roster has no role for (Acolyte, Flower Offering). The **prayer of the
+  day** is the date's imported one (`day_prayers`, gotcha 96) unless the
+  bulletin is given its own; a new bulletin does not carry last week's.
   Every one of those lists can be added to and taken from; **Rows** in the
   toolbar says which duty rows the bulletin carries.
 - A new bulletin opens from the most recent one, because the giving
@@ -376,6 +379,21 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
+
+### 5. Liturgy Library (as folders)
+- The Liturgy page's three ways in are Readings, **Library** (it was
+  Services; the nav key is still `all-services`) and Memories. Library is a
+  folder view (`#liturgyFolderPanel`, `LiturgyModule.openLibrary`): down the
+  left This Sunday, Prayers of the Day, Recently added, every service with
+  its year folders, Memories and Not filed; on the right the folder's whole
+  liturgies, liturgy texts and files, each to open (words or the file) and
+  share. A folder's **Planning & notes** opens the old occasion panel
+  (notes, team planning, checklist, slide editor), whose back button comes
+  back to the folder. On a phone it is the folders, then one folder.
+- **Share** on any item, folder, date (readings + Prayer of the Day) or the
+  whole library: the words or just a link, by WhatsApp, email or copied
+  link, the phone's own share, or a stored file as itself. A link is
+  `?lib=<target>` and opens a view-only page over the app. See gotcha 97.
 
 ## Known Issues (Fixed)
 
@@ -3383,7 +3401,14 @@ the anon key -- verify as `postgres`, not as the app.
       orders preload, retried up to five times at 15s while the worker is
       still installing -- `silentPreloadOrders` runs ONCE, so without the
       retry the very first visit, the one that should prepare the device,
-      would skip. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
+      would skip. **A switch that is ON and doing nothing is worse than one
+      that is off**, so the sheet says when this device will not download it
+      by itself (`_connRefuses`, shared with `_warmSkip` so the reason shown
+      and the reason acted on are one decision): "Data Saver is on, so this
+      device will not download it on its own. Use Download now when you are
+      on Wi-Fi." Shown only while the switch is on, and the sheet is redrawn
+      when it changes — a line explaining why nothing happens automatically
+      is nonsense beside a switch that is off. `_woOrderWhen` is split out of `_woOrderIsUpcoming`, which
       worked the date out and threw it away; sorting needs it.
     - **The bar CLOSES, per outage** (the operator, 2026-11-13, having tested
       a real phone with the data plan and Wi-Fi both off: everything worked,
@@ -3796,7 +3821,23 @@ the anon key -- verify as `postgres`, not as the app.
       A journal written before this keeps the clock rule. A save that lands
       clears its own journal only (`_pj.at === _saveAt`): matched by the order
       alone, a save landing late cleared the journal of the one after it.
-      `tools/crash-journal-harness.js` checks it.
+    - **AND A REPLAY NEVER DELETES.** The rule above settles whether anybody
+      wrote since; this settles what happens if it is ever wrong, and it is
+      the half that matters. `SBQ.saveOrder` is upsert-then-PRUNE, and whether
+      the prune is safe rests on `SBQ._knownItems`, the record of which rows
+      this client has READ. Left undefined it reads as "no record, so prune
+      freely" — on a page that has just booted, the worst possible reading of
+      a page that has read NONE of them, which is a reason to delete nothing.
+      The replay records an empty set, which is exactly true, so every stored
+      row the journal does not carry is spared; `|| {}` so a load that has
+      already happened this session (a deep link, before the replay fires at
+      1200ms) keeps what it recorded. It also strips `allowEmptyItems` and
+      `allowClearTypes`, which say what the SCREEN had established at that
+      moment and died with the page. The cost, stated rather than left to be
+      discovered: an item DELETED in the save that crashed comes back — one
+      press to undo, where deleting somebody else's work is not.
+      `tools/crash-journal-harness.js` checks it, running the replay in a
+      sandbox and reading what `saveOrder` is actually handed.
     - **"Choir parts were set up on another device" is said once.** The device
       that sets them up sends `changed` as well as `choir`; the `changed` check
       found the new parts too (`_sbmPartsArrived`) and called
@@ -3858,6 +3899,127 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-small-fixes-harness.js` checks them; the poll is in
     `tools/songbook-live-harness.js`, the tidy-ups in
     `tools/review-tidy-harness.js`.
+
+96. **The Prayer of the Day is imported per date, and put into an upcoming
+    order once.** From the operator (2026-11-13): a document gives the
+    "Prayer of the Day" under each service date, to be applied on every
+    service -- LCD, Liturgy Builder, bulletin. Measured that day: most
+    orders' Prayer of the Day liturgy still ended in the template's empty
+    "C :", and three Traditional orders carried the same old prayer ("God
+    who calls us into service...") copied from week to week.
+    - **One store, `day_prayers`, not the roster** (`SBQ_PRAYERS`, global,
+      beside `SBQ_LECT_SOURCES`). A prayer is a paragraph; the roster grid
+      has nowhere to show one. Keys are the Readings page's service keys.
+      `get(key)` caches five minutes and falls back from '|pm' to the day;
+      `saveMany` upserts and READS BACK, counting only rows that came back
+      with the words sent. Until the migration is run every read is "no
+      prayer" and `_missing` says why, on the Readings page and in the
+      console.
+    - **Import prayers** (Readings, beside Import lectionary) is the
+      lectionary import's shape: `uploadToSupabase` then
+      `/api/parse-lectionary` with `mode: 'prayers'` (`PRAYERS_SCHEMA`: date,
+      occasion, the prayer word for word), a review of every date, and a
+      prayer saved that the document words differently shown with both and
+      KEPT until somebody picks the other. A year of prayers is far more
+      output than a year of references, so that mode asks the model not to
+      think first (`thinkingBudget: 0`), and asks again without the setting
+      if the model refuses it; still too long, the message says to import a
+      few months at a time. Day view shows the date's prayer under the
+      readings with Edit (`editDayPrayer`, typed = no source file).
+    - **The words become slides by `window.lhcDayPrayer`** (pure, outside the
+      modules): the order's own Prayer of the Day liturgy keeps its shape --
+      every slide before the heading ("Prayer of The Day") as it is, the
+      heading slide's lines up to "Let us pray", then the speaker that slide
+      names (C, A, All...; C by default) and the first part of the prayer;
+      the slides after it were the old prayer and are replaced. Parts break
+      at sentence ends, a long sentence at its commas in about even parts,
+      the first part shorter (140) because it shares the heading slide, the
+      rest up to 220; a closing "Amen." gets a line of its own.
+    - **Replaced, with Undo, once** (the operator chose replace). An upcoming
+      order opened in the Builder (`_woPrayerIntoData`, one `_lbdChange`) or
+      LCD Projection (`_woPrayerIntoLcd`, written into the schedule's slide
+      boxes after `_lcdPushUndo`, backgrounds re-pinned, no box opened for
+      editing, never under words held in the slide editor -- gotchas 35, 60)
+      gets the date's prayer; `_woAutoPrayer` runs beside `_woAutoReadings`,
+      once per order and step a session, never for a past order or a
+      songbook. What it was given is noted, `template.dayPrayer = { iso,
+      text }`, which is NOT in the builder's undo snapshot: Undo puts the
+      order's words back and leaves the note, so it is not given the prayer
+      again. A noted order is left alone -- its words are the liturgist's --
+      until the imported prayer itself changes (`lhcDayPrayer.plan`: apply /
+      note / keep / none). The LCD finds its target by what the schedule
+      shows (the section titled Prayer of the Day and the liturgy drawn in
+      it), since a liturgy the template filled in is on the schedule before
+      it is in the data. An order with no such section (a Special service)
+      is not touched, and none is created.
+    - **The bulletin** reads the date's prayer with the roster on every open
+      (`_prayerFor`). `prayer` empty prints it; `_carry` no longer brings last
+      week's prayer into a new bulletin. A bulletin given another prayer
+      before the import is given the imported one, with Undo
+      (`_applyDayPrayer`, noted in `prayerDoc`); a prayer typed after that is
+      the bulletin's own, and the prayer dialog offers "Use the Prayer of the
+      Day instead" (`usePrayerOfDay`).
+    `tools/day-prayer-harness.js` checks it, running the helpers, the
+    Builder path and the bulletin rule against stubs.
+
+97. **The Library is a front over the same data, and its links open a page
+    that edits nothing.** From the operator (2026-11-13): a redesign so the
+    library can be got at and shared by WhatsApp or email. Of three drawn
+    (https://claude.ai/artifact/LMZFV9a3zh2m1psRFFb6e6) they chose B,
+    "Folders", and all four kinds of sharing.
+    - **No second store.** Items are `liturgyItems`, year folders
+      `occFolders` (read once by `openLibrary`, with `_currentOccasion` null
+      while it reads), whole liturgies `service_liturgies` through the
+      library's own read (`_lfSvlRows`) -- `_occSvlLoad` redraws the occasion
+      panel's year bar. A year folder lists that year's things AND those filed
+      under no year, as the occasion panel does.
+    - **Choosing a service sets `_currentOccasion` / `_currentOccFolder`**, so
+      Upload and New liturgy file into it. That exposed the year bar's
+      auto-seed: `renderOccFolderBar` made a folder named for this year on any
+      occasion without one, whenever it ran with `_currentOccasion` set -- and
+      `loadOccFolders` and `syncFromBackend` run it. It now seeds only while
+      `#liturgyOccasionPanel` is on screen (the visit it was written for), so
+      browsing the library makes no folders.
+    - **A fifth panel.** `selectOccasion`, `selectGeneralFolder` and
+      `openMemories` call `_lfHide()`; `openLibrary` hides the other three
+      (each switcher must hide every other panel, or two show at once). `showAllServices()` is `openLibrary()`;
+      the old Services card grid (`#occasionGridView`) is no longer reached.
+      Item changes redraw the library through `renderOccasionItems` (after its
+      `renderOccSvl()`, which `svl-year-folder-harness` pins first) and
+      `syncFromBackend`.
+    - **Its rows follow the pane, not the screen**: `.lf-pane` is a size
+      container, rows stacked unless it is 620px or wider (`@container
+      lfpane`), because beside the tree on a narrow desk the pane is a phone's
+      width and the name column had shrunk to nothing. A browser without
+      container queries keeps the stacked rows (gotcha 71). Nothing fixed is
+      inside the pane: the viewer (`#lfViewer`, z 10020, under the delete
+      confirm's 10030) and the share sheet (`#lfShare`, z 10040) are on
+      `<body>`.
+    - **One share sheet** (`_lfShareOpen`) over a model `{ title, sub, link,
+      words, linkText, file }` built by `_lfItemModel`, `_lfFolderModel`,
+      `_lfDayModel`, `_lfSvlModel`, `_lfLibraryModel`. WhatsApp only through
+      `lhcWhatsAppUrl` (gotcha 68), BMP-only text; past 3,500 characters the
+      phone's share sheet takes it, else it is copied and WhatsApp opened; an
+      email body past 1,800 is the link, with the words copied. "The file"
+      appears only for a file in our own storage on a device with
+      `navigator.share`, and is sent only if `navigator.canShare({ files })`
+      says yes; otherwise its link goes. A stored file's Download adds
+      Supabase's `?download=<name>` (a cross-origin `download` attribute is
+      ignored).
+    - **The view-only page** (`_lfOpenShared`, `window.__DEEPLINK_LIB` from
+      `?lib=`): `all` (services with counts), `occ:<id>[:<year name>]`,
+      `item:<id>`, `svl:<id>` (the outline, its parts opening through WO's
+      `svlItemToggle`) and `day:<key>`. A full-screen layer (z 100050) over the
+      app, which still boots underneath; it reads straight from Supabase and
+      draws no control that edits. "View only" is what it offers, not a lock:
+      "Open the app" is one tap away with the same key in it.
+    - **The collapsed rail**: the Liturgy entries were cut to "Re", "Se", "Me"
+      (the operator circled it). In `.sidebar-collapsed` at desk width they
+      are 44px icons, named by the rail's own `::after` tooltip from their
+      `title`; the phone strip's buttons carry the same titles, so the two
+      copies stay alike (a mutation case finds the button twice).
+    `tools/liturgy-library-harness.js` checks it, running the share models,
+    links and view-only rows against stubs.
 
 ## Quick Commands for Claude Code
 

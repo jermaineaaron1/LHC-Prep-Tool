@@ -117,7 +117,7 @@ const SET_REF   = '        return SBQ_READINGS.setReference(dateStr, entry.idx, 
 const SAVE_SLOT = '        SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, { reference: canonical });';
 // Two copies of this line exist, the sidebar's and the strip's; the mutation
 // below takes the SECOND, which is the strip.
-const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">';
+const STRIP_BTN = '<button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">';
 
 // The loose-comparison line, as it appears in the source: \u2010 there is the
 // literal escape, not the character, so these are written raw.
@@ -2317,6 +2317,13 @@ const CASES = [
     s => s.replace("      SBQ._noteSeenEdit(id, or.data.last_edited);\r\n", '')],
   ['crash-journal-harness.js', 'a save that lands clears the newer save\'s journal again',
     s => s.replace('_pj.payload.id === _savedOrderId && (!_pj.at || _pj.at === _saveAt)', '_pj.payload.id === _savedOrderId')],
+  // A replay must add and update, never delete -- the half #455 did not cover.
+  ['crash-journal-harness.js', 'the replay prunes again: _knownItems undefined reads as permission to delete',
+    s => s.replace("      SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};\r\n", '')],
+  ['crash-journal-harness.js', 'it throws away what a load in this session had already recorded',
+    s => s.replace("SBQ._knownItems[payload.id] = SBQ._knownItems[payload.id] || {};", "SBQ._knownItems[payload.id] = {};")],
+  ['crash-journal-harness.js', 'the replay inherits a dead screen\'s permission to empty the order',
+    s => s.replace("      delete payload.allowEmptyItems;\r\n      delete payload.allowClearTypes;\r\n", '')],
   ['crash-journal-harness.js', 'own stamps are not kept on the device for the next boot',
     s => s.replace("      localStorage.setItem('lhc_order_own_edits', JSON.stringify(kept));\r\n", '')],
   ['songbook-small-fixes-harness.js', 'a Songbook editor closing lets the library\'s hold of the song go',
@@ -2382,6 +2389,27 @@ const CASES = [
     s => s.replace("if (p && !p.error && p.text && _woReadingWhole(ref, p.text)) got.push(", "if (p && !p.error && p.text && !_woReadingGaps(ref, p.text).length) got.push(")],
   ['reading-pieces-harness.js', 'a past order\'s readings are fetched again',
     s => s.replace("if (_woMendDone[order.id] || !_woOrderIsUpcoming(order)) return Promise.resolve(0);", "if (_woMendDone[order.id]) return Promise.resolve(0);")],
+  // The library as folders (2026-11-13): browsing makes no year folder, the
+  // view-only rows edit nothing, a year folder holds the unfiled-year things.
+  ['liturgy-library-harness.js', 'browsing the library seeds a year folder again',
+    s => s.replace("if (_occFoldersLoaded && _occOnScreen && _occOnScreen.style.display !== 'none' &&", "if (_occFoldersLoaded && (true || _occOnScreen) &&")],
+  ['liturgy-library-harness.js', "a shared folder's rows carry an Edit button",
+    s => s.replace("return '<div class=\"lfv-row\">' +", "return '<div class=\"lfv-row\"><button onclick=\"LiturgyModule.lfEdit(1)\">Edit</button>' +")],
+  ['liturgy-library-harness.js', 'a year folder drops the things filed under no year',
+    s => s.replace("return i && i.occasionId === occId && (!yearId || i.occasionFolderId === yearId || !i.occasionFolderId);", "return i && i.occasionId === occId && (!yearId || i.occasionFolderId === yearId);")],
+  ['liturgy-library-harness.js', 'the library stays on screen under the Readings page',
+    s => s.replace("  function selectOccasion(occasionId) {\r\n    _lfHide();", "  function selectOccasion(occasionId) {")],
+  // The Prayer of the Day (2026-11-13): a noted order keeps its own words,
+  // a new bulletin does not carry last week's prayer, an old prayer's second
+  // slide does not survive, and a past order is never given one.
+  ['day-prayer-harness.js', "an order given the prayer before is given it again over the liturgist's words",
+    s => s.replace("if (noted && _dpNorm(noted.text) === _dpNorm(prayer)) return 'keep';", "")],
+  ['day-prayer-harness.js', "a new bulletin carries last week's prayer",
+    s => s.replace("d.prayer = ''; d.prayerDoc = '';", "")],
+  ['day-prayer-harness.js', "the old prayer's second slide survives",
+    s => s.replace("return keep.concat([first], parts.slice(1));", "return keep.concat([first], parts.slice(1), old.slice(h + 1));")],
+  ['day-prayer-harness.js', 'a past order is given the prayer',
+    s => s.replace("if (_woAutoPrayerDone[key] || !_woOrderIsUpcoming(o)) return;", "if (_woAutoPrayerDone[key]) return;")],
   // Dragging a section (2026-11-11): the numbers follow the drag, a finger
   // that moves first scrolls, the phone shows its grip, the songs follow.
   ['builder-section-drag-harness.js', 'the numbers stay put while a section is dragged',
@@ -2610,6 +2638,17 @@ const CASES = [
   ['offline-service-harness.js', 'the warm nags the operator it was never asked to serve',
     s => s.replace("      console.warn('[LHC] could not keep the next service offline:', e && e.message);",
                    "      showToast('Could not keep the next service offline', 'error');")],
+  // A switch that is ON and doing nothing is worse than one that is off.
+  ['offline-service-harness.js', 'the sheet stops saying why this device will not download it by itself',
+    s => s.replace("          ((autoOn() && _connRefuses())", "          ((false && _connRefuses())")],
+  ['offline-service-harness.js', 'the sheet invents its own wording instead of the reason the warm gives',
+    s => s.replace("_esc(_connRefuses()) +", "'Automatic download is off' +")],
+  ['offline-service-harness.js', 'the sheet stops pointing at the button that does work',
+    s => s.replace("'Use <b>Download now</b> when you are on Wi-Fi.' +", "'' +")],
+  ['offline-service-harness.js', 'the notice stays up beside a switch that has been turned off',
+    s => s.replace("setAuto(au.checked); _draw(orderId, title, busyNote); };", "setAuto(au.checked); };")],
+  ['offline-service-harness.js', 'the warm and the sheet become two decisions that only agree today',
+    s => s.replace("    var conn = _connRefuses();\r\n    if (conn) return conn;\r\n", '')],
   ['offline-service-harness.js', 'the warm spends a phone\'s data allowance on Data Saver',
     s => s.replace("      if (c && c.saveData) return 'Data Saver is on';\r\n", '')],
   ['offline-service-harness.js', 'the warm re-downloads the service on every visit',
