@@ -3779,10 +3779,24 @@ the anon key -- verify as `postgres`, not as the app.
       `renameOrder`, `patchInbox` and the standalone book's template write,
       read by `SBQ._isOwnEdit`. The poll starts from `currentOrderData.lastEdited`
       when it is known (`_sbPollStart`). Anything new that writes an order's
-      `last_edited` notes it the same way. The crash journal's replay
-      (`lhc_pending_order_save`) still compares two clocks; it was left, since
-      telling a half-landed save from another device's needs the save's own
-      time in the journal.
+      `last_edited` notes it the same way.
+    - **The crash journal is replayed by value too.** `lhc_pending_order_save`
+      was replayed at boot unless the stored `last_edited` was later than the
+      journal's `savedAt` -- another device's clock against this one's, so a
+      phone running fast replayed its old journal over a later save from
+      another device, and one running slow dropped its own unsaved changes.
+      `saveCurrentOrder` now decides the save's stamp first (`_saveAt`, handed
+      to `SBQ.saveOrder(payload, { at })`) and journals `at` and `known`: every
+      stored time this device had READ for the order (`SBQ._noteSeenEdit`, from
+      `loadOrder` and the Songbook poll's probe) and its own stamps
+      (`_knownEditsFor`). `_journalMayReplay` (pure) replays only when what is
+      stored is one of those or one of this device's own writes since -- kept
+      on the device in `lhc_order_own_edits` by `_noteOwnEdit`, 40 an order,
+      the last 20 orders (`_ownEditsKept`) -- so nobody else has saved since.
+      A journal written before this keeps the clock rule. A save that lands
+      clears its own journal only (`_pj.at === _saveAt`): matched by the order
+      alone, a save landing late cleared the journal of the one after it.
+      `tools/crash-journal-harness.js` checks it.
     - **"Choir parts were set up on another device" is said once.** The device
       that sets them up sends `changed` as well as `choir`; the `changed` check
       found the new parts too (`_sbmPartsArrived`) and called
@@ -3825,52 +3839,6 @@ the anon key -- verify as `postgres`, not as the app.
       (`_edScheduleRelock`); the save's check of what is stored covers it.
     `tools/songbook-small-fixes-harness.js` checks them; the poll is in
     `tools/songbook-live-harness.js`.
-
-96. **The crash journal replays by VALUE, and a replay never deletes.**
-    `saveCurrentOrder` writes its payload to localStorage before calling
-    `SBQ.saveOrder` and clears it on success; a journal still there at the next
-    boot means the page died mid-flight, so `_replayPendingOrderSave` pushes it
-    (1200ms after boot). That recovers the "added songs don't stick" case and
-    is the single most dangerous write in the app, because `SBQ.saveOrder` is
-    upsert-then-PRUNE and the rails that make the prune safe — `_knownItems`,
-    `_lastWritten`, `allowClearTypes` — live in page memory, which a page that
-    has just booted has none of.
-    - **Two client clocks decided it, and that was the hazard.** The old rule
-      compared the crashed device's `savedAt` with the order row's
-      `last_edited`, stamped by whichever device wrote last. A phone ten
-      minutes fast read another device's later edit as earlier, replayed its
-      stale payload and pruned what that edit had added: the 9:58 snapshot
-      deleting the four slides somebody put in at 10:04. The journal now
-      records what this device believed was STORED (`baseEdited`, from
-      `currentOrderData.lastEdited`) and `_replayVerdict` (pure:
-      'drop' | 'fetch' | 'replay') replays only when the stored value is still
-      exactly that one. Not newer, not older — the same. Anything else means
-      somebody wrote, our own interrupted save having landed included, and in
-      both there is nothing we should push.
-    - **Compared by INSTANT, not by spelling.** `currentOrderData.lastEdited`
-      is written from a LOAD (`2026-11-10T17:32:41.881+00:00`, Postgres) AND
-      from a save's own stamp (`...881Z`, `toISOString`). A string comparison
-      matched the first journal of a session and nothing after it — every
-      later one unmatchable, recovery silently off, with a harness comparing
-      strings it made up staying green. Caught against the real row; the two
-      spellings now have a check each.
-    - **A replay adds and updates; it never deletes.** `_knownItems` left
-      undefined reads as "no record, so prune freely", which on a freshly
-      booted page is the worst possible reading: it has read none of those
-      rows, which is a reason to delete nothing. The replay records an empty
-      set — exactly true — so every stored row the journal does not carry is
-      spared, and it strips `allowEmptyItems` / `allowClearTypes`, which were
-      what a screen that no longer exists had established. The cost, stated
-      rather than discovered: an item DELETED in the save that crashed comes
-      back, which is one press to undo, where deleting somebody else's work is
-      not.
-    - Unchanged and still true: a read that fails leaves the journal for the
-      next boot, an order deleted since drops it, saved projection decks are
-      left out of the journal (megabytes on the main thread, and the quota),
-      and a brand-new order whose very first save never landed is still
-      dropped rather than re-created — a ghost order is the worse failure.
-    `tools/crash-journal-harness.js` checks it, running `_replayVerdict`
-    itself over the 9:58/10:04 case with the clocks skewed both ways.
 
 ## Quick Commands for Claude Code
 
