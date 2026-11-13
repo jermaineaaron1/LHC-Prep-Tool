@@ -62,6 +62,8 @@ const NAMES = ['_lcdCaptureSectionBgs', '_lcdRestoreSectionBgs',
                'removeLiturgyFromSection', 'removeSongFromSection'];
 const fns = {};
 for (const n of NAMES) fns[n] = extractFn(n);
+// The item-and-place helper the capture uses since 2026-11-13 (gotcha 94); absent before.
+let bgItemHelper = ''; try { bgItemHelper = (extractFn('_lcdBgItemOf') || {}).text || ''; } catch (e) { bgItemHelper = ''; }
 
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 for (const n of NAMES) console.log('  ' + n + ' @ line ' + fns[n].line);
@@ -112,7 +114,7 @@ function makeEnv() {
     },
     event: { stopPropagation() {} }
   };
-  const body = NAMES.map(n => fns[n].text).join('\n\n') +
+  const body = bgItemHelper + '\n\n' + NAMES.map(n => fns[n].text).join('\n\n') +
     '\n; return { removeLiturgyFromSection, removeSongFromSection,' +
     ' _lcdCaptureSectionBgs, _lcdRestoreSectionBgs };';
   const keys = Object.keys(env);

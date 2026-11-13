@@ -80,6 +80,11 @@ function extractFn(name) {
 }
 
 const saveOrder = extractMethod('saveOrder');
+// The template merge's methods, as text "function(...) {...}", when the source has them.
+const TPL_METHODS = ['_tplPlain', '_tplNote', '_tplJson', '_tplMerge', '_tplWithStored'].map(name => {
+  let m = null; try { m = extractMethod(name); } catch (e) { m = null; }
+  return m ? { name, body: m.text.replace(/^\s*[\w$]+:\s*/, '').replace(/,\s*$/, '') } : null;
+}).filter(Boolean);
 // The rescue did not exist before the fix, so its absence is the pre-fix state.
 const rescue = extractFn('_rescueDeletedOrderAsNew');
 console.log('Extracted from ' + path.basename(INDEX) + ':');
@@ -140,8 +145,12 @@ function run(payload, rowsMatched) {
     _noteStored: () => {},
     _itemFromRow: r => r,
     _stableKeys: o => JSON.stringify(o),
-    _rowFromItem: i => i
+    _rowFromItem: i => i,
+    _tplBase: {}
   };
+  // The template merge the save goes through since 2026-11-13 (gotcha 94),
+  // the real methods; absent in older source.
+  TPL_METHODS.forEach(t => { SBQ[t.name] = eval('(function(SBQ){ return ' + t.body + '; })')(SBQ); });
   const body = '(function(){ var SBQ = arguments[0]; return { ' + saveOrder.text + ' }; })';
   const obj = eval(body)(SBQ);
   SBQ.saveOrder = obj.saveOrder;
@@ -160,7 +169,9 @@ function check(label, actual, expected) {
 }
 
 const BASE = { title: 'T', type: 'traditional', serviceDate: 'Oct 4', template: {}, createdDate: 'x', items: [] };
-const ordersOps = calls => calls.filter(c => c.table === 'orders').map(c => c.op);
+// The writes to the orders row: since 2026-11-13 an edit READS the stored
+// template first (gotcha 94), which is not a write.
+const ordersOps = calls => calls.filter(c => c.table === 'orders' && c.op !== 'select').map(c => c.op);
 
 (async () => {
   // 1 - no id at all: the caller is asking for a new order

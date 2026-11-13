@@ -3678,6 +3678,56 @@ the anon key -- verify as `postgres`, not as the app.
     changes made since. `tools/songbook-lcd-builder-harness.js` checks the
     rest, running `_sbSlidesFollow`, `_sbVerSetWords` and `_lbdAddSong`.
 
+94. **The review's four larger leftovers (2026-11-13).** Gotcha 93 listed
+    them as not done; done here:
+    - **Backgrounds after a song is drawn again.** `sectionBackgrounds[sec]`
+      is keyed by a slide's place in its section, and a redraw -- another
+      device's change (`_orderSyncApplyDelta`), words split into a different
+      number of slides (`refreshSongSlidesInOrder`) -- removed the song's
+      boxes (compacting the map) and drew new ones, so the song lost its own
+      backgrounds and the later slides took their neighbours'.
+      `_lcdCaptureSectionBgs` now names each slide by its item
+      (`data-song-id` / `data-liturgy-id`, `_lcdBgItemOf`) and its place
+      among that item's slides, and `_lcdRestoreSectionBgs` finds a box drawn
+      again by that when the box it was is gone. The sync path captures every
+      section before anything comes off (`_lcdCaptureAllBgs`) and puts them
+      back before the wall is sent again (`_lcdRestoreAllBgs`, one write).
+    - **The order's template is merged, key by key, with what is stored.**
+      `SBQ.saveOrder` wrote the whole `template` column from this device's
+      copy, so a Songbook open on a phone since nine put back the sections
+      and medleys changed in the builder at half past -- a song moved into a
+      new section fell out of every list. `SBQ._tplWithStored` now reads the
+      stored template first and `_tplMerge` (pure) keeps, for each key, the
+      stored value when this device has not changed it since it loaded
+      (`_tplBase`, noted by `_tplNote` when the editor or the shared-link
+      Songbook loads an order, and after every save), and this device's when
+      it has: one key, last writer, never the whole template. Nothing, null,
+      [] and {} compare as one nothing (`_tplJson`, keys sorted); the inbox
+      keys keep their own rules. Keys taken from what was stored come back
+      in the save's result (`tplTaken`) and `_woTplAdopt` takes them into
+      this device's copy -- sections, medleys, backgrounds -- redrawing the
+      builder and an open Songbook (not the LCD schedule, drawn from its own
+      page). With nothing read (offline, an error) the save writes its own,
+      as before. One read more per save.
+    - **The Songbook's remove, reorder and blank page are builder Undo
+      steps.** `sbRemoveSong`, `_sbApplySongOrder` and `sbAddBlankPageAfter`
+      changed `songOrderSections` straight, so the builder's next Undo
+      (`_lbdRestore`, the whole list) put a removed song back and undid a
+      reorder. In a service's book they go through `_woSongsChange` now, as
+      Add a song and medleys do; a standalone book (no builder) as before.
+    - **A song deleted from the library stays in a standalone songbook.**
+      `openSongbookStandalone` dropped any id the library no longer had, and
+      the next save wrote it out of `song_ids` for good. Once the library has
+      loaded (never before: an unloaded library is not a deleted song), such
+      a song is kept as what the book saved of it -- "<name> (removed from
+      the song library)", its own words, its slides -- and the book's save
+      now stores each song's `title` and `artist` with its copy, so a song
+      deleted later is still named. Books saved before 2026-11-13 have no
+      name to show: "A song removed from the song library".
+    `tools/songbook-followups-harness.js` checks them, running `_tplMerge`,
+    `_tplWithStored`, `_woTplAdopt`, the background capture and restore over
+    a redrawn song, and the Songbook's three changes.
+
 ## Quick Commands for Claude Code
 
 ```bash
