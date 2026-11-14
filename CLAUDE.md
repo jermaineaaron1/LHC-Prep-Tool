@@ -63,6 +63,7 @@ The ones worth knowing; there are around 29 in all.
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 | `liturgy_collections` | Services the church adds to the Liturgy Library's list (Services > Create Service Collection): `id` ('col-<slug>-<time>'), `label`, `description`, `colour`, `icon`. Read at boot into the same `OCCASIONS` list the built-in services are in, so filing, year folders, sharing and saved liturgies treat one exactly as a built-in one. `migrations/2026-11-14_liturgy_collections.sql`. See gotcha 98 |
+| `service_plan_items` | A service's plan, one row per entry: `kind` note / special / task / ref, keyed by `occasion_id` and `service_key` (the date), with `category`, `title`, `body`, `status`, `who`, `due`, `done`, `note_id` (a task made from a note), `links` and `files` (jsonb). One row each so two people planning one service never write over each other. `migrations/2026-11-14_service_plan_items.sql`. See gotcha 102 |
 | `service_memories` | What people add to a past service on the Memories page, one row per service (`service_key`, the Readings page's key): `title` (null = the day's name), `description`, `photos` [{ url, path, name, at }] (files in the `Liturgy Files` bucket under `memories/<key>/`), `order_id` (no foreign key). Every past service is a memory WITHOUT a row; this only adds to one. `migrations/2026-11-14_service_memories.sql`. See gotcha 99 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
@@ -401,21 +402,34 @@ than a bash heredoc, which quietly eats a level of backslashes.
   church's own photo when one is filed with it, else drawn artwork -- and
   counts, filtered by Favourites (this device), kind, year and words, as a
   grid or a list, and Create Service Collection. Gotcha 98.
-- **A service's page** (a Services card; `#liturgyServicePanel`,
-  `openService`) is the operator's order-of-worship drawing: a maroon banner
-  (All Services, Sync, Share, Use in Projection), tabs (Liturgy Order, and
-  Planning Notes / Team Planning / Checklist, which are the old occasion
-  panel's), the next date of that kind from the roster, then service details,
-  readings, team and quick actions | the order of worship, numbered 1.1, 1.2
-  | the part chosen as it is projected, slide by slide. Under them the
-  service's files in three -- **LCD Materials** (liturgy texts and slide
-  decks), **Liturgy Documents** (the Word, PDF and Excel liturgies people read
-  to see what was done, by year) and **Other Files** -- beside its
-  **Ready-to-use Liturgies**. A liturgy document's **Make ready** converts it
-  into a ready liturgy the Builder loads (Load), which fills the LCD: a .docx
-  read as written, anything else by AI (`/api/parse-liturgy`), checked
-  before it is kept. The folder view is still there (All files by year
-  folder). Gotcha 101.
+- **A service's page** (a Services card, or any way into a service;
+  `#liturgyServicePanel`, `openService`) is the operator's green drawings: a
+  banner (All Services, Sync, Share, Projection, Add Item), four tabs --
+  **Liturgy Order**, **Planning Notes**, **Special Planning**, **Checklist**
+  (and **Preparation Guide** where a service has one) -- and a strip of the
+  next date, church year, colour and readings.
+  - **Liturgy Order:** the order of worship (numbered, from a ready liturgy
+    or the next service's own order) | the part chosen, read as the
+    congregation reads it, by who says it ("Leader:", "All:" in bold), slide
+    by slide, larger or smaller, full screen | tiles into the service's
+    Ready-to-use Liturgies, Liturgy Documents, LCD Materials, Other Files and
+    Reference Links. Under them the files themselves, **Liturgy Documents
+    first**, each document's **Make ready** converting it into a ready
+    liturgy the Builder loads (a .docx read as written, anything else by AI,
+    `/api/parse-liturgy`; checked before it is kept).
+  - **Planning Notes, Special Planning, Checklist** are a plan for one
+    service DATE (the next one shown; others by the arrows or a date; an
+    earlier one copied forward). Notes have a category, status, due date,
+    links and linked notes, and can give the checklist tasks; songs and links
+    are imported to plan with. A special planning item says who does it and
+    holds its references -- for a song, the YouTube video or audio to learn
+    from and the chords found online -- its files, and afterwards the
+    performance (a link, or a video upload of up to 50 MB). The checklist is
+    grouped by category with progress, who does each task and by when, what
+    is due soon, the usual list to start from, and Share. **Team Planning
+    went**: the checklist says who does what.
+  The old planning panel is not reached any more except as the preparation
+  guide's home. Gotchas 101, 102.
 - **Memories** (`#liturgyMemoriesPanel`, `openMemories`) is every past
   service, by itself: a card each with its photo or drawn artwork, the day,
   the date, a few words (or the Gospel), and what it held -- photos, songs,
@@ -4242,6 +4256,45 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-service-page-harness.js` checks it, running the sorting,
     the next date, the Word reading, the matching, the liturgy made, and the
     .doc reader.
+
+102. **A service's plan is one row per entry, for one date.** From the
+    operator (2026-11-14), with drawings of the Liturgy Order, Planning
+    Notes, Special Planning and Checklist tabs. Asked: a plan for each service
+    DATE, and a performance video as a link or an upload of up to 50 MB.
+    - **One Liturgy Order.** `selectOccasion(id)` for a real service now
+      opens its page (`openService`) -- the old planning panel brought its own
+      "Liturgy Order" tab (the file list), which is what the operator saw
+      twice. The panel is reached only by the page's Preparation Guide tab
+      (`spGuide`: `_spGuideOpen` lets `selectOccasion` through, the panel gets
+      `lit-occ--guide`, which hides its other tabs and year bar, and its back
+      button returns, `_spBack`). `lfPlanning` opens the page's notes.
+    - **The plan** (`_pl`) is every `service_plan_items` row of the service,
+      read when the page opens (`_plLoad`), shown for one date (`_plKey`: the
+      one chosen, else the next service's). Rows are written one at a time
+      and read back (`_plInsert`, `_plPatch`, `_plDelete`); until the
+      migration is run (`_pl.gone`) the tabs say so and send nothing. Copying
+      an earlier date (`_plCopyRows`, pure) moves due dates by the same number
+      of days, unticks tasks, puts items back to planned and leaves a
+      performance with its own service.
+    - **Who does what** is a task's `who`, offered from the roster's names for
+      the date (`_plWhoList`, the editors' own `plWhoEd` list). The Checklist
+      page once carried a `datalist id="plWho"`, the editors' field's id, so
+      the editor read the list and a task saved with nobody; the page has no
+      such list now (the harness checks).
+    - **Files** go under `plans/<occasion>/<date>/` and are refused over
+      50 MB before any upload (`_plFileProblem`), with "put it on YouTube or
+      Drive" -- every viewing is a download from Supabase. Uploads for an
+      editor closed without saving are deleted again; a file taken off an
+      item is deleted once the item is saved; a deleted item takes its files.
+    - The usual per-service checklist (`liturgy_occasion_data`'s
+      `specialElements`) starts a date's checklist (`_plFromElements`, by the
+      words of each); the per-service planning notes stay readable under
+      Planning Notes ("Notes kept for <service>").
+    - The reading card lays a part out by speaker (`_plSpeakers`, pure:
+      "L:" Leader, "P:" Pastor, "C:" / "Congregation (C):" All in bold, until
+      somebody else is named; "Psalm 23:" is words).
+    `tools/liturgy-service-plan-harness.js` checks it, running the plan's
+    pure functions and its saves against a stand-in database.
 
 ## Quick Commands for Claude Code
 

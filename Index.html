@@ -104361,7 +104361,7 @@ var LiturgyModule = (function() {
   // order), read only: it is changed in the Builder, the one place an order
   // is edited.
   // ════════════════════════════════════════════════════════════════════
-  var _sp = { occ: '', src: '', part: 0, slide: 0, res: 'lcd', year: '' };
+  var _sp = { occ: '', src: '', part: 0, slide: 0, res: 'liturgy', year: '', tab: 'order', zoom: 1 };
   var _spData = null, _spTok = 0, _spBack = '';
   var SP_DOC_EXT = /\.(docx?|pdf|xlsx?|odt|rtf|pages)$/i;
   var SP_DECK_EXT = /\.(pptx?|key|odp)$/i;
@@ -104379,6 +104379,8 @@ var LiturgyModule = (function() {
     var tags = Array.isArray(item.tags) ? item.tags : [];
     if (!url && !item.fileData) return 'lcd';
     if (SP_DECK_EXT.test(name) || /docs\.google\.com\/presentation/i.test(url)) return 'lcd';
+    // A link kept for the service (the planning panel's paste box, Add a link).
+    if ((tags.indexOf('link') !== -1 || item.storageProvider === 'external') && !SP_DOC_EXT.test(name) && !/docs\.google\.com\//i.test(url)) return 'links';
     var doc = SP_DOC_EXT.test(name) || /docs\.google\.com\/(document|spreadsheets)/i.test(url);
     if (!doc) return 'files';
     if (tags.indexOf('liturgy-doc') !== -1) return 'liturgy';
@@ -104419,10 +104421,14 @@ var LiturgyModule = (function() {
     return null;
   }
 
-  function openService(occId, from) {
+  function openService(occId, from, tab) {
     var occ = getOccasionById(occId);
     if (!occ) { openServices(); return; }
-    _sp = { occ: occId, src: '', part: 0, slide: 0, res: _sp.occ === occId ? _sp.res : 'lcd', year: '', from: from || 'services' };
+    // Liturgy Documents is the files' first tab (the operator, 2026-11-14).
+    _sp = { occ: occId, src: '', part: 0, slide: 0, res: _sp.occ === occId ? _sp.res : 'liturgy', year: '', from: from || 'services',
+            tab: tab || 'order', zoom: _sp.zoom || 1 };
+    var oldPanel = document.getElementById('liturgyOccasionPanel');
+    if (oldPanel) oldPanel.classList.remove('lit-occ--guide');
     _currentOccasion = occId;
     _currentOccFolder = '';
     _currentGeneralFolder = null;
@@ -104434,6 +104440,8 @@ var LiturgyModule = (function() {
     if (_spData && _spData.occ !== occId) _spData = null;
     renderService();
     _spLoad(occId);
+    _plLoad(occId);
+    if (!_memCache) _allOccasionData().then(function(all) { _memCache = all || {}; if (_sp.occ === occId) renderService(); });
     var p = document.getElementById('liturgyServicePanel');
     if (p && p.scrollIntoView) p.scrollIntoView({ block: 'start' });
   }
@@ -104515,154 +104523,255 @@ var LiturgyModule = (function() {
   }
   var SP_KIND_ICON = { song: 'fa-music', liturgy: 'fa-book-bookmark', reading: 'fa-book-open', text: 'fa-align-left' };
 
+  // The service's page: the banner, its tabs, the date strip, then the tab.
+  var SP_TABS = [['order', 'fa-list-ol', 'Liturgy Order'], ['notes', 'fa-file-lines', 'Planning Notes'],
+                 ['special', 'fa-wand-magic-sparkles', 'Special Planning'], ['check', 'fa-square-check', 'Checklist']];
   function renderService() {
     var p = document.getElementById('liturgyServicePanel');
     if (!p || !_sp.occ) return;
     var occ = getOccasionById(_sp.occ);
     if (!occ) return;
+    var keepId = document.activeElement && document.activeElement.id;
+    var keepAt = keepId && document.activeElement.selectionStart;
     var d = _spData && _spData.occ === _sp.occ ? _spData : null;
-    var next = d && d.next, s = next ? _llSeason(_llSeasonOf(next.day)) : null;
-    var orderId = d && d.order ? d.order.id : '';
-    var head = '<header class="sp-hero">' +
-        '<button type="button" class="sp-hero__back" onclick="LiturgyModule.spBack()"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><span>All Services</span></button>' +
-        '<span class="sp-hero__icon" aria-hidden="true"><i class="fa-solid ' + _lfE(occ.icon || 'fa-church') + '"></i></span>' +
-        '<div class="sp-hero__t"><h1 class="font-cinzel">' + _lfE(occ.label) + '</h1>' + (occ.desc ? '<p>' + _lfE(occ.desc) + '</p>' : '') + '</div>' +
-        '<div class="sp-hero__acts">' +
-          '<button type="button" class="sp-hbtn" onclick="LiturgyModule.spSync()"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Sync</span></button>' +
-          '<button type="button" class="sp-hbtn" onclick="LiturgyModule.spShare()"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><span>Share</span></button>' +
-          '<button type="button" class="sp-hbtn sp-hbtn--gold"' + (orderId ? ' data-id="' + _lfE(orderId) + '" onclick="LiturgyModule.spProject(this.dataset.id)"' : ' disabled title="There is no order for the next service yet"') + '>' +
-            '<i class="fa-solid fa-play" aria-hidden="true"></i><span>Use in Projection</span></button>' +
+    var tab = _sp.tab || 'order';
+    var tabs = SP_TABS.slice();
+    if (_hasPreparationGuide(_sp.occ)) tabs.push(['guide', 'fa-book-open-reader', 'Preparation Guide']);
+    var head = '<header class="pl-hero">' +
+        '<div class="pl-hero__t"><button type="button" class="pl-hero__back" onclick="LiturgyModule.spBack()"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> All Services</button>' +
+          '<span class="pl-hero__over">Service</span>' +
+          '<div class="pl-hero__name"><i class="fa-solid fa-cross pl-hero__cross" aria-hidden="true"></i><div><h1>' + _lfE(occ.label) + '</h1>' + (occ.desc ? '<p>' + _lfE(occ.desc) + '</p>' : '') + '</div></div></div>' +
+        '<div class="pl-hero__acts">' +
+          '<button type="button" class="pl-hbtn" onclick="LiturgyModule.spSync()"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Sync</span></button>' +
+          '<button type="button" class="pl-hbtn" onclick="LiturgyModule.spShare()"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i><span>Share</span></button>' +
+          (d && d.order ? '<button type="button" class="pl-hbtn" data-id="' + _lfE(d.order.id) + '" onclick="LiturgyModule.spProject(this.dataset.id)"><i class="fa-solid fa-play" aria-hidden="true"></i><span>Projection</span></button>' : '') +
+          '<span class="pl-add"><button type="button" class="pl-hbtn pl-hbtn--gold" aria-haspopup="menu" onclick="LiturgyModule.spAddMenu(this)"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Item</span></button></span>' +
         '</div></header>' +
-      '<nav class="sp-tabs" aria-label="This service">' +
-        [['order', 'fa-list-ol', 'Liturgy Order'], ['planning-notes', 'fa-file-lines', 'Planning Notes'],
-         ['team-planning', 'fa-user-group', 'Team Planning'], ['special-elements', 'fa-list-check', 'Checklist']].map(function(t) {
-          var on = t[0] === 'order';
-          return '<button type="button" class="sp-tab' + (on ? ' is-on' : '') + '"' + (on ? ' aria-current="page"' : '') +
-            ' onclick="LiturgyModule.spTab(\'' + t[0] + '\')"><i class="fa-solid ' + t[1] + '" aria-hidden="true"></i>' + t[2] + '</button>';
-        }).join('') + '</nav>';
+      '<nav class="pl-tabs" aria-label="This service">' + tabs.map(function(t) {
+        var on = t[0] === tab;
+        return '<button type="button" class="pl-tab' + (on ? ' is-on' : '') + '"' + (on ? ' aria-current="page"' : '') +
+          ' onclick="LiturgyModule.spTab(\'' + t[0] + '\')"><i class="fa-solid ' + t[1] + '" aria-hidden="true"></i>' + t[2] + '</button>';
+      }).join('') + '</nav>';
+    var body;
+    if (tab === 'notes') body = _plNotesTab(occ, d);
+    else if (tab === 'special') body = _plSpecialTab(occ, d);
+    else if (tab === 'check') body = _plCheckTab(occ, d);
+    else body = _spOrderTab(occ, d);
+    p.innerHTML = '<div class="ll pl">' + head + _spStrip(d, tab) + body +
+      '<input id="spDocFile" type="file" accept=".docx,.doc,.pdf,.xlsx,.xls" hidden onchange="LiturgyModule.spUploadDoc(this)">' +
+    '</div>';
+    if (keepId) {
+      var el = document.getElementById(keepId);
+      if (el && el.focus) { el.focus(); try { if (keepAt != null) el.setSelectionRange(keepAt, keepAt); } catch (e) {} }
+    }
+  }
 
-    // The next service of this kind
-    var dateTile = next ? '<span class="sp-date" aria-hidden="true"><small>' + _lfE(['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][new Date(+next.key.slice(0, 4), +next.key.slice(5, 7) - 1, +next.key.slice(8, 10)).getDay()]) +
-        '</small><b>' + (+next.key.slice(8, 10)) + '</b><small>' + MV_MON[+next.key.slice(5, 7) - 1].toUpperCase() + '</small></span>' : '';
-    var strip = !d ? '<div class="sp-next"><p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the roster…</p></div>'
-      : !next ? '<div class="sp-next sp-next--none"><i class="fa-regular fa-calendar" aria-hidden="true"></i><div><b>No ' + _lfE(occ.label) + ' on the roster yet</b>' +
-          '<small>The order of worship below is what is kept for it. When the roster has its date, the date, readings and team appear here.</small></div></div>'
-      : '<div class="sp-next">' + dateTile + '<div class="sp-next__t"><h2>' + _lfE(next.day) + '</h2><p>' + _lfE(_lfLongDate(next.key)) +
-          ' · ' + _lfE(next.type === 'contemporary' ? 'Contemporary' : 'Traditional') + (next.color ? ' · ' + _lfDot(next.color) + _lfE(next.color) : '') + '</p></div>' +
-        '<div class="sp-next__acts">' +
-          (orderId ? '<button type="button" class="lf-btn lf-btn--primary sp-btn-maroon" data-id="' + _lfE(orderId) + '" onclick="LiturgyModule.mvOpenOrder(this.dataset.id)"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit Liturgy</span></button>'
-                   : '<button type="button" class="lf-btn" onclick="setActiveView(\'worshipOrderView\')"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Make its order</span></button>') +
-          '<button type="button" class="lf-btn" onclick="LiturgyModule.spExport(\'pdf\')"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i><span>Export PDF</span></button>' +
-          '<button type="button" class="lf-btn" onclick="LiturgyModule.spExport(\'docx\')"><i class="fa-solid fa-file-word" aria-hidden="true"></i><span>Word</span></button>' +
-        '</div></div>';
+  // The strip every tab shares: the date, the church year, the colour, the readings.
+  function _spStrip(d, tab) {
+    var next = d && d.next;
+    var key = tab === 'order' ? (next && next.key) : _plKey();
+    if (!d) return '<div class="pl-strip"><p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the roster…</p></div>';
+    var cell = function(icon, label, val, sub) {
+      return '<div class="pl-strip__c"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><div><small>' + label + '</small><b>' + val + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</div></div>';
+    };
+    if (!next) {
+      return '<div class="pl-strip pl-strip--none">' + cell('fa-calendar-days', 'Next service', 'Not on the roster yet',
+        'When the roster has its date, its day, colour and readings show here.') + '</div>';
+    }
+    var s = _llSeason(_llSeasonOf(next.day));
+    var reads = SBQ_READINGS.SLOTS.map(function(sl) { return d.reads[sl.role]; }).filter(Boolean);
+    var thisWeek = next.key.slice(0, 10) <= _mvTodayIso(new Date(Date.now() + 7 * 86400000));
+    return '<div class="pl-strip">' +
+      cell('fa-calendar-days', thisWeek ? 'This Sunday' : 'Next service', _lfE(_lfLongDate(next.key)), _lfE(next.day)) +
+      cell('fa-leaf', 'Church Year', _lfE((s ? s.label : 'Church year') + ' · ' + _llCycle(next.key)), '') +
+      cell('fa-bookmark', 'Liturgical Colour', next.color ? _lfDot(next.color) + _lfE(next.color) : '—', '') +
+      cell('fa-book-open', 'Key Readings', reads.length ? reads.map(_lfE).join(' <i class="pl-strip__bar">|</i> ') : '<em>Not set yet</em>', '') +
+    '</div>';
+  }
 
-    // Left: details, readings, quick actions
-    var reads = next ? SBQ_READINGS.SLOTS.map(function(sl) {
-      var r = d.reads[sl.role];
-      return '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span>' + (r ? _lfE(r) : '<em>' + _lfE(sl.label) + ' not set</em>') + '</span></li>';
-    }).join('') + '<li><i class="fa-solid fa-hands-praying" aria-hidden="true"></i><span>Prayer of the Day' + (d.prayer ? '' : ' <em>(not saved yet)</em>') + '</span></li>' : '';
-    var who = next ? ['liturgist', 'preacher', 'pianist', 'lcd'].filter(function(k) { return d.people[k]; }).map(function(k) {
-      return '<li><small>' + _lfE({ liturgist: 'Liturgist', preacher: 'Preacher', pianist: 'Pianist', lcd: 'LCD' }[k]) + '</small><span>' + _lfE(d.people[k]) + '</span></li>';
-    }).join('') : '';
-    var left = '<aside class="sp-left">' +
-        '<section class="ll-box sp-box"><div class="ll-box__hd"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><h2 class="font-cinzel">Service Details</h2></div>' +
-          (next ? '<ul class="sp-dl">' +
-            '<li><i class="fa-regular fa-calendar" aria-hidden="true"></i>' + _lfE(_lfLongDate(next.key)) + '</li>' +
-            '<li><i class="fa-solid fa-leaf" aria-hidden="true"></i>' + _lfE(next.day) + '</li>' +
-            '<li><i class="fa-solid fa-music" aria-hidden="true"></i>' + _lfE(next.type === 'contemporary' ? 'Contemporary' : 'Traditional') + ' service</li>' +
-            (next.color ? '<li><i class="fa-solid fa-palette" aria-hidden="true"></i>Liturgical colour: ' + _lfDot(next.color) + _lfE(next.color) + '</li>' : '') +
-            (s ? '<li><i class="fa-solid ' + s.icon + '" aria-hidden="true"></i>' + _lfE(s.label) + ' · ' + _lfE(_llCycle(next.key)) + '</li>' : '') +
-          '</ul>' : '<p class="lf-muted">' + (d ? 'Not on the roster yet.' : 'Reading the roster…') + '</p>') + '</section>' +
-        (next ? '<section class="ll-box sp-box"><div class="ll-box__hd"><i class="fa-solid fa-book-bible" aria-hidden="true"></i><h2 class="font-cinzel">Readings</h2>' +
-          '<button type="button" class="ll-link" data-key="' + _lfE(next.key) + '" onclick="LiturgyModule.lfOpenDay(this.dataset.key)">View <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div>' +
-          '<ul class="sp-reads">' + reads + '</ul></section>' : '') +
-        (who ? '<section class="ll-box sp-box"><div class="ll-box__hd"><i class="fa-solid fa-user-group" aria-hidden="true"></i><h2 class="font-cinzel">Team</h2></div><ul class="sp-team">' + who + '</ul></section>' : '') +
-        '<section class="ll-box sp-box"><div class="ll-box__hd"><i class="fa-solid fa-bolt" aria-hidden="true"></i><h2 class="font-cinzel">Quick Actions</h2></div><div class="sp-quick">' +
-          (orderId ? '<button type="button" class="lf-btn" data-id="' + _lfE(orderId) + '" onclick="LiturgyModule.mvOpenOrder(this.dataset.id)"><i class="fa-solid fa-list-ol" aria-hidden="true"></i><span>Open in Liturgy Builder</span></button>' : '') +
-          '<button type="button" class="lf-btn" onclick="LiturgyModule.spResTab(\'liturgy\', true)"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i><span>Upload a liturgy document</span></button>' +
-          '<button type="button" class="lf-btn" onclick="LiturgyModule.spExport(\'pdf\')"><i class="fa-solid fa-print" aria-hidden="true"></i><span>Export / Print</span></button>' +
-          '<button type="button" class="lf-btn" onclick="LiturgyModule.spShare()"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><span>Share with Team</span></button>' +
-        '</div></section>' +
-      '</aside>';
-
-    // Middle: the order of worship
-    var src = d ? _spSource() : null, parts = _spParts(src);
+  // ── Liturgy Order: the drawing's three columns ──────────────────────
+  function _spOrderTab(occ, d) {
+    var src = d ? _spSource() : null, parts = _spParts(src), sources = d ? _spSources() : [];
+    var orderId = d && d.order ? d.order.id : '';
     if (parts.length && _sp.part >= parts.length) _sp.part = 0;
-    var sources = d ? _spSources() : [];
     var list;
     if (!d) list = '<p class="lf-muted ll-pad"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Opening…</p>';
     else if (!src) {
-      list = '<div class="sp-empty"><i class="fa-solid fa-book-bookmark" aria-hidden="true"></i><h3>No ready liturgy for ' + _lfE(occ.label) + ' yet</h3>' +
-        '<p>Make one from a liturgy document below (Word, PDF or Excel), or open a service in the Liturgy Builder and press Save This Liturgy.</p>' +
-        '<button type="button" class="lf-btn lf-btn--primary sp-btn-maroon" onclick="LiturgyModule.spResTab(\'liturgy\')"><i class="fa-solid fa-file-word" aria-hidden="true"></i><span>See the liturgy documents</span></button></div>';
+      list = '<div class="sp-empty"><i class="fa-solid fa-book-bookmark" aria-hidden="true"></i><h3>No order of worship yet</h3>' +
+        '<p>Make a ready liturgy from a liturgy document below, or open a service in the Liturgy Builder and Save This Liturgy.</p>' +
+        '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.spResTab(\'liturgy\')"><i class="fa-solid fa-file-word" aria-hidden="true"></i><span>See the liturgy documents</span></button></div>';
     } else {
-      var lastSec = -1;
-      list = '<ol class="sp-order">' + parts.map(function(pt, i) {
-        var secHd = pt.secNo !== lastSec ? '<li class="sp-order__sec">' + pt.secNo + '. ' + _lfE(pt.sec) + '</li>' : '';
-        lastSec = pt.secNo;
+      list = '<ol class="pl-ow">' + parts.map(function(pt, i) {
         var texts = _spTexts(src, pt.ref);
-        var sub = pt.kind === 'song' ? 'Song' : pt.kind === 'reading' ? 'Reading' : (texts.length ? texts.length + ' slide' + (texts.length === 1 ? '' : 's') : '');
-        return secHd + '<li><button type="button" class="sp-part' + (i === _sp.part ? ' is-on' : '') + '" data-i="' + i + '" onclick="LiturgyModule.spPart(+this.dataset.i)">' +
-          '<span class="sp-part__no">' + pt.no + '</span><i class="fa-solid ' + (SP_KIND_ICON[pt.kind] || 'fa-circle') + ' sp-part__ic sp-part__ic--' + pt.kind + '" aria-hidden="true"></i>' +
-          '<span class="sp-part__t"><b>' + _lfE(pt.title) + '</b>' + (sub ? '<small>' + _lfE(sub) + '</small>' : '') + '</span>' +
-          '<i class="fa-solid fa-chevron-right sp-part__go" aria-hidden="true"></i></button></li>';
+        return '<li class="pl-ow__row' + (i === _sp.part ? ' is-on' : '') + '">' +
+          '<button type="button" class="pl-ow__main" data-i="' + i + '" onclick="LiturgyModule.spPart(+this.dataset.i)">' +
+            '<span class="pl-ow__no">' + (i + 1) + '</span><span class="pl-ow__t"><b>' + _lfE(pt.title) + '</b>' +
+            (pt.sec && pt.sec !== pt.title ? '<small>' + _lfE(pt.sec) + '</small>' : '') + '</span></button>' +
+          '<span class="pl-ow__acts">' +
+            '<button type="button" data-i="' + i + '" onclick="LiturgyModule.spPart(+this.dataset.i)" aria-label="Show ' + _lfE(pt.title) + '"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
+            '<button type="button" onclick="LiturgyModule.spEdit()" aria-label="Edit in the Liturgy Builder"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
+            (texts.length ? '<button type="button" data-i="' + i + '" onclick="LiturgyModule.spCopyPart(+this.dataset.i)" aria-label="Copy the words"><i class="fa-regular fa-copy" aria-hidden="true"></i></button>' : '') +
+          '</span></li>';
       }).join('') + '</ol>';
     }
-    var picker = sources.length > 1 ? '<label class="sp-src"><span class="sr-only">Which order of worship</span><select onchange="LiturgyModule.spSrc(this.value)">' +
-        sources.map(function(x) { return '<option value="' + _lfE(x.key) + '"' + (src && x.key === src.key ? ' selected' : '') + '>' + _lfE(x.label) + '</option>'; }).join('') + '</select></label>'
-      : (src ? '<span class="sp-src sp-src--one">' + _lfE(src.label) + '</span>' : '');
-    var useBtn = src && !src.order && orderId ? '<button type="button" class="lf-btn sp-use" data-id="' + _lfE(src.row.id) + '" onclick="LiturgyModule.spUse(this.dataset.id)"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Load into ' + _lfE(_mvShortDate(next.key)) + '</span></button>' : '';
-    var middle = '<section class="ll-box sp-mid"><div class="ll-box__hd"><i class="fa-solid fa-list-ol" aria-hidden="true"></i><h2 class="font-cinzel">Liturgy Order</h2>' +
-        (parts.length ? '<span class="mv-count">' + parts.length + ' items</span>' : '') + '</div>' +
-        (src ? '<div class="sp-mid__bar">' + picker + useBtn + '</div>' : '') + list + '</section>';
+    var picker = sources.length ? '<label class="pl-src"><span class="sr-only">Which order of worship</span><select onchange="LiturgyModule.spSrc(this.value)">' +
+        sources.map(function(x) { return '<option value="' + _lfE(x.key) + '"' + (src && x.key === src.key ? ' selected' : '') + '>' + _lfE(x.label) + '</option>'; }).join('') + '</select></label>' : '';
+    var left = '<section class="pl-card pl-owcard"><div class="pl-card__hd"><i class="fa-solid fa-list-ul" aria-hidden="true"></i><h2>Order of Worship</h2>' +
+        (orderId ? '<button type="button" class="pl-mini" onclick="LiturgyModule.spEdit()" title="Change the order in the Liturgy Builder"><i class="fa-solid fa-arrow-down-up-across-line" aria-hidden="true"></i> Reorder</button>' : '') + '</div>' +
+        picker + list + '</section>';
 
-    // Right: the part on show, as it is projected
-    var right;
-    var pt = parts[_sp.part];
-    if (!pt) right = '<section class="ll-box sp-prev"><p class="lf-muted">Choose a part of the order of worship to see its words.</p></section>';
+    // Centre: the part chosen, as the congregation reads it
+    var pt = parts[_sp.part], centre;
+    if (!pt) centre = '<section class="pl-card pl-text"><p class="lf-muted">Choose a part of the order of worship to read it here.</p></section>';
     else {
       var texts = _spTexts(src, pt.ref);
       if (_sp.slide >= texts.length) _sp.slide = 0;
-      var body;
+      var kindLbl = { song: 'Song', reading: 'Reading', liturgy: 'Liturgy Text', text: 'Text' }[pt.kind] || 'Liturgy Text';
+      var page;
       if (pt.kind === 'song') {
         var html = (window.WO && WO.svlItemHtml) ? WO.svlItemHtml(src.data, pt.ref) : '';
-        body = '<div class="sp-songwords">' + (html || '<p class="lf-muted">The song’s words are in the Songbook.</p>') + '</div>';
+        page = '<div class="pl-lt pl-lt--song">' + (html || '<p class="lf-muted">The song’s words are in the Songbook.</p>') + '</div>';
       } else if (!texts.length) {
-        body = '<p class="lf-muted">' + (pt.kind === 'reading' ? 'The reading’s words come from the roster’s reference when the service is made.' : 'No words kept for this part.') + '</p>';
+        page = '<div class="pl-lt"><p class="lf-muted">' + (pt.kind === 'reading' ? 'The reading comes from the roster’s reference when the service is made.' : 'No words are kept for this part.') + '</p></div>';
       } else {
-        body = '<div class="sp-slide" role="img" aria-label="Slide ' + (_sp.slide + 1) + ' of ' + texts.length + '">' +
-            '<div class="sp-slide__words">' + _lfE(texts[_sp.slide]).replace(/\n/g, '<br>') + '</div>' +
-            (texts.length > 1 ? '<button type="button" class="sp-slide__nav sp-slide__nav--prev" onclick="LiturgyModule.spSlide(-1)" aria-label="Previous slide"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>' +
-              '<button type="button" class="sp-slide__nav sp-slide__nav--next" onclick="LiturgyModule.spSlide(1)" aria-label="Next slide"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>' : '') +
-          '</div>' +
-          (texts.length > 1 ? '<div class="sp-dots">' + texts.map(function(_, i) { return '<span class="' + (i === _sp.slide ? 'is-on' : '') + '"></span>'; }).join('') + '</div>' : '') +
-          '<details class="sp-words"><summary>All the words</summary><div>' + texts.map(function(t) { return '<p>' + _lfE(t).replace(/\n/g, '<br>') + '</p>'; }).join('') + '</div></details>';
+        var blocks = _plSpeakers(texts[_sp.slide]);
+        page = '<div class="pl-lt" style="--pl-zoom:' + (_sp.zoom || 1) + '"><div class="pl-lt__orn" aria-hidden="true"><span></span><i class="fa-solid fa-cross"></i><span></span></div>' +
+          blocks.map(function(b) {
+            return '<div class="pl-lt__row' + (b.people ? ' is-people' : '') + '"><span class="pl-lt__who">' + (b.who ? _lfE(b.who) + ':' : '') + '</span>' +
+              '<span class="pl-lt__txt">' + b.lines.map(_lfE).join('<br>') + '</span></div>';
+          }).join('') + '<div class="pl-lt__orn pl-lt__orn--end" aria-hidden="true"><span></span></div></div>';
       }
-      right = '<section class="sp-prev">' +
-          '<div class="sp-prev__hd"><i class="fa-solid ' + (SP_KIND_ICON[pt.kind] || 'fa-circle') + '" aria-hidden="true"></i><h2>' + _lfE(pt.title) + '</h2>' +
-            '<span class="sp-pill">Item ' + (_sp.part + 1) + ' of ' + parts.length + '</span>' +
-            '<button type="button" class="sp-prev__nav" onclick="LiturgyModule.spPart(' + Math.max(0, _sp.part - 1) + ')" aria-label="Previous part"' + (_sp.part ? '' : ' disabled') + '><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>' +
-            '<button type="button" class="sp-prev__nav" onclick="LiturgyModule.spPart(' + Math.min(parts.length - 1, _sp.part + 1) + ')" aria-label="Next part"' + (_sp.part < parts.length - 1 ? '' : ' disabled') + '><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>' +
-          '</div>' +
-          '<p class="sp-prev__sec">' + _lfE(pt.no + ' · ' + pt.sec) + ' · ' + _lfE({ song: 'Song', reading: 'Reading', liturgy: 'Liturgy', text: 'Text' }[pt.kind] || '') + '</p>' +
-          '<h3 class="sp-prev__lbl">Preview</h3>' + body + '</section>';
+      var useBtn = src.order
+        ? (orderId ? '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.spEdit()"><i class="fa-solid fa-check" aria-hidden="true"></i><span>Open in App</span></button>' : '')
+        : (orderId ? '<button type="button" class="lf-btn pl-btn-green" data-id="' + _lfE(src.row.id) + '" onclick="LiturgyModule.spUse(this.dataset.id)"><i class="fa-solid fa-check" aria-hidden="true"></i><span>Use in App</span></button>' : '');
+      centre = '<section class="pl-card pl-text"><div class="pl-text__hd"><div><small>' + _lfE(kindLbl) + '</small><h2>' + _lfE(pt.title) + '</h2></div>' +
+          '<div class="pl-text__acts">' + useBtn +
+            '<button type="button" class="lf-btn" onclick="LiturgyModule.spEdit()"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit</span></button>' +
+            (texts.length ? '<button type="button" class="lf-btn" data-i="' + _sp.part + '" onclick="LiturgyModule.spCopyPart(+this.dataset.i)"><i class="fa-regular fa-copy" aria-hidden="true"></i><span>Copy</span></button>' : '') +
+          '</div></div>' + page +
+        '<div class="pl-text__ft">' +
+          '<span class="pl-pager"><button type="button" onclick="LiturgyModule.spSlide(-1)" aria-label="Previous slide"' + (texts.length > 1 ? '' : ' disabled') + '><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>' +
+            '<b>' + (texts.length ? (_sp.slide + 1) + ' / ' + texts.length : '—') + '</b>' +
+            '<button type="button" onclick="LiturgyModule.spSlide(1)" aria-label="Next slide"' + (texts.length > 1 ? '' : ' disabled') + '><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></span>' +
+          '<span class="pl-pager"><button type="button" onclick="LiturgyModule.spZoom(-1)" aria-label="Smaller"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>' +
+            '<b>' + Math.round((_sp.zoom || 1) * 100) + '%</b><button type="button" onclick="LiturgyModule.spZoom(1)" aria-label="Larger"><i class="fa-solid fa-plus" aria-hidden="true"></i></button></span>' +
+          (texts.length ? '<button type="button" class="pl-pager pl-pager--one" onclick="LiturgyModule.spFull()" aria-label="Show it full screen"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>' : '') +
+        '</div></section>';
     }
 
-    p.innerHTML = '<div class="ll sp">' + head + strip +
-      '<div class="sp-cols">' + left + middle + right + '</div>' +
-      '<div class="sp-cols2">' + _spResHtml(occ) + _spReadyHtml(d, orderId) + '</div>' +
-      '<input id="spDocFile" type="file" accept=".docx,.doc,.pdf,.xlsx,.xls" hidden onchange="LiturgyModule.spUploadDoc(this)">' +
-    '</div>';
+    // Right: what else this service has, each a way into it
+    var mine = liturgyItems.filter(function(i) { return i && i.occasionId === occ.id; });
+    var count = { lcd: 0, liturgy: 0, files: 0, links: 0 };
+    mine.forEach(function(i) { count[_spKind(i)]++; });
+    var tile = function(key, icon, title, sub, n) {
+      return '<button type="button" class="pl-tile" onclick="LiturgyModule.' + (key === 'ready' ? 'spReady()' : 'spResTab(\'' + key + '\')') + '">' +
+        '<span class="pl-tile__ic"><i class="fa-solid ' + icon + '" aria-hidden="true"></i></span><span class="pl-tile__t"><b>' + title + '</b><small>' + sub + '</small></span>' +
+        '<span class="pl-tile__n">' + n + '</span><i class="fa-solid fa-chevron-right pl-tile__go" aria-hidden="true"></i></button>';
+    };
+    var right = '<aside class="pl-tiles">' +
+      tile('ready', 'fa-book-open', 'Ready-to-use Liturgies', 'Whole liturgies the Builder loads', d ? d.rows.length : '–') +
+      tile('liturgy', 'fa-file-word', 'Liturgy Documents', 'Word, PDF and Excel liturgies', count.liturgy) +
+      tile('lcd', 'fa-display', 'LCD Materials', 'Liturgy texts and slide decks', count.lcd) +
+      tile('files', 'fa-folder-open', 'Other Files', 'Pictures, videos, scores', count.files) +
+      tile('links', 'fa-link', 'Reference Links', 'Helpful pages and videos', count.links) +
+    '</aside>';
+    return '<div class="pl-cols">' + left + centre + right + '</div>' +
+      '<div class="sp-cols2">' + _spResHtml(occ) + _spReadyHtml(d, orderId) + '</div>';
+  }
+  function spZoom(dir) { _sp.zoom = Math.max(0.7, Math.min(1.6, Math.round(((_sp.zoom || 1) + dir * 0.1) * 10) / 10)); renderService(); }
+  function spEdit() {
+    var d = _spData, id = d && d.order && d.order.id;
+    if (id) { _llOpenInBuilder(id); return; }
+    showToast('There is no order for the next service yet. Make it in Orders, then edit it in the Liturgy Builder.', 'info');
+  }
+  function spCopyPart(i) {
+    var src = _spSource(), pt = _spParts(src)[i];
+    if (!pt) return;
+    var texts = _spTexts(src, pt.ref);
+    _lfCopy(pt.title + '\n\n' + texts.join('\n\n'), 'Copied the words of ' + pt.title);
+  }
+  function spReady() {
+    var box = document.querySelector('#liturgyServicePanel .sp-readybox');
+    if (box && box.scrollIntoView) box.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+  // The part on show, large, as it would be projected.
+  function spFull() {
+    var src = _spSource(), pt = _spParts(src)[_sp.part];
+    var texts = pt ? _spTexts(src, pt.ref) : [];
+    if (!texts.length) return;
+    var el = document.getElementById('plFull');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'plFull'; el.className = 'pl-full';
+      el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+      el.addEventListener('click', function(e) { if (e.target === el) spFullClose(); });
+      document.addEventListener('keydown', _plFullKey);
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '<div class="pl-full__slide">' + _lfE(texts[_sp.slide] || '').replace(/\n/g, '<br>') + '</div>' +
+      '<p class="pl-full__cap">' + _lfE(pt.title) + ' · ' + (_sp.slide + 1) + ' of ' + texts.length + '</p>' +
+      '<button type="button" class="mv-lb__x" onclick="LiturgyModule.spFullClose()" aria-label="Close">&times;</button>' +
+      (texts.length > 1 ? '<button type="button" class="mv-lb__nav mv-lb__nav--prev" onclick="LiturgyModule.spSlide(-1);LiturgyModule.spFull()" aria-label="Previous slide"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>' +
+        '<button type="button" class="mv-lb__nav mv-lb__nav--next" onclick="LiturgyModule.spSlide(1);LiturgyModule.spFull()" aria-label="Next slide"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>' : '');
+  }
+  function _plFullKey(e) {
+    if (!document.getElementById('plFull')) return;
+    if (e.key === 'Escape') spFullClose();
+    else if (e.key === 'ArrowRight') { spSlide(1); spFull(); }
+    else if (e.key === 'ArrowLeft') { spSlide(-1); spFull(); }
+  }
+  function spFullClose() {
+    var el = document.getElementById('plFull');
+    if (el) el.remove();
+    document.removeEventListener('keydown', _plFullKey);
+  }
+  // Add Item: whatever this service can be given, from one place.
+  function spAddMenu(btn) {
+    var old = document.getElementById('plAddMenu');
+    if (old) { old.remove(); return; }
+    var m = document.createElement('div');
+    m.id = 'plAddMenu'; m.className = 'pl-menu'; m.setAttribute('role', 'menu');
+    m.innerHTML = [
+      ['LiturgyModule.spResTab(\'liturgy\', true)', 'fa-file-word', 'A liturgy document'],
+      ['LiturgyModule.lfNew()', 'fa-display', 'A liturgy text for the LCD'],
+      ['LiturgyModule.lfUpload()', 'fa-cloud-arrow-up', 'A file'],
+      ['LiturgyModule.spAddLink()', 'fa-link', 'A reference link'],
+      ['LiturgyModule.plEditNote(\'\')', 'fa-note-sticky', 'A planning note'],
+      ['LiturgyModule.plEditSpecial(\'\')', 'fa-wand-magic-sparkles', 'A special planning item'],
+      ['LiturgyModule.plEditTask(\'\')', 'fa-square-check', 'A checklist task']
+    ].map(function(x) {
+      return '<button type="button" role="menuitem" onclick="document.getElementById(\'plAddMenu\').remove();' + x[0] + '"><i class="fa-solid ' + x[1] + '" aria-hidden="true"></i>' + x[2] + '</button>';
+    }).join('');
+    btn.parentNode.appendChild(m);
+    setTimeout(function() {
+      var off = function(e) { if (!m.contains(e.target) && e.target !== btn) { m.remove(); document.removeEventListener('pointerdown', off, true); } };
+      document.addEventListener('pointerdown', off, true);
+    }, 0);
+  }
+  // A reference link for the service, kept as the planning panel kept them.
+  function spAddLink() {
+    var url = window.prompt('Paste the link (a web page, a YouTube video, a chord chart):', '');
+    url = String(url || '').trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    var host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { showToast('That is not a link.', 'error'); return; }
+    addItem({ id: generateId(), title: host, type: 'documents', content: '', tags: ['link'], fileUrl: url,
+      fileName: url.split('/').pop().split('?')[0] || 'link', storageProvider: 'external', folderId: null,
+      occasionId: _sp.occ, generalFolder: null, occasionFolderId: null, created: Date.now(), modified: Date.now() }, true);
+    _sp.res = 'links';
+    showToast('Link added to Reference Links', 'success');
+    renderService();
   }
 
   // The service's files, in three: what the LCD uses, liturgies in documents,
   // and everything else.
   function _spResHtml(occ) {
     var mine = liturgyItems.filter(function(i) { return i && i.occasionId === occ.id; });
-    var groups = { lcd: [], liturgy: [], files: [] };
+    var groups = { lcd: [], liturgy: [], files: [], links: [] };
     mine.forEach(function(i) { groups[_spKind(i)].push(i); });
-    var tab = _sp.res;
-    var tabs = [['lcd', 'fa-display', 'LCD Materials'], ['liturgy', 'fa-file-word', 'Liturgy Documents'], ['files', 'fa-folder-open', 'Other Files']].map(function(t) {
+    var tab = groups[_sp.res] ? _sp.res : 'liturgy';
+    var tabs = [['liturgy', 'fa-file-word', 'Liturgy Documents'], ['lcd', 'fa-display', 'LCD Materials'], ['files', 'fa-folder-open', 'Other Files'], ['links', 'fa-link', 'Reference Links']].map(function(t) {
       var on = t[0] === tab;
       return '<button type="button" class="sp-rtab' + (on ? ' is-on' : '') + '" aria-pressed="' + on + '" onclick="LiturgyModule.spResTab(\'' + t[0] + '\')">' +
         '<i class="fa-solid ' + t[1] + '" aria-hidden="true"></i>' + t[2] + ' <span>(' + groups[t[0]].length + ')</span></button>';
@@ -104670,10 +104779,12 @@ var LiturgyModule = (function() {
     var list = groups[tab].slice();
     var hint = { lcd: 'Liturgy texts and slide decks the Liturgy Builder and LCD Projection use.',
                  liturgy: 'Liturgies written in Word, PDF or Excel: what was used before, to read, share, and make next year’s from.',
-                 files: 'Pictures, videos, scores, planning documents and links.' }[tab];
+                 files: 'Pictures, videos, scores and planning documents.',
+                 links: 'Pages, videos and chord charts people found for this service.' }[tab];
     var add = { lcd: '<button type="button" class="lf-btn" onclick="LiturgyModule.lfNew()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>New liturgy text</span></button>',
                 liturgy: '<button type="button" class="lf-btn lf-btn--primary sp-btn-maroon" onclick="document.getElementById(\'spDocFile\').click()"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i><span>Upload a liturgy</span></button>',
-                files: '<button type="button" class="lf-btn" onclick="LiturgyModule.lfUpload()"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Upload</span></button>' }[tab];
+                files: '<button type="button" class="lf-btn" onclick="LiturgyModule.lfUpload()"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Upload</span></button>',
+                links: '<button type="button" class="lf-btn" onclick="LiturgyModule.spAddLink()"><i class="fa-solid fa-link" aria-hidden="true"></i><span>Add a link</span></button>' }[tab];
     var body;
     if (tab === 'lcd') {
       body = list.length ? '<div class="sp-lcd">' + _lfNewest(list).map(function(it) {
@@ -104741,6 +104852,918 @@ var LiturgyModule = (function() {
       '<p class="sp-sub">Whole liturgies the Liturgy Builder loads in one go, with the LCD slides made from them.</p>' + list + '</section>';
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // A SERVICE'S PLAN (2026-11-14): Planning Notes, Special Planning, Checklist
+  //
+  // From the operator, with drawings of each tab: the service's page has ONE
+  // Liturgy Order (the old planning panel's file list was a second), and its
+  // Planning Notes, Special Planning and Checklist redesigned. Team Planning
+  // goes -- "the checklist should already mention who does what", so a task
+  // has a who. Special Planning holds a presentation's references (a YouTube
+  // video or audio to learn from, chords found on a website) and, once it is
+  // done, the video of the performance. Asked, they chose:
+  //   - a plan for each SERVICE DATE (the next one shown; earlier ones a click
+  //     away; a new one can start from an earlier one),
+  //   - a performance video as a link (YouTube, Drive) or an upload of up to
+  //     50 MB -- every viewing is a download from Supabase.
+  //
+  // Every note, item, task and reference is a row of service_plan_items, so
+  // two people working on one plan never write over each other.
+  // ════════════════════════════════════════════════════════════════════
+  var PL_CATS = [
+    { key: 'decor',        label: 'Decorations & Space',         icon: 'fa-chair',         hint: 'Sanctuary set-up, stage, seasonal décor.' },
+    { key: 'banner',       label: 'Banner / Artwork',            icon: 'fa-image',         hint: 'Theme banner, verse artwork, graphics.' },
+    { key: 'flowers',      label: 'Flower Arrangements',         icon: 'fa-spa',           hint: 'Altar and stage flowers.' },
+    { key: 'music',        label: 'Extra Musicians & Instruments', icon: 'fa-guitar',      hint: 'Additional musicians and arrangements.' },
+    { key: 'presentation', label: 'Special Presentations',       icon: 'fa-masks-theater', hint: 'A special song, skit, dance, testimony or video.' },
+    { key: 'guest',        label: 'Guest Speaker / Guests',      icon: 'fa-user-group',    hint: 'Guest speaker details, visiting team.' },
+    { key: 'songs',        label: 'Songs & References',          icon: 'fa-music',         hint: 'Songs, chord charts, recordings to learn from.' },
+    { key: 'media',        label: 'Media / LCD Preparation',     icon: 'fa-display',       hint: 'Slides, lyrics, verses and videos for the screens.' },
+    { key: 'liturgy',      label: 'Liturgy Texts',               icon: 'fa-book-bookmark', hint: 'Call to worship, prayers, readings.' },
+    { key: 'docs',         label: 'Documents',                   icon: 'fa-file-lines',    hint: 'Files people need.' },
+    { key: 'communion',    label: 'Communion / Sacraments',      icon: 'fa-wine-glass',    hint: 'Elements, serving, clearing away.' },
+    { key: 'followup',     label: 'Follow-up',                   icon: 'fa-circle-check',  hint: 'After the service.' }
+  ];
+  var PL_STATUS = [['draft', 'Draft'], ['planned', 'Planned'], ['progress', 'In Progress'], ['ready', 'Ready']];
+  var PL_LINK_KINDS = [['video', 'Video (YouTube)', 'fa-brands fa-youtube'], ['audio', 'Audio', 'fa-solid fa-headphones'],
+                       ['chords', 'Chords', 'fa-solid fa-guitar'], ['link', 'Link', 'fa-solid fa-link']];
+  var PL_MAX_BYTES = 50 * 1024 * 1024;
+  var _pl = { rows: null, occ: '', gone: false, key: '', q: '', cat: '', status: '', view: 'board', tok: 0, notes: null };
+
+  function _plCat(key) { return PL_CATS.filter(function(c) { return c.key === key; })[0] || { key: key || '', label: key || 'Other', icon: 'fa-circle', hint: '' }; }
+  function _plStatusLabel(s) { var h = PL_STATUS.filter(function(x) { return x[0] === s; })[0]; return h ? h[1] : ''; }
+  function _plId() { return 'spi-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7); }
+
+  // The dates a service has plans for, and the next one (pure), in order.
+  function _plKeysOf(rows, nextKey) {
+    var seen = {};
+    (rows || []).forEach(function(r) { if (r && r.service_key) seen[r.service_key] = true; });
+    if (nextKey) seen[nextKey] = true;
+    return Object.keys(seen).sort();
+  }
+  // One date's rows of one kind (pure), in their order.
+  function _plOf(rows, key, kind) {
+    return (rows || []).filter(function(r) { return r && r.service_key === key && (!kind || r.kind === kind); })
+      .sort(function(a, b) { return ((a.sort || 0) - (b.sort || 0)) || String(a.created_at || '').localeCompare(String(b.created_at || '')); });
+  }
+  // A checklist's progress (pure): all of it, and each category's, with the
+  // soonest due date among what is still to do.
+  function _plProgress(tasks) {
+    var out = { done: 0, total: 0, pct: 0, byCat: {} };
+    (tasks || []).forEach(function(t) {
+      var c = out.byCat[t.category || 'followup'] || (out.byCat[t.category || 'followup'] = { done: 0, total: 0, due: '' });
+      c.total++; out.total++;
+      if (t.done) { c.done++; out.done++; }
+      else if (t.due && (!c.due || t.due < c.due)) c.due = t.due;
+    });
+    out.pct = out.total ? Math.round(100 * out.done / out.total) : 0;
+    return out;
+  }
+  // What is due soon (pure): not done, due on or before `days` from today,
+  // overdue ones first.
+  function _plDueSoon(tasks, today, days) {
+    var p = String(today || '').split('-'), lim = '';
+    if (p.length === 3) { var d = new Date(+p[0], +p[1] - 1, +p[2] + (days || 0)); lim = d.getFullYear() + '-' + _mvPad(d.getMonth() + 1) + '-' + _mvPad(d.getDate()); }
+    return (tasks || []).filter(function(t) { return t && !t.done && t.due && (!lim || t.due <= lim); })
+      .sort(function(a, b) { return String(a.due).localeCompare(String(b.due)); });
+  }
+  // A link's kind from its address (pure): a video, audio, a chord chart, or a link.
+  function _plLinkKind(url) {
+    var u = String(url || '').toLowerCase();
+    if (/music\.youtube\.com|spotify\.com|soundcloud\.com|music\.apple\.com|\.mp3(\?|$)|\.m4a(\?|$)|\.wav(\?|$)/.test(u)) return 'audio';
+    if (/youtube\.com|youtu\.be|vimeo\.com|\.mp4(\?|$)|\.mov(\?|$)|\.webm(\?|$)/.test(u)) return 'video';
+    if (/ultimate-guitar|chordify|worshiptogether|praisecharts|songselect|e-chords|chordu|chords|tabs\./.test(u)) return 'chords';
+    return 'link';
+  }
+  // Whether a file can be added (pure): '' when it can, else why not.
+  function _plFileProblem(file) {
+    if (!file) return 'No file was chosen.';
+    if (file.size > PL_MAX_BYTES) {
+      return (file.name || 'That file') + ' is ' + Math.round(file.size / 1048576) + ' MB; the limit is 50 MB. Put a longer video on YouTube (unlisted is fine) or Google Drive and paste its link instead.';
+    }
+    return '';
+  }
+  // Rows of an earlier date copied to another (pure): a task not done, a note
+  // or item back to planned, due dates moved by the same number of days, new
+  // ids; a performance video stays with the service it was made at.
+  function _plCopyRows(rows, toKey, makeId) {
+    var day = function(k) { var p = String(k || '').slice(0, 10).split('-'); return p.length === 3 ? Date.UTC(+p[0], +p[1] - 1, +p[2]) : NaN; };
+    return (rows || []).map(function(r, i) {
+      var shift = day(toKey) - day(r.service_key), due = r.due || null;
+      if (due && !isNaN(shift)) {
+        var d = new Date(day(due) + shift);
+        due = d.getUTCFullYear() + '-' + _mvPad(d.getUTCMonth() + 1) + '-' + _mvPad(d.getUTCDate());
+      }
+      return { id: makeId(i), occasion_id: r.occasion_id, service_key: toKey, kind: r.kind, category: r.category || null,
+        title: r.title || '', body: r.body || null, status: r.kind === 'task' ? null : (r.status === 'ready' || r.status === 'progress' ? 'planned' : (r.status || null)),
+        who: r.who || null, due: due, done: false, note_id: null, links: (r.links || []).slice(),
+        files: (r.files || []).filter(function(f) { return f && f.role !== 'performance'; }), sort: r.sort || 0 };
+    });
+  }
+  // The service's usual checklist (the planning panel's, kept per service)
+  // as tasks (pure), each in the category its words name.
+  function _plFromElements(list) {
+    var guess = function(t) {
+      t = String(t || '').toLowerCase();
+      if (/powerpoint|slide|media|video|screen|lcd|announcement/.test(t)) return 'media';
+      if (/music|choir|song|band|special music|hymn/.test(t)) return 'music';
+      if (/dance|drama|skit|conversation|nativity|presentation|testimony/.test(t)) return 'presentation';
+      if (/flower|palm|decor|candle|altar|banner|stripping/.test(t)) return 'decor';
+      if (/communion|baptism|confirmation|ashes|foot ?washing|veneration/.test(t)) return 'communion';
+      if (/sunday school|children|guest|speaker/.test(t)) return 'guest';
+      if (/reading|liturgy|litany|prayer/.test(t)) return 'liturgy';
+      return 'followup';
+    };
+    return (list || []).filter(function(x) { return x && String(x.label || '').trim(); })
+      .map(function(x) { return { title: String(x.label).trim(), category: guess(x.label), done: !!x.checked }; });
+  }
+  // A checklist as words to send (pure): each category, each task with who
+  // does it and when it is due, [x] when done. Plain characters only.
+  function _plShareText(title, when, tasks) {
+    var p = _plProgress(tasks), lines = ['*' + title + ' – Checklist*', when, p.done + ' of ' + p.total + ' done'];
+    PL_CATS.concat([{ key: '', label: 'Other' }]).forEach(function(c) {
+      var mine = (tasks || []).filter(function(t) { return (t.category || '') === c.key || (!c.key && !PL_CATS.some(function(x) { return x.key === t.category; })); });
+      if (!mine.length) return;
+      lines.push('', '*' + c.label + '*');
+      mine.forEach(function(t) {
+        lines.push((t.done ? '[x] ' : '[ ] ') + t.title + (t.who ? ' – ' + t.who : '') + (t.due ? ' (by ' + _mvShortDate(t.due) + ')' : ''));
+      });
+    });
+    return lines.join('\n');
+  }
+  // A liturgy's words, laid out by who says them (pure): "L: ..." is the
+  // Leader's, "C: ..." everyone's, until somebody else is named.
+  var PL_WHO = { l: 'Leader', leader: 'Leader', p: 'Pastor', pastor: 'Pastor', c: 'All', a: 'All', all: 'All', congregation: 'All',
+                 people: 'People', r: 'Reader', reader: 'Reader', m: 'Minister', minister: 'Minister', choir: 'Choir', liturgist: 'Liturgist' };
+  function _plSpeakers(text) {
+    var out = [], cur = null;
+    String(text || '').replace(/\r/g, '').split('\n').forEach(function(line) {
+      var m = /^\s*([A-Za-z]{1,13})(?:\s*\(([A-Za-z])\))?\s*:\s?(.*)$/.exec(line);
+      var key = m ? (m[2] || m[1]).toLowerCase() : '';
+      if (m && PL_WHO[key]) {
+        cur = { who: PL_WHO[key], people: PL_WHO[key] === 'All' || PL_WHO[key] === 'People', lines: [m[3]] };
+        out.push(cur);
+      } else if (line.trim() || cur) {
+        if (!cur) { cur = { who: '', people: false, lines: [] }; out.push(cur); }
+        cur.lines.push(line);
+      }
+    });
+    out.forEach(function(b) { while (b.lines.length && !String(b.lines[b.lines.length - 1]).trim()) b.lines.pop(); });
+    return out.filter(function(b) { return b.lines.length; });
+  }
+
+  // ── Reading and writing a plan ───────────────────────────────────────
+  function _plSb() { return SBQ_LITURGY._sb(); }
+  function _plGone(e) { return /service_plan_items|42P01|PGRST205|schema cache|does not exist/i.test(String((e && (e.message || e.code)) || '')); }
+  function _plLoad(occ) {
+    var sb = _plSb(), tok = ++_pl.tok;
+    if (_pl.occ !== occ) { _pl.rows = null; _pl.key = ''; _pl.cat = ''; _pl.q = ''; _pl.status = ''; }
+    _pl.occ = occ;
+    if (!sb) { _pl.rows = []; return Promise.resolve(); }
+    return Promise.resolve(sb.from('service_plan_items').select('*').eq('occasion_id', occ)).then(function(r) {
+      if (tok !== _pl.tok) return;
+      if (r.error) { _pl.gone = _plGone(r.error); _pl.rows = []; }
+      else { _pl.gone = false; _pl.rows = r.data || []; }
+      renderService();
+    }, function() { if (tok === _pl.tok) { _pl.rows = []; renderService(); } });
+  }
+  function _plMissingNote() {
+    return _pl.gone ? '<p class="ls-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Plans are kept once <code>migrations/2026-11-14_service_plan_items.sql</code> is run in Supabase.</p>' : '';
+  }
+  // Written, then read back before the page shows it.
+  function _plInsert(rows) {
+    var sb = _plSb();
+    if (!sb) return Promise.reject(new Error('Not connected to the database.'));
+    if (_pl.gone) return Promise.reject(new Error('Run migrations/2026-11-14_service_plan_items.sql in Supabase first.'));
+    var now = new Date().toISOString();
+    rows = rows.map(function(r) { return Object.assign({ links: [], files: [], done: false, sort: 0 }, r, { updated_at: now }); });
+    return Promise.resolve(sb.from('service_plan_items').insert(rows).select()).then(function(r) {
+      if (r.error) { if (_plGone(r.error)) _pl.gone = true; throw new Error(r.error.message); }
+      var got = r.data || [];
+      if (got.length !== rows.length) throw new Error('only ' + got.length + ' of ' + rows.length + ' came back from the database');
+      _pl.rows = (_pl.rows || []).concat(got);
+      return got;
+    });
+  }
+  function _plPatch(id, patch) {
+    var sb = _plSb();
+    if (!sb) return Promise.reject(new Error('Not connected to the database.'));
+    var body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+    return Promise.resolve(sb.from('service_plan_items').update(body).eq('id', id).select()).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      var got = (r.data || [])[0];
+      if (!got) throw new Error('it did not come back from the database');
+      _pl.rows = (_pl.rows || []).map(function(x) { return x.id === id ? got : x; });
+      return got;
+    });
+  }
+  function _plDelete(id) {
+    var sb = _plSb();
+    if (!sb) return Promise.reject(new Error('Not connected to the database.'));
+    return Promise.resolve(sb.from('service_plan_items').delete().eq('id', id)).then(function(w) {
+      if (w.error) throw new Error(w.error.message);
+      return sb.from('service_plan_items').select('id').eq('id', id);
+    }).then(function(back) {
+      if ((back.data || []).length) throw new Error('it is still there');
+      _pl.rows = (_pl.rows || []).filter(function(x) { return x.id !== id; });
+    });
+  }
+  function _plFail(what) { return function(e) { showToast('Could not ' + what + ': ' + ((e && e.message) || e), 'error'); renderService(); }; }
+
+  // The plan on show: a date chosen, else the next service's.
+  function _plKey() {
+    var d = _spData && _spData.occ === _sp.occ ? _spData : null;
+    return _pl.key || (d && d.next && d.next.key) || '';
+  }
+  function plDate(dir) {
+    var d = _spData && _spData.occ === _sp.occ ? _spData : null;
+    var keys = _plKeysOf(_pl.rows, d && d.next && d.next.key), cur = _plKey(), i = keys.indexOf(cur);
+    if (dir === 'pick') {
+      var v = (document.getElementById('plDatePick') || {}).value || '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { _pl.key = v; renderService(); }
+      return;
+    }
+    if (i === -1) { keys.push(cur); keys.sort(); i = keys.indexOf(cur); }
+    var j = i + (dir < 0 ? -1 : 1);
+    if (j >= 0 && j < keys.length) { _pl.key = keys[j]; renderService(); }
+  }
+  function _plDateBar() {
+    var d = _spData && _spData.occ === _sp.occ ? _spData : null, key = _plKey();
+    var keys = _plKeysOf(_pl.rows, d && d.next && d.next.key), i = keys.indexOf(key);
+    var isNext = d && d.next && d.next.key === key;
+    return '<div class="pl-date"><button type="button" class="pl-date__nav" onclick="LiturgyModule.plDate(-1)" aria-label="Earlier service"' + (i > 0 ? '' : ' disabled') + '><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>' +
+      '<span class="pl-date__t"><small>' + (key ? (isNext ? 'Planning for the next service' : (key.slice(0, 10) < _mvTodayIso() ? 'A past service' : 'A later service')) : 'Plan for a date') + '</small>' +
+        '<b>' + (key ? _lfE(_lfLongDate(key)) : 'No date chosen') + '</b></span>' +
+      '<button type="button" class="pl-date__nav" onclick="LiturgyModule.plDate(1)" aria-label="Later service"' + (i !== -1 && i < keys.length - 1 ? '' : ' disabled') + '><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>' +
+      '<label class="pl-date__pick"><span class="sr-only">Plan for another date</span><input id="plDatePick" type="date" value="' + _lfE(key.slice(0, 10)) + '" onchange="LiturgyModule.plDate(\'pick\')"></label></div>';
+  }
+  // Earlier dates of this service that have rows of a kind, for "copy from".
+  function _plEarlier(kind) {
+    var key = _plKey(), by = {};
+    (_pl.rows || []).forEach(function(r) { if (r.kind === kind && r.service_key !== key) by[r.service_key] = (by[r.service_key] || 0) + 1; });
+    return Object.keys(by).sort().reverse().map(function(k) { return { key: k, n: by[k] }; });
+  }
+  function plCopyFrom(kind, fromKey) {
+    var key = _plKey();
+    if (!key || !fromKey) return;
+    var src = _plOf(_pl.rows, fromKey, kind);
+    if (!src.length) return;
+    var rows = _plCopyRows(src, key, function() { return _plId(); });
+    _plInsert(rows).then(function(got) {
+      showToast('Copied ' + got.length + ' from ' + _mvShortDate(fromKey), 'success');
+      renderService();
+    }, _plFail('copy them'));
+  }
+  function _plCopyMenu(kind, label) {
+    var e = _plEarlier(kind);
+    if (!e.length) return '';
+    return '<label class="pl-copy"><i class="fa-regular fa-copy" aria-hidden="true"></i><select onchange="if(this.value)LiturgyModule.plCopyFrom(\'' + kind + '\', this.value)">' +
+      '<option value="">' + _lfE(label) + '</option>' + e.map(function(x) {
+        return '<option value="' + _lfE(x.key) + '">' + _lfE(_mvShortDate(x.key)) + ' (' + x.n + ')</option>';
+      }).join('') + '</select></label>';
+  }
+
+  // ── Uploading a file to a plan ───────────────────────────────────────
+  function _plUpload(file, role) {
+    var why = _plFileProblem(file);
+    if (why) return Promise.reject(new Error(why));
+    var folder = 'plans/' + String(_sp.occ).replace(/[^a-z0-9-]/gi, '_') + '/' + String(_plKey()).replace(/[^0-9a-z-]/gi, '_');
+    return uploadToSupabase(file, folder).then(function(r) {
+      if (!r || r.error || !r.url) throw new Error((r && r.error) || 'the upload did not finish');
+      return { url: r.url, path: r.path, name: file.name || 'file', size: file.size || 0, type: file.type || '', role: role || 'file', at: new Date().toISOString() };
+    });
+  }
+
+  // ── Planning Notes ───────────────────────────────────────────────────
+  function _plNoPlan() {
+    return _pl.rows === null ? '<p class="lf-muted ll-pad"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the plan…</p>' : '';
+  }
+  function _plLinkChip(l) {
+    var k = PL_LINK_KINDS.filter(function(x) { return x[0] === l.kind; })[0] || PL_LINK_KINDS[3];
+    return '<a class="pl-chip pl-chip--' + _lfE(l.kind || 'link') + '" href="' + _lfE(l.url) + '" target="_blank" rel="noopener"><i class="' + k[2] + '" aria-hidden="true"></i>' +
+      _lfE(l.label || k[1]) + '</a>';
+  }
+  function _plFileChip(f) {
+    var perf = f.role === 'performance', img = /^image\//.test(f.type || '') || /\.(jpe?g|png|webp|gif)$/i.test(f.name || '');
+    var vid = /^video\//.test(f.type || '') || /\.(mp4|mov|webm|m4v)$/i.test(f.name || '');
+    return '<a class="pl-chip' + (perf ? ' pl-chip--perf' : '') + '" href="' + _lfE(f.url) + '" target="_blank" rel="noopener"><i class="fa-solid ' +
+      (perf ? 'fa-circle-play' : vid ? 'fa-film' : img ? 'fa-image' : 'fa-file-lines') + '" aria-hidden="true"></i>' + _lfE(perf ? 'Performance' : (f.name || 'File')) + '</a>';
+  }
+  function _plSideFiles(occ) {
+    var mine = liturgyItems.filter(function(i) { return i && i.occasionId === occ.id; });
+    var docs = mine.filter(function(i) { var k = _spKind(i); return k === 'liturgy' || k === 'files'; }).slice(0, 5);
+    var lcd = mine.filter(function(i) { return _spKind(i) === 'lcd'; }).slice(0, 5);
+    var row = function(it) {
+      var k = _lfKind(it);
+      return '<li><button type="button" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfOpen(this.dataset.id)">' + _lfBadge(k) +
+        '<span><b>' + _lfE(it.title || it.fileName || 'Untitled') + '</b><small>' + _lfE(k.label) + '</small></span></button></li>';
+    };
+    return '<aside class="pl-side">' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-file-lines" aria-hidden="true"></i><h2>Uploaded Documents</h2>' +
+        '<button type="button" class="pl-mini" onclick="LiturgyModule.spTab(\'order\');LiturgyModule.spResTab(\'liturgy\')">All</button></div>' +
+        (docs.length ? '<ul class="pl-files">' + docs.map(row).join('') + '</ul>' : '<p class="lf-muted">None yet.</p>') +
+        '<button type="button" class="lf-btn pl-wide" onclick="LiturgyModule.lfUpload()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Upload Document</span></button></section>' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-display" aria-hidden="true"></i><h2>LCD Materials</h2>' +
+        '<button type="button" class="pl-mini" onclick="LiturgyModule.spTab(\'order\');LiturgyModule.spResTab(\'lcd\')">All</button></div>' +
+        (lcd.length ? '<ul class="pl-files">' + lcd.map(row).join('') + '</ul>' : '<p class="lf-muted">None yet.</p>') +
+        '<button type="button" class="lf-btn pl-wide" onclick="LiturgyModule.lfNew()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>New LCD Material</span></button></section>' +
+    '</aside>';
+  }
+  function _plNotesTab(occ, d) {
+    var key = _plKey();
+    var wait = _plNoPlan();
+    if (wait) return wait;
+    var notes = _plOf(_pl.rows, key, 'note'), refs = _plOf(_pl.rows, key, 'ref');
+    var q = _pl.q.trim().toLowerCase();
+    var shown = notes.filter(function(n) {
+      if (_pl.status && n.status !== _pl.status) return false;
+      if (_pl.cat && n.category !== _pl.cat) return false;
+      return !q || (n.title + ' ' + (n.body || '') + ' ' + _plCat(n.category).label).toLowerCase().indexOf(q) !== -1;
+    });
+    var byId = {};
+    notes.forEach(function(n) { byId[n.id] = n; });
+    var tools = '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><h2>Planning Tools</h2></div><div class="pl-tools">' +
+        '<button type="button" class="pl-tool is-main" onclick="LiturgyModule.plEditNote(\'\')"><i class="fa-solid fa-plus" aria-hidden="true"></i>New Planning Note</button>' +
+        '<button type="button" class="pl-tool" onclick="LiturgyModule.plImportSong()"><i class="fa-solid fa-music" aria-hidden="true"></i>Import from Songs</button>' +
+        '<button type="button" class="pl-tool" onclick="LiturgyModule.plImportLink()"><i class="fa-solid fa-link" aria-hidden="true"></i>Import Reference Link</button>' +
+      '</div></section>' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-list-ul" aria-hidden="true"></i><h2>Imported &amp; References</h2><span class="mv-count">' + refs.length + '</span></div>' +
+        (refs.length ? '<ul class="pl-refs">' + refs.map(function(r) {
+          return '<li class="pl-ref"><div class="pl-ref__hd"><i class="fa-solid ' + (r.category === 'songs' ? 'fa-music' : 'fa-link') + '" aria-hidden="true"></i><b>' + _lfE(r.title) + '</b>' +
+            '<button type="button" class="pl-mini" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.plRefToNote(this.dataset.id)">Import to Note</button>' +
+            '<button type="button" class="pl-x" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.plRemove(this.dataset.id)" aria-label="Remove">&times;</button></div>' +
+            (r.body ? '<pre class="pl-ref__chords">' + _lfE(r.body) + '</pre>' : '') +
+            ((r.links || []).length ? '<div class="pl-chips">' + r.links.map(_plLinkChip).join('') + '</div>' : '') + '</li>';
+        }).join('') + '</ul>' : '<p class="lf-muted">Songs and links brought in to plan with appear here.</p>') + '</section>';
+    var bar = '<div class="pl-bar"><div class="pl-seg" role="group" aria-label="Show as">' +
+        '<button type="button" class="' + (_pl.view !== 'list' ? 'is-on' : '') + '" onclick="LiturgyModule.plSet(\'view\', \'board\')"><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i> Board</button>' +
+        '<button type="button" class="' + (_pl.view === 'list' ? 'is-on' : '') + '" onclick="LiturgyModule.plSet(\'view\', \'list\')"><i class="fa-solid fa-list" aria-hidden="true"></i> List</button></div>' +
+      '<label class="pl-find"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Search notes</span><input id="plNoteFind" type="search" placeholder="Search notes…" value="' + _lfE(_pl.q) + '" oninput="LiturgyModule.plSet(\'q\', this.value)"></label>' +
+      '<label class="pl-filter"><span class="sr-only">Status</span><select onchange="LiturgyModule.plSet(\'status\', this.value)"><option value="">Any status</option>' +
+        PL_STATUS.map(function(s) { return '<option value="' + s[0] + '"' + (_pl.status === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></label>' +
+      (_pl.cat ? '<button type="button" class="pl-mini" onclick="LiturgyModule.plSet(\'cat\', \'\')">' + _lfE(_plCat(_pl.cat).label) + ' &times;</button>' : '') +
+      _plCopyMenu('note', 'Copy from an earlier service') + '</div>';
+    var cards = shown.length ? '<div class="pl-notes' + (_pl.view === 'list' ? ' pl-notes--list' : '') + '">' + shown.map(function(n) {
+      var c = _plCat(n.category), linked = (n.links || []).filter(function(l) { return l.kind === 'note' && byId[l.url]; }).map(function(l) { return byId[l.url].title; });
+      var tasks = _plOf(_pl.rows, key, 'task').filter(function(t) { return t.note_id === n.id; });
+      return '<article class="pl-note"><div class="pl-note__hd"><span class="pl-note__ic"><i class="fa-solid ' + c.icon + '" aria-hidden="true"></i></span><h3>' + _lfE(n.title || 'Untitled') + '</h3>' +
+          '<span class="pl-note__acts">' +
+            '<button type="button" data-id="' + _lfE(n.id) + '" onclick="LiturgyModule.plView(this.dataset.id)" aria-label="Read it"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
+            '<button type="button" data-id="' + _lfE(n.id) + '" onclick="LiturgyModule.plEditNote(this.dataset.id)" aria-label="Edit"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
+            '<button type="button" data-id="' + _lfE(n.id) + '" onclick="LiturgyModule.plDuplicate(this.dataset.id)" aria-label="Duplicate"><i class="fa-regular fa-copy" aria-hidden="true"></i></button>' +
+            '<button type="button" data-id="' + _lfE(n.id) + '" onclick="LiturgyModule.plRemove(this.dataset.id)" aria-label="Delete"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>' +
+          '</span></div>' +
+        '<div class="pl-note__meta">' + (n.status ? '<span class="pl-pill pl-pill--' + _lfE(n.status) + '">' + _lfE(_plStatusLabel(n.status)) + '</span>' : '') +
+          (n.due ? '<span><i class="fa-regular fa-calendar" aria-hidden="true"></i> Due ' + _lfE(_mvShortDate(n.due)) + '</span>' : '') +
+          (tasks.length ? '<span><i class="fa-regular fa-square-check" aria-hidden="true"></i> ' + tasks.filter(function(t) { return t.done; }).length + '/' + tasks.length + ' tasks</span>' : '') + '</div>' +
+        (n.body ? '<p class="pl-note__body">' + _lfE(n.body) + '</p>' : '') +
+        ((n.links || []).some(function(l) { return l.kind !== 'note'; }) ? '<div class="pl-chips">' + n.links.filter(function(l) { return l.kind !== 'note'; }).map(_plLinkChip).join('') + '</div>' : '') +
+        (linked.length ? '<p class="pl-note__linked"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Linked: ' + _lfE(linked.join(', ')) + '</p>' : '') +
+      '</article>';
+    }).join('') + '</div>' : '<div class="sp-empty"><i class="fa-solid fa-note-sticky" aria-hidden="true"></i><h3>' + (notes.length ? 'No note matches' : 'No planning notes for this date yet') + '</h3>' +
+      '<p>Ideas, details and decisions for this service: the decoration, the banner, who is coming. Each can carry tasks for the checklist.</p>' +
+      '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.plEditNote(\'\')"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>New Planning Note</span></button></div>';
+    // The notes kept for the service as a whole (the planning panel's), every year.
+    var kept = (_memCache ? _flattenMemories(_memCache) : []).filter(function(n) { return n.occasionId === occ.id; });
+    var keptHtml = kept.length ? '<details class="pl-kept"><summary><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Notes kept for ' + _lfE(occ.label) + ' (every year) <span class="mv-count">' + kept.length + '</span></summary>' +
+      '<div class="lit-mem-grid">' + kept.map(_memNoteCard).join('') + '</div></details>' : '';
+    return _plMissingNote() + _plDateBar() +
+      '<div class="pl-3"><div class="pl-left">' + tools + '</div>' +
+      '<section class="pl-card pl-main"><div class="pl-card__hd"><i class="fa-solid fa-note-sticky" aria-hidden="true"></i><div><h2>Planning Notes &amp; Ideas</h2><small>Flexible planning for this service: ideas, details and preparation notes.</small></div></div>' +
+        bar + cards + keptHtml + '</section>' + _plSideFiles(occ) + '</div>';
+  }
+  function plSet(k, v) { _pl[k] = v; renderService(); }
+
+  // ── Special Planning ─────────────────────────────────────────────────
+  function _plSpecialTab(occ, d) {
+    var wait = _plNoPlan();
+    if (wait) return wait;
+    var key = _plKey(), items = _plOf(_pl.rows, key, 'special');
+    var counts = {};
+    items.forEach(function(x) { counts[x.category] = (counts[x.category] || 0) + 1; });
+    var shown = items.filter(function(x) { return !_pl.cat || x.category === _pl.cat; });
+    var mine = liturgyItems.filter(function(i) { return i && i.occasionId === occ.id; });
+    var nk = { liturgy: 0, lcd: 0 };
+    mine.forEach(function(i) { var k = _spKind(i); if (nk[k] != null) nk[k]++; });
+    var cats = ['presentation', 'decor', 'banner', 'flowers', 'music', 'guest', 'songs', 'media'];
+    var side = '<aside class="pl-left"><section class="pl-card pl-cats">' +
+        '<button type="button" class="pl-cat' + (!_pl.cat ? ' is-on' : '') + '" onclick="LiturgyModule.plSet(\'cat\', \'\')"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>All Items<span>' + items.length + '</span></button>' +
+        cats.map(function(k) {
+          var c = _plCat(k);
+          return '<button type="button" class="pl-cat' + (_pl.cat === k ? ' is-on' : '') + '" data-k="' + k + '" onclick="LiturgyModule.plSet(\'cat\', this.dataset.k)"><i class="fa-solid ' + c.icon + '" aria-hidden="true"></i>' + _lfE(c.label) + '<span>' + (counts[k] || 0) + '</span></button>';
+        }).join('') + '</section>' +
+      '<section class="pl-card pl-cats"><h3 class="pl-cats__hd">Item Type (Quick View)</h3>' +
+        '<button type="button" class="pl-cat" onclick="LiturgyModule.spTab(\'order\');LiturgyModule.spReady()"><i class="fa-solid fa-book-open" aria-hidden="true"></i>Ready-to-use Liturgy<span>' + (d ? d.rows.length : '–') + '</span></button>' +
+        '<button type="button" class="pl-cat" onclick="LiturgyModule.spTab(\'order\');LiturgyModule.spResTab(\'liturgy\')"><i class="fa-solid fa-file-word" aria-hidden="true"></i>Uploaded Document<span>' + nk.liturgy + '</span></button>' +
+        '<button type="button" class="pl-cat" onclick="LiturgyModule.spTab(\'order\');LiturgyModule.spResTab(\'lcd\')"><i class="fa-solid fa-display" aria-hidden="true"></i>LCD Material<span>' + nk.lcd + '</span></button>' +
+      '</section></aside>';
+    var cards = shown.length ? '<div class="pl-specials">' + shown.map(function(x) {
+      var c = _plCat(x.category), links = x.links || [], files = x.files || [];
+      var perf = files.filter(function(f) { return f.role === 'performance'; }).concat(links.filter(function(l) { return l.kind === 'performance'; }));
+      return '<article class="pl-special"><div class="pl-special__hd"><span class="pl-note__ic pl-note__ic--big"><i class="fa-solid ' + c.icon + '" aria-hidden="true"></i></span>' +
+          '<div class="pl-special__t"><h3>' + _lfE(x.title || c.label) + '</h3><small>' + _lfE(c.label) + ' · ' + (links.length + files.length) + ' item' + (links.length + files.length === 1 ? '' : 's') + '</small></div>' +
+          (x.status ? '<span class="pl-pill pl-pill--' + _lfE(x.status) + '">' + _lfE(_plStatusLabel(x.status)) + '</span>' : '') + '</div>' +
+        (x.body ? '<p class="pl-note__body">' + _lfE(x.body) + '</p>' : '') +
+        '<div class="pl-note__meta">' + (x.who ? '<span><i class="fa-solid fa-user" aria-hidden="true"></i> ' + _lfE(x.who) + '</span>' : '') +
+          (x.due ? '<span><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' + _lfE(_mvShortDate(x.due)) + '</span>' : '') +
+          (perf.length ? '<span class="pl-done"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Performance kept</span>' : '') + '</div>' +
+        ((links.length || files.length) ? '<div class="pl-chips">' + links.filter(function(l) { return l.kind !== 'performance'; }).map(_plLinkChip).join('') +
+          files.map(_plFileChip).join('') + links.filter(function(l) { return l.kind === 'performance'; }).map(function(l) {
+            return '<a class="pl-chip pl-chip--perf" href="' + _lfE(l.url) + '" target="_blank" rel="noopener"><i class="fa-solid fa-circle-play" aria-hidden="true"></i>Performance</a>';
+          }).join('') + '</div>' : '') +
+        '<div class="pl-special__acts">' +
+          '<button type="button" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.plView(this.dataset.id)" aria-label="Open"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
+          '<button type="button" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.plEditSpecial(this.dataset.id)" aria-label="Edit"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
+          '<button type="button" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.plDuplicate(this.dataset.id)" aria-label="Duplicate"><i class="fa-regular fa-copy" aria-hidden="true"></i></button>' +
+          '<button type="button" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.plRemove(this.dataset.id)" aria-label="Delete"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>' +
+        '</div></article>';
+    }).join('') + '</div>' : '<div class="sp-empty"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><h3>' + (items.length ? 'Nothing in this category' : 'No special planning for this date yet') + '</h3>' +
+      '<p>A special song or skit, a guest speaker, flowers, a banner. For a song: the YouTube video or audio to learn from, the chords found online, and afterwards the video of the performance.</p>' +
+      '<button type="button" class="lf-btn pl-btn-green" data-k="' + _lfE(_pl.cat || 'presentation') + '" onclick="LiturgyModule.plEditSpecial(\'\', this.dataset.k)"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Planning Item</span></button></div>';
+    return _plMissingNote() + _plDateBar() +
+      '<div class="pl-pagehd"><div><h2>Special Planning</h2><p>Special projects, arrangements, and service-specific preparations.</p></div>' +
+        '<div class="pl-pagehd__acts">' + _plCopyMenu('special', 'Copy from an earlier service') +
+          '<button type="button" class="lf-btn pl-btn-green" data-k="' + _lfE(_pl.cat || 'presentation') + '" onclick="LiturgyModule.plEditSpecial(\'\', this.dataset.k)"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Planning Item</span></button></div></div>' +
+      '<div class="pl-2">' + side + '<div class="pl-main">' + cards + '</div></div>';
+  }
+
+  // ── Checklist ────────────────────────────────────────────────────────
+  function _plCheckTab(occ, d) {
+    var wait = _plNoPlan();
+    if (wait) return wait;
+    var key = _plKey(), tasks = _plOf(_pl.rows, key, 'task'), notes = _plOf(_pl.rows, key, 'note');
+    var p = _plProgress(tasks), soon = _plDueSoon(tasks, _mvTodayIso(), 3);
+    var used = PL_CATS.filter(function(c) { return p.byCat[c.key]; });
+    var unused = PL_CATS.filter(function(c) { return !p.byCat[c.key]; });
+    var card = function(c) {
+      var mine = tasks.filter(function(t) { return t.category === c.key; }), pc = p.byCat[c.key] || { done: 0, total: 0, due: '' };
+      var nN = notes.filter(function(n) { return n.category === c.key; }).length;
+      return '<article class="pl-ck"><div class="pl-ck__hd"><i class="fa-solid ' + c.icon + '" aria-hidden="true"></i><h3>' + _lfE(c.label) + '</h3></div>' +
+        '<div class="pl-ck__bar"><span style="width:' + (pc.total ? Math.round(100 * pc.done / pc.total) : 0) + '%"></span></div><span class="pl-ck__n">' + pc.done + ' / ' + pc.total + '</span>' +
+        '<ul class="pl-ck__list">' + mine.map(function(t) {
+          return '<li class="' + (t.done ? 'is-done' : '') + '"><label><input type="checkbox"' + (t.done ? ' checked' : '') + ' data-id="' + _lfE(t.id) + '" onchange="LiturgyModule.plToggle(this.dataset.id, this.checked)">' +
+            '<span class="sr-only">Done</span></label><button type="button" class="pl-ck__t" data-id="' + _lfE(t.id) + '" onclick="LiturgyModule.plEditTask(this.dataset.id)">' + _lfE(t.title) +
+            (t.who ? ' <span class="pl-who">' + _lfE(t.who) + '</span>' : '') + (t.due && !t.done ? ' <span class="pl-due">' + _lfE(_mvShortDate(t.due).replace(/ \d{4}$/, '')) + '</span>' : '') + '</button></li>';
+        }).join('') + '</ul>' +
+        '<form class="pl-ck__add" data-k="' + c.key + '" onsubmit="event.preventDefault();LiturgyModule.plAddTask(this.dataset.k, this.querySelector(\'input\'))">' +
+          '<input type="text" placeholder="+ Add a task" maxlength="140" aria-label="A new task for ' + _lfE(c.label) + '"></form>' +
+        '<div class="pl-ck__ft"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' + (pc.due ? 'Due: ' + _lfE(_mvShortDate(pc.due)) : 'No due date') + '</span>' +
+          '<button type="button" class="pl-mini" data-k="' + c.key + '" onclick="LiturgyModule.plNotesFor(this.dataset.k)"><i class="fa-regular fa-file-lines" aria-hidden="true"></i> ' + nN + ' note' + (nN === 1 ? '' : 's') + ' <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div>' +
+      '</article>';
+    };
+    var usual = ((_memCache || {})[occ.id] || {}).specialElements || [];
+    var start = !tasks.length ? '<div class="pl-start"><p><b>Nothing on this date’s checklist yet.</b> Start it from:</p>' +
+        (usual.length ? '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.plFromUsual()"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>The usual ' + _lfE(occ.label) + ' list (' + usual.length + ')</span></button>' : '') +
+        _plCopyMenu('task', 'An earlier service’s checklist') + '<span class="pl-start__or">or add tasks in any category below.</span></div>' : '';
+    var grid = '<div class="pl-cks">' + used.map(card).join('') + (tasks.length ? '' : PL_CATS.slice(0, 8).map(card).join('')) + '</div>' +
+      (tasks.length && unused.length ? '<details class="pl-morecats"><summary>Other categories (' + unused.length + ')</summary><div class="pl-cks">' + unused.map(card).join('') + '</div></details>' : '');
+    var fromNotes = tasks.filter(function(t) { return t.note_id; }).length;
+    var right = '<aside class="pl-side">' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-bolt" aria-hidden="true"></i><h2>Quick Actions</h2></div><div class="pl-tools">' +
+        '<button type="button" class="pl-tool is-main" onclick="LiturgyModule.plShareChecklist()"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i>Share Checklist</button>' +
+        '<button type="button" class="pl-tool" onclick="LiturgyModule.plEditTask(\'\')"><i class="fa-solid fa-plus" aria-hidden="true"></i>Add Task</button>' +
+        (usual.length && tasks.length ? '<button type="button" class="pl-tool" onclick="LiturgyModule.plFromUsual()"><i class="fa-solid fa-list-check" aria-hidden="true"></i>Add the usual list</button>' : '') +
+        (tasks.length ? _plCopyMenu('task', 'Copy from an earlier service') : '') +
+      '</div></section>' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-regular fa-bell" aria-hidden="true"></i><h2>Reminders &amp; Alerts</h2></div>' +
+        (soon.length ? '<div class="pl-alert pl-alert--due"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><div><b>Due soon</b><small>' + soon.length + ' task' + (soon.length === 1 ? ' is' : 's are') + ' due by ' + _lfE(_mvShortDate(soon[soon.length - 1].due)) + '.</small>' +
+          '<ul>' + soon.slice(0, 4).map(function(t) { return '<li>' + _lfE(t.title) + (t.who ? ' – ' + _lfE(t.who) : '') + '</li>'; }).join('') + '</ul></div></div>' : '<p class="lf-muted">Nothing due in the next three days.</p>') +
+        (key ? '<div class="pl-alert pl-alert--svc"><i class="fa-regular fa-calendar-check" aria-hidden="true"></i><div><b>' + (d && d.next && d.next.key === key ? 'The service' : 'This plan') + '</b><small>' + _lfE(_lfLongDate(key)) + '</small></div></div>' : '') +
+      '</section>' +
+      '<section class="pl-card"><div class="pl-card__hd"><i class="fa-solid fa-book" aria-hidden="true"></i><h2>Planning Notes Summary</h2></div>' +
+        '<p class="pl-sum">' + notes.length + ' planning note' + (notes.length === 1 ? '' : 's') + ' for this date' + (fromNotes ? '; ' + fromNotes + ' task' + (fromNotes === 1 ? '' : 's') + ' came from them' : '') + '. Ticking a task here never changes a note.</p>' +
+        '<button type="button" class="lf-btn pl-wide" onclick="LiturgyModule.spTab(\'notes\')"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span>View Planning Notes</span></button></section>' +
+    '</aside>';
+    return _plMissingNote() + _plDateBar() +
+      '<div class="pl-pagehd"><div><h2>Service Preparation Checklist</h2><p>Who does what, and by when, for this service.</p></div>' +
+        '<div class="pl-progress"><span>Overall Progress</span><div class="pl-ck__bar pl-ck__bar--big"><span style="width:' + p.pct + '%"></span></div><b>' + p.pct + '%</b><small>' + p.done + ' / ' + p.total + ' Tasks</small></div></div>' +
+      start + '<div class="pl-2 pl-2--right"><div class="pl-main">' + grid + '</div>' + right + '</div>';
+  }
+  function plNotesFor(cat) { _pl.cat = cat; _sp.tab = 'notes'; renderService(); }
+  function plToggle(id, on) {
+    var t = (_pl.rows || []).filter(function(x) { return x.id === id; })[0];
+    if (!t) return;
+    t.done = !!on;
+    renderService();
+    _plPatch(id, { done: !!on }).then(function() { renderService(); }, function(e) { t.done = !on; _plFail('tick it')(e); });
+  }
+  function plAddTask(cat, input) {
+    var title = String((input && input.value) || '').trim();
+    if (!title) return;
+    var key = _plKey();
+    if (!key) { showToast('Choose the date to plan for first.', 'info'); return; }
+    input.value = '';
+    _plInsert([{ id: _plId(), occasion_id: _sp.occ, service_key: key, kind: 'task', category: cat, title: title.slice(0, 140), sort: Date.now() % 1000000 }])
+      .then(function() { renderService(); var again = document.querySelector('.pl-ck__add[data-k="' + cat + '"] input'); if (again) again.focus(); }, _plFail('add it'));
+  }
+  function plFromUsual() {
+    var key = _plKey(), list = _plFromElements((((_memCache || {})[_sp.occ]) || {}).specialElements || []);
+    if (!key || !list.length) return;
+    var have = {};
+    _plOf(_pl.rows, key, 'task').forEach(function(t) { have[String(t.title).toLowerCase()] = true; });
+    var rows = list.filter(function(x) { return !have[x.title.toLowerCase()]; }).map(function(x, i) {
+      return { id: _plId() + i, occasion_id: _sp.occ, service_key: key, kind: 'task', category: x.category, title: x.title, sort: i };
+    });
+    if (!rows.length) { showToast('The usual list is already on this checklist.', 'info'); return; }
+    _plInsert(rows).then(function(got) { showToast('Added ' + got.length + ' task' + (got.length === 1 ? '' : 's') + ' from the usual list', 'success'); renderService(); }, _plFail('add them'));
+  }
+  function plShareChecklist() {
+    var key = _plKey(), occ = getOccasionById(_sp.occ), tasks = _plOf(_pl.rows, key, 'task');
+    if (!tasks.length) { showToast('There is nothing on this checklist yet.', 'info'); return; }
+    var text = _plShareText((occ && occ.label) || 'Service', _lfLongDate(key), tasks);
+    _lfShareOpen({ title: 'the checklist', sub: _lfLongDate(key), link: _lfLink('occ:' + _sp.occ), words: text, linkText: text });
+  }
+
+  // ── The editors ──────────────────────────────────────────────────────
+  var _plEd = null;   // { kind, id, links, linked, files, added, drop, busy }
+  function _plRow(id) { return (_pl.rows || []).filter(function(x) { return x.id === id; })[0] || null; }
+  function _plOpts(list, sel) {
+    return list.map(function(o) { return '<option value="' + _lfE(o[0]) + '"' + (o[0] === sel ? ' selected' : '') + '>' + _lfE(o[1]) + '</option>'; }).join('');
+  }
+  function _plCatOpts(sel) { return _plOpts(PL_CATS.map(function(c) { return [c.key, c.label]; }), sel); }
+  function _plWhoList() {
+    var who = {}, d = _spData;
+    if (d && d.people) Object.keys(d.people).forEach(function(k) { String(d.people[k]).split('/').forEach(function(n) { if (n.trim()) who[n.trim()] = true; }); });
+    (_pl.rows || []).forEach(function(r) { if (r.who) who[r.who] = true; });
+    return '<datalist id="plWhoEd">' + Object.keys(who).sort().map(function(n) { return '<option value="' + _lfE(n) + '"></option>'; }).join('') + '</datalist>';
+  }
+  function _plModal(title, body, saveLabel, onSave, extraFoot) {
+    plEdClose(true);
+    var el = document.createElement('div');
+    el.id = 'plEd'; el.className = 'mv-ed pl-ed';
+    el.innerHTML = '<div class="mv-ed__card" role="dialog" aria-modal="true" aria-labelledby="plEdTtl">' +
+        '<div class="mv-ed__hd"><h2 id="plEdTtl">' + _lfE(title) + '</h2><button type="button" class="lf-vw__x" onclick="LiturgyModule.plEdClose()" aria-label="Close">&times;</button></div>' +
+        body + '<p id="plEdErr" class="mv-ed__err" role="alert" hidden></p>' +
+        '<div class="mv-ed__acts">' + (extraFoot || '') + '<button type="button" class="lf-btn" onclick="LiturgyModule.plEdClose()">Cancel</button>' +
+          (onSave ? '<button type="button" id="plEdSave" class="lf-btn pl-btn-green" onclick="LiturgyModule.' + onSave + '()">' + _lfE(saveLabel || 'Save') + '</button>' : '') + '</div>' +
+      '</div>';
+    el.addEventListener('click', function(e) { if (e.target === el) plEdClose(); });
+    el.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); plEdClose(); } });
+    document.body.appendChild(el);
+    var first = el.querySelector('input[type=text], textarea');
+    if (first) first.focus();
+  }
+  // Closing without saving takes away what was uploaded for it.
+  function plEdClose(quiet) {
+    if (_plEd && _plEd.added && _plEd.added.length && !_plEd.saved) {
+      _plEd.added.forEach(function(f) { try { if (f.path) deleteFromSupabase(f.path); } catch (e) {} });
+    }
+    var el = document.getElementById('plEd');
+    if (el) el.remove();
+    if (!quiet) _plEd = null;
+  }
+  function _plErr(msg) { var e = document.getElementById('plEdErr'); if (e) { e.textContent = msg || ''; e.hidden = !msg; } }
+  function _plVal(id) { var e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; }
+  function _plNeedKey() {
+    if (_plKey()) return true;
+    showToast('Choose the date to plan for first (the date box above).', 'info');
+    return false;
+  }
+  function _plSaving(on) {
+    var b = document.getElementById('plEdSave');
+    if (b) { b.disabled = !!on; if (on) b.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Saving…'; }
+    if (_plEd) _plEd.busy = !!on;
+  }
+
+  // The links on a note or an item: a list, and a row to add one.
+  function _plLinksField(help) {
+    return '<div class="mv-ed__lbl">Links</div>' + (help ? '<p class="pl-help">' + _lfE(help) + '</p>' : '') +
+      '<ul id="plEdLinks" class="pl-edlinks"></ul>' +
+      '<div class="pl-edlink"><select id="plLinkKind" aria-label="What the link is"><option value="">What is it?</option>' +
+        PL_LINK_KINDS.map(function(k) { return '<option value="' + k[0] + '">' + k[1] + '</option>'; }).join('') + '</select>' +
+        '<input id="plLinkUrl" type="url" placeholder="https://…" aria-label="The link" onkeydown="if(event.key===\'Enter\'){event.preventDefault();LiturgyModule.plEdAddLink();}">' +
+        '<input id="plLinkLabel" type="text" placeholder="Label (optional)" maxlength="60" aria-label="Its label">' +
+        '<button type="button" class="lf-btn" onclick="LiturgyModule.plEdAddLink()">Add</button></div>';
+  }
+  function _plEdLinksDraw() {
+    var ul = document.getElementById('plEdLinks');
+    if (!ul || !_plEd) return;
+    ul.innerHTML = _plEd.links.map(function(l, i) {
+      return '<li>' + _plLinkChip(l) + '<button type="button" class="pl-x" data-i="' + i + '" onclick="LiturgyModule.plEdDropLink(+this.dataset.i)" aria-label="Remove this link">&times;</button></li>';
+    }).join('');
+  }
+  function plEdAddLink() {
+    if (!_plEd) return;
+    var url = _plVal('plLinkUrl');
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    try { new URL(url); } catch (e) { _plErr('That is not a link.'); return; }
+    _plEd.links.push({ url: url, kind: _plVal('plLinkKind') || _plLinkKind(url), label: _plVal('plLinkLabel') });
+    ['plLinkUrl', 'plLinkLabel'].forEach(function(id) { var e = document.getElementById(id); if (e) e.value = ''; });
+    var k = document.getElementById('plLinkKind'); if (k) k.value = '';
+    _plErr('');
+    _plEdLinksDraw();
+  }
+  function plEdDropLink(i) { if (_plEd) { _plEd.links.splice(i, 1); _plEdLinksDraw(); } }
+
+  function plEditNote(id, preset) {
+    if (!_plNeedKey()) return;
+    var n = id ? _plRow(id) : null, key = _plKey();
+    var others = _plOf(_pl.rows, key, 'note').filter(function(x) { return x.id !== id; });
+    var p = preset || {};
+    _plEd = { kind: 'note', id: id || '', links: ((n && n.links) || p.links || []).filter(function(l) { return l.kind !== 'note'; }).slice(),
+      linked: ((n && n.links) || []).filter(function(l) { return l.kind === 'note'; }).map(function(l) { return l.url; }) };
+    var body = '<label class="mv-ed__lbl">Title<input id="plTitle" type="text" maxlength="120" value="' + _lfE((n && n.title) || p.title || '') + '"></label>' +
+      '<div class="pl-edgrid"><label class="mv-ed__lbl">Category<select id="plCat">' + _plCatOpts((n && n.category) || p.category || _pl.cat || 'decor') + '</select></label>' +
+        '<label class="mv-ed__lbl">Status<select id="plStatus">' + _plOpts(PL_STATUS, (n && n.status) || 'draft') + '</select></label>' +
+        '<label class="mv-ed__lbl">Due<input id="plDue" type="date" value="' + _lfE((n && n.due) || '') + '"></label></div>' +
+      '<label class="mv-ed__lbl">Notes<textarea id="plBody" rows="5" maxlength="4000">' + _lfE((n && n.body) || p.body || '') + '</textarea></label>' +
+      _plLinksField('A song to learn from, a chord chart, a picture to copy.') +
+      (others.length ? '<div class="mv-ed__lbl">Linked notes</div><div class="pl-linked">' + others.map(function(o) {
+        return '<label><input type="checkbox" class="plLinked" value="' + _lfE(o.id) + '"' + (_plEd.linked.indexOf(o.id) !== -1 ? ' checked' : '') + '>' + _lfE(o.title || 'Untitled') + '</label>';
+      }).join('') + '</div>' : '') +
+      '<label class="mv-ed__lbl">Tasks for the checklist <small>(one a line; each goes in this note’s category)</small><textarea id="plTasks" rows="3" placeholder="Order the flowers\nSet up the banner"></textarea></label>';
+    _plModal(n ? 'Edit planning note' : 'New planning note', body, 'Save note', 'plSaveNote');
+    _plEdLinksDraw();
+  }
+  function plSaveNote() {
+    var ed = _plEd;
+    if (!ed || ed.busy) return;
+    var title = _plVal('plTitle');
+    if (!title) { _plErr('Give the note a title.'); return; }
+    var cat = _plVal('plCat'), linked = Array.prototype.map.call(document.querySelectorAll('#plEd .plLinked:checked'), function(x) { return x.value; });
+    var fields = { title: title.slice(0, 120), category: cat, status: _plVal('plStatus') || 'draft', due: _plVal('plDue') || null, body: _plVal('plBody') || null,
+      links: ed.links.concat(linked.map(function(id) { return { kind: 'note', url: id }; })) };
+    var tasks = _plVal('plTasks').split('\n').map(function(t) { return t.replace(/^[-*•\s]+/, '').trim(); }).filter(Boolean);
+    _plSaving(true);
+    var key = _plKey();
+    var save = ed.id ? _plPatch(ed.id, fields) : _plInsert([Object.assign({ id: _plId(), occasion_id: _sp.occ, service_key: key, kind: 'note', sort: Date.now() % 1000000 }, fields)]).then(function(g) { return g[0]; });
+    save.then(function(note) {
+      if (!tasks.length) return note;
+      return _plInsert(tasks.map(function(t, i) {
+        return { id: _plId() + i, occasion_id: _sp.occ, service_key: key, kind: 'task', category: cat, title: t.slice(0, 140), note_id: note.id, sort: Date.now() % 1000000 + i };
+      })).then(function() { return note; });
+    }).then(function() {
+      ed.saved = true; plEdClose();
+      showToast(tasks.length ? 'Note saved, with ' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' on the checklist' : 'Note saved', 'success');
+      renderService();
+    }, function(e) { _plSaving(false); var b = document.getElementById('plEdSave'); if (b) b.textContent = 'Save note'; _plErr('Could not save it: ' + ((e && e.message) || e)); });
+  }
+
+  // A special planning item: what it is, who does it, its references, and
+  // afterwards the performance.
+  function plEditSpecial(id, cat) {
+    if (!_plNeedKey()) return;
+    var x = id ? _plRow(id) : null;
+    _plEd = { kind: 'special', id: id || '', links: ((x && x.links) || []).filter(function(l) { return l.kind !== 'performance'; }).slice(),
+      perfLink: (((x && x.links) || []).filter(function(l) { return l.kind === 'performance'; })[0] || {}).url || '',
+      files: ((x && x.files) || []).slice(), added: [], drop: [] };
+    var body = '<label class="mv-ed__lbl">Title<input id="plTitle" type="text" maxlength="120" placeholder="e.g. Special song: Way Maker (Youth)" value="' + _lfE((x && x.title) || '') + '"></label>' +
+      '<div class="pl-edgrid"><label class="mv-ed__lbl">Category<select id="plCat">' + _plCatOpts((x && x.category) || cat || 'presentation') + '</select></label>' +
+        '<label class="mv-ed__lbl">Status<select id="plStatus">' + _plOpts(PL_STATUS.slice(1), (x && x.status) || 'planned') + '</select></label>' +
+        '<label class="mv-ed__lbl">Due<input id="plDue" type="date" value="' + _lfE((x && x.due) || '') + '"></label></div>' +
+      '<label class="mv-ed__lbl">Who<input id="plWho" type="text" maxlength="80" list="plWhoEd" placeholder="Who is doing it" value="' + _lfE((x && x.who) || '') + '"></label>' + _plWhoList() +
+      '<label class="mv-ed__lbl">What it is<textarea id="plBody" rows="3" maxlength="4000">' + _lfE((x && x.body) || '') + '</textarea></label>' +
+      _plLinksField('For a song: the YouTube video or audio to learn from, and the chords you found online.') +
+      '<div class="mv-ed__lbl">Files <small>(scores, plans, pictures; up to 50 MB each)</small></div>' +
+      '<ul id="plEdFiles" class="pl-edlinks"></ul>' +
+      '<label class="lf-btn pl-filebtn"><i class="fa-solid fa-paperclip" aria-hidden="true"></i><span>Add a file</span><input type="file" hidden onchange="LiturgyModule.plEdFile(this, \'file\')"></label>' +
+      '<div class="pl-perf"><div class="mv-ed__lbl"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> The performance <small>(once it is done)</small></div>' +
+        '<p class="pl-help">Paste its YouTube or Google Drive link, or upload a video of up to 50 MB. A longer one is best put on YouTube (unlisted) or Drive.</p>' +
+        '<input id="plPerfLink" type="url" placeholder="https://youtu.be/… or a Drive link" value="' + _lfE(_plEd.perfLink) + '">' +
+        '<label class="lf-btn pl-filebtn"><i class="fa-solid fa-video" aria-hidden="true"></i><span>Upload the video</span><input type="file" accept="video/*" hidden onchange="LiturgyModule.plEdFile(this, \'performance\')"></label></div>';
+    _plModal(x ? 'Edit special planning item' : 'New special planning item', body, 'Save item', 'plSaveSpecial');
+    _plEdLinksDraw();
+    _plEdFilesDraw();
+  }
+  function _plEdFilesDraw() {
+    var ul = document.getElementById('plEdFiles');
+    if (!ul || !_plEd) return;
+    ul.innerHTML = _plEd.files.map(function(f, i) {
+      return '<li>' + _plFileChip(f) + (f.size ? '<small>' + Math.max(1, Math.round(f.size / 1048576)) + ' MB</small>' : '') +
+        '<button type="button" class="pl-x" data-i="' + i + '" onclick="LiturgyModule.plEdDropFile(+this.dataset.i)" aria-label="Remove this file">&times;</button></li>';
+    }).join('') || '';
+  }
+  function plEdFile(input, role) {
+    var file = input && input.files && input.files[0];
+    if (input) input.value = '';
+    if (!file || !_plEd) return;
+    var why = _plFileProblem(file);
+    if (why) { _plErr(why); return; }
+    if (role === 'performance' && !/^video\//.test(file.type || '') && !/\.(mp4|mov|webm|m4v)$/i.test(file.name || '')) { _plErr('The performance is a video file.'); return; }
+    var ed = _plEd;
+    _plErr('');
+    _plSaving(true);
+    var b = document.getElementById('plEdSave'); if (b) b.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Uploading ' + _lfE(file.name || 'the file') + '…';
+    _plUpload(file, role).then(function(f) {
+      if (_plEd !== ed) { try { deleteFromSupabase(f.path); } catch (e) {} return; }
+      if (role === 'performance') ed.files = ed.files.filter(function(x) { if (x.role === 'performance') { ed.drop.push(x); return false; } return true; });
+      ed.files.push(f); ed.added.push(f);
+      _plSaving(false); if (b) b.textContent = 'Save item';
+      _plEdFilesDraw();
+    }, function(e) { _plSaving(false); if (b) b.textContent = 'Save item'; _plErr('Could not upload it: ' + ((e && e.message) || e)); });
+  }
+  function plEdDropFile(i) {
+    if (!_plEd) return;
+    var f = _plEd.files.splice(i, 1)[0];
+    if (f) _plEd.drop.push(f);
+    _plEdFilesDraw();
+  }
+  function plSaveSpecial() {
+    var ed = _plEd;
+    if (!ed || ed.busy) return;
+    var title = _plVal('plTitle');
+    if (!title) { _plErr('Give it a title.'); return; }
+    var perf = _plVal('plPerfLink');
+    if (perf && !/^https?:\/\//i.test(perf)) perf = 'https://' + perf;
+    var links = ed.links.slice();
+    if (perf) links.push({ kind: 'performance', url: perf, label: 'Performance' });
+    var fields = { title: title.slice(0, 120), category: _plVal('plCat'), status: _plVal('plStatus') || 'planned', due: _plVal('plDue') || null,
+      who: _plVal('plWho') || null, body: _plVal('plBody') || null, links: links, files: ed.files };
+    _plSaving(true);
+    var save = ed.id ? _plPatch(ed.id, fields) : _plInsert([Object.assign({ id: _plId(), occasion_id: _sp.occ, service_key: _plKey(), kind: 'special', sort: Date.now() % 1000000 }, fields)]);
+    save.then(function() {
+      ed.saved = true;
+      // Files taken off are deleted only once the item that held them is saved.
+      ed.drop.forEach(function(f) { if (f.path && ed.added.indexOf(f) === -1) { try { deleteFromSupabase(f.path); } catch (e) {} } });
+      ed.drop.filter(function(f) { return ed.added.indexOf(f) !== -1; }).forEach(function(f) { try { deleteFromSupabase(f.path); } catch (e) {} });
+      plEdClose();
+      showToast('Saved', 'success');
+      renderService();
+    }, function(e) { _plSaving(false); var b = document.getElementById('plEdSave'); if (b) b.textContent = 'Save item'; _plErr('Could not save it: ' + ((e && e.message) || e)); });
+  }
+
+  function plEditTask(id, cat) {
+    if (!_plNeedKey()) return;
+    var t = id ? _plRow(id) : null, notes = _plOf(_pl.rows, _plKey(), 'note');
+    _plEd = { kind: 'task', id: id || '' };
+    var body = '<label class="mv-ed__lbl">Task<input id="plTitle" type="text" maxlength="140" value="' + _lfE((t && t.title) || '') + '"></label>' +
+      '<div class="pl-edgrid"><label class="mv-ed__lbl">Category<select id="plCat">' + _plCatOpts((t && t.category) || cat || 'followup') + '</select></label>' +
+        '<label class="mv-ed__lbl">Who<input id="plWho" type="text" maxlength="80" list="plWhoEd" placeholder="Who does it" value="' + _lfE((t && t.who) || '') + '"></label>' +
+        '<label class="mv-ed__lbl">Due<input id="plDue" type="date" value="' + _lfE((t && t.due) || '') + '"></label></div>' + _plWhoList() +
+      (notes.length ? '<label class="mv-ed__lbl">From the note<select id="plNote"><option value="">None</option>' +
+        notes.map(function(n) { return '<option value="' + _lfE(n.id) + '"' + (t && t.note_id === n.id ? ' selected' : '') + '>' + _lfE(n.title || 'Untitled') + '</option>'; }).join('') + '</select></label>' : '') +
+      '<label class="pl-donebox"><input id="plDone" type="checkbox"' + (t && t.done ? ' checked' : '') + '> Done</label>';
+    _plModal(t ? 'Edit task' : 'New task', body, 'Save task', 'plSaveTask',
+      t ? '<button type="button" class="lf-btn pl-del" data-id="' + _lfE(t.id) + '" onclick="LiturgyModule.plEdClose();LiturgyModule.plRemove(this.dataset.id)"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>Delete</span></button>' : '');
+  }
+  function plSaveTask() {
+    var ed = _plEd;
+    if (!ed || ed.busy) return;
+    var title = _plVal('plTitle');
+    if (!title) { _plErr('Say what the task is.'); return; }
+    var fields = { title: title.slice(0, 140), category: _plVal('plCat') || 'followup', who: _plVal('plWho') || null, due: _plVal('plDue') || null,
+      note_id: _plVal('plNote') || null, done: !!(document.getElementById('plDone') || {}).checked };
+    _plSaving(true);
+    var save = ed.id ? _plPatch(ed.id, fields) : _plInsert([Object.assign({ id: _plId(), occasion_id: _sp.occ, service_key: _plKey(), kind: 'task', sort: Date.now() % 1000000 }, fields)]);
+    save.then(function() { ed.saved = true; plEdClose(); showToast('Task saved', 'success'); renderService(); },
+      function(e) { _plSaving(false); var b = document.getElementById('plEdSave'); if (b) b.textContent = 'Save task'; _plErr('Could not save it: ' + ((e && e.message) || e)); });
+  }
+
+  // ── Reading one, copying one, taking one away ────────────────────────
+  function plView(id) {
+    var x = _plRow(id);
+    if (!x) return;
+    var c = _plCat(x.category), files = x.files || [], links = x.links || [];
+    var tasks = x.kind === 'note' ? _plOf(_pl.rows, x.service_key, 'task').filter(function(t) { return t.note_id === x.id; }) : [];
+    var media = files.map(function(f) {
+      var vid = /^video\//.test(f.type || '') || /\.(mp4|mov|webm|m4v)$/i.test(f.name || '');
+      var img = /^image\//.test(f.type || '') || /\.(jpe?g|png|webp|gif)$/i.test(f.name || '');
+      if (vid) return '<figure class="pl-media"><video controls preload="metadata" src="' + _lfE(f.url) + '"></video><figcaption>' + _lfE(f.role === 'performance' ? 'The performance' : f.name) + '</figcaption></figure>';
+      if (img) return '<figure class="pl-media"><img src="' + _lfE(f.url) + '" alt="" loading="lazy"><figcaption>' + _lfE(f.name) + '</figcaption></figure>';
+      return '';
+    }).join('');
+    var body = '<div class="pl-view"><p class="pl-note__meta"><span><i class="fa-solid ' + c.icon + '" aria-hidden="true"></i> ' + _lfE(c.label) + '</span>' +
+        (x.status ? '<span class="pl-pill pl-pill--' + _lfE(x.status) + '">' + _lfE(_plStatusLabel(x.status)) + '</span>' : '') +
+        (x.who ? '<span><i class="fa-solid fa-user" aria-hidden="true"></i> ' + _lfE(x.who) + '</span>' : '') +
+        (x.due ? '<span><i class="fa-regular fa-calendar" aria-hidden="true"></i> ' + _lfE(_mvShortDate(x.due)) + '</span>' : '') + '</p>' +
+      (x.body ? '<p class="pl-view__body">' + _lfE(x.body) + '</p>' : '') +
+      ((links.length || files.length) ? '<div class="pl-chips">' + links.filter(function(l) { return l.kind !== 'note'; }).map(function(l) {
+          return l.kind === 'performance' ? '<a class="pl-chip pl-chip--perf" href="' + _lfE(l.url) + '" target="_blank" rel="noopener"><i class="fa-solid fa-circle-play" aria-hidden="true"></i>Performance</a>' : _plLinkChip(l);
+        }).join('') + files.filter(function(f) { return !/^(video|image)\//.test(f.type || ''); }).map(_plFileChip).join('') + '</div>' : '') +
+      media +
+      (tasks.length ? '<div class="mv-ed__lbl">Its tasks</div><ul class="pl-viewtasks">' + tasks.map(function(t) {
+        return '<li class="' + (t.done ? 'is-done' : '') + '"><i class="fa-' + (t.done ? 'solid fa-square-check' : 'regular fa-square') + '" aria-hidden="true"></i>' + _lfE(t.title) + (t.who ? ' – ' + _lfE(t.who) : '') + '</li>';
+      }).join('') + '</ul>' : '') + '</div>';
+    _plEd = { kind: 'view', id: id };
+    _plModal(x.title || c.label, body, '', '', '<button type="button" class="lf-btn pl-btn-green" data-id="' + _lfE(id) + '" data-k="' + _lfE(x.kind) + '" onclick="LiturgyModule.plEdClose();LiturgyModule[this.dataset.k===\'note\'?\'plEditNote\':\'plEditSpecial\'](this.dataset.id)"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit</span></button>');
+  }
+  function plDuplicate(id) {
+    var x = _plRow(id);
+    if (!x) return;
+    var copy = _plCopyRows([x], x.service_key, function() { return _plId(); })[0];
+    copy.title = (x.title || '') + ' (copy)';
+    copy.status = x.status || null;
+    _plInsert([copy]).then(function() { showToast('Duplicated', 'success'); renderService(); }, _plFail('duplicate it'));
+  }
+  function plRemove(id) {
+    var x = _plRow(id);
+    if (!x) return;
+    var what = { note: 'planning note', special: 'special planning item', task: 'task', ref: 'reference' }[x.kind] || 'item';
+    var ask = window.lhcAskDelete ? window.lhcAskDelete({ title: 'Delete this ' + what + '?', detail: x.title || '', detailIcon: 'fa-note-sticky',
+      message: (x.files || []).length ? 'Its ' + x.files.length + ' file' + (x.files.length === 1 ? '' : 's') + ' are deleted too. This cannot be undone.' : 'This cannot be undone.', okLabel: 'Delete' })
+      : Promise.resolve(window.confirm('Delete "' + (x.title || what) + '"?'));
+    Promise.resolve(ask).then(function(yes) {
+      if (!yes) return;
+      _plDelete(id).then(function() {
+        (x.files || []).forEach(function(f) { try { if (f.path) deleteFromSupabase(f.path); } catch (e) {} });
+        showToast('Deleted', 'success');
+        renderService();
+      }, _plFail('delete it'));
+    });
+  }
+
+  // ── References brought in to plan with ───────────────────────────────
+  function plImportSong() {
+    if (!_plNeedKey()) return;
+    var lib = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+    _plEd = { kind: 'song' };
+    _plModal('Import from Songs', '<label class="mv-ed__lbl">Find a song<input id="plSongFind" type="text" placeholder="Type the start of its title" oninput="LiturgyModule.plSongFind(this.value)"></label>' +
+      '<ul id="plSongList" class="pl-songlist"></ul>' + (lib.length ? '' : '<p class="lf-muted">The song library has not loaded yet.</p>'), '', '');
+    plSongFind('');
+  }
+  function plSongFind(q) {
+    var ul = document.getElementById('plSongList');
+    if (!ul) return;
+    q = String(q || '').trim().toLowerCase();
+    var lib = ((window.LHC_STATE && window.LHC_STATE.songs) || []).filter(function(s) { return s && s.title && (!q || String(s.title).toLowerCase().indexOf(q) === 0); }).slice(0, 12);
+    ul.innerHTML = lib.map(function(s) {
+      return '<li><button type="button" data-id="' + _lfE(s.id) + '" onclick="LiturgyModule.plSongPick(this.dataset.id)"><i class="fa-solid fa-music" aria-hidden="true"></i><b>' + _lfE(s.title) + '</b>' +
+        (s.key ? '<small>Key of ' + _lfE(s.key) + '</small>' : '') + '</button></li>';
+    }).join('') || '<li class="lf-muted">No song starts with that.</li>';
+  }
+  // The first few lines of a song with its chords, as a reminder (pure).
+  function _plChordsExcerpt(lyrics) {
+    var out = [];
+    String(lyrics || '').replace(/\r/g, '').split('\n').some(function(l) {
+      if (/^\s*\[[^\]]*\]\s*$/.test(l)) return out.length > 0;
+      if (l.trim()) out.push(l.replace(/\s+$/, ''));
+      return out.length >= 6;
+    });
+    return out.join('\n');
+  }
+  function plSongPick(id) {
+    var s = ((window.LHC_STATE && window.LHC_STATE.songs) || []).filter(function(x) { return x && x.id === id; })[0];
+    if (!s) return;
+    var yt = (Array.isArray(s.youtube) ? s.youtube : [s.youtube]).filter(Boolean).map(function(u) { return { url: String(u), kind: 'video', label: 'Video' }; });
+    _plInsert([{ id: _plId(), occasion_id: _sp.occ, service_key: _plKey(), kind: 'ref', category: 'songs', title: s.title + (s.key ? ' · Key of ' + s.key : ''),
+      body: _plChordsExcerpt(s.lyrics) || null, links: yt, sort: Date.now() % 1000000 }])
+      .then(function() { plEdClose(); showToast('Imported “' + s.title + '”', 'success'); renderService(); }, function(e) { _plErr('Could not import it: ' + ((e && e.message) || e)); });
+  }
+  function plImportLink() {
+    if (!_plNeedKey()) return;
+    _plEd = { kind: 'reflink' };
+    _plModal('Import a reference link', '<label class="mv-ed__lbl">Link<input id="plRefUrl" type="url" placeholder="https://…"></label>' +
+      '<label class="mv-ed__lbl">Label <small>(optional)</small><input id="plRefLabel" type="text" maxlength="80" placeholder="e.g. Stage design ideas"></label>', 'Import', 'plSaveRefLink');
+  }
+  function plSaveRefLink() {
+    var url = _plVal('plRefUrl');
+    if (!url) { _plErr('Paste the link.'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    var host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { _plErr('That is not a link.'); return; }
+    var label = _plVal('plRefLabel'), kind = _plLinkKind(url);
+    _plSaving(true);
+    _plInsert([{ id: _plId(), occasion_id: _sp.occ, service_key: _plKey(), kind: 'ref', category: 'link', title: label || host,
+      links: [{ url: url, kind: kind, label: label || host }], sort: Date.now() % 1000000 }])
+      .then(function() { _plEd && (_plEd.saved = true); plEdClose(); showToast('Imported', 'success'); renderService(); }, function(e) { _plSaving(false); _plErr('Could not import it: ' + ((e && e.message) || e)); });
+  }
+  // A reference into a note: its links (and a song's chords) added to it.
+  function plRefToNote(refId) {
+    var r = _plRow(refId);
+    if (!r) return;
+    var notes = _plOf(_pl.rows, _plKey(), 'note');
+    _plEd = { kind: 'refnote', id: refId };
+    _plModal('Import “' + (r.title || 'the reference') + '” to a note', '<ul class="pl-songlist">' + notes.map(function(n) {
+      return '<li><button type="button" data-id="' + _lfE(n.id) + '" onclick="LiturgyModule.plRefInto(this.dataset.id)"><i class="fa-solid fa-note-sticky" aria-hidden="true"></i><b>' + _lfE(n.title || 'Untitled') + '</b></button></li>';
+    }).join('') + '<li><button type="button" onclick="LiturgyModule.plRefInto(\'\')"><i class="fa-solid fa-plus" aria-hidden="true"></i><b>A new note</b></button></li></ul>', '', '');
+  }
+  function plRefInto(noteId) {
+    var r = _plEd && _plRow(_plEd.id);
+    if (!r) return;
+    if (!noteId) {
+      plEdClose();
+      plEditNote('', { title: r.title, category: r.category === 'songs' ? 'songs' : 'decor', body: r.body || '', links: (r.links || []).slice() });
+      return;
+    }
+    var n = _plRow(noteId);
+    if (!n) return;
+    var links = (n.links || []).concat((r.links || []).filter(function(l) { return !(n.links || []).some(function(x) { return x.url === l.url; }); }));
+    var body = (n.body || '') + (r.body ? (n.body ? '\n\n' : '') + r.title + ':\n' + r.body : '');
+    _plPatch(noteId, { links: links, body: body || null }).then(function() { plEdClose(); showToast('Added to “' + n.title + '”', 'success'); renderService(); }, _plFail('add it'));
+  }
+
+  // ── The tabs ─────────────────────────────────────────────────────────
+  var _spGuideOpen = false;
+  function spTab(t) {
+    if (t === 'guide') { spGuide(); return; }
+    _sp.tab = t || 'order';
+    if (t !== 'order' && (_pl.occ !== _sp.occ || _pl.rows === null)) _plLoad(_sp.occ);
+    if (t !== 'order' && !_memCache) _allOccasionData().then(function(all) { _memCache = all || {}; renderService(); });
+    renderService();
+    var p = document.getElementById('liturgyServicePanel');
+    if (p && p.scrollIntoView && t !== 'order') p.scrollIntoView({ block: 'start' });
+  }
+  // The preparation guide still lives in the planning panel; it is opened
+  // there with the panel's own tabs hidden, and its back button comes back.
+  function spGuide() {
+    var occ = _sp.occ;
+    _spGuideOpen = true;
+    try { selectOccasion(occ); } finally { _spGuideOpen = false; }
+    _spBack = occ;
+    switchOccasionTab('prepare');
+  }
+
   // ── Moving about ─────────────────────────────────────────────────────
   function spBack() { if (_sp.from === 'hub') openHub(); else openServices(); }
   function spPart(i) { _sp.part = Math.max(0, +i || 0); _sp.slide = 0; renderService(); _spRevealPreview(); }
@@ -104769,15 +105792,6 @@ var LiturgyModule = (function() {
     if (typeof syncFromBackend === 'function') Promise.resolve(syncFromBackend()).then(done, done); else done();
   }
   function spShare() { _lfShareOpen(_lfFolderModel(_sp.occ, '')); }
-  // The planning tabs are the service's planning panel, as before; its back
-  // button comes back here.
-  function spTab(t) {
-    if (t === 'order') return;
-    var occ = _sp.occ;
-    selectOccasion(occ);
-    _spBack = occ;
-    switchOccasionTab(t);
-  }
   function spProject(id) { if (id) _llOpenInLcd(id); }
   function spUse(id) {
     var d = _spData, orderId = d && d.order && d.order.id;
@@ -105553,9 +106567,7 @@ var LiturgyModule = (function() {
   function lfPlanning() {
     var m = /^occ:(.+)$/.exec(_lf.sel);
     if (!m) return;
-    var year = _lf.year;
-    selectOccasion(m[1]);
-    if (year && typeof selectOccFolder === 'function') selectOccFolder(year);
+    openService(m[1], 'services', 'notes');
   }
   function lfOpenDay(key) {
     var day = SBQ_READINGS.keyDate(key);
@@ -108011,6 +109023,11 @@ var LiturgyModule = (function() {
 
   function selectOccasion(occasionId) {
     _lfHide();
+    // A service is its own page now (the operator, 2026-11-14: one Liturgy
+    // Order, not two). This panel is kept only for the preparation guide.
+    if (occasionId && !_spGuideOpen && getOccasionById(occasionId)) { openService(occasionId); return; }
+    var guidePanel = document.getElementById('liturgyOccasionPanel');
+    if (guidePanel) guidePanel.classList.toggle('lit-occ--guide', !!occasionId);
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
@@ -111703,6 +112720,13 @@ var LiturgyModule = (function() {
     mvCloseEdit: mvCloseEdit, mvSaveEdit: mvSaveEdit, mvPhoto: mvPhoto, mvLightStep: mvLightStep, mvLightClose: mvLightClose,
     mvShare: mvShare, mvOpenOrder: mvOpenOrder, mvOpenSongbook: mvOpenSongbook,
     openService: openService, renderService: renderService, spBack: spBack, spPart: spPart, spSlide: spSlide, spSrc: spSrc,
+    spZoom: spZoom, spEdit: spEdit, spCopyPart: spCopyPart, spReady: spReady, spFull: spFull, spFullClose: spFullClose, spAddMenu: spAddMenu,
+    spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
+    plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
+    plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
+    plEdDropFile: plEdDropFile, plSaveSpecial: plSaveSpecial, plEditTask: plEditTask, plSaveTask: plSaveTask, plView: plView,
+    plDuplicate: plDuplicate, plRemove: plRemove, plImportSong: plImportSong, plSongFind: plSongFind, plSongPick: plSongPick,
+    plImportLink: plImportLink, plSaveRefLink: plSaveRefLink, plRefToNote: plRefToNote, plRefInto: plRefInto,
     spResTab: spResTab, spYear: spYear, spSync: spSync, spShare: spShare, spTab: spTab, spProject: spProject, spUse: spUse,
     spExport: spExport, spMark: spMark, spDeleteReady: spDeleteReady, spUploadDoc: spUploadDoc, spConvert: spConvert,
     cvClose: cvClose, cvRetry: cvRetry, cvHow: cvHow, cvSet: cvSet, cvSec: cvSec, cvPart: cvPart, cvSave: cvSave,
@@ -120299,6 +121323,318 @@ function filterLiturgyItems() {
     .cv-fields .mv-ed__lbl:last-child { grid-column: 1 / -1; }
     .cv-parts { margin-left: 8px; }
     .cv-sec__to { flex-basis: 100%; }
+  }
+
+  /* ===== A SERVICE'S PAGE, IN THE GREEN DESIGN (2026-11-14) =====
+     The operator's drawings of the Liturgy Order, Planning Notes, Special
+     Planning and Checklist tabs: a deep green banner with a gold cross, the
+     date strip, white cards on parchment. */
+  .pl { --pl-green: #1f4d36; --pl-green-2: #163b2a; --pl-gold: #c9a24a; --pl-cream: #fbf7ef; --pl-line: #e8dfcd; }
+  .pl-hero { position: relative; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: -6px -6px 0; padding: 18px 22px 20px;
+    border-radius: 16px 16px 0 0; color: #fff; overflow: hidden;
+    background: radial-gradient(circle at 88% 20%, rgba(232, 196, 120, 0.28), transparent 42%), linear-gradient(120deg, var(--pl-green-2), var(--pl-green) 60%, #2c6b49); }
+  .pl-hero__t { min-width: 0; flex: 1 1 320px; }
+  .pl-hero__back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px; padding: 0; border: 0; background: none; color: rgba(255, 255, 255, 0.82);
+    font: 600 0.82rem 'Poppins', sans-serif; cursor: pointer; }
+  .pl-hero__over { display: block; font: 700 0.72rem 'Poppins', sans-serif; letter-spacing: 0.18em; text-transform: uppercase; color: var(--pl-gold); }
+  .pl-hero__name { display: flex; align-items: center; gap: 14px; margin-top: 2px; }
+  .pl-hero__cross { font-size: 2.2rem; color: var(--pl-gold); filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3)); }
+  .pl-hero__name h1 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 2rem; line-height: 1.1; color: #fff; }
+  .pl-hero__name p { margin: 4px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; opacity: 0.9; }
+  .pl-hero__acts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pl-hbtn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06); color: #fff; font: 600 0.9rem 'Poppins', sans-serif; cursor: pointer; }
+  .pl-hbtn:hover { background: rgba(255, 255, 255, 0.14); }
+  .pl-hbtn--gold { background: #e9b949; border-color: #e9b949; color: #2b1d05; }
+  .pl-hbtn--gold:hover { background: #f1c45c; }
+  .pl-add { position: relative; }
+  .pl-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 250px; padding: 6px; border-radius: 12px; background: #fff; border: 1px solid var(--pl-line);
+    box-shadow: 0 16px 36px rgba(20, 30, 20, 0.2); }
+  .pl-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 0 12px; border: 0; border-radius: 8px; background: none;
+    color: #2a2118; font: 500 0.9rem 'Poppins', sans-serif; text-align: left; cursor: pointer; }
+  .pl-menu button:hover { background: #eef5ef; }
+  .pl-menu i { width: 18px; text-align: center; color: var(--pl-green); }
+  .pl-tabs { display: flex; gap: 6px; margin: 0 -6px 14px; padding: 0 14px; background: #fff; border-bottom: 1px solid var(--pl-line); border-radius: 0 0 14px 14px;
+    overflow-x: auto; scrollbar-width: none; }
+  .pl-tabs::-webkit-scrollbar { display: none; }
+  .pl-tab { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; min-height: 54px; padding: 0 16px; border: 0; border-bottom: 3px solid transparent; background: none;
+    color: #4b4034; font: 500 1rem 'Playfair Display', Georgia, serif; cursor: pointer; }
+  .pl-tab i { color: #6b5f50; }
+  .pl-tab.is-on { color: #1d1a14; font-weight: 700; border-bottom-color: var(--pl-gold); }
+  .pl-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 0; margin: 0 0 16px; padding: 12px 6px; border-radius: 14px; border: 1px solid var(--pl-line);
+    background: linear-gradient(90deg, #fbf6ec, #f4ecdc); }
+  .pl-strip--none { grid-template-columns: minmax(0, 1fr); }
+  .pl-strip > .lf-muted { padding: 0 12px; }
+  .pl-strip__c { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 4px 16px; border-right: 1px solid var(--pl-line); }
+  .pl-strip__c:last-child { border-right: 0; }
+  .pl-strip__c > i { font-size: 1.5rem; color: var(--pl-green); flex-shrink: 0; }
+  .pl-strip__c div { display: flex; flex-direction: column; min-width: 0; }
+  .pl-strip__c small { font: 600 0.78rem 'Poppins', sans-serif; color: #2a2118; }
+  .pl-strip__c b { font-weight: 400; font-size: 0.92rem; color: #4b4034; overflow-wrap: anywhere; }
+  .pl-strip__c span { font-size: 0.8rem; color: #8a7a66; }
+  .pl-strip__bar { font-style: normal; color: #c7b99e; margin: 0 4px; }
+  .pl-card { padding: 14px; border-radius: 14px; background: #fff; border: 1px solid var(--pl-line); box-shadow: 0 6px 18px rgba(60, 40, 10, 0.05); }
+  .pl-card__hd { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+  .pl-card__hd > i { color: var(--pl-green); }
+  .pl-card__hd h2 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.2rem; color: #1d1a14; }
+  .pl-card__hd small { display: block; font-size: 0.82rem; color: #8a7a66; font-style: italic; }
+  .pl-card__hd .pl-mini, .pl-card__hd .mv-count { margin-left: auto; }
+  .pl-mini { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--pl-line); background: #fff;
+    color: #3d3226; font: 600 0.8rem 'Poppins', sans-serif; cursor: pointer; white-space: nowrap; }
+  .pl-mini:hover { border-color: #cdbf9f; }
+  .lf-btn.pl-btn-green { background: var(--pl-green); border-color: var(--pl-green); color: #fff; }
+  .lf-btn.pl-btn-green:hover { background: var(--pl-green-2); }
+  .pl-cols { display: grid; grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.3fr) minmax(250px, 0.85fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+  .pl-src select { width: 100%; min-height: 40px; margin: 0 0 10px; padding: 0 10px; border: 1px solid var(--pl-line); border-radius: 10px; background: var(--pl-cream);
+    font: 600 0.84rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-ow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 620px; overflow: auto; }
+  .pl-ow__row { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 4px; border-radius: 10px; border: 1px solid #efe7d8; background: #fff; }
+  .pl-ow__row.is-on { background: #e8f2e9; border-color: #b9d6bf; }
+  .pl-ow__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 4px; border: 0; background: none; text-align: left; cursor: pointer; color: #1d1a14; }
+  .pl-ow__no { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; background: #f3ead8;
+    font: 700 0.78rem 'Poppins', sans-serif; color: #7a5b1f; }
+  .pl-ow__t { min-width: 0; display: flex; flex-direction: column; }
+  .pl-ow__t b { font: 600 0.92rem 'Poppins', sans-serif; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pl-ow__t small { font-size: 0.74rem; color: #8a7a66; }
+  .pl-ow__acts { display: flex; gap: 2px; flex-shrink: 0; }
+  .pl-ow__acts button { width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: #3d3226; cursor: pointer; }
+  .pl-ow__acts button:hover { background: #f3ead8; }
+  .pl-text__hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
+  .pl-text__hd small { font: 700 0.74rem 'Poppins', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #a8741f; }
+  .pl-text__hd h2 { margin: 2px 0 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.6rem; color: #1d1a14; }
+  .pl-text__acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pl-lt { padding: 18px 22px; border-radius: 12px; border: 1px solid #ece2cf; background: linear-gradient(180deg, #fffdf8, #fbf6ec); font-size: calc(1rem * var(--pl-zoom, 1)); }
+  .pl-lt__orn { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 0 12px; color: #c9a24a; }
+  .pl-lt__orn span { flex: 0 1 120px; height: 1px; background: #d8c08a; }
+  .pl-lt__orn--end { margin: 12px 0 0; }
+  .pl-lt__orn--end span { flex-basis: 220px; }
+  .pl-lt__row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; margin: 0 0 14px; line-height: 1.55; color: #2a2118; }
+  .pl-lt__who { font-weight: 700; color: #3d3226; }
+  .pl-lt__row.is-people .pl-lt__txt { font-weight: 700; color: #1d1a14; }
+  .pl-lt--song { font-size: 0.95rem; line-height: 1.55; max-height: 460px; overflow: auto; }
+  .pl-text__ft { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .pl-pager { display: inline-flex; align-items: center; gap: 4px; padding: 3px; border-radius: 10px; border: 1px solid var(--pl-line); background: #fff; }
+  .pl-pager button, button.pl-pager--one { width: 34px; height: 34px; border: 0; border-radius: 8px; background: none; color: #3d3226; cursor: pointer; }
+  button.pl-pager--one { width: 42px; height: 42px; border: 1px solid var(--pl-line); background: #fff; }
+  .pl-pager button:disabled { opacity: 0.35; cursor: default; }
+  .pl-pager b { min-width: 52px; text-align: center; font: 600 0.84rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-tiles { display: flex; flex-direction: column; gap: 10px; }
+  .pl-tile { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 76px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--pl-line); background: #fff;
+    text-align: left; cursor: pointer; box-shadow: 0 6px 18px rgba(60, 40, 10, 0.05); }
+  .pl-tile:hover { border-color: #b9d6bf; }
+  .pl-tile__ic { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; flex-shrink: 0; border-radius: 12px; background: var(--pl-green); color: #fff; font-size: 1.2rem; }
+  .pl-tile__t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pl-tile__t b { font-family: 'Playfair Display', Georgia, serif; font-size: 1.02rem; color: #1d1a14; }
+  .pl-tile__t small { font-size: 0.78rem; color: #8a7a66; }
+  .pl-tile__n { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 26px; padding: 0 8px; border-radius: 999px; background: #f6e7c4;
+    font: 700 0.8rem 'Poppins', sans-serif; color: #7a5b1f; }
+  .pl-tile__go { color: #8a7a66; }
+  .pl-full { position: fixed; inset: 0; z-index: 10050; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 60px 70px;
+    background: radial-gradient(circle at 70% 80%, rgba(240, 160, 70, 0.45), transparent 55%), linear-gradient(180deg, #23303d, #3d2f25); }
+  .pl-full__slide { max-width: 1100px; color: #fff; text-align: center; font: 700 clamp(1.2rem, 3.2vw, 2.6rem) 'Lato', sans-serif; line-height: 1.5; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); }
+  .pl-full__cap { margin: 0; color: rgba(255, 255, 255, 0.7); font-size: 0.9rem; }
+  /* Plans */
+  .pl-date { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid var(--pl-line); }
+  .pl-date__nav { width: 40px; height: 40px; border: 1px solid var(--pl-line); border-radius: 10px; background: #fff; color: #3d3226; cursor: pointer; }
+  .pl-date__nav:disabled { opacity: 0.35; cursor: default; }
+  .pl-date__t { flex: 1 1 200px; display: flex; flex-direction: column; min-width: 0; }
+  .pl-date__t small { font: 600 0.72rem 'Poppins', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: #a8741f; }
+  .pl-date__t b { font-family: 'Playfair Display', Georgia, serif; font-size: 1.05rem; color: #1d1a14; }
+  .pl-date__pick input { min-height: 40px; padding: 0 10px; border: 1px solid var(--pl-line); border-radius: 10px; font: 500 0.88rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-3 { display: grid; grid-template-columns: 260px minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+  .pl-2 { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .pl-2--right { grid-template-columns: minmax(0, 1fr) 290px; }
+  .pl-left, .pl-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .pl-main { min-width: 0; }
+  .pl-tools { display: flex; flex-direction: column; gap: 8px; }
+  .pl-tool { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--pl-line); background: #fff;
+    color: #2a2118; font: 600 0.88rem 'Poppins', sans-serif; text-align: left; cursor: pointer; }
+  .pl-tool i { width: 18px; text-align: center; color: var(--pl-green); }
+  .pl-tool.is-main { background: #e8f2e9; border-color: #b9d6bf; }
+  .pl-tool:hover { border-color: #b9d6bf; }
+  .pl-tools .pl-copy { width: 100%; }
+  .pl-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .pl-ref { padding: 10px; border-radius: 10px; background: var(--pl-cream); border: 1px solid #efe6d4; }
+  .pl-ref__hd { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+  .pl-ref__hd b { flex: 1 1 calc(100% - 30px); min-width: 0; font-size: 0.88rem; }
+  .pl-ref__hd .pl-mini { margin-left: 24px; }
+  .pl-ref__hd i { color: var(--pl-green); }
+  .pl-ref__chords { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: #fff; font: 0.74rem/1.45 ui-monospace, Consolas, monospace; color: #3d3226; white-space: pre-wrap; overflow-x: auto; }
+  .pl-x { width: 30px; height: 30px; flex-shrink: 0; border: 0; border-radius: 8px; background: none; color: #8a7a66; font-size: 1.1rem; cursor: pointer; }
+  .pl-x:hover { background: #f3ead8; color: #9b1c1c; }
+  .pl-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+  .pl-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: #f3ead8; }
+  .pl-seg button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: #4b4034;
+    font: 600 0.84rem 'Poppins', sans-serif; cursor: pointer; }
+  .pl-seg button.is-on { background: var(--pl-green); color: #fff; }
+  .pl-find { position: relative; flex: 1 1 180px; display: flex; align-items: center; }
+  .pl-find i { position: absolute; left: 12px; color: #8a7a66; pointer-events: none; }
+  .pl-find input, .pl-filter select, .pl-copy select { width: 100%; min-height: 40px; padding: 0 12px 0 34px; border: 1px solid var(--pl-line); border-radius: 10px; background: #fff;
+    font: 500 0.86rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-filter select { padding-left: 10px; }
+  .pl-copy { position: relative; display: inline-flex; align-items: center; min-width: 210px; }
+  .pl-copy i { position: absolute; left: 12px; color: var(--pl-green); pointer-events: none; }
+  .pl-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .pl-notes--list { grid-template-columns: minmax(0, 1fr); }
+  .pl-note, .pl-special { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--pl-line);
+    border-left: 4px solid var(--pl-gold); }
+  .pl-note__hd { display: flex; align-items: flex-start; gap: 10px; }
+  .pl-note__hd h3 { flex: 1; min-width: 0; margin: 2px 0 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.05rem; color: #1d1a14; }
+  .pl-note__ic { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; background: #fbf1dc; color: #a8741f; }
+  .pl-note__ic--big { width: 44px; height: 44px; border-radius: 12px; background: var(--pl-green); color: #fff; font-size: 1.1rem; }
+  .pl-note__acts, .pl-special__acts { display: flex; gap: 2px; flex-shrink: 0; }
+  .pl-note__acts button, .pl-special__acts button { width: 30px; height: 30px; border: 0; border-radius: 7px; background: none; color: #4b4034; cursor: pointer; }
+  .pl-note__acts button:hover, .pl-special__acts button:hover { background: #f3ead8; }
+  .pl-special__acts { justify-content: flex-end; margin-top: auto; }
+  .pl-note__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; font-size: 0.8rem; color: #6b5f50; }
+  .pl-note__body { margin: 0; font-size: 0.88rem; line-height: 1.45; color: #3d3226; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .pl-note__linked { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--pl-cream); font-size: 0.78rem; color: #6b5f50; }
+  .pl-pill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font: 700 0.72rem 'Poppins', sans-serif; background: #eee7da; color: #5c4d3c; }
+  .pl-pill--progress { background: #fbecc8; color: #8a5a00; }
+  .pl-pill--planned { background: #e3f0e6; color: #1f5d36; }
+  .pl-pill--ready { background: #d6efdd; color: #0b5d36; }
+  .pl-pill--draft { background: #eee7da; color: #5c4d3c; }
+  .pl-done { color: #0b5d36; font-weight: 700; }
+  .pl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pl-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--pl-line); background: #fff;
+    color: #3d3226; font: 500 0.78rem 'Poppins', sans-serif; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pl-chip--video i { color: #e11d48; }
+  .pl-chip--audio i { color: #7c3aed; }
+  .pl-chip--chords i { color: #a8741f; }
+  .pl-chip--perf { background: #e8f2e9; border-color: #b9d6bf; color: #0b5d36; font-weight: 700; }
+  .pl-kept { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--pl-line); }
+  .pl-kept summary { cursor: pointer; font: 600 0.9rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-kept .lit-mem-grid { margin-top: 10px; }
+  .pl-files { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pl-files button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; }
+  .pl-files button:hover { background: var(--pl-cream); }
+  .pl-files span { min-width: 0; display: flex; flex-direction: column; }
+  .pl-files b { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2a2118; }
+  .pl-files small { font-size: 0.74rem; color: #8a7a66; }
+  .lf-btn.pl-wide { width: 100%; justify-content: center; border-style: dashed; border-color: #b9d6bf; color: var(--pl-green); }
+  .pl-pagehd { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+  .pl-pagehd h2 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.6rem; color: #1d1a14; }
+  .pl-pagehd p { margin: 2px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; color: #6b5f50; }
+  .pl-pagehd__acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pl-cats { display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+  .pl-cats__hd { margin: 4px 8px 6px; font: 700 0.72rem 'Poppins', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: #8a7a66; }
+  .pl-cat { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: #2a2118;
+    font: 500 0.86rem 'Poppins', sans-serif; text-align: left; cursor: pointer; }
+  .pl-cat i { width: 18px; text-align: center; color: var(--pl-green); }
+  .pl-cat span { margin-left: auto; padding: 1px 8px; border-radius: 999px; background: #f3ead8; font-size: 0.74rem; font-weight: 700; color: #6b5f50; }
+  .pl-cat.is-on { background: #e8f2e9; font-weight: 700; }
+  .pl-specials { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .pl-special { border-left-color: var(--pl-green); }
+  .pl-special__hd { display: flex; align-items: flex-start; gap: 12px; }
+  .pl-special__t { flex: 1; min-width: 0; }
+  .pl-special__t h3 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.1rem; color: #1d1a14; }
+  .pl-special__t small { font-size: 0.78rem; color: #8a7a66; }
+  .pl-progress { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 600 0.86rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-progress small { color: #6b5f50; }
+  .pl-ck__bar { position: relative; height: 8px; border-radius: 999px; background: #ece4d4; overflow: hidden; flex: 1 1 auto; }
+  .pl-ck__bar span { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, #1f6b3a, #3f9b5f); }
+  .pl-ck__bar--big { flex: 0 1 200px; min-width: 140px; height: 10px; }
+  .pl-start { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: #fff7e6; border: 1px solid #f0dcae; }
+  .pl-start p { margin: 0; }
+  .pl-start__or { font-size: 0.84rem; color: #6b5f50; }
+  .pl-cks { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .pl-ck { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; gap: 6px 10px; padding: 12px; border-radius: 12px; background: #fff; border: 1px solid var(--pl-line); }
+  .pl-ck__hd { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+  .pl-ck__hd i { font-size: 1.2rem; color: #a8741f; }
+  .pl-ck__hd h3 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 1.02rem; color: #1d1a14; }
+  .pl-ck > .pl-ck__bar { align-self: center; }
+  .pl-ck__n { font: 600 0.78rem 'Poppins', sans-serif; color: #6b5f50; }
+  .pl-ck__list { grid-column: 1 / -1; list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .pl-ck__list li { display: flex; align-items: flex-start; gap: 6px; }
+  .pl-ck__list label { display: inline-flex; align-items: center; min-height: 30px; }
+  .pl-ck__list input { width: 18px; height: 18px; accent-color: #1f6b3a; }
+  .pl-ck__t { flex: 1; min-width: 0; padding: 5px 0; border: 0; background: none; text-align: left; cursor: pointer; font: 400 0.86rem 'Lato', sans-serif; color: #2a2118; }
+  .pl-ck__list li.is-done .pl-ck__t { color: #8a7a66; text-decoration: line-through; }
+  .pl-who { display: inline-block; padding: 0 6px; border-radius: 6px; background: #e8f2e9; color: #1f5d36; font: 600 0.72rem 'Poppins', sans-serif; text-decoration: none; }
+  .pl-due { display: inline-block; padding: 0 6px; border-radius: 6px; background: #fbecc8; color: #8a5a00; font: 600 0.72rem 'Poppins', sans-serif; }
+  .pl-ck__add { grid-column: 1 / -1; }
+  .pl-ck__add input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px dashed #d8ccb6; border-radius: 8px; background: var(--pl-cream); font: 400 16px 'Lato', sans-serif; color: #2a2118; }
+  .pl-ck__ft { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; margin-top: 2px; border-top: 1px solid #f0e8d8;
+    font-size: 0.78rem; color: #6b5f50; }
+  .pl-morecats { margin-top: 14px; }
+  .pl-morecats summary { cursor: pointer; font: 600 0.86rem 'Poppins', sans-serif; color: #3d3226; }
+  .pl-morecats .pl-cks { margin-top: 10px; }
+  .pl-alert { display: flex; gap: 10px; margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; }
+  .pl-alert b { display: block; font: 700 0.88rem 'Poppins', sans-serif; }
+  .pl-alert small { font-size: 0.8rem; }
+  .pl-alert ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
+  .pl-alert--due { background: #fff4dc; color: #7a4d00; }
+  .pl-alert--svc { background: #e8f2e9; color: #1f5d36; }
+  .pl-sum { margin: 0 0 10px; font-size: 0.86rem; color: #4b4034; line-height: 1.45; }
+  /* The editors */
+  .pl-ed .mv-ed__card { max-width: 640px; }
+  .pl-edgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .pl-help { margin: 2px 0 6px; font-size: 0.8rem; color: #8a7a66; }
+  .pl-edlinks { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pl-edlinks li { display: flex; align-items: center; gap: 8px; }
+  .pl-edlinks li small { font-size: 0.74rem; color: #8a7a66; }
+  .pl-edlink { display: grid; grid-template-columns: 150px minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 6px; }
+  .pl-edlink select, .pl-edlink input, .pl-perf input { min-height: 42px; padding: 0 10px; border: 1px solid #e3d6bf; border-radius: 10px; background: #fff; font: 400 16px 'Lato', sans-serif; color: #2a2118; min-width: 0; }
+  .pl-filebtn { margin-top: 4px; cursor: pointer; }
+  .pl-perf { margin-top: 14px; padding: 12px; border-radius: 12px; background: #eef6ef; border: 1px solid #cfe5d5; }
+  .pl-perf input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
+  .pl-linked { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.88rem; }
+  .pl-linked label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
+  .pl-donebox { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; font: 600 0.9rem 'Poppins', sans-serif; }
+  .pl-donebox input { width: 20px; height: 20px; accent-color: #1f6b3a; }
+  .lf-btn.pl-del { margin-right: auto; color: #9b1c1c; }
+  .pl-view__body { margin: 10px 0; white-space: pre-line; line-height: 1.55; color: #2a2118; }
+  .pl-media { margin: 10px 0 0; }
+  .pl-media video, .pl-media img { display: block; width: 100%; max-height: 360px; border-radius: 10px; background: #111; object-fit: contain; }
+  .pl-media figcaption { margin-top: 4px; font-size: 0.78rem; color: #6b5f50; }
+  .pl-viewtasks { list-style: none; margin: 4px 0 0; padding: 0; font-size: 0.88rem; }
+  .pl-viewtasks li { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+  .pl-viewtasks li.is-done { color: #8a7a66; text-decoration: line-through; }
+  .pl-songlist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow: auto; }
+  .pl-songlist button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #efe6d4; border-radius: 10px; background: #fff;
+    text-align: left; cursor: pointer; color: #2a2118; }
+  .pl-songlist button:hover { background: #eef6ef; }
+  .pl-songlist i { color: var(--pl-green); }
+  .pl-songlist small { margin-left: auto; color: #8a7a66; }
+  /* The planning panel, opened only for its preparation guide */
+  #liturgyOccasionPanel.lit-occ--guide .lit-occ-tab:not(#litOccTabPrepare), #liturgyOccasionPanel.lit-occ--guide #litOccFolderBar { display: none !important; }
+  @media (max-width: 1280px) {
+    .pl-cols { grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.3fr); }
+    .pl-tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .pl-3 { grid-template-columns: 240px minmax(0, 1fr); }
+    .pl-3 > .pl-side { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .pl-2--right { grid-template-columns: minmax(0, 1fr); }
+    .pl-2--right > .pl-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  }
+  @media (max-width: 900px) {
+    .pl-cols, .pl-3, .pl-2 { grid-template-columns: minmax(0, 1fr); }
+    .pl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+    .pl-strip__c:nth-child(2) { border-right: 0; }
+    .pl-cats { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+    .pl-cats .pl-cat { flex-shrink: 0; }
+    .pl-cats__hd { display: none; }
+  }
+  @media (max-width: 768px) {
+    .pl-hero { margin: 0 -16px; padding: 14px 16px 16px; border-radius: 0; }
+    .pl-hero__name h1 { font-size: 1.45rem; }
+    .pl-hero__cross { font-size: 1.6rem; }
+    .pl-hero__acts { width: 100%; }
+    .pl-hbtn { flex: 1 1 auto; justify-content: center; padding: 0 10px; }
+    .pl-tabs { margin: 0 -16px 12px; border-radius: 0; padding: 0 8px; }
+    .pl-tab { font-size: 0.92rem; padding: 0 10px; }
+    .pl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 4px; }
+    .pl-strip__c { border-right: 0; padding: 6px 10px; gap: 8px; }
+    .pl-strip__c > i { font-size: 1.1rem; }
+    .pl-strip__c b, .pl-strip__c span { font-size: 0.82rem; }
+    .pl-strip__c:nth-child(4), .pl-strip--none .pl-strip__c { grid-column: 1 / -1; border-top: 1px solid var(--pl-line); }
+    .pl-lt { padding: 14px; }
+    .pl-lt__row { grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+    .pl-edgrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .pl-edlink { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .pl-edlink input[type=url] { grid-column: 1 / -1; grid-row: 1; }
+    .pl-copy { min-width: 0; width: 100%; }
+    .pl-progress { width: 100%; }
+    .pl-full { padding: 60px 16px; }
   }
 
   /* ===== PRAYER OF THE DAY (Readings, Day view) ===== */

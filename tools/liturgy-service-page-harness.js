@@ -201,12 +201,14 @@ try {
   check('a service\'s page is one of the library\'s panels', /<div id="liturgyServicePanel" class="ll-panel" style="display:none;"><\/div>/.test(SRC) &&
     /var LL_PANELS = \[[^\]]*'liturgyServicePanel'\];/.test(SRC) && /_llShowOnly\('liturgyServicePanel'\);/.test(fn('openService')));
   check('a Services card opens it', /onclick="LiturgyModule\.openService\(this\.dataset\.id\)">' \+\s*\r?\n\s*_llArt\(o, 'ls-card__art'\)/.test(SRC));
-  check('planning opened from it comes back to it', /if \(_spBack && _spBack === occ\) \{ _spBack = ''; openService\(occ\); return; \}/.test(fn('backToLibrary')) &&
-    /_spBack = occ;/.test(fn('spTab')) && /switchOccasionTab\(t\);/.test(fn('spTab')));
+  // Planning lives on the page itself now (2026-11-14); the old planning
+  // panel is opened only for a service's preparation guide, and comes back.
+  check('the preparation guide, opened from the page, comes back to it', /if \(_spBack && _spBack === occ\) \{ _spBack = ''; openService\(occ\); return; \}/.test(fn('backToLibrary')) &&
+    /_spBack = occ;/.test(fn('spGuide')) && /switchOccasionTab\('prepare'\);/.test(fn('spGuide')));
   const ren = fn('renderService');
   check('the order of worship is a ready liturgy or the next service\'s own, read only', /WO\.svlOutline\(src\.data\)/.test(fn('_spParts')) &&
     /'order:' \+ d\.order\.id/.test(fn('_spSources')) && !/contenteditable/.test(ren));
-  check('a part is shown as it is projected, slide by slide', /class="sp-slide"/.test(ren) && /WO\.svlItemTexts/.test(fn('_spTexts')));
+  check('a part is read slide by slide, laid out by who says it', /_plSpeakers\(texts\[_sp\.slide\]\)/.test(fn('_spOrderTab')) && /WO\.svlItemTexts/.test(fn('_spTexts')));
   const use = fn('spUse');
   check('Use opens the next service in the Builder with its Load on that liturgy', /_llOpenInBuilder\(orderId, function\(\) \{/.test(use) &&
     /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(use) && /_svlOpen = openKey \|\| '';/.test(fn('lbdServiceLiturgies')));
@@ -233,7 +235,8 @@ try {
     check('only files this app uploaded are fetched, checked before anything else', guard > 0 && guard < ext && ext < get);
     check('PDF, Word (new and old) and Excel', /\['pdf', 'doc', 'docx', 'xls', 'xlsx'\]/.test(RSRC) && /mammoth/.test(RSRC) && /XLSX\.utils\.sheet_to_csv/.test(RSRC));
     check('the words copied exactly, readings and songs by name only', /EXACTLY as printed/.test(RSRC) && /enum: \['liturgy', 'reading', 'song', 'text'\]/.test(RSRC));
-    const m = RSRC.match(/function legacyDocText\(buf: Buffer\): string \{[\s\S]*?\n\}\n/);
+    // Either line ending: git writes this file CRLF on some checkouts.
+    const m = RSRC.match(/function legacyDocText\(buf: Buffer\): string \{[\s\S]*?\r?\n\}\r?\n/);
     let doc = null;
     if (m) {
       const body = m[0].replace('(buf: Buffer): string', '(buf)').replace(/\(c: number\)/g, '(c)').replace(/\(run: string\)/g, '(run)')
