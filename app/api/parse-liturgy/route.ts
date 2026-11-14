@@ -187,8 +187,8 @@ export async function POST(req: NextRequest) {
       },
     });
     // When Google's flash model is busy (it was, the day this went live), the
-    // answer is asked for again after a moment, then from the lighter
-    // flash-lite model, before the person is told to try again (_lib/aiRetry).
+    // answer goes to the lighter flash-lite model, and round both again
+    // after a moment, before the person is told to try again (_lib/aiRetry).
     let response;
     try {
       ({ value: response } = await withBusyRetry(GEMINI_MODELS, async (model) => {

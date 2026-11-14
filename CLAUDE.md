@@ -4235,8 +4235,12 @@ the anon key -- verify as `postgres`, not as the app.
       2024 Pentecost .doc it came out clean. GEMINI_API_KEY is Vercel's, so the
       AI path is tested on the live site only.
       When Gemini is busy (503 "high demand" -- both of the first two live
-      calls, 2026-11-14) `_lib/aiRetry.ts` (`withBusyRetry`) asks again after
-      2.5s, then asks `gemini-flash-lite-latest`, within a 25s budget; only busy
+      calls, 2026-11-14) `_lib/aiRetry.ts` (`withBusyRetry`) asks
+      `gemini-flash-lite-latest` next, then both again after 2.5s, within a 25s
+      budget -- in TURN, because an overloaded model is slow to say no (about
+      10s each, the PDF sent every time) and asking it twice first left the
+      lighter one "not asked: out of time"; a backup failing another way is
+      dropped and the rest carry on; only busy
       answers (503, 429, UNAVAILABLE, overloaded) are retried, and the person is
       told "busy, try again in a minute" (503, `busy: true`) when all were.
       Google's library (`@google/genai`) retries a busy answer itself, 5 times

@@ -286,17 +286,19 @@ try {
     };
     let r = await run(['liturgy']);
     check('answered at once: one call', r.out.model === 'flash' && r.out.value === 'liturgy' && r.calls.length === 1 && !r.waits.length);
+    // In turn: an overloaded model is slow to say no, and asking it twice
+    // first left the lighter model "not asked: out of time" (live, 2026-11-14).
     r = await run([BUSY, 'liturgy']);
-    check('busy once: asked again after a short wait', r.out.model === 'flash' && r.calls.join() === 'flash,flash' && r.waits.join() === '2500');
+    check('busy once: the lighter model is asked straight away', r.out.model === 'lite' && r.calls.join() === 'flash,lite' && !r.waits.length);
     r = await run([BUSY, BUSY, 'liturgy']);
-    check('busy twice: the lighter model answers', r.out.model === 'lite' && r.calls.join() === 'flash,flash,lite');
+    check('both busy: round again after a short wait, the first model first', r.out.model === 'flash' && r.calls.join() === 'flash,lite,flash' && r.waits.join() === '2500');
     r = await run([BUSY, BUSY, BUSY, BUSY]);
-    check('busy every time: "busy", after four tries', r.out.err && r.out.err.busy === true && r.calls.length === 4 && r.waits.join() === '2500,1500');
+    check('busy every time: "busy", after four tries, one wait', r.out.err && r.out.err.busy === true && r.calls.join() === 'flash,lite,flash,lite' && r.waits.join() === '2500');
     const bad = new Error('400 INVALID_ARGUMENT: the file is not a document');
     r = await run([bad]);
     check('a real error is passed straight back, never retried', r.out.err === bad && r.calls.length === 1);
-    r = await run([BUSY, BUSY, new Error('404 models/lite is not found')]);
-    check('a backup that fails some other way still says "busy"', r.out.err && r.out.err.busy === true && r.calls.length === 3);
+    r = await run([BUSY, new Error('404 models/lite is not found'), BUSY]);
+    check('a backup that fails some other way is not asked again; the rest carry on', r.out.err && r.out.err.busy === true && r.calls.join() === 'flash,lite,flash');
     r = await run([BUSY, BUSY, BUSY, BUSY], { budgetMs: 9000 });
     check('no try starts after the time budget', r.out.err && r.out.err.busy === true && r.calls.length < 4, r.calls.join());
     check('429 and "overloaded" are busy too; a 400 is not',
@@ -307,7 +309,7 @@ try {
     check('"busy" carries what each model last said, by name',
       JSON.stringify(r.out.err && r.out.err.reasons) === JSON.stringify(['flash: 503 UNAVAILABLE: This model is currently experiencing high demand.', 'lite: 503 UNAVAILABLE: This model is currently experiencing high demand.']),
       JSON.stringify(r.out.err && r.out.err.reasons));
-    r = await run([BUSY, BUSY, new Error('{"error":{"code":404,"message":"models/gemini-flash-lite-latest is not found for API version v1beta","status":"NOT_FOUND"}}')]);
+    r = await run([BUSY, new Error('{"error":{"code":404,"message":"models/gemini-flash-lite-latest is not found for API version v1beta","status":"NOT_FOUND"}}'), BUSY]);
     check('a backup model the key lacks is said, not hidden in "busy"',
       r.out.err && r.out.err.busy && /^lite: 404 NOT_FOUND: models\/gemini-flash-lite-latest is not found/.test((r.out.err.reasons || [])[1] || ''),
       JSON.stringify(r.out.err && r.out.err.reasons));
