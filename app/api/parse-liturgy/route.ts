@@ -169,7 +169,11 @@ export async function POST(req: NextRequest) {
     }
     parts.push({ text: PROMPT });
 
-    const ai = new GoogleGenAI({ apiKey });
+    // ONE attempt per ask: the SDK's own retry (5 tries, waits growing from
+    // 1s) spent the whole time budget on the first model -- the live reader's
+    // busy answer on 2026-11-14 listed only gemini-flash-latest, the lighter
+    // model never asked. withBusyRetry decides when to ask again, and whom.
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
     // Copying words needs no reasoning, and thinking first costs most of the
     // time a whole liturgy has. A model that will not run without thinking
     // refuses the setting, and is asked again without it.

@@ -316,6 +316,9 @@ try {
       /^429 RESOURCE_EXHAUSTED: You exceeded your current quota/.test(R.reasonOf(quota)) && R.reasonOf(new Error('x'.repeat(500))).length === 200);
   }
   if (RSRC) {
+    // Google's library retried a busy answer five times by itself, and the
+    // lighter model was never reached within the budget (found live).
+    check('the library asks once; the retry above decides the rest', /new GoogleGenAI\(\{ apiKey, httpOptions: \{ retryOptions: \{ attempts: 1 \} \} \}\)/.test(RSRC));
     check('the route sends the reasons with "busy", and logs them',
       /busy: true, reasons: err\.reasons \}/.test(RSRC) && /console\.warn\('parse-liturgy: every try was turned away:'/.test(RSRC));
   }

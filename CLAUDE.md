@@ -4239,6 +4239,11 @@ the anon key -- verify as `postgres`, not as the app.
       2.5s, then asks `gemini-flash-lite-latest`, within a 25s budget; only busy
       answers (503, 429, UNAVAILABLE, overloaded) are retried, and the person is
       told "busy, try again in a minute" (503, `busy: true`) when all were.
+      Google's library (`@google/genai`) retries a busy answer itself, 5 times
+      with waits growing from 1s, which spent the whole budget on the first
+      model -- the lighter one was never asked -- so the client is made with
+      `httpOptions: { retryOptions: { attempts: 1 } }`. Every route that relies
+      on its own retry needs the same.
     - **Matched to the Builder's sections** (`_cvMatch`, pure): the same name,
       a name the church uses for it (`CV_SAME`), or one naming it; every
       reading goes to Scripture Readings. `WO.docLiturgy` (`_woDocLiturgy`,
