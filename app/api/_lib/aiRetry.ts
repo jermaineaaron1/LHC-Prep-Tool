@@ -6,15 +6,15 @@
 // experiencing high demand ... try again later". Nothing was wrong with the
 // request; Google's flash model was overloaded. A spell like that is usually
 // seconds to minutes, and the lighter flash-lite model is often free when
-// flash is not -- so a busy answer is tried once more after a short wait, and
-// then on the next model, before the person is told to try again.
+// flash is not -- so a busy answer goes to the next model, and round again
+// after a short wait, before the person is told to try again.
 //
 // Only BUSY answers are retried (503 / UNAVAILABLE, 429 / RESOURCE_EXHAUSTED,
 // "overloaded", "high demand"). Any other error from the first model is a real
 // one -- a bad file, a refused request -- and is passed straight back, because
-// asking again would only fail again, more slowly. An error from a backup
-// model after the first was busy (it may not exist for this key) ends the
-// tries with "busy", which is what the person can act on.
+// asking again would only fail again, more slowly. A backup model that fails
+// some other way after the first was busy (it may not exist for this key) is
+// noted in the reasons and not asked again; the rest carry on.
 //
 // The whole run is kept inside a time budget: the route's function stops at
 // 60s, and a whole liturgy takes a good part of that to write back once a
@@ -68,43 +68,63 @@ export function isBusy(err: unknown): boolean {
 
 export type RetryOptions = {
   budgetMs?: number;                       // no try starts after this long (default 25s)
-  waits?: number[];                        // the wait before the second try, per model (default 2.5s, then 1.5s)
+  waits?: number[];                        // the wait before each round after the first (default 2.5s)
+  rounds?: number;                         // how many times round the models (default 2)
   sleep?: (ms: number) => Promise<void>;   // for the harness
   now?: () => number;                      // for the harness
 };
 
-// Calls attempt(model) for each model in turn, each up to twice when the
-// answer is busy. Resolves to the first answer and the model that gave it;
-// rejects with the first model's own error when it is not a busy one, or with
-// AiBusyError when every try was busy (or the budget ran out).
+// Asks the models in turn, round and round: the first, the next, then (after
+// a short wait) each of them once more. Resolves to the first answer and the
+// model that gave it; rejects with the first model's own error when it is not
+// a busy one, or with AiBusyError when every try was busy (or the budget ran
+// out).
+//
+// In TURN, not each model twice before the next: an overloaded model is slow
+// to say no (about ten seconds each, the whole PDF sent every time, measured
+// live 2026-11-14), and asking it twice first spent the budget before the
+// lighter model was ever asked ("not asked: out of time").
 export async function withBusyRetry<T>(models: string[], attempt: (model: string) => Promise<T>, opts: RetryOptions = {}): Promise<{ value: T; model: string }> {
   const sleep = opts.sleep || ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = opts.now || Date.now;
-  const waits = opts.waits && opts.waits.length ? opts.waits : [2500, 1500];
+  const waits = opts.waits && opts.waits.length ? opts.waits : [2500];
+  const rounds = typeof opts.rounds === 'number' ? opts.rounds : 2;
   const budget = typeof opts.budgetMs === 'number' ? opts.budgetMs : 25000;
   const start = now();
   let busy: unknown = null;
-  // The last thing each model said, in the order they were asked.
+  // The last thing each model said, in the order they were asked; a model
+  // that failed some way other than busy is not asked again.
   const said: { [model: string]: string } = {};
-  const reasons = () => Object.keys(said).map((k) => k + ': ' + said[k]);
-  for (let m = 0; m < models.length; m++) {
-    for (let tries = 0; tries < 2; tries++) {
-      if (now() - start > budget) {
-        said[models[m]] = said[models[m]] || 'not asked: out of time';
-        throw new AiBusyError(busy ? errorText(busy) : 'out of time', reasons());
-      }
+  const out: { [model: string]: boolean } = {};
+  const reasons = () => models.filter((k) => said[k]).map((k) => k + ': ' + said[k]);
+  const outOfTime = () => {
+    models.forEach((k) => { if (!said[k]) said[k] = 'not asked: out of time'; });
+    return new AiBusyError(busy ? errorText(busy) : 'out of time', reasons());
+  };
+  for (let round = 0; round < rounds; round++) {
+    if (round > 0) {
+      if (models.every((k) => out[k])) break;
+      if (now() - start > budget) throw outOfTime();
+      await sleep(waits[Math.min(round - 1, waits.length - 1)]);
+    }
+    for (let m = 0; m < models.length; m++) {
+      const model = models[m];
+      if (out[model]) continue;
+      if (now() - start > budget) throw outOfTime();
       try {
-        return { value: await attempt(models[m]), model: models[m] };
+        return { value: await attempt(model), model };
       } catch (err) {
-        said[models[m]] = reasonOf(err);
+        said[model] = reasonOf(err);
         if (!isBusy(err)) {
+          // The first answer of all being a real error is the file or the
+          // request: passed straight back, never asked again.
           if (!busy) throw err;
-          // The first model was busy; this backup failed some other way --
-          // which is worth knowing, so it is in the reasons.
-          throw new AiBusyError(errorText(busy), reasons());
+          // A backup failing another way (it may not exist for this key) is
+          // worth knowing -- it is in the reasons -- and is not asked again.
+          out[model] = true;
+          continue;
         }
         busy = err;
-        if (tries === 0) await sleep(waits[Math.min(m, waits.length - 1)]);
       }
     }
   }
