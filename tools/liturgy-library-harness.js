@@ -88,17 +88,24 @@ function load() {
   // ------------------------------------------------------------ 1. panel
   console.log('\n1. The panel');
   check('the panel is in the Liturgy page', /<div id="liturgyFolderPanel" class="lf" style="display:none;"><\/div>/.test(SRC));
-  check('the nav calls it Library, under the key the nav highlighting goes by',
-    /data-libfilter="all-services" onclick="LiturgyModule\.showAllServices\(\)" title="Library">[\s\S]{0,200}<span>Library<\/span>/.test(SRC) &&
-    /<i class="fa-solid fa-folder-open" aria-hidden="true"><\/i><span>Library<\/span>/.test(SRC));
-  check('Services opens the library', /function showAllServices\(\) \{ openLibrary\(\); \}/.test(SRC));
+  // Since 2026-11-14 the operator's design: the entry is Services again,
+  // its cards open a collection's folder (openCollection -> openLibrary).
+  check('the nav calls it Services, under the key the nav highlighting goes by',
+    /data-libfilter="all-services" onclick="LiturgyModule\.showAllServices\(\)" title="Services">[\s\S]{0,200}<span>Services<\/span>/.test(SRC) &&
+    /<i class="fa-solid fa-church" aria-hidden="true"><\/i><span>Services<\/span>/.test(SRC));
+  check('Services opens the collections, and a collection opens its folder',
+    /function showAllServices\(\) \{ openServices\(\); \}/.test(SRC) && /openLibrary\(occId \? 'occ:' \+ occId : \(special \|\| 'recent'\), year \|\| ''\);/.test(fn('openCollection')));
   check('the old card grid entry point is gone (one showAllServices)', (SRC.match(/function showAllServices\(/g) || []).length === 1);
   check('every other panel switcher hides it',
     /function selectOccasion\(occasionId\) \{\r?\n\s*_lfHide\(\);/.test(SRC) &&
     /_litSyncNav\('memories'\);\r?\n\s*_lfHide\(\);/.test(fn('openMemories')) &&
     /\/\/ Show library panel\r?\n\s*_lfHide\(\);/.test(SRC));
   const open = fn('openLibrary');
-  check('...and it hides every other panel', /welcome\.style\.display = 'none'/.test(open) && /occPanel\.style\.display = 'none'/.test(open) && /memPanel\.style\.display = 'none'/.test(open));
+  const only = fn('_llShowOnly');
+  check('...and it hides every other panel',
+    /_llShowOnly\('liturgyFolderPanel'\);/.test(open) &&
+    /\['liturgyWelcome', 'liturgyOccasionPanel', 'liturgyMemoriesPanel'\]\.concat\(LL_PANELS\)/.test(only) &&
+    /var LL_PANELS = \['liturgyHubPanel', 'liturgyServicesPanel', 'liturgyFolderPanel'\];/.test(SRC));
   check('the occasion panel\'s back button comes back to its folder',
     /class="lit-back-btn" onclick="LiturgyModule\.backToLibrary\(\)">\s*<i class="fa-solid fa-arrow-left mr-1"><\/i> Library/.test(SRC));
   const bar = fn('renderOccFolderBar');

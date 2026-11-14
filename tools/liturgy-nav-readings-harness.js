@@ -315,8 +315,10 @@ console.log('\nAuto-Fill saves where the page reads');
       ['liturgies', 'library'].forEach(k => {
         check('  and no longer ' + k, nav.indexOf('data-libfilter="' + k + '"') !== -1, false);
       });
+      // Four since 2026-11-14: the Liturgy Library's landing page (hub) first.
+      check('  it has hub, the landing page', nav.indexOf('data-libfilter="hub"') !== -1, true);
       check('and its buttons share the sidebar class, which is how one call lights both',
-        (nav.match(/class="lit-nav-occ-btn"/g) || []).length, 3);
+        (nav.match(/class="lit-nav-occ-btn"/g) || []).length, 4);
       check('it is hidden until the sidebar becomes an overlay',
         /\.lit-topnav \{ display: none; \}/.test(raw), true);
       check('and appears at the same breakpoint the sidebar uses',
