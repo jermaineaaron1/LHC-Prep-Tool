@@ -253,6 +253,58 @@ try {
     }
   }
 
+  // ------------------------------------------------------------ 7. busy
+  // The day it went live Gemini answered "high demand" (503) twice. A busy
+  // answer is asked again, then of the lighter model; nothing else is.
+  console.log('\n7. When Gemini is busy');
+  const RETRY = path.join(__dirname, '..', 'app', 'api', '_lib', 'aiRetry.ts');
+  let R = null;
+  try {
+    const ts = require('typescript');
+    const js = ts.transpileModule(fs.readFileSync(RETRY, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText;
+    const mod = { exports: {} };
+    new Function('module', 'exports', 'require', js)(mod, mod.exports, require);
+    R = mod.exports;
+  } catch (e) { R = null; console.log('  (aiRetry.ts could not be compiled: ' + e.message + ')'); }
+  check('the retry is there', !!(R && R.withBusyRetry));
+  if (R && R.withBusyRetry) {
+    const BUSY = Object.assign(new Error('{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}'), { status: 503 });
+    const run = async (answers, opts) => {
+      const calls = [], waits = [];
+      let t = 0;
+      const out = await R.withBusyRetry(['flash', 'lite'], async (model) => {
+        calls.push(model);
+        const a = answers.shift();
+        t += 4000;
+        if (a instanceof Error) throw a;
+        return a;
+      }, Object.assign({ sleep: async (ms) => { waits.push(ms); t += ms; }, now: () => t }, opts || {})).then(v => v, e => ({ err: e }));
+      return { out, calls, waits };
+    };
+    let r = await run(['liturgy']);
+    check('answered at once: one call', r.out.model === 'flash' && r.out.value === 'liturgy' && r.calls.length === 1 && !r.waits.length);
+    r = await run([BUSY, 'liturgy']);
+    check('busy once: asked again after a short wait', r.out.model === 'flash' && r.calls.join() === 'flash,flash' && r.waits.join() === '2500');
+    r = await run([BUSY, BUSY, 'liturgy']);
+    check('busy twice: the lighter model answers', r.out.model === 'lite' && r.calls.join() === 'flash,flash,lite');
+    r = await run([BUSY, BUSY, BUSY, BUSY]);
+    check('busy every time: "busy", after four tries', r.out.err && r.out.err.busy === true && r.calls.length === 4 && r.waits.join() === '2500,1500');
+    const bad = new Error('400 INVALID_ARGUMENT: the file is not a document');
+    r = await run([bad]);
+    check('a real error is passed straight back, never retried', r.out.err === bad && r.calls.length === 1);
+    r = await run([BUSY, BUSY, new Error('404 models/lite is not found')]);
+    check('a backup that fails some other way still says "busy"', r.out.err && r.out.err.busy === true && r.calls.length === 3);
+    r = await run([BUSY, BUSY, BUSY, BUSY], { budgetMs: 9000 });
+    check('no try starts after the time budget', r.out.err && r.out.err.busy === true && r.calls.length < 4, r.calls.join());
+    check('429 and "overloaded" are busy too; a 400 is not',
+      R.isBusy({ status: 429 }) && R.isBusy(new Error('The model is overloaded.')) && !R.isBusy(new Error('400 bad request')));
+  }
+  if (RSRC) {
+    check('the route asks flash, then flash-lite, through the retry, and says "busy" in words',
+      /const GEMINI_MODELS = \['gemini-flash-latest', 'gemini-flash-lite-latest'\];/.test(RSRC) &&
+      /await withBusyRetry\(GEMINI_MODELS,/.test(RSRC) && /err instanceof AiBusyError/.test(RSRC) && /busy: true \}, \{ status: 503 \}/.test(RSRC));
+  }
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
