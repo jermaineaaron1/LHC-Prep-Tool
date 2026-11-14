@@ -387,7 +387,9 @@ console.log('\nThe wiring');
   check('Save medley keeps it, and puts each song in its saved key when asked',
     has(/if \(ed\.keys && ed\.useKeys\) _mdsApplyKeys\(ed\.keys\);/) && has(/_mdsKeep\(ed\.songs\);\r?\n\s*\}/));
   check('Use adds a song the book lacks the way Add a song does, or onto a standalone book\'s list',
-    has(/e = _woAddSongToSection\(sec, lib\);/) && has(/e\.id = 'sbsong_' \+ lib\.id \+ '_' \+ songOrderSections\.length;/));
+    has(/e = _woAddSongToSection\(sec, lib\);/) && (has(/e\.id = 'sbsong_' \+ lib\.id \+ '_' \+ songOrderSections\.length;/) ||
+      // since 2026-11-13: the first free place, not the count
+      has(/var n = songOrderSections\.length;[^]*?while \(taken\('sbsong_' \+ lib\.id \+ '_' \+ n\)\) n\+\+;\r?\n\s*e\.id = 'sbsong_' \+ lib\.id \+ '_' \+ n;/)));
   // (Since 2026-11-07 Medley is in More, for every book, not a tile.)
   check('every book has Medley in More, and nothing hides medleys from a standalone one',
     has(/if \(song && currentOrderData\) rows\.push\(\['fa-layer-group', _woMedleyOf\(song\.id\) \? 'Edit the medley' : 'Make a medley', 'WO\.sbmMedley\(\)'/) &&
@@ -397,7 +399,7 @@ console.log('\nThe wiring');
   check('the builder\'s undo covers medleys', has(/medleys: JSON\.stringify\(\(o\.template && o\.template\.medleys\) \|\| \[\]\)/));
   check('the shared song list is built from the running order, a line for each song',
     has(/rows: _sbShareRows\(\),/) && has(/_woUnits\(_sbmSongs\(\), md\)\.forEach\(function\(u\) \{/) &&
-    has(/rows\.push\(\{ section: sec, text: \(s\.title \|\| 'Untitled'\) \+ \(key \? ' \(' \+ key \+ '\)' : ''\), medley: u\.md \? \(k \? 'in' : 'start'\) : '' \}\);/));
+    has(/rows\.push\(\{ section: sec, (secId: secId, )?text: \(s\.title \|\| 'Untitled'\) \+ \(key \? ' \(' \+ key \+ '\)' : ''\), medley: u\.md \? \(k \? 'in' : 'start'\) : '' \}\);/));
   check('...and its playlist link carries the songs\' names and the service\'s', has(/try \{ playlistUrl = window\.lhcPlaylistLink\(plItems, name\); \} catch\(e\) \{\}/));
   check('a song taken out of the songbook comes off LCD Projection\'s schedule too', has(/_woLcdDropSong\(baseSongId\);/));
   // Recording line by line: two boxes on every line -- its takes, then the

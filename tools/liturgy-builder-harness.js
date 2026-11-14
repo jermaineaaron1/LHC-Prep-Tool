@@ -730,7 +730,7 @@ console.log('\n[service liturgies]');
     has(/\{ label: 'WhatsApp: a link to the order of service', icon: 'fa-brands fa-whatsapp', run: function\(\) \{ lbdShareWhatsApp\(false\); \} \}/) &&
     has(/function lb2Share\(btn\) \{ _lbdShareMenu\(btn \|\| /) && !has(/showToast\('Share coming soon'/));
   check('...its parts in the page\'s order: songs (a medley as one, in the key sung), then the slotted readings, then the rest',
-    has(/_woUnits\(so\.songs, md\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
+    has(/_woUnits\((_woRunWithMedleys\()?so\.songs, md(\), md)?\)\.forEach\(function\(u\) \{\r?\n\s*var bits = u\.items\.map\(function\(s\) \{ var k = _sbSungKey\(s\);/) &&
     has(/items\.forEach\(function\(it\) \{ if \(!used\[it\.id\]\) ordered\.push\(\{ it: it, label: '' \}\); \}\);/));
   check('...every word ending with a link to its Liturgy Book, the order of service a link to the builder, and the deep links open them',
     has(/return base \+ '\?order=' \+ encodeURIComponent\(currentOrderData\.id\) \+ '&view=' \+ \(view \|\| 'liturgy'\);/) &&

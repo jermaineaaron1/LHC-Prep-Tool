@@ -291,7 +291,10 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
     /if \(v === 'discard'\) _sbmEdClose\(\);\n\s*else if \(v === 'save'\) sbmEdSave\(\);/.test(fn('sbmEdCancel')));
   check('the toast offers Keep editing (focused), Discard and Save',
     /data-unsaved="keep">Keep editing</.test(ask) && /data-unsaved="discard"/.test(ask) && /data-unsaved="save"/.test(ask) && /querySelector\('\[data-unsaved="keep"\]'\); if \(k\) k\.focus\(\);/.test(ask));
-  check('Esc, and a tap anywhere else, keep editing', /if \(e\.key === 'Escape'\) \{[^}]*done\('keep'\); \}/.test(ask) && /var away = function\(e\) \{ if \(!el\.contains\(e\.target\)\) done\('keep'\); \};/.test(ask));
+  check('Esc, and a tap anywhere else, keep editing', /if \(e\.key === 'Escape'\) \{[^}]*done\('keep'\); \}/.test(ask) &&
+    (/var away = function\(e\) \{ if \(!el\.contains\(e\.target\)\) done\('keep'\); \};/.test(ask) ||
+     // since 2026-11-13 the tap's click is swallowed too (review-tidy-harness.js)
+     /var away = function\(e\) \{\n\s*if \(el\.contains\(e\.target\)\) return;\n\s*done\('keep'\);/.test(ask)));
   check('asked again while it is up: a nudge, never a second toast', /if \(was && was\.__ask && !was\.__gone\) \{[^\n]*is-nudge[^\n]*return was\.__ask; \}/.test(ask));
   check('while it is up the editors leave the keys to it, and closing an editor takes it down',
     /if \(!_sbmPad \|\| document\.getElementById\('sbmUnsaved'\)\) return;/.test(fn('_sbmPadKey')) && /_sbmUnsavedDrop\(\);/.test(fn('_sbmPadClose')) &&
