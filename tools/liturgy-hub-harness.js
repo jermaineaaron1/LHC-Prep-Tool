@@ -178,9 +178,10 @@ const run = (names, env, ret) => {
   check('the liturgical day goes in the date bar, the season and colour in the band under it',
     /if \(navDay\) navDay\.innerHTML = dayHtml;/.test(ctx) && /_llPaintSeasonBand\(m\);/.test(ctx));
   check('the lectionary\'s year is shown', /cyc\.textContent = _llCycle\(_currentReadingDate\);/.test(fn('renderReadingDateNav')));
-  const use = fn('llUseInPlan');
+  const use = fn('llUseInPlan'), openB = fn('_llOpenInBuilder');
   check('Use in plan opens the date\'s order in the Liturgy Builder, or says there is none',
-    /WO\.loadOrder\(id\)/.test(use) && /WO\.selectOrder\('liturgy'\)/.test(use) && /There is no order for/.test(use));
+    /_llOpenInBuilder\(id\);/.test(use) && /WO\.loadOrder\(id\)/.test(openB) && /WO\.selectOrder\('liturgy'\)/.test(openB) &&
+    /There is no order for/.test(use));
 
   // ------------------------------------------------------------ 5. orders
   console.log('\n5. The order editor');
