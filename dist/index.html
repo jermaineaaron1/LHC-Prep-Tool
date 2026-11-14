@@ -104999,14 +104999,17 @@ var LiturgyModule = (function() {
   function _cvRead() {
     var cv = _cv;
     if (!cv) return;
-    cv.step = 'read'; cv.err = ''; _cvDraw();
+    cv.step = 'read'; cv.err = ''; cv.why = []; _cvDraw();
     var got;
     if (cv.how === 'word') {
       got = fetch(cv.url).then(function(r) { if (!r.ok) throw new Error('the file could not be downloaded'); return r.arrayBuffer(); })
         .then(function(ab) { return WO.docxParas(ab); }).then(_cvFromParas);
     } else {
       got = fetch('/api/parse-liturgy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: cv.url }) })
-        .then(function(r) { return r.json().catch(function() { throw new Error('the reader did not answer (status ' + r.status + ')'); }).then(function(j) { if (!r.ok || j.error) throw new Error(j.error || ('status ' + r.status)); return j; }); });
+        .then(function(r) { return r.json().catch(function() { throw new Error('the reader did not answer (status ' + r.status + ')'); }).then(function(j) {
+          if (!r.ok || j.error) { var e = new Error(j.error || ('status ' + r.status)); e.reasons = Array.isArray(j.reasons) ? j.reasons : []; throw e; }
+          return j;
+        }); });
     }
     got.then(function(res) {
       if (_cv !== cv) return;
@@ -105031,6 +105034,9 @@ var LiturgyModule = (function() {
     }).catch(function(e) {
       if (_cv !== cv) return;
       cv.err = (e && e.message) || String(e);
+      // When Google turned every try away, what it said, model by model: busy
+      // for everyone, a free-tier key turned away, or a model this key lacks.
+      cv.why = (e && Array.isArray(e.reasons)) ? e.reasons.map(String).slice(0, 6) : [];
       _cvDraw();
     });
   }
@@ -105059,6 +105065,7 @@ var LiturgyModule = (function() {
     if (cv.step === 'read') {
       body = cv.err
         ? '<div class="cv-msg cv-msg--err"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><p>' + _lfE(cv.err) + '</p>' +
+            (cv.why && cv.why.length ? '<div class="cv-why"><b>What Google said</b><ul>' + cv.why.map(function(w) { return '<li>' + _lfE(w) + '</li>'; }).join('') + '</ul></div>' : '') +
             '<div class="cv-msg__acts"><button type="button" class="lf-btn" onclick="LiturgyModule.cvRetry()">Try again</button>' +
             (cv.how === 'word' ? '<button type="button" class="lf-btn" onclick="LiturgyModule.cvHow(\'ai\')"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>Read it with AI</button>' : '') + '</div></div>'
         : '<div class="cv-msg"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>' +
@@ -120239,6 +120246,10 @@ function filterLiturgyItems() {
   .cv-msg > i { font-size: 1.8rem; color: #a8741f; }
   .cv-msg--err > i { color: #b91c1c; }
   .cv-msg__acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .cv-why { max-width: 560px; padding: 10px 12px; border-radius: 10px; background: #f3ead8; text-align: left; font-size: 0.8rem; color: #5c4d3c; }
+  .cv-why b { display: block; margin-bottom: 4px; font: 700 0.76rem 'Poppins', sans-serif; text-transform: uppercase; letter-spacing: 0.04em; color: #7a2e2a; }
+  .cv-why ul { margin: 0; padding-left: 18px; }
+  .cv-why li { margin: 2px 0; overflow-wrap: anywhere; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; }
   .cv-how { margin: 0 0 10px; font-size: 0.88rem; color: #5c4d3c; }
   .cv-fields { display: grid; grid-template-columns: minmax(0, 1fr) 110px minmax(0, 0.8fr); gap: 10px; }
   .cv-fields .mv-ed__lbl { margin-top: 0; }

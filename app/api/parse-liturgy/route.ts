@@ -197,7 +197,10 @@ export async function POST(req: NextRequest) {
       }));
     } catch (err: unknown) {
       if (err instanceof AiBusyError) {
-        return NextResponse.json({ error: 'Google’s AI is busy just now. Wait a minute, then press Try again.', busy: true }, { status: 503 });
+        // What each model said, word for word, so "busy" can be told apart
+        // from a free-tier key turned away or a backup model this key lacks.
+        console.warn('parse-liturgy: every try was turned away:', err.reasons.join(' | '));
+        return NextResponse.json({ error: 'Google’s AI is busy just now. Wait a minute, then press Try again.', busy: true, reasons: err.reasons }, { status: 503 });
       }
       throw err;
     }
