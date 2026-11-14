@@ -2673,6 +2673,18 @@ const CASES = [
                    "    _soSetSaveStatus('failed');\r\n        if (window.LHC_Net) LHC_Net.mark(false);\r\n        /* It does NOT tell LHC_Net")],
   ['offline-service-harness.js', 'a write is queued to be replayed later, which is how slides get deleted',
     s => s.replace("  var STORE = 'lhc_offline_ready';", "  var STORE = 'lhc_offline_ready', QUEUE = 'lhc_offline_queue';")],
+  // The year of a yearless order's service (2026-11-14): from the day it was
+  // made, never the roster's or today's year, which turned every 2026
+  // "Service - Nov 8" into an upcoming 2027 service on New Year's Day.
+  ['order-year-harness.js', 'the year forgets when the order was made and asks the roster again',
+    s => s.replace('    var made = _woYearMade(order);\r\n    if (made) return made;\r\n', '')],
+  ['order-year-harness.js', '"Jan 3" made in December stays in the year it was made',
+    s => s.replace('.getTime() < made - 60 * 86400000) year++;', '.getTime() < made - 60 * 86400000) year += 0;')],
+  ['order-year-harness.js', 'a year in the title no longer wins',
+    s => s.replace(String.raw`    var m = String((order && order.title) || '').match(/\b(20\d{2})\b/) ||`, '    var m = null ||')],
+  ['order-year-harness.js', 'the year is made from the day the order was last edited',
+    s => s.replace("    var made = Date.parse((order && (order.createdDate || order.created_date)) || '');",
+                   "    var made = Date.parse((order && order.lastEdited) || '');")],
 ];
 
 let caught = 0, missed = 0, stale = 0;

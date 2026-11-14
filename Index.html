@@ -79672,7 +79672,7 @@ var WO = (function() {
     order.template.rosterReadings = n;
   }
   // Is the order's service today or later? An order keeps "Nov 1", with the
-  // year in its title or taken from the roster (_yearForOrder).
+  // year in its title or worked out from when it was made (_yearForOrder).
   // When is this service? NaN when the title says nothing useful.
   // Split out of _woOrderIsUpcoming, which worked it out and threw it away --
   // the auto-warm has to SORT by it, not just ask yes or no.
@@ -90095,14 +90095,39 @@ var WO = (function() {
     return m ? _RFR_MONTHS.indexOf(m[1].toLowerCase()) : -1;
   }
 
-  // An order stores "Sep 27" and no year. The title usually carries one
-  // ("Service - 27 Sep 2026"); failing that, the roster the user is looking at
-  // is the roster they mean.
+  // An order stores "Sep 27" and no year (orders.service_date). The year is
+  // the title's when it names one ("Service - 27 Sep 2026"), then the service
+  // date's own; failing both, the year nearest the day the order was MADE
+  // (_woYearMade). It used to be the roster's year, then today's: from
+  // January 2027 a 2026 "Service - Nov 8" read as 8 Nov 2027, a service still
+  // to come, and _woOrderIsUpcoming would let the roster's readings, the
+  // Prayer of the Day and the reading mend write into it and the offline warm
+  // pick it (gotcha 98). The roster's year is left only for an order that does
+  // not say when it was made, which a saved order always does.
   function _yearForOrder(order) {
-    var m = String((order && order.title) || '').match(/\b(20\d{2})\b/);
+    var m = String((order && order.title) || '').match(/\b(20\d{2})\b/) ||
+            String((order && order.serviceDate) || '').match(/\b(20\d{2})\b/);
     if (m) return parseInt(m[1], 10);
+    var made = _woYearMade(order);
+    if (made) return made;
     if (typeof STATE !== 'undefined' && STATE && STATE.rosterYear) return STATE.rosterYear;
     return new Date().getFullYear();
+  }
+
+  // The year of an order's service from the day it was made (pure): that
+  // day's year, or the next when the service's month and day fall more than
+  // 60 days before it -- an order is made days or weeks ahead, so "Jan 3"
+  // made on 20 December is the next January. 0 when the order does not say
+  // when it was made. The Memories page's _mvOrderIso (LiturgyModule) keeps
+  // the same rule; tools/order-year-harness.js holds the two together.
+  function _woYearMade(order) {
+    var made = Date.parse((order && (order.createdDate || order.created_date)) || '');
+    if (isNaN(made)) return 0;
+    var year = new Date(made).getFullYear();
+    var ds = String((order && order.serviceDate) || '').replace(/\b(19|20)\d{2}\b/g, ' ');
+    var mo = _monthFromDateStr(ds), dm = ds.match(/\b(\d{1,2})\b/);
+    if (mo >= 0 && dm && new Date(year, mo, parseInt(dm[1], 10)).getTime() < made - 60 * 86400000) year++;
+    return year;
   }
 
   function _emptySlotFor(sectionId, role) {

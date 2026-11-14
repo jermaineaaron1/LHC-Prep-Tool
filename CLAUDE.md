@@ -4084,11 +4084,12 @@ the anon key -- verify as `postgres`, not as the app.
       edited. A row for a date with no order is a memory too.
     - **An order's date is worked out from when it was MADE**
       (`_mvOrderIso`), never today's year. `service_date` is "Nov 8"; WO's
-      `_yearForOrder` takes the title's year or else the roster's or today's,
-      so in 2027 a "Service - Nov 8" made in 2026 reads as 8 Nov 2027 -- an
-      upcoming service. Memories takes the title's year, else the year it was
-      created, the next year when that date is over 60 days before it was
-      made ("Jan 3" made on 20 Dec).
+      `_yearForOrder` once took the roster's or today's year when the title
+      had none, so in 2027 a "Service - Nov 8" made in 2026 read as 8 Nov
+      2027 -- an upcoming service. Memories takes the title's year, else the
+      year it was created, the next year when that date is over 60 days
+      before it was made ("Jan 3" made on 20 Dec). WO now keeps the same
+      rule (gotcha 100).
     - What an order held -- songs (once each, in sung order: `sort_order`),
       slides (a text part is one; it keeps its words in `content.text` and no
       slides), liturgy parts -- is counted from `order_items` once and kept on
@@ -4115,6 +4116,45 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-memories-harness.js` checks it, running the date rule, the
     counts, the build, the filters and groups, and the save against a stand-in
     database.
+
+100. **An order's year is the title's, else the year it was MADE -- never
+    today's.** `orders.service_date` is "Nov 8" with no year, and seven of
+    the twelve live services (2026-11-14) are titled "Service - Nov 8" with
+    none either. WO's `_yearForOrder` filled the year in from the roster the
+    user was looking at, then from today's year, so from 1 January 2027 every
+    one of them would have read as a 2027 service still to come -- and
+    `_woOrderIsUpcoming` is the gate in front of everything that writes into
+    an upcoming order by itself: the roster's readings (gotcha 48), the
+    Prayer of the Day (gotcha 96) and the reading mend (gotcha 80); and in
+    front of the offline warm's pick of the next service (gotcha 88), which
+    would have downloaded last September's. `_woOrderIso` and
+    `WO.orderForIso` ("Use in plan") had it too: 2026's Nov 8 answered to
+    2027-11-08.
+    - The year is the title's (`\b20\d\d\b`), then the service date's own,
+      then `_woYearMade(order)` (pure): the year of `createdDate`
+      (`created_date` too), or the next year when the service's month and
+      day fall more than 60 days before it was made -- "Jan 3" made on 20
+      December is next January. The roster's and then today's year are left
+      only for an order that does not say when it was made; a saved order
+      always does (`_orderFromRow`, every orders list), and a new one is
+      stamped as it is made.
+    - It is the Memories page's rule (`_mvOrderIso`, gotcha 99), written
+      twice -- once in each IIFE -- and held together by the harness rather
+      than shared, which would have meant a global and the Memories harness
+      slicing it too. Change one, change both: section 4 of the harness fails
+      the moment they disagree.
+    - The cost, stated: an order MADE more than 60 days after its service --
+      a past service written up in the app afterwards -- is dated the next
+      year, and reads as upcoming until then. Every live order was made
+      before its service. Give such an order its year in its title, which
+      always wins.
+    - Every caller goes through `_yearForOrder`: `_woOrderWhen` (so
+      `_woOrderIsUpcoming`, `_woOrderIso`, `_woOrderForIso`), both readings
+      fills, the builder's long date and its roster readings, and
+      `_svlYearOf` (the year a liturgy is saved for). Anything new that puts
+      "Nov 8" in a year goes through it too, never `new Date().getFullYear()`.
+    `tools/order-year-harness.js` checks it, running the real functions under
+    a clock set in 2027 over the live orders' shapes.
 
 ## Quick Commands for Claude Code
 
