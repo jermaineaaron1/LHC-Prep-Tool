@@ -62,6 +62,7 @@ The ones worth knowing; there are around 29 in all.
 | `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer (empty = print the date's Prayer of the Day; `prayerDoc` notes which imported one it was given, gotcha 96), `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
 | `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
+| `liturgy_collections` | Services the church adds to the Liturgy Library's list (Services > Create Service Collection): `id` ('col-<slug>-<time>'), `label`, `description`, `colour`, `icon`. Read at boot into the same `OCCASIONS` list the built-in services are in, so filing, year folders, sharing and saved liturgies treat one exactly as a built-in one. `migrations/2026-11-14_liturgy_collections.sql`. See gotcha 98 |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
 lyrics and slides with nothing on them.
@@ -380,16 +381,31 @@ than a bash heredoc, which quietly eats a level of backslashes.
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
 
-### 5. Liturgy Library (as folders)
-- The Liturgy page's three ways in are Readings, **Library** (it was
-  Services; the nav key is still `all-services`) and Memories. Library is a
-  folder view (`#liturgyFolderPanel`, `LiturgyModule.openLibrary`): down the
-  left This Sunday, Prayers of the Day, Recently added, every service with
-  its year folders, Memories and Not filed; on the right the folder's whole
-  liturgies, liturgy texts and files, each to open (words or the file) and
-  share. A folder's **Planning & notes** opens the old occasion panel
-  (notes, team planning, checklist, slide editor), whose back button comes
-  back to the folder. On a phone it is the folders, then one folder.
+### 5. Liturgy Library (the operator's design, 2026-11-14)
+- The Liturgy page opens on a **landing page** (`#liturgyHubPanel`,
+  `LiturgyModule.openHub`), "Liturgy Library -- Read. Plan. Remember.":
+  three big cards (Readings, Services, Memories), This Sunday (its day,
+  colour, readings, Prayer of the Day and the bulletin's theme verse), the
+  Church Year (a tile per season, opening Readings at its next service) and
+  Recently Added. The nav is Overview, Readings, Services, Memories.
+- **Readings** is the date's four readings as cards -- the reference opens
+  the passage, then Open / Copy / Use in plan -- with no summary (the
+  operator said leave them out), the Prayer of the Day under them, and for
+  the date Use in the service plan, Export PDF / Word (the Builder's own
+  exporter) and Share readings. The date bar carries the liturgical day, a
+  band under it the season and altar colour, the lectionary's year beside
+  it. The imports are under Import.
+- **Services** (`#liturgyServicesPanel`, `openServices`; nav key still
+  `all-services`) is every service as a card with its picture -- the
+  church's own photo when one is filed with it, else drawn artwork -- and
+  counts, filtered by Favourites (this device), kind, year and words, as a
+  grid or a list, and Create Service Collection. A card opens that service's
+  folder alone (`openCollection`): the folder view of 2026-11-13
+  (`#liturgyFolderPanel`, `openLibrary`) in solo mode, with its year folders,
+  whole liturgies, texts and files, each to open and share. A folder's
+  **Planning & notes** opens the old occasion panel (notes, team planning,
+  checklist, slide editor). Gotcha 98.
+- **Memories** is the page it was; its redesign is the next piece.
 - **Share** on any item, folder, date (readings + Prayer of the Day) or the
   whole library: the words or just a link, by WhatsApp, email or copied
   link, the phone's own share, or a stored file as itself. A link is
@@ -4001,6 +4017,48 @@ the anon key -- verify as `postgres`, not as the app.
       copies stay alike (a mutation case finds the button twice).
     `tools/liturgy-library-harness.js` checks it, running the share models,
     links and view-only rows against stubs.
+
+98. **The Liturgy page is six panels, and one switcher shows one.** From
+    the operator (2026-11-14), four screens drawn in ChatGPT to replace the
+    Liturgy page. Asked: a church photo else drawn artwork; no reading
+    summaries; Favourites and new collections, but not "My / Shared"
+    (nobody signs in).
+    - The panels: `liturgyWelcome` (Readings), `liturgyOccasionPanel` (a
+      service's planning), `liturgyMemoriesPanel`, and `LL_PANELS` --
+      `liturgyHubPanel`, `liturgyServicesPanel`, `liturgyFolderPanel`.
+      `_llShowOnly(id)` shows one and hides the other five; the older
+      switchers (`selectOccasion`, `selectGeneralFolder`, `openMemories`)
+      call `_lfHide()`, which hides `LL_PANELS`. A new panel goes in
+      `LL_PANELS`, or two pages show at once. `setActiveView('liturgy')`
+      opens the landing page; `showAllServices()` is `openServices()`.
+    - Every new page draws the same header (`_llHead`: the rose, the title,
+      the four tabs and home). Where the phone's section strip
+      (`#litTopNav`) shows, the tabs stand down, or there are two navs.
+    - **A collection is an occasion.** `liturgy_collections` rows are pushed
+      into `OCCASIONS` (`_llAddCollection`, kind `custom`) before anything
+      reads it -- the shared-link page waits for them (`_llCollectionsLoad`)
+      -- so filing, year folders, sharing, saved liturgies and the Builder's
+      Load need nothing new. A save is read back before it is reported; a
+      name already used is refused; a missing table is said once and not
+      asked again. Until the migration is run, Create Service Collection
+      says so and saves nothing.
+    - **The season** of a liturgical day is `_llSeasonOf`, which asks about
+      "after Pentecost / Epiphany" and the ordinary Sundays FIRST: "25th
+      Sunday after Pentecost" contains "Pentecost". Palm Sunday, Maundy
+      Thursday and Good Friday are Holy Week. The lectionary's year is
+      `_llCycle(iso)`: Year A begins on the first Sunday of Advent 2025
+      ((year of that Advent - 2022) % 3).
+    - Favourites are this device's (`lhc_lit_favs`), never the database.
+      The picture is the first image filed with the service that is not a
+      planning sheet or a document (`_llPhotoFor`); otherwise `_llArt` draws
+      the season's colours.
+    - **Use in plan** opens the date's order (`WO.orderForIso`, by the
+      order's own date key, never a songbook) in the Liturgy Builder, or
+      says there is none. Readings' Export is the Builder's exporter
+      (`WO.exportDoc` over `_lbdExportParas`), so the two documents are set
+      alike.
+    `tools/liturgy-hub-harness.js` checks it, running `_llSeasonOf`,
+    `_llCycle` and the Services filter.
 
 ## Quick Commands for Claude Code
 
