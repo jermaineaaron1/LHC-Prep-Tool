@@ -490,7 +490,7 @@ console.log('\n[readings put in by themselves]');
   let R;
   try {
     R = new Function(buildModule([
-      extractFn('_monthFromDateStr'), extractFn('_yearForOrder'), extractFn('_woReadingsNoted'),
+      extractFn('_monthFromDateStr'), extractFn('_woYearMade'), extractFn('_yearForOrder'), extractFn('_woReadingsNoted'),
       extractFn('_woReadingsTodo'), extractFn('_woNoteReadings'), extractFn('_woOrderIsUpcoming'),
       // _woOrderWhen was split out of _woOrderIsUpcoming when the auto-warm
       // needed to SORT services by date, not just ask yes or no.
