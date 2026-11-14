@@ -105,7 +105,7 @@ function load() {
   check('...and it hides every other panel',
     /_llShowOnly\('liturgyFolderPanel'\);/.test(open) &&
     /\['liturgyWelcome', 'liturgyOccasionPanel', 'liturgyMemoriesPanel'\]\.concat\(LL_PANELS\)/.test(only) &&
-    /var LL_PANELS = \['liturgyHubPanel', 'liturgyServicesPanel', 'liturgyFolderPanel'\];/.test(SRC));
+    /var LL_PANELS = \['liturgyHubPanel', 'liturgyServicesPanel', 'liturgyFolderPanel', 'liturgyServicePanel'\];/.test(SRC));
   check('the occasion panel\'s back button comes back to its folder',
     /class="lit-back-btn" onclick="LiturgyModule\.backToLibrary\(\)">\s*<i class="fa-solid fa-arrow-left mr-1"><\/i> Library/.test(SRC));
   const bar = fn('renderOccFolderBar');

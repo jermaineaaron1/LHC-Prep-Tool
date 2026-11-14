@@ -400,12 +400,22 @@ than a bash heredoc, which quietly eats a level of backslashes.
   `all-services`) is every service as a card with its picture -- the
   church's own photo when one is filed with it, else drawn artwork -- and
   counts, filtered by Favourites (this device), kind, year and words, as a
-  grid or a list, and Create Service Collection. A card opens that service's
-  folder alone (`openCollection`): the folder view of 2026-11-13
-  (`#liturgyFolderPanel`, `openLibrary`) in solo mode, with its year folders,
-  whole liturgies, texts and files, each to open and share. A folder's
-  **Planning & notes** opens the old occasion panel (notes, team planning,
-  checklist, slide editor). Gotcha 98.
+  grid or a list, and Create Service Collection. Gotcha 98.
+- **A service's page** (a Services card; `#liturgyServicePanel`,
+  `openService`) is the operator's order-of-worship drawing: a maroon banner
+  (All Services, Sync, Share, Use in Projection), tabs (Liturgy Order, and
+  Planning Notes / Team Planning / Checklist, which are the old occasion
+  panel's), the next date of that kind from the roster, then service details,
+  readings, team and quick actions | the order of worship, numbered 1.1, 1.2
+  | the part chosen as it is projected, slide by slide. Under them the
+  service's files in three -- **LCD Materials** (liturgy texts and slide
+  decks), **Liturgy Documents** (the Word, PDF and Excel liturgies people read
+  to see what was done, by year) and **Other Files** -- beside its
+  **Ready-to-use Liturgies**. A liturgy document's **Make ready** converts it
+  into a ready liturgy the Builder loads (Load), which fills the LCD: a .docx
+  read as written, anything else by AI (`/api/parse-liturgy`), checked
+  before it is kept. The folder view is still there (All files by year
+  folder). Gotcha 101.
 - **Memories** (`#liturgyMemoriesPanel`, `openMemories`) is every past
   service, by itself: a card each with its photo or drawn artwork, the day,
   the date, a few words (or the Gospel), and what it held -- photos, songs,
@@ -4174,6 +4184,59 @@ the anon key -- verify as `postgres`, not as the app.
       "Nov 8" in a year goes through it too, never `new Date().getFullYear()`.
     `tools/order-year-harness.js` checks it, running the real functions under
     a clock set in 2027 over the live orders' shapes.
+
+101. **A liturgy written in the church's own document becomes a ready
+    liturgy, checked first.** From the operator (2026-11-14), with four
+    drawings of a service page: keep what the LCD uses apart from the
+    documents, which are what people read to see past liturgies, and let a
+    document be the base of next year's. Asked, they chose the order-of-worship
+    drawings, Word read as written with AI for the rest, and the result kept
+    as a ready liturgy.
+    - **Which files are which** is `_spKind` (pure): no file (a liturgy text)
+      or a slide deck is the LCD's; a Word / PDF / Excel / Google Doc is a
+      liturgy when tagged `liturgy-doc`, filed as liturgy, or called one
+      (`SP_LIT_WORDS`: liturgy, service, communion, vespers...), unless
+      tagged `not-liturgy`; the rest are other files. The tags are set by the
+      move buttons on a row (`spMark`) and by Upload a liturgy.
+    - **The church's Word liturgies use no Heading styles** (every Good
+      Friday, Easter and Ash Wednesday one, measured 2026-11-14): their
+      headings are short bold lines, and so are the people's responses ("C:
+      Amen"). `_lbdDocxParas` now notes `b` (every run bold, `_lbdWBold`), and
+      `_cvFromParas` takes as a heading a bold line of 80 characters or less
+      that no speaker marker opens (`CV_SPEAKER`) and that does not end a
+      sentence -- or, when a document does use Heading styles, those alone.
+      The headings before the first words that read as a title (a year,
+      "service", "chapel", all capitals) are the title. "(Pastor Justin)" at
+      a heading's end is who leads; "Hymn: Abide With Me" and "Song 1: ...
+      (Hymn 217)" are songs, matched to the song library by title
+      (`_cvSongId`); a heading naming a reading is a reading. Words become
+      slides at blank lines, six lines or ~360 characters at most
+      (`_cvSlides`).
+    - **AI for the rest**: `/api/parse-liturgy` (Gemini, own storage only,
+      the words copied exactly, speaker markers kept, readings and songs by
+      name only). An old .doc has no reader in this project -- adding a
+      package was refused -- so the route pulls its readable text out of the
+      file (`legacyDocText`: UTF-16 runs, then single-byte runs, the longer
+      kept) and tells the model it may hold stray fragments. Measured on the
+      2024 Pentecost .doc it came out clean. GEMINI_API_KEY is Vercel's, so the
+      AI path is tested on the live site only.
+    - **Matched to the Builder's sections** (`_cvMatch`, pure): the same name,
+      a name the church uses for it (`CV_SAME`), or one naming it; every
+      reading goes to Scripture Readings. `WO.docLiturgy` (`_woDocLiturgy`,
+      pure but for the type's template) makes the saved liturgy's data in the
+      document's order, a matched section keeping the template's id and kind --
+      which is what places the roster's readings when it is loaded -- and the
+      type's sections the document lacks left out. Readings are never kept
+      (the date's come from the roster); a song only when it is in the
+      library. Saved to `service_liturgies` with `made_from = 'doc:<item id>'`,
+      read back, and the year's folder made.
+    - **Use** (`spUse`) opens the next service's order in the Builder and its
+      Load window on that liturgy (`lbdServiceLiturgies(occ, kind, openKey)`,
+      `_llOpenInBuilder(id, then)`); the Load path is unchanged. The page's
+      order of worship is read only: the Builder is where an order changes.
+    `tools/liturgy-service-page-harness.js` checks it, running the sorting,
+    the next date, the Word reading, the matching, the liturgy made, and the
+    .doc reader.
 
 ## Quick Commands for Claude Code
 
