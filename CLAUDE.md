@@ -4220,6 +4220,11 @@ the anon key -- verify as `postgres`, not as the app.
       kept) and tells the model it may hold stray fragments. Measured on the
       2024 Pentecost .doc it came out clean. GEMINI_API_KEY is Vercel's, so the
       AI path is tested on the live site only.
+      When Gemini is busy (503 "high demand" -- both of the first two live
+      calls, 2026-11-14) `_lib/aiRetry.ts` (`withBusyRetry`) asks again after
+      2.5s, then asks `gemini-flash-lite-latest`, within a 25s budget; only busy
+      answers (503, 429, UNAVAILABLE, overloaded) are retried, and the person is
+      told "busy, try again in a minute" (503, `busy: true`) when all were.
     - **Matched to the Builder's sections** (`_cvMatch`, pure): the same name,
       a name the church uses for it (`CV_SAME`), or one naming it; every
       reading goes to Scripture Readings. `WO.docLiturgy` (`_woDocLiturgy`,

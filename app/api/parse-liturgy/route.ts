@@ -20,6 +20,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { isOwnStorage } from '../_lib/isOwnStorage';
+import { withBusyRetry, AiBusyError, isBusy, errorText } from '../_lib/aiRetry';
+
+// The flash model first; when it is busy, the lighter flash-lite. Both are
+// Google's version-free aliases, as parse-lectionary uses, so a retired dated
+// model never breaks this route.
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 
 export const runtime = 'nodejs';
 // A whole liturgy is a lot of words to write back. 60s is allowed on every
@@ -167,8 +173,8 @@ export async function POST(req: NextRequest) {
     // Copying words needs no reasoning, and thinking first costs most of the
     // time a whole liturgy has. A model that will not run without thinking
     // refuses the setting, and is asked again without it.
-    const ask = (noThinking: boolean) => ai.models.generateContent({
-      model: 'gemini-flash-latest',
+    const ask = (model: string, noThinking: boolean) => ai.models.generateContent({
+      model,
       contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
@@ -176,12 +182,24 @@ export async function POST(req: NextRequest) {
         ...(noThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
       },
     });
+    // When Google's flash model is busy (it was, the day this went live), the
+    // answer is asked for again after a moment, then from the lighter
+    // flash-lite model, before the person is told to try again (_lib/aiRetry).
     let response;
     try {
-      response = await ask(true);
+      ({ value: response } = await withBusyRetry(GEMINI_MODELS, async (model) => {
+        try {
+          return await ask(model, true);
+        } catch (err: unknown) {
+          if (!/think/i.test(errorText(err)) || isBusy(err)) throw err;
+          return await ask(model, false);
+        }
+      }));
     } catch (err: unknown) {
-      if (!/think/i.test(err instanceof Error ? err.message : String(err))) throw err;
-      response = await ask(false);
+      if (err instanceof AiBusyError) {
+        return NextResponse.json({ error: 'Google’s AI is busy just now. Wait a minute, then press Try again.', busy: true }, { status: 503 });
+      }
+      throw err;
     }
     const raw = response.text;
     if (!raw) return NextResponse.json({ error: 'The AI did not return a liturgy.' }, { status: 502 });
