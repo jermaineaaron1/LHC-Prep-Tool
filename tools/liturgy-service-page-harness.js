@@ -316,10 +316,37 @@ try {
     const quota = new Error('got status: 429 Too Many Requests. {"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits","status":"RESOURCE_EXHAUSTED"}}');
     check('a quota answer reads as one: code, status and Google\'s words',
       /^429 RESOURCE_EXHAUSTED: You exceeded your current quota/.test(R.reasonOf(quota)) && R.reasonOf(new Error('x'.repeat(500))).length === 200);
+    // The lighter model refused "don't think first" with nothing but
+    // "400 INVALID_ARGUMENT" (live, 2026-11-14): asked again without it.
+    const LITE_400 = new Error('{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}');
+    check('a refused setting is known by "invalid argument" or by "thinking"; a busy or missing model is not',
+      !!R.refusedSetting && R.refusedSetting(LITE_400) && R.refusedSetting(new Error('Thinking budget is not supported for this model.')) &&
+      !R.refusedSetting(BUSY) && !R.refusedSetting(new Error('{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}')));
+    if (R.refusedSetting) {
+      // The route's own attempt, over the retry: flash busy, lite refuses the
+      // setting, lite without it answers.
+      const asked = [];
+      const said = { 'flash/off': BUSY, 'lite/off': LITE_400, 'lite/on': 'liturgy' };
+      const ask = async (model, noThinking) => {
+        const k = model + (noThinking ? '/off' : '/on');
+        asked.push(k);
+        const a = said[k];
+        if (a instanceof Error) throw a;
+        return a;
+      };
+      const got = await R.withBusyRetry(['flash', 'lite'], async (model) => {
+        try { return await ask(model, true); } catch (err) { if (!R.refusedSetting(err)) throw err; return await ask(model, false); }
+      }, { sleep: async () => {}, now: () => 0 }).then(v => v, e => ({ err: e }));
+      check('lite turned away for the setting is asked again without it, and answers',
+        got.model === 'lite' && got.value === 'liturgy' && asked.join() === 'flash/off,lite/off,lite/on', asked.join());
+    }
   }
   if (RSRC) {
     // Google's library retried a busy answer five times by itself, and the
     // lighter model was never reached within the budget (found live).
+    check('the route asks again without the setting only when it was refused, and remembers it for the next round',
+      /if \(!refusedSetting\(err\)\) throw err;\s*thinks\.add\(model\);\s*return await ask\(model, false\);/.test(RSRC) &&
+      /if \(thinks\.has\(model\)\) return await ask\(model, false\);\s*try \{\s*return await ask\(model, true\);/.test(RSRC));
     check('the library asks once; the retry above decides the rest', /new GoogleGenAI\(\{ apiKey, httpOptions: \{ retryOptions: \{ attempts: 1 \} \} \}\)/.test(RSRC));
     check('the route sends the reasons with "busy", and logs them',
       /busy: true, reasons: err\.reasons \}/.test(RSRC) && /console\.warn\('parse-liturgy: every try was turned away:'/.test(RSRC));
