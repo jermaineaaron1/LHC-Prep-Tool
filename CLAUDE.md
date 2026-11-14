@@ -2489,6 +2489,20 @@ the anon key -- verify as `postgres`, not as the app.
     Still open, by choice: `:has()` (13 rules) and `@container` (8) are
     dropped by Chromium before 105 and Safari before 16; what they style
     falls back to the plain layout.
+    **Round two** (the same day, every screen at 360 and 375px with a check
+    for text painted outside its box) lives in one late stylesheet,
+    `<style id="lhc-phone-fit-css">` after the bottom bar: the Liturgy
+    Book's bar on a phone (it held fourteen buttons in 54px; Close was off
+    the screen) is two rows, the name with Close pinned beside it, then the
+    tools in one row that scrolls sideways; the Songbook More sheet's
+    sentence-long labels wrap; the order's step tabs tighten under 420px.
+    And a `<select>` with light text for a dark box sets `appearance: none`
+    with an arrow drawn in: Safari otherwise draws its own light grey and
+    ignores the page's background, and "2026" in the Enablers bar was light
+    on light. The harness checks every light-text select for it.
+    Engines also disagree on British date punctuation ("Sunday 8 November
+    2026" in Chrome, "Sunday, 8 November 2026" in Safari): their own CLDR
+    data, left alone.
 
 72. **Earlier versions: how a song was sung before, and which service each
     take was made for.** From the operator (2026-11-08): singers asked
