@@ -301,11 +301,32 @@ try {
     check('no try starts after the time budget', r.out.err && r.out.err.busy === true && r.calls.length < 4, r.calls.join());
     check('429 and "overloaded" are busy too; a 400 is not',
       R.isBusy({ status: 429 }) && R.isBusy(new Error('The model is overloaded.')) && !R.isBusy(new Error('400 bad request')));
+    // What each model said, so "busy" can be told from a free-tier key turned
+    // away or a backup model the key lacks (asked for 2026-11-14).
+    r = await run([BUSY, BUSY, BUSY, BUSY]);
+    check('"busy" carries what each model last said, by name',
+      JSON.stringify(r.out.err && r.out.err.reasons) === JSON.stringify(['flash: 503 UNAVAILABLE: This model is currently experiencing high demand.', 'lite: 503 UNAVAILABLE: This model is currently experiencing high demand.']),
+      JSON.stringify(r.out.err && r.out.err.reasons));
+    r = await run([BUSY, BUSY, new Error('{"error":{"code":404,"message":"models/gemini-flash-lite-latest is not found for API version v1beta","status":"NOT_FOUND"}}')]);
+    check('a backup model the key lacks is said, not hidden in "busy"',
+      r.out.err && r.out.err.busy && /^lite: 404 NOT_FOUND: models\/gemini-flash-lite-latest is not found/.test((r.out.err.reasons || [])[1] || ''),
+      JSON.stringify(r.out.err && r.out.err.reasons));
+    const quota = new Error('got status: 429 Too Many Requests. {"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits","status":"RESOURCE_EXHAUSTED"}}');
+    check('a quota answer reads as one: code, status and Google\'s words',
+      /^429 RESOURCE_EXHAUSTED: You exceeded your current quota/.test(R.reasonOf(quota)) && R.reasonOf(new Error('x'.repeat(500))).length === 200);
   }
+  if (RSRC) {
+    check('the route sends the reasons with "busy", and logs them',
+      /busy: true, reasons: err\.reasons \}/.test(RSRC) && /console\.warn\('parse-liturgy: every try was turned away:'/.test(RSRC));
+  }
+  const cvr = fn('_cvRead'), cvd = fn('_cvDraw');
+  check('the review window shows what Google said under the message',
+    /e\.reasons = Array\.isArray\(j\.reasons\) \? j\.reasons : \[\];/.test(cvr) && /cv\.why = \(e && Array\.isArray\(e\.reasons\)\)/.test(cvr) &&
+    /class="cv-why"><b>What Google said<\/b>/.test(cvd));
   if (RSRC) {
     check('the route asks flash, then flash-lite, through the retry, and says "busy" in words',
       /const GEMINI_MODELS = \['gemini-flash-latest', 'gemini-flash-lite-latest'\];/.test(RSRC) &&
-      /await withBusyRetry\(GEMINI_MODELS,/.test(RSRC) && /err instanceof AiBusyError/.test(RSRC) && /busy: true \}, \{ status: 503 \}/.test(RSRC));
+      /await withBusyRetry\(GEMINI_MODELS,/.test(RSRC) && /err instanceof AiBusyError/.test(RSRC) && /busy: true, reasons: err\.reasons \}, \{ status: 503 \}/.test(RSRC));
   }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');

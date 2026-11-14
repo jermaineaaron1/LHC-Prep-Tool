@@ -20,12 +20,37 @@
 // 60s, and a whole liturgy takes a good part of that to write back once a
 // model does answer. No new try starts after the budget is spent.
 
+// reasons: what each model last said, "<model>: <reason>", so the person --
+// and whoever looks into it -- can tell Google being overloaded from a
+// free-tier key being turned away from a backup model this key cannot use.
+// Every try of the first live week said only "busy", and those three read the
+// same until the reason was shown (2026-11-14).
 export class AiBusyError extends Error {
   readonly busy = true;
-  constructor(message: string) {
+  readonly reasons: string[];
+  constructor(message: string, reasons: string[] = []) {
     super(message);
     this.name = 'AiBusyError';
+    this.reasons = reasons;
   }
+}
+
+// An error as one short line (pure): Gemini's errors carry a JSON body --
+// {"error":{"code":503,"message":"...","status":"UNAVAILABLE"}} -- whose code,
+// status and message say it all; anything else is cut to 200 characters.
+export function reasonOf(err: unknown): string {
+  const text = errorText(err);
+  const at = text.indexOf('{');
+  if (at !== -1) {
+    try {
+      const body = JSON.parse(text.slice(at));
+      const e = body && (body.error || body);
+      if (e && (e.code || e.status || e.message)) {
+        return [e.code, e.status].filter(Boolean).join(' ') + (e.message ? ': ' + String(e.message).replace(/\s+/g, ' ').trim().slice(0, 200) : '');
+      }
+    } catch { /* not JSON */ }
+  }
+  return text.replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
 const BUSY_RE = /\b(503|429)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand|try again later/i;
@@ -59,21 +84,29 @@ export async function withBusyRetry<T>(models: string[], attempt: (model: string
   const budget = typeof opts.budgetMs === 'number' ? opts.budgetMs : 25000;
   const start = now();
   let busy: unknown = null;
+  // The last thing each model said, in the order they were asked.
+  const said: { [model: string]: string } = {};
+  const reasons = () => Object.keys(said).map((k) => k + ': ' + said[k]);
   for (let m = 0; m < models.length; m++) {
     for (let tries = 0; tries < 2; tries++) {
-      if (now() - start > budget) throw new AiBusyError(busy ? errorText(busy) : 'out of time');
+      if (now() - start > budget) {
+        said[models[m]] = said[models[m]] || 'not asked: out of time';
+        throw new AiBusyError(busy ? errorText(busy) : 'out of time', reasons());
+      }
       try {
         return { value: await attempt(models[m]), model: models[m] };
       } catch (err) {
+        said[models[m]] = reasonOf(err);
         if (!isBusy(err)) {
           if (!busy) throw err;
-          // The first model was busy; this backup failed some other way.
-          throw new AiBusyError(errorText(busy));
+          // The first model was busy; this backup failed some other way --
+          // which is worth knowing, so it is in the reasons.
+          throw new AiBusyError(errorText(busy), reasons());
         }
         busy = err;
         if (tries === 0) await sleep(waits[Math.min(m, waits.length - 1)]);
       }
     }
   }
-  throw new AiBusyError(errorText(busy));
+  throw new AiBusyError(errorText(busy), reasons());
 }
