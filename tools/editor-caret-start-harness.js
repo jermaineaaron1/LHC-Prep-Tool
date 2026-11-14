@@ -122,8 +122,9 @@ check('the slide box no longer selects the whole slide, where one key replaced i
 
 console.log('\nNothing puts it back at the end');
 const ends = (SRC.match(/(\w+)\.setSelectionRange\(\1\.value\.length, \1\.value\.length\)/g) || []);
-check('only one-line fields still take the end: a choir line, its chords, the Memories search',
-  ends.length === 3 && ends.filter(e => /^inp\./.test(e)).length === 2 && ends.filter(e => /^box\./.test(e)).length === 1, ends.join(' | '));
+check('only one-line fields still take the end: a choir line, its chords, the Memories and Services searches',
+  ends.length === 4 && ends.filter(e => /^inp\./.test(e)).length === 2 && ends.filter(e => /^box\./.test(e)).length === 1 &&
+  ends.filter(e => /^s\./.test(e)).length === 1, ends.join(' | '));
 check('no "place the cursor at the end" left in an opener',
   !/\/\/ Place cursor at end of existing text|\/\/ Focus at end\r?\n/.test(SRC));
 

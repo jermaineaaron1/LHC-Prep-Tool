@@ -246,7 +246,10 @@ const STALE = ['L: The LORD be with you\n\nC: And also with you',
   // ------------------------------------------------------------ 6. Readings
   console.log('\n6. The Readings page');
   const home = fn('renderLectionaryHome');
-  check('Import prayers sits beside Import lectionary', /LiturgyModule\.openLectionaryImportModal\(\)[\s\S]{0,400}LiturgyModule\.openPrayerImportModal\(\)/.test(home));
+  // Since 2026-11-14 the imports are under the Readings page's one Import button.
+  check('Import prayers sits beside Import lectionary',
+    /LiturgyModule\.openLectionaryImportModal\(\)[\s\S]{0,300}LiturgyModule\.openPrayerImportModal\(\)/.test(fn('llReadingTools')) &&
+    /LiturgyModule\.llReadingTools\(this\)/.test(home));
   check('the date\'s prayer has a place under the readings', /<div id="lectionaryDayPrayer"><\/div>/.test(home));
   const paint = fn('_paintReadings');
   check('Day view paints it for each service of the day; Week and Month clear it',

@@ -6868,6 +6868,13 @@
         <div class="lit-nav-group">
           <div class="lit-nav-group-label">Liturgy</div>
           <div class="lit-occ-row">
+            <button class="lit-nav-occ-btn" data-libfilter="hub" onclick="LiturgyModule.openHub()" title="Overview">
+              <span class="lit-nav-dot" style="background:#b8862b;"></span>
+              <i class="fa-solid fa-house" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Overview</span>
+            </button>
+          </div>
+          <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">
               <span class="lit-nav-dot" style="background:#0b7644;"></span>
               <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
@@ -6875,10 +6882,10 @@
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Library">
-              <span class="lit-nav-dot" style="background:#188e44;"></span>
-              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Library</span>
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Services">
+              <span class="lit-nav-dot" style="background:#8b2c2c;"></span>
+              <i class="fa-solid fa-church" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Services</span>
             </button>
           </div>
           <div class="lit-occ-row">
@@ -8931,13 +8938,17 @@
                three gestures to change tab, on the page a musician is most
                likely to be holding a phone in front of. -->
           <nav id="litTopNav" class="lit-topnav" aria-label="Liturgy sections">
+            <button class="lit-nav-occ-btn" data-libfilter="hub" onclick="LiturgyModule.openHub()" title="Overview">
+              <span class="lit-nav-dot" style="background:#b8862b;"></span>
+              <i class="fa-solid fa-house" aria-hidden="true"></i><span>Overview</span>
+            </button>
             <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)" title="Readings">
               <span class="lit-nav-dot" style="background:#0b7644;"></span>
               <i class="fa-solid fa-book-bible" aria-hidden="true"></i><span>Readings</span>
             </button>
-            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Library">
-              <span class="lit-nav-dot" style="background:#188e44;"></span>
-              <i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Library</span>
+            <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()" title="Services">
+              <span class="lit-nav-dot" style="background:#8b2c2c;"></span>
+              <i class="fa-solid fa-church" aria-hidden="true"></i><span>Services</span>
             </button>
             <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()" title="Memories">
               <span class="lit-nav-dot" style="background:#10b981;"></span>
@@ -9517,6 +9528,12 @@
                Drawn by LiturgyModule.renderLibrary; see "THE LITURGY LIBRARY,
                AS FOLDERS" there. -->
           <div id="liturgyFolderPanel" class="lf" style="display:none;"></div>
+
+          <!-- ===== THE LIBRARY AS THE OPERATOR'S DESIGN (2026-11-14) =====
+               The landing page and Services, drawn by LiturgyModule.renderHub
+               and renderServices. -->
+          <div id="liturgyHubPanel" class="ll-panel" style="display:none;"></div>
+          <div id="liturgyServicesPanel" class="ll-panel" style="display:none;"></div>
 
 
         </div>
@@ -23472,8 +23489,8 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
     }
     if (viewId === 'liturgyView' && window.LiturgyModule) {
       window.LiturgyModule.init();
-      // Always return to the welcome homepage when navigating to Liturgy
-      window.LiturgyModule.selectOccasion(null);
+      // Always return to the Liturgy Library's landing page (2026-11-14).
+      window.LiturgyModule.openHub();
     }
     if (viewId === 'worshipOrderView' && window.WO) {
       window.WO.checkSecondaryMonitor();
@@ -79785,6 +79802,42 @@ var WO = (function() {
     order.template.dayPrayer = { iso: iso, text: String(text || '') };
   }
 
+  // The service order kept for a date ('YYYY-MM-DD', '|pm'), or null: what
+  // the Readings page's "Use in plan" opens. Never a songbook.
+  function _woOrderForIso(iso) {
+    var key = String(iso || '');
+    var hit = (savedOrders || []).filter(function(o) {
+      return o && o.id && String(o.id).indexOf('standalone_') !== 0 && _woOrderIso(o) === key;
+    })[0];
+    return hit ? hit.id : null;
+  }
+  // The Liturgy Builder's PDF / Word export, for a document that is not an
+  // order (the Readings page's readings and prayer): sections of parts,
+  // each part's words as texts, laid out exactly as the Builder's own.
+  function _woExportDoc(m, kind, base) {
+    var pdf = kind === 'pdf', what = pdf ? 'PDF' : 'Word document';
+    var name = String(base || m.service || 'Export').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() + (pdf ? '.pdf' : '.docx');
+    var fail = function(e) { console.error(e); showToast('Could not make the ' + what + ': ' + ((e && e.message) || e || 'unknown error'), 'error'); };
+    try {
+      var model = { service: m.service || '', date: m.date || '', occasion: m.occasion || '', notes: '',
+        sections: (m.sections || []).map(function(sec, i) {
+          return { num: i + 1, title: sec.title || '', notes: '', parts: (sec.parts || []).map(function(p) {
+            return { kind: p.kind || '', title: p.title || '', meta: p.meta || '', notes: '', verses: !!p.verses,
+                     paras: _lbdExportParas(p.texts || []) };
+          }) };
+        }) };
+      if (pdf) {
+        var doc = _lbdExportPdf(model);
+        if (!doc) return;
+        _lbdDownload(doc.output('blob'), name);
+        showToast('Downloaded ' + name, 'success');
+      } else {
+        var pr = _lbdExportDocx(model);
+        if (pr) pr.then(function(blob) { _lbdDownload(blob, name); showToast('Downloaded ' + name, 'success'); }, fail);
+      }
+    } catch (e) { fail(e); }
+  }
+
   function _woPrayerWhen(iso) {
     var p = String(iso || '').slice(0, 10).split('-');
     if (p.length !== 3) return '';
@@ -98678,6 +98731,7 @@ var WO = (function() {
     lbdRender: lbdRender,
     lbdFillReadings: lbdFillReadings,
     svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
+    orderForIso: _woOrderForIso, exportDoc: _woExportDoc,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
     lbdSvlSaveSheet: lbdSvlSaveSheet, lbdSvlName: lbdSvlName, lbdSvlSave: lbdSvlSave,
     zoomEditor: zoomEditor,
@@ -103510,6 +103564,712 @@ var LiturgyModule = (function() {
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // THE LITURGY LIBRARY, AS THE OPERATOR'S DESIGN (2026-11-14)
+  //
+  // From the operator: four screens drawn in ChatGPT -- a landing page
+  // ("Liturgy Library -- Read. Plan. Remember.": Readings, Services and
+  // Memories as three cards, This Sunday, the Church Year, Recently used),
+  // Readings, Services and Memories -- "to replace the Liturgy page". Asked,
+  // they chose: a church photo wherever one is filed for a service and a
+  // drawn, season-coloured picture otherwise (nothing fetched from
+  // elsewhere); no one-line summaries on the readings (the app stores the
+  // reference, nothing more); and on Services, Favourites (kept on the
+  // device) and new collections beyond the fixed list, but none of "My
+  // services / Shared with me" -- nobody signs in, so there is nothing to
+  // base them on. The app's own sidebar and top bar in the drawings are the
+  // whole app's, and were left as they are.
+  //
+  // A FRONT over the same data, like the folders before it (gotcha 97):
+  // OCCASIONS (and the collections added to it from liturgy_collections),
+  // liturgyItems, occFolders, service_liturgies, the roster's readings and
+  // liturgical days, day_prayers. A Services card opens that collection's
+  // folder (the library's own pane, alone: `_lf.solo`), where every item
+  // opens, shares and links as before.
+  // ════════════════════════════════════════════════════════════════════
+  var LL_SEASONS = [
+    { key: 'advent',    label: 'Advent',        icon: 'fa-fire',              ink: '#6d28d9', bg: '#f1eafd',
+      desc: 'Four Sundays of waiting and preparation for the coming of Christ.' },
+    { key: 'christmas', label: 'Christmas',     icon: 'fa-star',              ink: '#a16207', bg: '#fdf6dc',
+      desc: 'The Word made flesh, celebrated from Christmas Eve to the Epiphany.' },
+    { key: 'epiphany',  label: 'Epiphany',      icon: 'fa-crown',             ink: '#a16207', bg: '#fdf3e1',
+      desc: 'Christ made known to the nations, from the Magi to the Transfiguration.' },
+    { key: 'lent',      label: 'Lent',          icon: 'fa-cross',             ink: '#6d28d9', bg: '#f1eafd',
+      desc: 'Forty days of repentance, prayer and renewal on the way to the cross.' },
+    { key: 'holyweek',  label: 'Holy Week',     icon: 'fa-hands-praying',     ink: '#b91c1c', bg: '#fde8e8',
+      desc: 'From Palm Sunday to Good Friday: the passion and death of our Lord.' },
+    { key: 'easter',    label: 'Easter',        icon: 'fa-sun',               ink: '#a16207', bg: '#fdf6dc',
+      desc: 'Fifty days of rejoicing in the resurrection, through the Ascension.' },
+    { key: 'pentecost', label: 'Pentecost',     icon: 'fa-fire-flame-curved', ink: '#b91c1c', bg: '#fde8e8',
+      desc: 'The gift of the Holy Spirit and the birth of the Church.' },
+    { key: 'ordinary',  label: 'Ordinary Time', icon: 'fa-leaf',              ink: '#15803d', bg: '#e6f4ea',
+      desc: 'A season of growth in discipleship, as we live out the life of Christ in the world.' }
+  ];
+  function _llSeason(key) { return LL_SEASONS.filter(function(s) { return s.key === key; })[0] || null; }
+
+  // Which season a liturgical day is in (pure). Order matters: "25th Sunday
+  // after Pentecost" holds "Pentecost", and "Palm Sunday" is in Lent.
+  function _llSeasonOf(day) {
+    var d = String(day || '').toLowerCase();
+    if (!d) return '';
+    if (/after pentecost|ordinary time|\bproper\b|christ the king|reign of christ|reformation|all saints|thanksgiving/.test(d)) return 'ordinary';
+    if (/palm|passion|maundy|holy thursday|good friday|holy saturday|holy week/.test(d)) return 'holyweek';
+    if (/\blent|ash wednesday/.test(d)) return 'lent';
+    if (/advent/.test(d)) return 'advent';
+    if (/christmas|nativity|watchnight|new year|holy name/.test(d)) return 'christmas';
+    if (/epiphany|baptism of (our |the )?lord|transfiguration/.test(d)) return 'epiphany';
+    if (/easter|ascension|resurrection/.test(d)) return 'easter';
+    if (/pentecost|trinity/.test(d)) return 'pentecost';
+    return '';
+  }
+
+  // The lectionary's three-year cycle (pure): the church year that begins
+  // at Advent in a year Y is Year A when (Y - 2022) % 3 is 0 -- Advent 2025
+  // began Year A. Advent Sunday is the Sunday from 27 Nov to 3 Dec.
+  function _llCycle(iso) {
+    var p = String(iso || '').slice(0, 10).split('-');
+    if (p.length !== 3) return '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    if (isNaN(d)) return '';
+    var adventOf = function(y) { var dec3 = new Date(y, 11, 3); return new Date(y, 11, 3 - dec3.getDay()); };
+    var y = d >= adventOf(d.getFullYear()) ? d.getFullYear() : d.getFullYear() - 1;
+    return 'Year ' + 'ABC'.charAt((((y - 2022) % 3) + 3) % 3);
+  }
+
+  var LL_PANELS = ['liturgyHubPanel', 'liturgyServicesPanel', 'liturgyFolderPanel'];
+  function _llShowOnly(id) {
+    ['liturgyWelcome', 'liturgyOccasionPanel', 'liturgyMemoriesPanel'].concat(LL_PANELS).forEach(function(pid) {
+      var el = document.getElementById(pid);
+      if (el) el.style.display = pid === id ? '' : 'none';
+    });
+    var host = document.getElementById('liturgyView');
+    if (host && id !== 'liturgyFolderPanel') host.removeAttribute('data-altar');
+    if (host) host.setAttribute('data-ll', id === 'liturgyHubPanel' ? 'hub' : id === 'liturgyServicesPanel' ? 'services' : '');
+  }
+  function _llShown(id) { var el = document.getElementById(id); return !!(el && el.style.display !== 'none'); }
+  // Redraw whichever of the library's pages is on screen.
+  function _llRefresh() {
+    if (_llShown('liturgyHubPanel')) renderHub();
+    if (_llShown('liturgyServicesPanel')) renderServices();
+    if (_llShown('liturgyFolderPanel')) renderLibrary();
+  }
+
+  // ── The page header the drawings share ──────────────────────────────
+  var LL_HEADS = {
+    hub:      { icon: 'fa-book-bible',  title: 'Liturgy Library', tag: 'Read. Plan. Remember.' },
+    readings: { icon: 'fa-book-open',   title: 'Readings',        tag: 'What the church is hearing, service by service' },
+    services: { icon: 'fa-church',      title: 'Services',        tag: 'A library of liturgies and services, for planning and use' },
+    memories: { icon: 'fa-images',      title: 'Memories',        tag: 'What we have done before' }
+  };
+  function _llHead(page) {
+    var h = LL_HEADS[page] || LL_HEADS.hub;
+    var tabs = page === 'hub' ? '' :
+      '<nav class="ll-tabs" aria-label="Liturgy Library">' +
+        '<button type="button" class="ll-tab ll-tab--home" onclick="LiturgyModule.openHub()" aria-label="Liturgy Library home" title="Liturgy Library"><i class="fa-solid fa-house" aria-hidden="true"></i></button>' +
+        [['readings', 'fa-book-open', 'Readings', 'LiturgyModule.selectOccasion(null)'],
+         ['services', 'fa-church', 'Services', 'LiturgyModule.openServices()'],
+         ['memories', 'fa-images', 'Memories', 'LiturgyModule.openMemories()']].map(function(t) {
+          var on = t[0] === page;
+          return '<button type="button" class="ll-tab' + (on ? ' is-on' : '') + '"' + (on ? ' aria-current="page"' : '') +
+            ' onclick="' + t[3] + '"><i class="fa-solid ' + t[1] + '" aria-hidden="true"></i>' + t[2] + '</button>';
+        }).join('') +
+      '</nav>';
+    return '<header class="ll-head ll-head--' + page + '">' +
+        '<div class="ll-head__id"><span class="ll-head__icon" aria-hidden="true"><i class="fa-solid ' + h.icon + '"></i></span>' +
+          '<div><h1 class="font-cinzel">' + _lfE(h.title) + '</h1><p>' + _lfE(h.tag) + '</p></div></div>' +
+        '<div class="ll-head__art" aria-hidden="true"><img src="/lhc-luther-rose.png" alt=""></div>' +
+      '</header>' + tabs;
+  }
+
+  // ── A picture for a service: its own photo, else drawn artwork ──────
+  var LL_IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
+  function _llPhotoFor(occId) {
+    var hit = liturgyItems.filter(function(i) {
+      if (!i || i.occasionId !== occId) return false;
+      var url = String(i.fileUrl || ''), name = String(i.fileName || url.split('?')[0]);
+      return url && url.indexOf('data:') !== 0 && LL_IMG_RE.test(name) && i.category !== 'planning' && i.category !== 'documents';
+    })[0];
+    return hit ? hit.fileUrl : '';
+  }
+  var LL_ART = {
+    green:  ['#1f6b3a', '#3f9b5f'], purple: ['#4c1d95', '#7c3aed'], red:   ['#991b1b', '#dc2626'],
+    white:  ['#a16207', '#e0b94a'], gold:   ['#a16207', '#e0b94a'],  black: ['#111827', '#4b5563'],
+    blue:   ['#1e3a8a', '#3b82f6'], rose:   ['#9d174d', '#f472b6']
+  };
+  function _llArt(occ, cls) {
+    var photo = occ ? _llPhotoFor(occ.id) : '';
+    if (photo) {
+      return '<span class="ll-art ll-art--photo ' + (cls || '') + '"><img src="' + _lfE(photo) + '" alt="" loading="lazy"></span>';
+    }
+    var c = LL_ART[String((occ && occ.colour) || '').toLowerCase()];
+    if (!c && occ && occ.gradient) {
+      var g = String(occ.gradient).match(/#[0-9a-f]{6}/gi);
+      if (g && g.length) c = [g[0], g[1] || g[0]];
+    }
+    if (!c) c = ['#475569', '#94a3b8'];
+    return '<span class="ll-art ' + (cls || '') + '" style="--ll-a:' + c[0] + ';--ll-b:' + c[1] + '" aria-hidden="true">' +
+      '<span class="ll-art__arch"></span><i class="fa-solid ' + _lfE((occ && occ.icon) || 'fa-church') + '"></i></span>';
+  }
+
+  // ── Favourites, kept on this device ─────────────────────────────────
+  function _llFavs() {
+    try { var a = JSON.parse(localStorage.getItem('lhc_lit_favs') || '[]'); return Array.isArray(a) ? a : []; }
+    catch (e) { return []; }
+  }
+  function llFav(id) {
+    var f = _llFavs(), i = f.indexOf(id);
+    if (i === -1) f.push(id); else f.splice(i, 1);
+    try { localStorage.setItem('lhc_lit_favs', JSON.stringify(f)); } catch (e) {}
+    _llRefresh();
+  }
+
+  // ── Collections beyond the fixed list (liturgy_collections) ────────
+  var _llCollMissing = false, _llCollLoaded = false;
+  function _llCollToOcc(row) {
+    return { id: row.id, label: row.label || 'Collection', desc: row.description || '',
+             colour: row.colour || '', icon: row.icon || 'fa-folder-open', serviceType: 'both',
+             kind: 'custom', custom: true };
+  }
+  function _llAddCollection(occ) {
+    for (var i = 0; i < OCCASIONS.length; i++) { if (OCCASIONS[i].id === occ.id) { OCCASIONS[i] = occ; return; } }
+    OCCASIONS.push(occ);
+  }
+  function _llCollectionsLoad() {
+    var sb = SBQ_LITURGY._sb();
+    // Asked once a session when the table is missing (a reload asks again).
+    if (!sb || _llCollLoaded || _llCollMissing) return Promise.resolve();
+    return Promise.resolve(sb.from('liturgy_collections').select('*').order('created_at', { ascending: true })).then(function(r) {
+      if (r.error) {
+        var m = String(r.error.message || '');
+        if (/PGRST205|42P01|liturgy_collections|does not exist|not find/.test(m)) _llCollMissing = true;
+        else console.warn('[LHC] liturgy_collections:', m);
+        return;
+      }
+      _llCollLoaded = true; _llCollMissing = false;
+      (r.data || []).forEach(function(row) { _llAddCollection(_llCollToOcc(row)); });
+      _llRefresh();
+    }, function() {});
+  }
+
+  function llCreateCollection() {
+    if (_llCollMissing) {
+      showToast('New collections need migrations/2026-11-14_liturgy_collections.sql run in Supabase first.', 'error');
+      return;
+    }
+    llCloseCollection();
+    var colours = [['', 'No colour'], ['green', 'Green'], ['purple', 'Purple'], ['red', 'Red'], ['white', 'White / gold'], ['blue', 'Blue'], ['black', 'Black']];
+    var icons = [['fa-folder-open', 'Folder'], ['fa-church', 'Church'], ['fa-dove', 'Dove'], ['fa-cross', 'Cross'], ['fa-hands-praying', 'Prayer'],
+                 ['fa-graduation-cap', 'Training'], ['fa-people-group', 'Gathering'], ['fa-heart', 'Heart'], ['fa-star', 'Star'], ['fa-music', 'Music']];
+    var el = document.createElement('div');
+    el.id = 'llCollModal';
+    el.className = 'lf-vw';
+    el.innerHTML = '<div class="lf-vw__card ll-coll" role="dialog" aria-modal="true" aria-labelledby="llCollTtl">' +
+        '<div class="lf-vw__hd"><div class="lf-vw__ttl"><h2 id="llCollTtl">New service collection</h2>' +
+          '<p>For a service the list does not have: All Souls’ Day, a training, a guest speaker…</p></div>' +
+          '<button type="button" class="lf-vw__x" onclick="LiturgyModule.llCloseCollection()" aria-label="Close">&times;</button></div>' +
+        '<div class="lf-vw__body">' +
+          '<label class="ll-field"><span>Name</span><input id="llCollName" type="text" maxlength="80" placeholder="All Souls’ Day"></label>' +
+          '<label class="ll-field"><span>What it is for</span><input id="llCollDesc" type="text" maxlength="160" placeholder="A service of remembrance for the faithful departed"></label>' +
+          '<div class="ll-field-row">' +
+            '<label class="ll-field"><span>Colour</span><select id="llCollColour">' +
+              colours.map(function(c) { return '<option value="' + c[0] + '">' + c[1] + '</option>'; }).join('') + '</select></label>' +
+            '<label class="ll-field"><span>Picture</span><select id="llCollIcon">' +
+              icons.map(function(c) { return '<option value="' + c[0] + '">' + c[1] + '</option>'; }).join('') + '</select></label>' +
+          '</div>' +
+          '<div id="llCollErr" class="bible-passage-error" style="display:none;"></div>' +
+        '</div>' +
+        '<div class="lf-vw__ft"><span style="flex:1"></span>' +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.llCloseCollection()">Cancel</button>' +
+          '<button type="button" class="lf-btn lf-btn--primary" id="llCollSave" onclick="LiturgyModule.llSaveCollection()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Create</span></button>' +
+        '</div></div>';
+    el.addEventListener('click', function(e) { if (e.target === el) llCloseCollection(); });
+    el.addEventListener('keydown', function(e) { if (e.key === 'Escape') llCloseCollection(); });
+    document.body.appendChild(el);
+    var n = document.getElementById('llCollName');
+    if (n) n.focus();
+  }
+  function llCloseCollection() { var m = document.getElementById('llCollModal'); if (m) m.remove(); }
+  function llSaveCollection() {
+    var name = String((document.getElementById('llCollName') || {}).value || '').trim();
+    var err = document.getElementById('llCollErr'), btn = document.getElementById('llCollSave');
+    var say = function(t) { if (err) { err.textContent = t; err.style.display = 'block'; } };
+    if (!name) { say('Give it a name.'); return; }
+    if (OCCASIONS.some(function(o) { return String(o.label).toLowerCase() === name.toLowerCase(); })) { say('There is already a service called that.'); return; }
+    var sb = SBQ_LITURGY._sb();
+    if (!sb) { say('Not connected.'); return; }
+    var slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'collection';
+    var row = { id: 'col-' + slug + '-' + Date.now().toString(36), label: name,
+                description: String((document.getElementById('llCollDesc') || {}).value || '').trim() || null,
+                colour: (document.getElementById('llCollColour') || {}).value || null,
+                icon: (document.getElementById('llCollIcon') || {}).value || 'fa-folder-open' };
+    if (btn) btn.disabled = true;
+    Promise.resolve(sb.from('liturgy_collections').insert([row])).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return sb.from('liturgy_collections').select('*').eq('id', row.id);
+    }).then(function(r) {
+      var got = r && r.data && r.data[0];
+      if (!got) throw new Error('It did not save. Try again.');
+      _llAddCollection(_llCollToOcc(got));
+      llCloseCollection();
+      showToast('Created “' + got.label + '”', 'success');
+      openCollection(got.id, '', 'services');
+    }).catch(function(e) {
+      if (btn) btn.disabled = false;
+      var m = String((e && e.message) || e);
+      if (/PGRST205|42P01|liturgy_collections|does not exist/.test(m)) { _llCollMissing = true; m = 'New collections need migrations/2026-11-14_liturgy_collections.sql run in Supabase first.'; }
+      say(m);
+    });
+  }
+
+  // ── The landing page ────────────────────────────────────────────────
+  var _llSundayVerse = null;   // { key, text, ref } from that Sunday's bulletin
+  var _llYearMeta = null, _llYearMetaAt = 0;
+
+  function openHub() {
+    _llShowOnly('liturgyHubPanel');
+    _litSyncNav('hub');
+    _currentOccasion = null; _currentOccFolder = null;
+    if (!_lfFoldersAsked) { _lfFoldersAsked = true; var keep = _currentOccasion; _currentOccasion = null; loadOccFolders().then(_llRefresh); _currentOccasion = keep; }
+    _llCollectionsLoad();
+    _lfLoadSunday();
+    renderHub();
+  }
+
+  function _llSundayVerseLoad(d) {
+    if (!d || (_llSundayVerse && _llSundayVerse.key === d.key) || typeof SBQ_BULLETINS === 'undefined') return;
+    _llSundayVerse = { key: d.key, text: '', ref: '' };
+    var r = SBQ_READINGS.isoToRoster(SBQ_READINGS.keyDate(d.key));
+    if (!r) return;
+    SBQ_BULLETINS.forDate(r.serviceDate, r.year).then(function(row) {
+      var v = row && row.data && row.data.verse;
+      var text = v ? String(v.text || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim() : '';
+      if (text && _llSundayVerse.key === d.key) { _llSundayVerse.text = text; _llSundayVerse.ref = String(v.ref || '').trim(); _llRefresh(); }
+    }, function() {});
+  }
+
+  function renderHub() {
+    var p = document.getElementById('liturgyHubPanel');
+    if (!p) return;
+    var d = _lfSunday;
+    if (d) _llSundayVerseLoad(d);
+    var seasonNow = d ? _llSeasonOf(d.day) : '';
+    var cards = [
+      { k: 'readings', icon: 'fa-book-open', title: 'Readings', tag: 'What the church is hearing',
+        h: 'Lectionary readings & Prayer of the Day', sub: 'The four readings and the prayer for every service, from the church’s lectionary.',
+        go: 'Open Readings', fn: 'LiturgyModule.selectOccasion(null)', small: 'fa-calendar-days' },
+      { k: 'services', icon: 'fa-church', title: 'Services', tag: 'How we worship',
+        h: 'Service collections & liturgies', sub: 'Traditional · Contemporary · Seasons · Sacraments · Special services and more.',
+        go: 'Browse Services', fn: 'LiturgyModule.openServices()', small: 'fa-layer-group' },
+      { k: 'memories', icon: 'fa-images', title: 'Memories', tag: 'What we have done together',
+        h: 'Past services, events & highlights', sub: 'Photos, notes and the services we have kept, through the years.',
+        go: 'Explore Memories', fn: 'LiturgyModule.openMemories()', small: 'fa-camera' }
+    ];
+    var sunday;
+    if (!d) {
+      sunday = '<p class="lf-muted ll-pad"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the roster…</p>';
+    } else {
+      var reads = d.refs.map(function(r) {
+        return '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span>' + (r.ref ? _lfE(r.ref) : '<em>' + _lfE(r.label) + ' not set</em>') + '</span></li>';
+      }).join('');
+      var v = (_llSundayVerse && _llSundayVerse.key === d.key && _llSundayVerse.text) ? _llSundayVerse : null;
+      sunday = '<div class="ll-sun__when"><span class="ll-pill">' + _lfE(_lfShortDate(d.key) + ' ' + d.key.slice(0, 4)) +
+          (d.day ? ' · ' + _lfE(d.day) : '') + '</span></div>' +
+        '<div class="ll-sun__body' + (v ? '' : ' ll-sun__body--wide') + '">' +
+          '<ul class="ll-sun__reads">' + reads +
+            '<li class="ll-sun__prayer"><i class="fa-solid fa-hands-praying" aria-hidden="true"></i><span>Prayer of the Day' +
+              (d.prayer ? '' : ' <em>(not saved yet)</em>') + '</span></li></ul>' +
+          (v ? '<blockquote class="ll-sun__verse"><p>“' + _lfE(v.text) + '”</p>' + (v.ref ? '<cite>' + _lfE(v.ref) + '</cite>' : '') + '</blockquote>' : '') +
+        '</div>' +
+        '<div class="ll-sun__acts">' +
+          '<button type="button" class="lf-btn lf-btn--primary" data-key="' + _lfE(d.key) + '" onclick="LiturgyModule.lfOpenDay(this.dataset.key)"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span>Open in Readings</span></button>' +
+          '<button type="button" class="lf-btn lf-btn--wa" onclick="LiturgyModule.lfShareSunday()"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i><span>Share</span></button>' +
+        '</div>';
+    }
+    var recent = _lfNewest(liturgyItems.slice(), 'created').slice(0, 4);
+    p.innerHTML = '<div class="ll">' + _llHead('hub') +
+      '<div class="ll-cards">' + cards.map(function(c) {
+        return '<article class="ll-card ll-card--' + c.k + '">' +
+          '<div class="ll-card__top"><i class="fa-solid ' + c.icon + ' ll-card__icon" aria-hidden="true"></i>' +
+            '<div><h2 class="font-cinzel">' + c.title + '</h2><p>' + _lfE(c.tag) + '</p></div></div>' +
+          '<div class="ll-card__body"><i class="fa-solid ' + c.small + ' ll-card__small" aria-hidden="true"></i>' +
+            '<div><h3>' + _lfE(c.h) + '</h3><p>' + _lfE(c.sub) + '</p></div></div>' +
+          '<button type="button" class="ll-card__go" onclick="' + c.fn + '">' + _lfE(c.go) + ' <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>' +
+        '</article>';
+      }).join('') + '</div>' +
+      '<div class="ll-row2">' +
+        '<section class="ll-box ll-sun" aria-labelledby="llSunTtl"><div class="ll-box__hd"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i><h2 id="llSunTtl" class="font-cinzel">This Sunday</h2></div>' + sunday + '</section>' +
+        '<section class="ll-box ll-year" aria-labelledby="llYearTtl"><div class="ll-box__hd"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i><h2 id="llYearTtl" class="font-cinzel">Church Year</h2>' +
+          '<button type="button" class="ll-link" onclick="LiturgyModule.llCalendar()">View calendar <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>' +
+          '<div class="ll-seasons">' + LL_SEASONS.map(function(s) {
+            var now = s.key === seasonNow;
+            return '<button type="button" class="ll-season' + (now ? ' is-now' : '') + '" style="--ll-sink:' + s.ink + ';--ll-bg:' + s.bg + '" data-k="' + s.key + '" onclick="LiturgyModule.llSeasonGo(this.dataset.k)" title="' + _lfE(s.desc) + '">' +
+              '<i class="fa-solid ' + s.icon + '" aria-hidden="true"></i><span>' + _lfE(s.label) + '</span>' + (now ? '<small>Now</small>' : '') + '</button>';
+          }).join('') + '</div></section>' +
+      '</div>' +
+      '<section class="ll-box ll-recent" aria-labelledby="llRecentTtl"><div class="ll-box__hd"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><h2 id="llRecentTtl" class="font-cinzel">Recently Added</h2>' +
+        '<button type="button" class="ll-link" onclick="LiturgyModule.openCollection(\'\', \'\', \'hub\', \'recent\')">View all <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>' +
+        (recent.length ? '<div class="ll-files">' + recent.map(_llFileCard).join('') + '</div>' : '<p class="lf-muted ll-pad">Nothing in the library yet.</p>') +
+      '</section>' +
+    '</div>';
+  }
+
+  function _llFileCard(it) {
+    var k = _lfKind(it), occ = it.occasionId ? getOccasionById(it.occasionId) : null;
+    var name = it.title || it.fileName || 'Untitled';
+    return '<div class="ll-file">' +
+      '<button type="button" class="ll-file__main" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfOpen(this.dataset.id)">' + _lfBadge(k) +
+        '<span class="ll-file__t"><b>' + _lfE(name) + '</b><small>' + _lfE([occ && occ.label, _lfWhen(it.created || it.modified)].filter(Boolean).join(' · ')) + '</small></span></button>' +
+      '<button type="button" class="lf-row__share" aria-label="Share ' + _lfE(name) + '" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfShareItem(this.dataset.id)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
+    '</div>';
+  }
+
+  // A season's tile: the first service in it from today on (else the last
+  // one before), opened in Readings. The roster's liturgical days say which.
+  function _llYearMetaLoad() {
+    if (_llYearMeta && Date.now() - _llYearMetaAt < 600000) return Promise.resolve(_llYearMeta);
+    var a = new Date(); a.setDate(a.getDate() - 300);
+    var b = new Date(); b.setDate(b.getDate() + 400);
+    return SBQ_READINGS.getServiceMeta(_isoFromDate(a), _isoFromDate(b)).then(function(m) {
+      _llYearMeta = m || {}; _llYearMetaAt = Date.now();
+      return _llYearMeta;
+    }).catch(function() { return {}; });
+  }
+  function llSeasonGo(key) {
+    var s = _llSeason(key);
+    _llYearMetaLoad().then(function(meta) {
+      var today = _todayISO();
+      var keys = Object.keys(meta).filter(function(k) { return _llSeasonOf(meta[k].day) === key; }).sort();
+      var next = keys.filter(function(k) { return SBQ_READINGS.keyDate(k) >= today; })[0] || keys[keys.length - 1];
+      if (!next) { showToast('The roster has no ' + (s ? s.label : 'such') + ' service in the coming year yet.', 'info'); return; }
+      lfOpenDay(next);
+    });
+  }
+  function llCalendar() {
+    _readingViewMode = 'month';
+    _readingDatePrimed = true;
+    if (!_currentReadingDate) _currentReadingDate = _todayISO();
+    _llShowOnly('liturgyWelcome');
+    selectOccasion(null);
+  }
+
+  // ── Services: the collections ───────────────────────────────────────
+  var _ls = { fav: false, q: '', year: '', type: '', view: '' };
+  var _lsStats = null, _lsStatsAt = 0;
+
+  function openServices() {
+    _llShowOnly('liturgyServicesPanel');
+    _litSyncNav('all-services');
+    _currentOccasion = null; _currentOccFolder = null;
+    if (!_ls.view) { try { _ls.view = localStorage.getItem('lhc_ls_view') === 'list' ? 'list' : 'grid'; } catch (e) { _ls.view = 'grid'; } }
+    if (!_lfFoldersAsked) { _lfFoldersAsked = true; loadOccFolders().then(_llRefresh); }
+    _llCollectionsLoad();
+    _lsLoadStats();
+    renderServices();
+  }
+  function showAllServices() { openServices(); }
+
+  // Whole liturgies (and their years) and planning notes, per collection.
+  function _lsLoadStats() {
+    if (_lsStats && Date.now() - _lsStatsAt < 120000) return;
+    _lsStatsAt = Date.now();
+    var sb = SBQ_LITURGY._sb();
+    var svlP = sb ? Promise.resolve(sb.from('service_liturgies').select('occasion_id,year')).then(function(r) { return r.error ? [] : (r.data || []); }, function() { return []; }) : Promise.resolve([]);
+    Promise.all([svlP, _allOccasionData().catch(function() { return {}; })]).then(function(res) {
+      var svl = {}, svlYears = {}, notes = {};
+      res[0].forEach(function(r) {
+        svl[r.occasion_id] = (svl[r.occasion_id] || 0) + 1;
+        (svlYears[r.occasion_id] = svlYears[r.occasion_id] || {})[String(r.year)] = true;
+      });
+      Object.keys(res[1] || {}).forEach(function(occ) {
+        var d = res[1][occ] || {}, n = (d.planningNotes || []).length;
+        Object.keys(d.folders || {}).forEach(function(f) { n += (((d.folders[f] || {}).planningNotes) || []).length; });
+        if (n) notes[occ] = n;
+      });
+      _lsStats = { svl: svl, svlYears: svlYears, notes: notes };
+      _llRefresh();
+    });
+  }
+  function _lsGroup(o) {
+    if (o.custom) return 'custom';
+    if (LF_ORDINARY.indexOf(o.id) !== -1) return 'sundays';
+    return _occasionKind(o) === 'season' ? 'year' : 'rites';
+  }
+  // The collections shown (pure over its inputs): by favourite, kind, year
+  // and words -- a collection's own name and description, or any of its
+  // items' names.
+  function _lsFilter(occs, items, favs, f, folders, svlYears) {
+    var q = String(f.q || '').trim().toLowerCase();
+    return occs.filter(function(o) {
+      if (f.fav && favs.indexOf(o.id) === -1) return false;
+      if (f.type && _lsGroup(o) !== f.type) return false;
+      if (f.year) {
+        var ids = (folders[o.id] || []).filter(function(x) { return String(x.name) === String(f.year); }).map(function(x) { return x.id; });
+        var inYear = items.some(function(i) { return i.occasionId === o.id && ids.indexOf(i.occasionFolderId) !== -1; }) ||
+                     !!((svlYears || {})[o.id] || {})[String(f.year)];
+        if (!inYear) return false;
+      }
+      if (q) {
+        var own = (String(o.label) + ' ' + String(o.desc || '')).toLowerCase().indexOf(q) !== -1;
+        var inItems = items.some(function(i) {
+          return i.occasionId === o.id && ((i.title || '') + ' ' + (i.fileName || '')).toLowerCase().indexOf(q) !== -1;
+        });
+        if (!own && !inItems) return false;
+      }
+      return true;
+    });
+  }
+  function lsSet(key, val) {
+    if (key === 'fav') _ls.fav = !!val;
+    else if (key === 'view') { _ls.view = val === 'list' ? 'list' : 'grid'; try { localStorage.setItem('lhc_ls_view', _ls.view); } catch (e) {} }
+    else _ls[key] = String(val || '');
+    if (key === 'q') {
+      var host = document.getElementById('lsGrid');
+      if (host) { host.outerHTML = _lsGridHtml(); return; }
+    }
+    renderServices();
+  }
+
+  function _lsCount(occId) { return liturgyItems.filter(function(i) { return i && i.occasionId === occId; }).length; }
+  function _lsGridHtml() {
+    var favs = _llFavs();
+    var shown = _lsFilter(OCCASIONS, liturgyItems, favs, _ls, occFolders, _lsStats && _lsStats.svlYears);
+    var list = _ls.view === 'list';
+    var cards = shown.map(function(o) {
+      var n = _lsCount(o.id), v = (_lsStats && _lsStats.svl[o.id]) || 0, fav = favs.indexOf(o.id) !== -1;
+      return '<article class="ls-card' + (list ? ' ls-card--row' : '') + '">' +
+        '<button type="button" class="ls-card__main" data-id="' + _lfE(o.id) + '" onclick="LiturgyModule.openCollection(this.dataset.id, \'\', \'services\')">' +
+          _llArt(o, 'ls-card__art') +
+          '<span class="ls-card__text"><b>' + _lfE(o.label) + '</b><small>' + _lfE(o.desc || '') + '</small>' +
+            '<span class="ls-card__meta"><span><i class="fa-solid fa-folder" aria-hidden="true"></i>' + n + ' doc' + (n === 1 ? '' : 's') + '</span>' +
+            '<span><i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>' + v + ' liturg' + (v === 1 ? 'y' : 'ies') + '</span></span></span>' +
+          '<i class="fa-solid fa-circle-arrow-right ls-card__go" aria-hidden="true"></i>' +
+        '</button>' +
+        '<button type="button" class="ls-card__fav' + (fav ? ' is-on' : '') + '" aria-pressed="' + fav + '" aria-label="' + (fav ? 'Remove ' : 'Add ') + _lfE(o.label) + (fav ? ' from' : ' to') + ' favourites" data-id="' + _lfE(o.id) + '" onclick="LiturgyModule.llFav(this.dataset.id)">' +
+          '<i class="fa-' + (fav ? 'solid' : 'regular') + ' fa-star" aria-hidden="true"></i></button>' +
+      '</article>';
+    }).join('');
+    var loose = liturgyItems.filter(function(i) { return i && !i.occasionId; }).length;
+    var extra = (!_ls.q && !_ls.fav && !_ls.year && !_ls.type && loose)
+      ? '<article class="ls-card' + (list ? ' ls-card--row' : '') + '"><button type="button" class="ls-card__main" onclick="LiturgyModule.openCollection(\'\', \'\', \'services\', \'unfiled\')">' +
+          '<span class="ll-art ls-card__art" style="--ll-a:#64748b;--ll-b:#94a3b8" aria-hidden="true"><span class="ll-art__arch"></span><i class="fa-solid fa-inbox"></i></span>' +
+          '<span class="ls-card__text"><b>Not filed</b><small>Things kept under no service yet</small>' +
+          '<span class="ls-card__meta"><span><i class="fa-solid fa-folder" aria-hidden="true"></i>' + loose + ' doc' + (loose === 1 ? '' : 's') + '</span></span></span>' +
+          '<i class="fa-solid fa-circle-arrow-right ls-card__go" aria-hidden="true"></i></button></article>'
+      : '';
+    var create = '<button type="button" class="ls-create' + (list ? ' ls-create--row' : '') + '" onclick="LiturgyModule.llCreateCollection()">' +
+      '<span class="ls-create__plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>' +
+      '<span><b>Create Service Collection</b><small>e.g. All Souls’ Day, Mother’s Day, a training, a guest speaker</small></span></button>';
+    var empty = shown.length ? '' : '<p class="lf-empty ls-empty">No collection matches. ' +
+      '<button type="button" class="lf-link" onclick="LiturgyModule.lsClear()">Show them all</button></p>';
+    return '<div id="lsGrid" class="ls-grid' + (list ? ' ls-grid--list' : '') + '">' + cards + extra + create + '</div>' + empty;
+  }
+  function lsClear() { _ls.fav = false; _ls.q = ''; _ls.year = ''; _ls.type = ''; renderServices(); }
+
+  function renderServices() {
+    var p = document.getElementById('liturgyServicesPanel');
+    if (!p) return;
+    var keepQ = document.activeElement && document.activeElement.id === 'lsSearch';
+    var docs = liturgyItems.filter(function(i) { return i && i.occasionId; }).length;
+    var svlN = _lsStats ? Object.keys(_lsStats.svl).reduce(function(t, k) { return t + _lsStats.svl[k]; }, 0) : null;
+    var notesN = _lsStats ? Object.keys(_lsStats.notes).reduce(function(t, k) { return t + _lsStats.notes[k]; }, 0) : null;
+    var years = {};
+    Object.keys(occFolders).forEach(function(o) { (occFolders[o] || []).forEach(function(f) { if (/^\d{4}$/.test(String(f.name))) years[f.name] = true; }); });
+    if (_lsStats) Object.keys(_lsStats.svlYears).forEach(function(o) { Object.keys(_lsStats.svlYears[o]).forEach(function(y) { if (/^\d{4}$/.test(y)) years[y] = true; }); });
+    var yearOpts = Object.keys(years).sort().reverse();
+    var stat = function(icon, n, label) {
+      return '<div class="ls-stat"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><div><b>' + (n == null ? '–' : n) + '</b><small>' + label + '</small></div></div>';
+    };
+    var recent = _lfNewest(liturgyItems.slice()).slice(0, 4);
+    p.innerHTML = '<div class="ll">' + _llHead('services') +
+      '<div class="ls-bar">' +
+        '<div class="ls-bar__main"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><div><b>' + OCCASIONS.length + ' Service Collections</b>' +
+          '<small>Traditional, Contemporary, Seasons, Sacraments & Special Services</small></div></div>' +
+        stat('fa-file-lines', docs, 'documents') + stat('fa-book-bookmark', svlN, 'whole liturgies') + stat('fa-note-sticky', notesN, 'planning notes') +
+        '<div class="ls-bar__acts">' +
+          '<button type="button" class="lf-btn lf-btn--primary" onclick="LiturgyModule.llCreateCollection()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Create New Service</span></button>' +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.lfUpload()"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Upload</span></button>' +
+          '<button type="button" class="lf-btn" onclick="LiturgyModule.lfShareLibrary()" title="Share a view-only link to the whole library"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><span>Share library</span></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ls-filters">' +
+        '<div class="ls-chips" role="group" aria-label="Which collections">' +
+          '<button type="button" class="ls-chip' + (!_ls.fav ? ' is-on' : '') + '" aria-pressed="' + !_ls.fav + '" onclick="LiturgyModule.lsSet(\'fav\', false)"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>All Services</button>' +
+          '<button type="button" class="ls-chip' + (_ls.fav ? ' is-on' : '') + '" aria-pressed="' + _ls.fav + '" onclick="LiturgyModule.lsSet(\'fav\', true)"><i class="fa-solid fa-star" aria-hidden="true"></i>Favourites</button>' +
+        '</div>' +
+        '<label class="ls-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Search services, liturgies or documents</span>' +
+          '<input id="lsSearch" type="search" autocomplete="off" placeholder="Search services, liturgies or documents…" value="' + _lfE(_ls.q) + '" oninput="LiturgyModule.lsSet(\'q\', this.value)"></label>' +
+      '</div>' +
+      '<div class="ls-filters ls-filters--2">' +
+        '<label class="ls-sel"><span>Year</span><select onchange="LiturgyModule.lsSet(\'year\', this.value)"><option value="">All years</option>' +
+          yearOpts.map(function(y) { return '<option value="' + y + '"' + (_ls.year === y ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select></label>' +
+        '<label class="ls-sel"><span>Type</span><select onchange="LiturgyModule.lsSet(\'type\', this.value)">' +
+          [['', 'All types'], ['sundays', 'Sundays'], ['year', 'Church year'], ['rites', 'Rites & occasions'], ['custom', 'Added collections']].map(function(t) {
+            return '<option value="' + t[0] + '"' + (_ls.type === t[0] ? ' selected' : '') + '>' + t[1] + '</option>';
+          }).join('') + '</select></label>' +
+        '<span class="ls-sp"></span>' +
+        '<div class="ls-view" role="group" aria-label="Show as">' +
+          '<button type="button" class="' + (_ls.view !== 'list' ? 'is-on' : '') + '" aria-pressed="' + (_ls.view !== 'list') + '" aria-label="Show as a grid" onclick="LiturgyModule.lsSet(\'view\', \'grid\')"><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i></button>' +
+          '<button type="button" class="' + (_ls.view === 'list' ? 'is-on' : '') + '" aria-pressed="' + (_ls.view === 'list') + '" aria-label="Show as a list" onclick="LiturgyModule.lsSet(\'view\', \'list\')"><i class="fa-solid fa-list" aria-hidden="true"></i></button>' +
+        '</div>' +
+      '</div>' +
+      (_llCollMissing ? '<p class="ls-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> New collections need <code>migrations/2026-11-14_liturgy_collections.sql</code> run in Supabase.</p>' : '') +
+      _lsGridHtml() +
+      (recent.length ? '<section class="ll-box ll-recent"><div class="ll-box__hd"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><h2 class="font-cinzel">Recently Changed</h2>' +
+        '<button type="button" class="ll-link" onclick="LiturgyModule.openCollection(\'\', \'\', \'services\', \'recent\')">View all <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>' +
+        '<div class="ll-files">' + recent.map(_llFileCard).join('') + '</div></section>' : '') +
+    '</div>';
+    if (keepQ) {
+      var s = document.getElementById('lsSearch');
+      if (s) { s.focus(); try { s.setSelectionRange(s.value.length, s.value.length); } catch (e) {} }
+    }
+  }
+
+  // A collection's own page: the library's folder pane, alone, with the way
+  // back to where it was opened from.
+  function openCollection(occId, year, from, special) {
+    _lf.solo = true;
+    _lf.back = from || 'services';
+    openLibrary(occId ? 'occ:' + occId : (special || 'recent'), year || '');
+  }
+  function lfBackTo() {
+    var to = _lf.back;
+    if (to === 'hub') openHub();
+    else if (to === 'readings') selectOccasion(null);
+    else openServices();
+  }
+
+  // ── Readings: the actions on a reading, a prayer, a whole date ──────
+  function _llOrderFor(iso) {
+    return (window.WO && WO.orderForIso) ? WO.orderForIso(iso) : null;
+  }
+  // Open the date's order in the Liturgy Builder, which puts the roster's
+  // readings and the Prayer of the Day in by itself (gotchas 48, 96).
+  function llUseInPlan(iso) {
+    var id = _llOrderFor(iso || _currentReadingDate);
+    if (!id) {
+      showToast('There is no order for ' + _lectPrettyDate(iso || _currentReadingDate) + ' yet. Make one in Orders and the readings go in by themselves.', 'info', {
+        action: 'Go to Orders', duration: 7000, onAction: function() { setActiveView('worshipOrderView'); }
+      });
+      return;
+    }
+    setActiveView('worshipOrderView');
+    setTimeout(function() {
+      WO.loadOrder(id);
+      var tries = 0, t = setInterval(function() {
+        var ed = document.getElementById('woEditor');
+        if (++tries > 20) { clearInterval(t); return; }
+        if (ed && ed.style.display !== 'none' && WO.selectOrder) { clearInterval(t); WO.selectOrder('liturgy'); }
+      }, 400);
+    }, 300);
+  }
+  function _llCopy(text, msg) { _lfCopy(text, msg); }
+  function llCopyReading(iso, idx) {
+    var slot = SBQ_READINGS.SLOTS[idx];
+    var ref = ((_readingRefsByDate[iso] || {})[slot && slot.role]) || '';
+    if (!ref) return;
+    var hit = _passageTextCache[bbNormaliseReference(ref)];
+    var done = function(res) {
+      var text = res && res.text ? String(res.text).replace(/\[(\d+)\]\s*/g, '$1 ').trim() : '';
+      _llCopy(slot.label + ': ' + ref + (text ? '\n\n' + text : ''), text ? 'Copied ' + ref : 'Copied the reference');
+    };
+    if (hit) { done(hit); return; }
+    if (!bbLooksLikeReference(ref)) { done(null); return; }
+    _fetchBiblePassagePromise(ref, 'esv').then(function(res) {
+      if (res && !res.error) _passageTextCache[bbNormaliseReference(ref)] = res;
+      done(res && !res.error ? res : null);
+    }, function() { done(null); });
+  }
+  function llCopyPrayer(key) {
+    SBQ_PRAYERS.get(key).then(function(row) {
+      if (!row) { showToast('No Prayer of the Day is saved for this date.', 'info'); return; }
+      _llCopy('Prayer of the Day\n\n' + row.prayer, 'Copied the Prayer of the Day');
+    });
+  }
+  // The date's readings, their words and its prayer, as the Builder's own
+  // PDF or Word export lays them out (WO.exportDoc).
+  function llExportReadings(kind, key) {
+    key = key || _currentReadingDate;
+    if (!window.WO || !WO.exportDoc) { showToast('The exporter is not ready yet.', 'error'); return; }
+    showToast('Gathering the readings…', 'info');
+    _lfDayData(key).then(function(d) {
+      var refs = d.refs.filter(function(r) { return r.ref; });
+      var got = [];
+      return refs.reduce(function(p, r) {
+        return p.then(function() {
+          if (!bbLooksLikeReference(r.ref)) { got.push({ r: r, text: '' }); return; }
+          var hit = _passageTextCache[bbNormaliseReference(r.ref)];
+          if (hit) { got.push({ r: r, text: hit.text || '' }); return; }
+          return _fetchBiblePassagePromise(r.ref, 'esv').then(function(res) {
+            if (res && !res.error) _passageTextCache[bbNormaliseReference(r.ref)] = res;
+            got.push({ r: r, text: (res && !res.error && res.text) || '' });
+          }, function() { got.push({ r: r, text: '' }); });
+        });
+      }, Promise.resolve()).then(function() {
+        var sections = [{ title: 'Readings', parts: got.map(function(g) {
+          return { kind: g.r.label, title: g.r.ref, verses: true, texts: g.text ? [g.text] : [] };
+        }) }];
+        if (d.prayer) sections.push({ title: 'Prayer of the Day', parts: [{ kind: 'Prayer', title: '', texts: [d.prayer] }] });
+        WO.exportDoc({ service: d.day || 'Readings', date: _lfLongDate(d.key), occasion: d.day ? _lfLongDate(d.key) : '', sections: sections },
+          kind === 'pdf' ? 'pdf' : 'docx', 'Readings - ' + d.key.slice(0, 10));
+      });
+    });
+  }
+
+  // The Readings page's tools (the imports), under one button.
+  function llReadingTools(btn) {
+    var old = document.getElementById('llTools');
+    if (old) { old.remove(); return; }
+    var m = document.createElement('div');
+    m.id = 'llTools';
+    m.className = 'll-menu';
+    m.setAttribute('role', 'menu');
+    m.innerHTML = [
+      ['fa-wand-magic-sparkles', 'Auto-fill from a bulletin', 'LiturgyModule.openLectionaryUploadModal()'],
+      ['fa-file-import', 'Import a lectionary', 'LiturgyModule.openLectionaryImportModal()'],
+      ['fa-hands-praying', 'Import Prayers of the Day', 'LiturgyModule.openPrayerImportModal()'],
+      ['fa-list', 'Every Prayer of the Day', 'LiturgyModule.openCollection(\'\', \'\', \'readings\', \'prayers\')']
+    ].map(function(x) {
+      return '<button type="button" role="menuitem" onclick="document.getElementById(\'llTools\').remove();' + x[2] + '"><i class="fa-solid ' + x[0] + '" aria-hidden="true"></i>' + x[1] + '</button>';
+    }).join('');
+    document.body.appendChild(m);
+    var r = btn.getBoundingClientRect();
+    m.style.top = Math.round(r.bottom + 6 + window.scrollY) + 'px';
+    m.style.left = Math.max(8, Math.round(Math.min(r.right - m.offsetWidth, window.innerWidth - m.offsetWidth - 8) + window.scrollX)) + 'px';
+    var first = m.querySelector('button');
+    if (first) first.focus();
+    setTimeout(function() {
+      var away = function(e) { if (!m.contains(e.target) && e.target !== btn) { m.remove(); document.removeEventListener('pointerdown', away, true); } };
+      document.addEventListener('pointerdown', away, true);
+      m.addEventListener('keydown', function(e) { if (e.key === 'Escape') { m.remove(); btn.focus(); } });
+    }, 0);
+  }
+
+  // The season band under the date (Day view): which season, what it is,
+  // and the day's liturgical colour.
+  function _llPaintSeasonBand(m) {
+    var el = document.getElementById('lectionarySeason');
+    if (!el) return;
+    var s = m && m.day ? _llSeason(_llSeasonOf(m.day)) : null;
+    if (!s && !(m && m.color)) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.innerHTML = (s ? '<span class="ll-band__season" style="--ll-sink:' + s.ink + '"><i class="fa-solid ' + s.icon + '" aria-hidden="true"></i>Season: ' + _lfE(s.label) + '</span>' +
+        '<span class="ll-band__desc">' + _lfE(s.desc) + '</span>' : '<span class="ll-band__desc"></span>') +
+      (m && m.color ? '<span class="ll-band__colour">' + _altarDot(m.color) + 'Liturgical colour: ' + _lfE(m.color) + '</span>' : '');
+  }
+
+  // The actions for a whole date, under its readings (Day view only).
+  function _llPaintDayActions(key) {
+    var el = document.getElementById('lectionaryActions');
+    if (!el) return;
+    if (!key) { el.innerHTML = ''; return; }
+    var k = _lfE(key);
+    el.innerHTML =
+      '<button type="button" class="lf-btn lf-btn--primary" data-key="' + k + '" onclick="LiturgyModule.llUseInPlan(this.dataset.key)"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Use in the service plan</span></button>' +
+      '<button type="button" class="lf-btn" data-key="' + k + '" onclick="LiturgyModule.llExportReadings(\'pdf\', this.dataset.key)"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i><span>Export PDF</span></button>' +
+      '<button type="button" class="lf-btn" data-key="' + k + '" onclick="LiturgyModule.llExportReadings(\'docx\', this.dataset.key)"><i class="fa-solid fa-file-word" aria-hidden="true"></i><span>Export Word</span></button>' +
+      '<button type="button" class="lf-btn lf-btn--wa" data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i><span>Share readings</span></button>';
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // THE LITURGY LIBRARY, AS FOLDERS (2026-11-13)
   //
   // From the operator: a redesign so the library can be got at and shared by
@@ -103550,11 +104310,17 @@ var LiturgyModule = (function() {
 
   function _lfEl() { return document.getElementById('liturgyFolderPanel'); }
   function _lfShown() { var p = _lfEl(); return !!(p && p.style.display !== 'none'); }
-  function _lfHide() { var p = _lfEl(); if (p) p.style.display = 'none'; }
+  // Every other panel switcher calls this: the library's pages (the
+  // landing page, Services and a collection's folder) all go.
+  function _lfHide() {
+    LL_PANELS.forEach(function(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    var host = document.getElementById('liturgyView');
+    if (host) host.removeAttribute('data-ll');
+  }
   function _lfRefreshSoon() {
-    if (!_lfShown()) return;
+    if (!LL_PANELS.some(_llShown)) return;
     clearTimeout(_lfRefreshT);
-    _lfRefreshT = setTimeout(renderLibrary, 60);
+    _lfRefreshT = setTimeout(_llRefresh, 60);
   }
   function _lfE(s) { return escapeHtml(s == null ? '' : String(s)); }
 
@@ -103701,14 +104467,7 @@ var LiturgyModule = (function() {
 
   // ── Opening the library ─────────────────────────────────────────────
   function openLibrary(sel, year) {
-    var welcome = document.getElementById('liturgyWelcome');
-    var occPanel = document.getElementById('liturgyOccasionPanel');
-    var memPanel = document.getElementById('liturgyMemoriesPanel');
-    if (welcome) welcome.style.display = 'none';
-    if (occPanel) occPanel.style.display = 'none';
-    if (memPanel) memPanel.style.display = 'none';
-    var p = _lfEl();
-    if (p) p.style.display = '';
+    _llShowOnly('liturgyFolderPanel');
     _litSyncNav('all-services');
     if (!_lfFoldersAsked) {
       _lfFoldersAsked = true;
@@ -103725,7 +104484,6 @@ var LiturgyModule = (function() {
     else { _lf.pane = false; lfSelect(_lf.sel, _lf.year, true); }
   }
 
-  function showAllServices() { openLibrary(); }
 
   // The occasion panel's back button: to this service's folder.
   function backToLibrary() {
@@ -103799,7 +104557,10 @@ var LiturgyModule = (function() {
     var p = _lfEl();
     if (!p) return;
     if (!p.querySelector('.lf-body')) p.innerHTML = _lfShellHtml();
-    p.classList.toggle('lf--pane', !!_lf.pane);
+    // Alone (a collection opened from Services, the landing page or
+    // Readings): no folder tree, the pane full width, and a way back.
+    p.classList.toggle('lf--solo', !!_lf.solo);
+    p.classList.toggle('lf--pane', !!(_lf.pane || _lf.solo));
     var tree = p.querySelector('.lf-tree'), pane = p.querySelector('.lf-pane');
     if (tree) tree.innerHTML = _lfTreeHtml();
     if (pane) pane.innerHTML = _lfPaneHtml();
@@ -103868,6 +104629,10 @@ var LiturgyModule = (function() {
   }
 
   function _lfBackBtn() {
+    if (_lf.solo) {
+      var to = _lf.back === 'hub' ? 'Liturgy Library' : _lf.back === 'readings' ? 'Readings' : 'Services';
+      return '<button type="button" class="lf-back lf-back--solo" onclick="LiturgyModule.lfBackTo()"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i>' + to + '</button>';
+    }
     return '<button type="button" class="lf-back" onclick="LiturgyModule.lfBack()"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i>Folders</button>';
   }
   function _lfShareBtns(fn, label) {
@@ -103941,7 +104706,7 @@ var LiturgyModule = (function() {
             return '<button type="button" class="lf-chip' + (_lf.year === f.id ? ' is-on' : '') + '" data-sel="occ:' + _lfE(occId) + '" data-year="' + _lfE(f.id) + '" onclick="LiturgyModule.lfSelect(this.dataset.sel, this.dataset.year)">' + _lfE(f.name) + '</button>';
           }).join('') + '</div>'
       : '';
-    return _lfBackBtn() +
+    return _lfBackBtn() + (_lf.solo ? _llArt(occ, 'll-art--banner') : '') +
       '<div class="lf-pane__hd">' +
         '<div class="lf-crumb">' + _lfE(_occasionKind(occ) === 'season' ? 'Services' : 'Other services') + ' › ' + _lfE(occ.label) + (yr ? ' › ' + _lfE(yr) : '') + '</div>' +
         '<h2 class="lf-title">' + _lfDot(occ.colour) + _lfE(occ.label + (yr ? ' · ' + yr : '')) + '</h2>' +
@@ -104493,7 +105258,12 @@ var LiturgyModule = (function() {
 
   (function() {
     if (!_lfSharedTarget()) return;
-    var go = function() { setTimeout(function() { _lfOpenShared(_lfSharedTarget()); }, 50); };
+    var go = function() {
+      setTimeout(function() {
+        var open = function() { _lfOpenShared(_lfSharedTarget()); };
+        _llCollectionsLoad().then(open, open);
+      }, 50);
+    };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
   })();
@@ -104590,20 +105360,26 @@ var LiturgyModule = (function() {
     return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   }
 
+  var _llNavDayFor = { key: '', html: '' };
   function renderReadingDateNav() {
     var nav = document.getElementById('lectionaryDateNav');
     if (!nav) return;
     var modes = ['day', 'week', 'month'];
+    var dayHtml = (_readingViewMode === 'day' && _llNavDayFor.key === _currentReadingDate) ? _llNavDayFor.html : '';
     nav.innerHTML =
-      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(-1)" title="Previous"><i class="fa-solid fa-chevron-left"></i></button>' +
-      '<div class="lit-datenav-title">' + escapeHtml(_windowLabel(_currentReadingDate, _readingViewMode)) + '</div>' +
-      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(1)" title="Next"><i class="fa-solid fa-chevron-right"></i></button>' +
+      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(-1)" title="Previous" aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div class="lit-datenav-title"><i class="fa-regular fa-calendar ll-datenav__cal" aria-hidden="true"></i>' +
+        escapeHtml(_windowLabel(_currentReadingDate, _readingViewMode)) +
+        '<span id="lectionaryNavDay" class="ll-datenav__day">' + dayHtml + '</span></div>' +
+      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(1)" title="Next" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button>' +
       '<div class="lit-datenav-modes">' +
         modes.map(function(m) {
           return '<button class="' + (m === _readingViewMode ? 'active' : '') + '" onclick="LiturgyModule.setReadingViewMode(\'' + m + '\')">' +
             m.charAt(0).toUpperCase() + m.slice(1) + '</button>';
         }).join('') +
       '</div>';
+    var cyc = document.getElementById('lectionaryCycle');
+    if (cyc) cyc.textContent = _llCycle(_currentReadingDate);
   }
 
   function _serviceDatesFor(year) {
@@ -104769,6 +105545,7 @@ var LiturgyModule = (function() {
       // button there could not say which service it would put back.
       _renderReadingResetButton(_currentReadingDate);
       _paintDayPrayer(onThisDay.slice().sort());
+      _llPaintDayActions(onThisDay.slice().sort()[0]);
       // Re-read the source for THIS date: moving between services changes
       // which entry applies, and a mark left over from the last one would
       // claim a provenance this service never had.
@@ -104778,6 +105555,7 @@ var LiturgyModule = (function() {
     var resetHost = document.getElementById('lectionaryResetHost');
     if (resetHost) resetHost.innerHTML = '';
     _paintDayPrayer([]);
+    _llPaintDayActions('');
 
     if (!dates.length) {
       grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
@@ -104833,19 +105611,24 @@ var LiturgyModule = (function() {
   // per-service header, because there is only one service on screen.
   function _paintDayContext(m, dates) {
     var el = document.getElementById('lectionaryDayContext');
+    var navDay = document.getElementById('lectionaryNavDay');
+    if (_readingViewMode !== 'day') {
+      if (el) el.innerHTML = '';
+      if (navDay) navDay.innerHTML = '';
+      _llNavDayFor = { key: '', html: '' };
+      _llPaintSeasonBand(null);
+      return;
+    }
+    // The liturgical day goes in the date bar, its season and colour in the
+    // band under it (the operator's design, 2026-11-14).
+    var dayHtml = (m && m.day) ? ' \u00b7 <b>' + escapeHtml(m.day) + '</b>' : '';
+    _llNavDayFor = { key: _currentReadingDate, html: dayHtml };
+    if (navDay) navDay.innerHTML = dayHtml;
+    _llPaintSeasonBand(m);
     if (!el) return;
-    if (_readingViewMode !== 'day') { el.innerHTML = ''; return; }
-    var bits = [];
-    if (m && m.day) {
-      bits.push(_altarDot(m && m.color) +
-        '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' +
-        (m.color ? '<span class="lit-altar-name">' + escapeHtml(m.color) + '</span>' : ''));
-    }
     var isService = (dates || []).indexOf(_currentReadingDate) !== -1;
-    if (!isService) {
-      bits.push('<span class="lit-day-note">Not a service date — anything added here is still saved to the roster.</span>');
-    }
-    el.innerHTML = bits.join('');
+    el.innerHTML = isService ? '' :
+      '<span class="lit-day-note">Not a service date \u2014 anything added here is still saved to the roster.</span>';
   }
 
   // Within one day, the date is the same for both services, so the header
@@ -104885,23 +105668,31 @@ var LiturgyModule = (function() {
     }).join('');
   }
 
+  // A reading as a card: its slot, its reference (which opens it), and Open
+  // / Copy / Use in plan. The design's one-line summaries were left out
+  // (asked, 2026-11-14): the app keeps the reference and nothing more.
+  var LL_SLOT_LOOK = [['fa-book-open', '#2f6b3f', '#e6f0e8'], ['fa-music', '#8a5d10', '#f8eedb'],
+                      ['fa-scroll', '#5b3f8c', '#ede6f6'], ['fa-cross', '#a33a2b', '#f9e5e1']];
   function _readingSlotCard(iso, idx, ref) {
     var label = READING_SLOT_LABELS[idx] || 'Reading';
-    var openPicker = 'LiturgyModule.openReadingSlotPicker(' + idx + ",'" + iso + "')";
+    var look = LL_SLOT_LOOK[idx] || LL_SLOT_LOOK[0];
+    var q = "'" + iso + "'";
+    var openPicker = 'LiturgyModule.openReadingSlotPicker(' + idx + ',' + q + ')';
+    var head = '<div class="ll-rcard__hd"><span class="ll-rcard__ico" style="color:' + look[1] + ';background:' + look[2] + '" aria-hidden="true"><i class="fa-solid ' + look[0] + '"></i></span>' +
+      '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>';
     if (ref) {
-      return '<div class="lit-reading-slot filled" role="button" tabindex="0" ' +
-          'onclick="LiturgyModule.openPassage(' + "'" + iso + "'" + ',' + idx + ')" ' +
-          'onkeydown="if(event.key===' + "'" + 'Enter' + "'" + '){LiturgyModule.openPassage(' + "'" + iso + "'" + ',' + idx + ')}" ' +
-          'title="Read ' + escapeHtml(ref) + '">' +
-          '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
-          '<div class="lit-reading-slot-ref">' + escapeHtml(ref) + '</div>' +
-          '<button type="button" class="lit-reading-slot-edit" title="Change this reading" ' +
-            'onclick="event.stopPropagation();' + openPicker + '"><i class="fa-solid fa-pen"></i></button>' +
+      return '<div class="lit-reading-slot filled ll-rcard">' + head +
+          '<button type="button" class="lit-reading-slot-edit" title="Change this reading" aria-label="Change the ' + escapeHtml(label) + '" onclick="' + openPicker + '"><i class="fa-solid fa-pen"></i></button></div>' +
+          '<button type="button" class="lit-reading-slot-ref ll-rcard__ref" title="Read ' + escapeHtml(ref) + '" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')">' + escapeHtml(ref) + '</button>' +
+          '<div class="ll-rcard__acts">' +
+            '<button type="button" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')"><i class="fa-regular fa-file-lines" aria-hidden="true"></i>Open</button>' +
+            '<button type="button" onclick="LiturgyModule.llCopyReading(' + q + ',' + idx + ')"><i class="fa-regular fa-copy" aria-hidden="true"></i>Copy</button>' +
+            '<button type="button" onclick="LiturgyModule.llUseInPlan(' + q + ')"><i class="fa-regular fa-square-plus" aria-hidden="true"></i>Use in plan</button>' +
+          '</div>' +
         '</div>';
     }
-    return '<div class="lit-reading-slot empty" role="button" tabindex="0" onclick="' + openPicker + '">' +
-        '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
-        '<div class="lit-reading-slot-ref"><i class="fa-solid fa-plus mr-1"></i>Add reading</div>' +
+    return '<div class="lit-reading-slot empty ll-rcard ll-rcard--empty">' + head + '</div>' +
+        '<button type="button" class="lit-reading-slot-ref ll-rcard__add" onclick="' + openPicker + '"><i class="fa-solid fa-plus mr-1"></i>Add reading</button>' +
       '</div>';
   }
 
@@ -105108,17 +105899,20 @@ var LiturgyModule = (function() {
       body = '<p class="lit-day-prayer__none">No prayer for this date yet. Import your Prayers of the Day document, or type this one.</p>';
     } else {
       body = '<p class="lit-day-prayer__text">' + escapeHtml(row.prayer) + '</p>' +
-        '<div class="lit-day-prayer__where"><i class="fa-solid fa-circle-check"></i>Goes into this date’s order (Liturgy Builder and LCD) and the bulletin</div>';
+        '<div class="lit-day-prayer__where"><i class="fa-solid fa-circle-check"></i>Goes into this date\u2019s order (Liturgy Builder and LCD) and the bulletin</div>';
     }
-    return '<div class="lit-day-prayer">' +
-      '<div class="lit-day-prayer__hd">' +
-        '<span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + src +
-        '<span class="lit-day-prayer__gap"></span>' +
-        '<button type="button" class="lit-day-prayer__btn" data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)" title="Share this date\u2019s readings and prayer"><i class="fa-solid fa-share-nodes"></i>Share</button>' +
-        (SBQ_PRAYERS._missing ? '' :
-          '<button type="button" class="lit-day-prayer__btn" onclick="LiturgyModule.editDayPrayer(\'' + k + '\')">' +
-            '<i class="fa-solid ' + (row ? 'fa-pen' : 'fa-plus') + '"></i>' + (row ? 'Edit' : 'Type it') + '</button>') +
-      '</div>' + body + '</div>';
+    var btn = function(icon, label, attrs) {
+      return '<button type="button" class="lit-day-prayer__btn"' + attrs + '><i class="fa-solid ' + icon + '"></i>' + label + '</button>';
+    };
+    var acts = (row ? btn('fa-copy', 'Copy', ' data-key="' + k + '" onclick="LiturgyModule.llCopyPrayer(this.dataset.key)"') +
+                      btn('fa-square-plus', 'Use in plan', ' data-key="' + k + '" onclick="LiturgyModule.llUseInPlan(this.dataset.key)"') : '') +
+      btn('fa-share-nodes', 'Share', ' data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)" title="Share this date\u2019s readings and prayer"') +
+      (SBQ_PRAYERS._missing ? '' : btn(row ? 'fa-pen' : 'fa-plus', row ? 'Edit' : 'Type it', ' onclick="LiturgyModule.editDayPrayer(\'' + k + '\')"'));
+    return '<div class="lit-day-prayer ll-prayer">' +
+      '<span class="ll-prayer__icon" aria-hidden="true"><i class="fa-solid fa-hands-praying"></i></span>' +
+      '<div class="ll-prayer__main"><div class="lit-day-prayer__hd"><span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + src + '</div>' + body + '</div>' +
+      '<div class="ll-prayer__acts">' + acts + '</div>' +
+    '</div>';
   }
 
   function _prayerKeyLabel(key) {
@@ -105400,43 +106194,34 @@ var LiturgyModule = (function() {
   function renderLectionaryHome() {
     var container = document.getElementById('lectionaryHomeView');
     if (!container) return;
-    container.innerHTML =
-      '<div class="lit-welcome-header">' +
-        '<div class="lit-welcome-header-inner">' +
-          '<div class="lit-welcome-cross-icon"><i class="fa-solid fa-book-bible"></i></div>' +
-          '<div>' +
-            '<h1 class="font-cinzel" style="font-size:1.5rem;font-weight:700;margin:0 0 4px;color:white;">Readings</h1>' +
-            '<p style="margin:0;opacity:0.85;font-size:0.9rem;font-style:italic;color:white;">What the church is hearing, service by service</p>' +
-          '</div>' +
-        '</div>' +
-        '<div class="lit-welcome-actions">' +
-          '<button class="liturgy-action-btn" onclick="LiturgyModule.goToToday()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);">' +
-            '<i class="fa-solid fa-calendar-day mr-1"></i> Today' +
-          '</button>' +
-        '</div>' +
+    // The operator's design (2026-11-14): the shared header and tabs, the
+    // lectionary year, the day in the date bar, the season band, the four
+    // readings as cards, the Prayer of the Day, and the date's actions. The
+    // imports are under one button now (llReadingTools).
+    container.innerHTML = '<div class="ll ll--readings">' + _llHead('readings') +
+      '<div class="ll-rbar">' +
+        '<div class="ll-lect"><i class="fa-regular fa-calendar" aria-hidden="true"></i><span>Lectionary</span><b id="lectionaryCycle"></b></div>' +
+        '<div id="lectionaryDateNav" class="lit-reading-datenav ll-datenav"></div>' +
+        '<button type="button" class="lf-btn ll-today" onclick="LiturgyModule.goToToday()"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i><span>Today</span></button>' +
       '</div>' +
-      '<div class="lit-lectionary-body">' +
-        '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
-        '<div id="lectionaryDayContext" class="lit-day-context"></div>' +
-        '<div class="lit-reading-slots-panel">' +
-          '<div class="lit-reading-slots-header">' +
-            '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#0b7644;"></i>Readings</h2>' +
-            '<div class="lit-reading-slots-actions">' +
-              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()" title="Read one service out of a bulletin"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
-              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryImportModal()" title="Read a whole lectionary: every service it lists, in one go"><i class="fa-solid fa-file-import mr-1"></i>Import lectionary</button>' +
-              '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openPrayerImportModal()" title="Read a document of Prayers of the Day: every dated prayer in it, in one go"><i class="fa-solid fa-hands-praying mr-1"></i>Import prayers</button>' +
-              '<span id="lectionaryResetHost"></span>' +
-            '</div>' +
+      '<div id="lectionarySeason" class="ll-band" style="display:none;"></div>' +
+      '<div id="lectionaryDayContext" class="lit-day-context ll-daynote"></div>' +
+      '<div class="lit-reading-slots-panel ll-readings">' +
+        '<div class="lit-reading-slots-header">' +
+          '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#2f6b3f;"></i>Readings</h2>' +
+          '<div class="lit-reading-slots-actions">' +
+            '<span id="lectionaryResetHost"></span>' +
+            '<button type="button" class="lit-occ-add-item-btn ll-tools-btn" aria-haspopup="menu" onclick="LiturgyModule.llReadingTools(this)"><i class="fa-solid fa-file-import mr-1"></i>Import<i class="fa-solid fa-chevron-down ml-1"></i></button>' +
           '</div>' +
-          '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
-          // The date's Prayer of the Day, in Day view (_paintDayPrayer).
-          '<div id="lectionaryDayPrayer"></div>' +
-          // Provenance goes under the readings, not over them. "Where did
-          // this come from?" is asked after reading the references, and in
-          // the header the chip sat on top of the liturgical day.
-          '<div id="lectionarySourceChip" class="lect-source-foot" style="display:none;"></div>' +
         '</div>' +
-      '</div>';
+        '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
+        // The date's Prayer of the Day, in Day view (_paintDayPrayer).
+        '<div id="lectionaryDayPrayer"></div>' +
+        // Use in the service plan, Export, Share: Day view only.
+        '<div id="lectionaryActions" class="ll-ractions"></div>' +
+        // Provenance goes under the readings, not over them.
+        '<div id="lectionarySourceChip" class="lect-source-foot" style="display:none;"></div>' +
+      '</div></div>';
     renderReadingDateNav();
     _renderLectionarySourceChip();
     // The opening date depends on the roster, so the first paint waits for it.
@@ -105944,7 +106729,8 @@ var LiturgyModule = (function() {
         ? 'This is what ' + found.src.fileName + ' says'
         : found.src.fileName + ' says ' + was;
       card.classList.add(same ? 'from-source' : 'changed-from-source');
-      card.appendChild(tag);
+      var acts = card.querySelector('.ll-rcard__acts');
+      if (acts) card.insertBefore(tag, acts); else card.appendChild(tag);
     });
   }
 
@@ -108967,6 +109753,13 @@ var LiturgyModule = (function() {
     openLectionaryUploadModal: openLectionaryUploadModal,
     openLectionaryImportModal: openLectionaryImportModal,
     openPrayerImportModal: openPrayerImportModal,
+    openHub: openHub, openServices: openServices, openCollection: openCollection, lfBackTo: lfBackTo,
+    renderHub: renderHub, renderServices: renderServices, llFav: llFav, lsSet: lsSet, lsClear: lsClear,
+    llCreateCollection: llCreateCollection, llCloseCollection: llCloseCollection, llSaveCollection: llSaveCollection,
+    llSeasonGo: llSeasonGo, llCalendar: llCalendar, llUseInPlan: llUseInPlan, llCopyReading: llCopyReading,
+    llCopyPrayer: llCopyPrayer, llExportReadings: llExportReadings, llReadingTools: llReadingTools,
+    // for the harness
+    _llSeasonOf: _llSeasonOf, _llCycle: _llCycle, _lsFilter: _lsFilter,
     openLibrary: openLibrary, backToLibrary: backToLibrary, renderLibrary: renderLibrary,
     lfSelect: lfSelect, lfBack: lfBack, lfKind: lfKind, lfSearch: lfSearch, lfUpload: lfUpload, lfNew: lfNew,
     lfPlanning: lfPlanning, lfOpenDay: lfOpenDay, lfOpen: lfOpen, lfCloseViewer: lfCloseViewer,
@@ -116852,6 +117645,314 @@ function filterLiturgyItems() {
   .lfv .lf-svl { background: #fff; border-radius: 14px; padding: 12px; }
   .lfv-ft { max-width: 760px; margin: 0 auto; padding: 8px 16px 32px; text-align: center; font-size: 0.8rem; color: #5b6670; line-height: 1.6; }
   .lfv-ft a { color: #0b7644; font-weight: 700; }
+
+  /* ===== THE LITURGY LIBRARY, AS THE OPERATOR'S DESIGN (2026-11-14) =====
+     Warm parchment, Cinzel titles, and a colour per section: Readings green,
+     Services maroon, Memories navy, gold for the accents. */
+  #liturgyView .ll { --ll-paper: #f7f2ea; --ll-line: #eadfce; --ll-ink: #2a2118; --ll-soft: #5c4d3c;
+    --ll-gold: #a8741f; --ll-green: #2f5d3a; --ll-maroon: #7a2e2a; --ll-navy: #21456b;
+    padding: 18px 20px 48px; font-family: 'Lato', system-ui, sans-serif; color: var(--ll-ink); }
+  #liturgyView[data-ll="hub"], #liturgyView[data-ll="services"] { background: #f7f2ea; }
+  #lectionaryHomeView .ll { background: #f7f2ea; border-radius: 0 0 18px 18px; }
+  .ll-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 6px 18px; min-height: 96px; overflow: hidden; }
+  .ll-head__id { display: flex; align-items: center; gap: 16px; position: relative; z-index: 1; min-width: 0; }
+  .ll-head__icon { width: 64px; height: 64px; border-radius: 16px; background: #f3e7d2; color: var(--ll-gold);
+    display: flex; align-items: center; justify-content: center; font-size: 1.9rem; flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px #e6d4b4; }
+  .ll-head h1 { margin: 0; font-size: 2.3rem; font-weight: 700; letter-spacing: 0.04em; color: var(--ll-ink); line-height: 1.1; }
+  .ll-head p { margin: 4px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-size: 1.15rem; color: var(--ll-soft); }
+  .ll-head__art { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 260px; height: 160px;
+    display: flex; align-items: center; justify-content: flex-end; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(232, 200, 140, 0.55), rgba(247, 242, 234, 0)); }
+  .ll-head__art img { width: 104px; height: 104px; object-fit: contain; opacity: 0.85; margin-right: 54px;
+    filter: drop-shadow(0 6px 16px rgba(120, 80, 20, 0.25)); }
+  .ll-tabs { display: flex; gap: 6px; flex-wrap: wrap; background: #fff; border: 1px solid var(--ll-line); border-radius: 14px;
+    padding: 5px; width: max-content; max-width: 100%; margin: 0 0 16px; box-shadow: 0 1px 2px rgba(60, 40, 10, 0.05); }
+  .ll-tab { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 0; border-radius: 10px;
+    background: transparent; color: var(--ll-ink); font-family: 'Playfair Display', Georgia, serif; font-size: 1.02rem; cursor: pointer; }
+  .ll-tab i { color: var(--ll-gold); }
+  .ll-tab:hover { background: #f8f1e5; }
+  .ll-tab.is-on { background: #fbf4e6; box-shadow: inset 0 -3px 0 var(--ll-gold); font-weight: 700; }
+  .ll-tab--home { padding: 0 12px; }
+  .ll-tab:focus-visible, .ll-card__go:focus-visible, .ll-season:focus-visible, .ls-chip:focus-visible, .ls-card__main:focus-visible,
+  .ls-card__fav:focus-visible, .ls-create:focus-visible, .ll-file__main:focus-visible, .ll-link:focus-visible,
+  .ll-rcard__acts button:focus-visible, .ll-rcard__ref:focus-visible { outline: 2px solid var(--ll-gold); outline-offset: 2px; }
+
+  /* the three section cards */
+  .ll-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+  .ll-card { background: #fff; border: 1px solid var(--ll-line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 2px 6px rgba(60, 40, 10, 0.07); }
+  .ll-card__top { display: flex; align-items: center; gap: 16px; padding: 22px 22px 26px; color: #fff; position: relative; }
+  .ll-card__top::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 22px; background: #fff;
+    border-radius: 60% 60% 0 0 / 100% 100% 0 0; }
+  .ll-card--readings .ll-card__top { background: linear-gradient(135deg, #234a2d, #4d7c4c); }
+  .ll-card--services .ll-card__top { background: linear-gradient(135deg, #6b2422, #b4523f); }
+  .ll-card--memories .ll-card__top { background: linear-gradient(135deg, #1a3a5c, #33679a); }
+  .ll-card__icon { font-size: 2.4rem; opacity: 0.95; width: 52px; text-align: center; }
+  .ll-card__top h2 { margin: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.04em; color: #fff; }
+  .ll-card__top p { margin: 2px 0 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-size: 1.02rem; color: rgba(255, 255, 255, 0.92); }
+  .ll-card__body { display: flex; gap: 14px; padding: 10px 22px 6px; flex: 1; }
+  .ll-card__small { font-size: 1.35rem; margin-top: 2px; }
+  .ll-card--readings .ll-card__small { color: var(--ll-green); }
+  .ll-card--services .ll-card__small { color: var(--ll-maroon); }
+  .ll-card--memories .ll-card__small { color: var(--ll-navy); }
+  .ll-card__body h3 { margin: 0 0 6px; font-family: 'Playfair Display', Georgia, serif; font-size: 1.12rem; font-weight: 700; color: var(--ll-ink); }
+  .ll-card__body p { margin: 0; color: var(--ll-soft); font-size: 0.92rem; line-height: 1.5; }
+  .ll-card__go { align-self: center; margin: 14px 0 20px; display: inline-flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 26px;
+    border: 0; border-radius: 999px; color: #fff; font-family: 'Playfair Display', Georgia, serif; font-size: 1.02rem; cursor: pointer;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15); }
+  .ll-card--readings .ll-card__go { background: var(--ll-green); }
+  .ll-card--services .ll-card__go { background: var(--ll-maroon); }
+  .ll-card--memories .ll-card__go { background: var(--ll-navy); }
+  .ll-card__go:hover { filter: brightness(1.08); }
+
+  /* boxes: This Sunday, Church Year, Recently added */
+  .ll-row2 { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; margin-bottom: 18px; }
+  .ll-box { background: #fff; border: 1px solid var(--ll-line); border-radius: 18px; padding: 18px 20px; box-shadow: 0 2px 6px rgba(60, 40, 10, 0.06); min-width: 0; }
+  .ll-box__hd { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .ll-box__hd > i { color: var(--ll-gold); font-size: 1.35rem; }
+  .ll-box__hd h2 { margin: 0; font-size: 1.3rem; font-weight: 700; color: var(--ll-ink); flex: 1; }
+  .ll-link { border: 0; background: none; color: var(--ll-gold); font-family: 'Playfair Display', Georgia, serif; font-size: 0.98rem; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 2px; min-height: 40px; }
+  .ll-link:hover { text-decoration: underline; }
+  .ll-pad { padding: 8px 2px; }
+  .ll-pill { display: inline-block; background: #e6f0e1; color: #23502d; border-radius: 999px; padding: 6px 14px;
+    font-family: 'Playfair Display', Georgia, serif; font-size: 1.02rem; font-weight: 700; }
+  .ll-sun__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 18px; margin: 14px 0 6px; }
+  .ll-sun__body--wide { grid-template-columns: minmax(0, 1fr); }
+  .ll-sun__reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  .ll-sun__reads li { display: flex; align-items: center; gap: 12px; font-family: 'Playfair Display', Georgia, serif; font-size: 1.05rem; color: var(--ll-ink); }
+  .ll-sun__reads i { color: #6b5a44; width: 18px; text-align: center; }
+  .ll-sun__reads em { color: #7a6a58; font-size: 0.92rem; }
+  .ll-sun__verse { margin: 0; padding: 4px 0 4px 18px; border-left: 2px solid #e2d3b8; }
+  .ll-sun__verse p { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-style: italic; font-size: 1.05rem; line-height: 1.5; color: #3a2f22; }
+  .ll-sun__verse cite { display: block; margin-top: 8px; font-style: normal; font-size: 0.85rem; color: #6b5a44; }
+  .ll-sun__acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .ll-seasons { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .ll-season { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 112px; padding: 10px 4px;
+    border: 0; border-radius: 12px; background: var(--ll-bg); color: #2a2118; font-family: 'Playfair Display', Georgia, serif;
+    font-size: 0.92rem; font-weight: 700; text-align: center; cursor: pointer; line-height: 1.15; position: relative; }
+  .ll-season > i { color: var(--ll-sink); font-size: 1.7rem; }
+  .ll-season:hover { filter: brightness(0.97); }
+  .ll-season.is-now { box-shadow: inset 0 0 0 2px var(--ll-sink); }
+  .ll-season small { position: absolute; top: 6px; right: 6px; font-family: 'Poppins', sans-serif; font-size: 0.6rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; background: #fff; color: #2a2118; border-radius: 999px; padding: 1px 6px; }
+  .ll-files { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .ll-file { display: flex; align-items: center; gap: 6px; border: 1px solid var(--ll-line); border-radius: 14px; background: #fff; padding: 4px 6px 4px 4px; min-width: 0; }
+  .ll-file__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 10px; }
+  .ll-file__main:hover { background: #fbf6ee; }
+  .ll-file__t { min-width: 0; display: flex; flex-direction: column; }
+  .ll-file__t b { font-family: 'Poppins', sans-serif; font-size: 0.86rem; font-weight: 600; color: var(--ll-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ll-file__t small { font-size: 0.76rem; color: #6b5a44; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* a picture: a church photo, or drawn artwork in the season's colour */
+  .ll-art { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #fff;
+    background: radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%), linear-gradient(160deg, var(--ll-b), var(--ll-a)); }
+  .ll-art__arch { position: absolute; left: 50%; bottom: -10%; width: 52%; height: 86%; transform: translateX(-50%);
+    border-radius: 999px 999px 0 0; background: rgba(255, 255, 255, 0.14); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.18); }
+  .ll-art i { position: relative; font-size: 2.2rem; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25)); }
+  .ll-art--photo { background: #e8e0d2; }
+  .ll-art--photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ll-art--banner { height: 150px; border-radius: 14px; margin: 4px 0 14px; }
+  .ll-art--banner i { font-size: 3rem; }
+
+  /* Services */
+  .ls-bar { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; background: #fff; border: 1px solid var(--ll-line); border-radius: 16px;
+    padding: 14px 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(60, 40, 10, 0.05); }
+  .ls-bar__main { display: flex; align-items: center; gap: 14px; flex: 1 1 280px; min-width: 0; padding-right: 18px; border-right: 1px solid var(--ll-line); }
+  .ls-bar__main > i { font-size: 1.9rem; color: var(--ll-gold); }
+  .ls-bar__main b { display: block; font-family: 'Playfair Display', Georgia, serif; font-size: 1.2rem; color: var(--ll-ink); }
+  .ls-bar__main small { color: #6b5a44; font-size: 0.82rem; }
+  .ls-stat { display: flex; align-items: center; gap: 10px; }
+  .ls-stat > i { font-size: 1.4rem; color: #6b5a44; }
+  .ls-stat b { display: block; font-family: 'Poppins', sans-serif; font-size: 1.15rem; color: var(--ll-ink); line-height: 1.1; }
+  .ls-stat small { font-size: 0.74rem; color: #6b5a44; }
+  .ls-bar__acts { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .ls-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ls-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ls-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--ll-line);
+    background: #fff; color: var(--ll-ink); font-family: 'Poppins', sans-serif; font-size: 0.84rem; cursor: pointer; }
+  .ls-chip i { color: var(--ll-gold); }
+  .ls-chip.is-on { background: var(--ll-green); border-color: var(--ll-green); color: #fff; font-weight: 600; }
+  .ls-chip.is-on i { color: #fff; }
+  .ls-search { flex: 1 1 280px; max-width: 460px; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px;
+    border-radius: 999px; border: 1px solid var(--ll-line); background: #fff; color: #6b5a44; margin-left: auto; }
+  .ls-search:focus-within { box-shadow: 0 0 0 2px var(--ll-gold); }
+  .ls-search input { border: 0; outline: 0; background: transparent; flex: 1; min-width: 0; font-family: 'Poppins', sans-serif; font-size: 0.86rem; color: var(--ll-ink); }
+  .ls-sel { display: inline-flex; align-items: center; gap: 8px; font-family: 'Poppins', sans-serif; font-size: 0.84rem; color: var(--ll-ink); }
+  .ls-sel select { min-height: 42px; border-radius: 12px; border: 1px solid var(--ll-line); background: #fff; padding: 0 30px 0 12px;
+    font: inherit; color: var(--ll-ink); }
+  .ls-sp { flex: 1; }
+  .ls-view { display: inline-flex; border: 1px solid var(--ll-line); border-radius: 12px; overflow: hidden; background: #fff; }
+  .ls-view button { width: 44px; height: 42px; border: 0; background: transparent; color: #6b5a44; cursor: pointer; }
+  .ls-view button.is-on { background: var(--ll-green); color: #fff; }
+  .ls-note { margin: 0 0 10px; font-size: 0.84rem; color: #6b5a44; }
+  .ls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .ls-grid--list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ls-card { position: relative; background: #fff; border: 1px solid var(--ll-line); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 2px 5px rgba(60, 40, 10, 0.06); min-width: 0; }
+  .ls-card__main { width: 100%; display: flex; align-items: stretch; gap: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; min-height: 116px; }
+  .ls-card__main:hover { background: #fdf9f2; }
+  .ls-card__art { width: 108px; flex-shrink: 0; }
+  .ls-card__art i { font-size: 2rem; }
+  .ls-card__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 42px 12px 14px; }
+  .ls-card__text b { font-family: 'Playfair Display', Georgia, serif; font-size: 1.08rem; font-weight: 700; color: var(--ll-ink); }
+  .ls-card__text small { font-size: 0.82rem; color: #6b5a44; line-height: 1.4; }
+  .ls-card__meta { margin-top: auto; display: flex; gap: 14px; flex-wrap: wrap; font-family: 'Poppins', sans-serif; font-size: 0.76rem; color: #5c4d3c; }
+  .ls-card__meta i { margin-right: 5px; color: #8a7458; }
+  .ls-card__go { position: absolute; right: 12px; bottom: 12px; font-size: 1.3rem; color: var(--ll-gold); }
+  .ls-card__fav { position: absolute; top: 6px; right: 6px; width: 40px; height: 40px; border: 0; border-radius: 10px; background: transparent;
+    color: #b59a72; cursor: pointer; font-size: 1.05rem; }
+  .ls-card__fav.is-on { color: var(--ll-gold); }
+  .ls-card__fav:hover { background: #f8f1e5; }
+  .ls-card--row .ls-card__main { min-height: 72px; }
+  .ls-card--row .ls-card__art { width: 72px; }
+  .ls-card--row .ls-card__art i { font-size: 1.4rem; }
+  .ls-card--row .ls-card__text { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding-right: 90px; }
+  .ls-card--row .ls-card__text small { flex: 1 1 200px; }
+  .ls-card--row .ls-card__meta { margin-top: 0; }
+  .ls-card--row .ls-card__go { top: 50%; bottom: auto; transform: translateY(-50%); right: 50px; }
+  .ls-card--row .ls-card__fav { top: 50%; transform: translateY(-50%); }
+  .ls-create { display: flex; align-items: center; gap: 16px; min-height: 116px; padding: 14px 18px; border: 2px dashed #d9c7a6; border-radius: 16px;
+    background: rgba(255, 255, 255, 0.55); text-align: left; cursor: pointer; color: var(--ll-ink); }
+  .ls-create:hover { background: #fff; border-color: var(--ll-gold); }
+  .ls-create--row { min-height: 72px; }
+  .ls-create__plus { width: 52px; height: 52px; border-radius: 50%; background: #f3e7d2; color: var(--ll-gold); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+  .ls-create b { display: block; font-family: 'Playfair Display', Georgia, serif; font-size: 1.05rem; }
+  .ls-create small { font-size: 0.8rem; color: #6b5a44; }
+  .ls-empty { padding-top: 0; }
+  .ll-coll .lf-vw__body { display: flex; flex-direction: column; gap: 12px; }
+  .ll-field { display: flex; flex-direction: column; gap: 6px; font-family: 'Poppins', sans-serif; font-size: 0.8rem; font-weight: 600; color: #374151; flex: 1; }
+  .ll-field input, .ll-field select { min-height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; padding: 0 12px; font: 400 0.95rem 'Lato', sans-serif; color: #1f2933; background: #fff; }
+  .ll-field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* a collection opened alone */
+  .lf.lf--solo .lf-head, .lf.lf--solo .lf-tree { display: none; }
+  .lf.lf--solo .lf-body { grid-template-columns: minmax(0, 1fr); margin-top: 0; }
+  .lf.lf--solo { background: #f7f2ea; min-height: 60vh; }
+  /* the folder tree held the years; alone, the chips do, at every width */
+  .lf.lf--solo .lf-chips--years { display: flex; }
+  .lf-back.lf-back--solo { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; border: 0; background: transparent; color: #a8741f;
+    font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 0.9rem; padding: 0 4px; margin: -4px 0 8px; cursor: pointer; }
+
+  /* Readings */
+  .ll-rbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .ll-lect { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 16px; background: #fff; border: 1px solid var(--ll-line);
+    border-radius: 12px; font-family: 'Poppins', sans-serif; font-size: 0.88rem; color: var(--ll-ink); }
+  .ll-lect i { color: var(--ll-gold); }
+  .ll-lect b { font-weight: 600; padding-left: 10px; border-left: 1px solid var(--ll-line); }
+  .ll-datenav.lit-reading-datenav { flex: 1 1 420px; margin: 0; background: #fff; border: 1px solid var(--ll-line); border-radius: 12px; padding: 4px 6px;
+    flex-wrap: wrap; row-gap: 6px; min-width: 0; overflow: visible; }
+  .ll-datenav .lit-datenav-title { flex: 1 1 260px; min-width: 0; }
+  .ll-datenav .lit-datenav-modes { margin-left: auto; }
+  .ll-datenav .lit-datenav-title { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+    font-family: 'Playfair Display', Georgia, serif; font-size: 1.15rem; color: var(--ll-ink); text-align: center; }
+  .ll-datenav__cal { color: var(--ll-gold); }
+  .ll-datenav__day b { color: #23502d; font-weight: 700; }
+  .ll-today { min-height: 46px; }
+  .ll-band { display: flex; align-items: center; gap: 14px 22px; flex-wrap: wrap; background: #eef4ea; border: 1px solid #d9e6d2; border-radius: 14px;
+    padding: 12px 18px; margin-bottom: 12px; }
+  .ll-band__season { display: inline-flex; align-items: center; gap: 10px; font-family: 'Playfair Display', Georgia, serif; font-size: 1.1rem; font-weight: 700;
+    color: var(--ll-ink); padding-right: 18px; border-right: 1px solid #cfdcc8; }
+  .ll-band__season i { color: var(--ll-sink); }
+  .ll-band__desc { flex: 1 1 280px; color: #4b5a45; font-size: 0.92rem; }
+  .ll-band__colour { display: inline-flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #d9e6d2; border-radius: 999px;
+    padding: 6px 14px; font-family: 'Poppins', sans-serif; font-size: 0.82rem; color: var(--ll-ink); }
+  .ll-daynote:empty { display: none; }
+  .ll--readings .lit-reading-slots-panel { background: transparent; border: 0; box-shadow: none; padding: 0; }
+  .ll--readings .lit-reading-slots-grid { gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: minmax(0, 1fr); } }
+  .ll-rcard.lit-reading-slot { cursor: default; display: flex; flex-direction: column; gap: 10px; padding: 0; border: 1px solid var(--ll-line);
+    border-radius: 16px; background: #fff; box-shadow: 0 2px 5px rgba(60, 40, 10, 0.06); overflow: hidden; }
+  #liturgyView .ll-rcard.lit-reading-slot { border-left: 1px solid var(--ll-line); }
+  .ll-rcard.lit-reading-slot:hover { transform: none; }
+  .ll-rcard__hd { display: flex; align-items: center; gap: 12px; padding: 12px 12px 0 14px; }
+  .ll-rcard__ico { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+  .ll-rcard .lit-reading-slot-label { flex: 1; font-family: 'Cinzel', Georgia, serif; font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ll-ink); }
+  .ll-rcard .lit-reading-slot-edit { position: static; opacity: 1; width: 40px; height: 40px; border-radius: 10px; }
+  .ll-rcard__ref, .ll-rcard__add { display: block; width: auto; margin: 0 14px; padding: 2px 0; border: 0; background: none; text-align: left; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 1.2rem; font-weight: 600; color: var(--ll-ink); }
+  .ll-rcard__ref:hover { color: #23502d; text-decoration: underline; }
+  .ll-rcard__add { font-size: 1rem; color: #23502d; margin-bottom: 14px; }
+  .ll-rcard .lit-slot-origin { margin: 0 14px; }
+  .ll-rcard__acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #f0e8da; margin-top: auto; }
+  .ll-rcard__acts button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; border: 0; background: transparent;
+    font-family: 'Poppins', sans-serif; font-size: 0.8rem; color: #3a2f22; cursor: pointer; }
+  .ll-rcard__acts button + button { border-left: 1px solid #f0e8da; }
+  /* a narrow card puts each action's icon over its word, so "Use in plan"
+     stays on one line */
+  .ll-rcard.lit-reading-slot { container-type: inline-size; }
+  @container (max-width: 300px) {
+    .ll-rcard__acts button { flex-direction: column; gap: 3px; min-height: 54px; font-size: 0.74rem; }
+  }
+  .ll-rcard__acts button:hover { background: #fbf6ee; }
+  .ll-prayer.lit-day-prayer { display: flex; align-items: center; gap: 18px; background: #f1f6ee; border: 1px solid #d9e6d2; border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
+  .ll-prayer__icon { width: 54px; height: 54px; border-radius: 14px; background: #2f5d3a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0; }
+  .ll-prayer__main { flex: 1; min-width: 0; padding-right: 16px; border-right: 1px solid #d9e6d2; }
+  .ll-prayer .lit-day-prayer__ttl { font-size: 0.95rem; }
+  .ll-prayer .lit-day-prayer__text { margin-top: 6px; }
+  .ll-prayer__acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .ll-prayer__acts .lit-day-prayer__btn { justify-content: flex-start; min-height: 40px; }
+  .ll-ractions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .ll-ractions:empty { display: none; }
+  .ll-menu { position: absolute; z-index: 10050; min-width: 240px; background: #fff; border: 1px solid #e5dccd; border-radius: 14px; padding: 6px;
+    box-shadow: 0 14px 40px rgba(40, 25, 5, 0.18); display: flex; flex-direction: column; }
+  .ll-menu button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent;
+    font-family: 'Poppins', sans-serif; font-size: 0.86rem; color: #2a2118; text-align: left; cursor: pointer; }
+  .ll-menu button i { width: 18px; text-align: center; color: #a8741f; }
+  .ll-menu button:hover, .ll-menu button:focus-visible { background: #f8f1e5; outline: none; }
+
+  @media (max-width: 1100px) {
+    .ll-cards { grid-template-columns: minmax(0, 1fr); }
+    .ll-row2 { grid-template-columns: minmax(0, 1fr); }
+    .ll-files { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 768px), (max-width: 1200px) and (orientation: portrait) {
+    /* the strip of section chips above the page says the same as the tabs */
+    .ll-tabs { display: none; }
+  }
+  @media (max-width: 768px) {
+    #liturgyView .ll { padding: 10px 12px 96px; }
+    .ll-head { min-height: 0; padding: 6px 2px 12px; }
+    .ll-head__icon { width: 48px; height: 48px; font-size: 1.4rem; border-radius: 12px; }
+    .ll-head h1 { font-size: 1.6rem; }
+    .ll-head p { font-size: 0.98rem; }
+    .ll-head__art { display: none; }
+    .ll-card__top { padding: 16px 16px 22px; }
+    .ll-card__top h2 { font-size: 1.35rem; }
+    /* a phone shows each card as its band and its button, so This Sunday is near the top */
+    .ll-card__body { display: none; }
+    .ll-card__top::after { display: none; }
+    .ll-card__top { padding-bottom: 16px; }
+    .ll-card__go { margin: 12px 16px 16px; align-self: stretch; justify-content: center; }
+    .ll-sun__body { grid-template-columns: minmax(0, 1fr); }
+    .ll-season { min-height: 88px; font-size: 0.82rem; }
+    .ll-files { grid-template-columns: minmax(0, 1fr); }
+    .ls-bar__main { border-right: 0; padding-right: 0; flex-basis: 100%; }
+    .ls-bar__acts { margin-left: 0; width: 100%; }
+    .ls-bar__acts .lf-btn { flex: 1 1 auto; }
+    .ls-search { margin-left: 0; max-width: none; }
+    .ls-grid { grid-template-columns: minmax(0, 1fr); }
+    .ls-card--row .ls-card__text { padding-right: 84px; }
+    /* Lectionary and Today share a row; the date has its arrows either
+       side of it and Day / Week / Month under it */
+    .ll-rbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .ll-rbar .ll-lect { grid-column: 1; grid-row: 1; }
+    .ll-rbar .ll-today { grid-column: 2; grid-row: 1; }
+    .ll-datenav.lit-reading-datenav { grid-column: 1 / -1; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 6px; }
+    .ll-datenav .lit-datenav-title { font-size: 1rem; }
+    .ll-datenav .lit-datenav-modes { grid-column: 1 / -1; margin: 0; justify-content: center; }
+    .ll-datenav .lit-datenav-modes button { flex: 1; min-height: 38px; }
+    .ll-band { padding: 10px 14px; gap: 6px 12px; }
+    .ll-band__desc { font-size: 0.84rem; }
+    .ll-band__season { border-right: 0; padding-right: 0; }
+    .ll-prayer.lit-day-prayer { flex-direction: column; align-items: stretch; }
+    .ll-prayer__main { border-right: 0; padding-right: 0; }
+    .ll-prayer__acts { flex-direction: row; flex-wrap: wrap; }
+    .ll-ractions .lf-btn { flex: 1 1 auto; }
+  }
 
   /* ===== PRAYER OF THE DAY (Readings, Day view) ===== */
   .lit-day-prayer { margin-top: 14px; background: var(--lit-wash, #f4f9f6); border: 1px solid var(--lit-edge, #cfe5d8); border-radius: 14px; padding: 14px 18px; }
