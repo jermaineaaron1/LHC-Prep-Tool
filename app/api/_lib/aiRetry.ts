@@ -66,6 +66,17 @@ export function isBusy(err: unknown): boolean {
   return BUSY_RE.test(errorText(err));
 }
 
+// Did a model refuse a SETTING of the request (pure)? The reader asks first
+// with thinking turned off, which is quicker for copying words; a model that
+// will not take that says so -- by name ("thinking ...") or, as
+// gemini-flash-lite-latest did on 2026-11-14, only "400 INVALID_ARGUMENT:
+// Request contains an invalid argument." -- and is asked once more without
+// it. Never a busy answer: that is the retry's to handle.
+export function refusedSetting(err: unknown): boolean {
+  if (isBusy(err)) return false;
+  return /think|INVALID_ARGUMENT|invalid argument/i.test(errorText(err));
+}
+
 export type RetryOptions = {
   budgetMs?: number;                       // no try starts after this long (default 25s)
   waits?: number[];                        // the wait before each round after the first (default 2.5s)

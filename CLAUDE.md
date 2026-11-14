@@ -4247,7 +4247,13 @@ the anon key -- verify as `postgres`, not as the app.
       with waits growing from 1s, which spent the whole budget on the first
       model -- the lighter one was never asked -- so the client is made with
       `httpOptions: { retryOptions: { attempts: 1 } }`. Every route that relies
-      on its own retry needs the same.
+      on its own retry needs the same. Each model is asked first with
+      thinking off (`thinkingBudget: 0`: copying words needs none, and it is
+      quicker); flash-lite refused that with nothing but "400
+      INVALID_ARGUMENT: Request contains an invalid argument", so a refusal
+      naming thinking OR an invalid argument (`refusedSetting`, never a busy
+      one) is asked again without it, and that model is not offered the
+      setting in the next round.
     - **Matched to the Builder's sections** (`_cvMatch`, pure): the same name,
       a name the church uses for it (`CV_SAME`), or one naming it; every
       reading goes to Scripture Readings. `WO.docLiturgy` (`_woDocLiturgy`,

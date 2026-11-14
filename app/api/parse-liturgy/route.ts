@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { isOwnStorage } from '../_lib/isOwnStorage';
-import { withBusyRetry, AiBusyError, isBusy, errorText } from '../_lib/aiRetry';
+import { withBusyRetry, AiBusyError, refusedSetting } from '../_lib/aiRetry';
 
 // The flash model first; when it is busy, the lighter flash-lite. Both are
 // Google's version-free aliases, as parse-lectionary uses, so a retired dated
@@ -190,12 +190,20 @@ export async function POST(req: NextRequest) {
     // answer goes to the lighter flash-lite model, and round both again
     // after a moment, before the person is told to try again (_lib/aiRetry).
     let response;
+    // A model that refused the setting once is not offered it again in the
+    // next round: each refusal costs a whole round trip with the file.
+    const thinks = new Set<string>();
     try {
       ({ value: response } = await withBusyRetry(GEMINI_MODELS, async (model) => {
+        if (thinks.has(model)) return await ask(model, false);
         try {
           return await ask(model, true);
         } catch (err: unknown) {
-          if (!/think/i.test(errorText(err)) || isBusy(err)) throw err;
+          // Thinking off was refused (by name, or as an invalid argument --
+          // all gemini-flash-lite-latest said, live, 2026-11-14): ask once
+          // more without it. Its answer, good or bad, stands.
+          if (!refusedSetting(err)) throw err;
+          thinks.add(model);
           return await ask(model, false);
         }
       }));
