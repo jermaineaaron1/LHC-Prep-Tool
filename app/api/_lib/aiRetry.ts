@@ -25,13 +25,19 @@
 // free-tier key being turned away from a backup model this key cannot use.
 // Every try of the first live week said only "busy", and those three read the
 // same until the reason was shown (2026-11-14).
+// slow: a try was cut off by the caller's deadline (isCutOff) -- the model
+// was writing, not refusing, and there is no time left to ask another. Told
+// apart from busy because what helps is different: a busy model wants a
+// minute, a slow one a shorter document.
 export class AiBusyError extends Error {
   readonly busy = true;
   readonly reasons: string[];
-  constructor(message: string, reasons: string[] = []) {
+  readonly slow: boolean;
+  constructor(message: string, reasons: string[] = [], slow = false) {
     super(message);
     this.name = 'AiBusyError';
     this.reasons = reasons;
+    this.slow = slow;
   }
 }
 
@@ -73,8 +79,41 @@ export function isBusy(err: unknown): boolean {
 // Request contains an invalid argument." -- and is asked once more without
 // it. Never a busy answer: that is the retry's to handle.
 export function refusedSetting(err: unknown): boolean {
-  if (isBusy(err)) return false;
-  return /think|INVALID_ARGUMENT|invalid argument/i.test(errorText(err));
+  if (isBusy(err) || isCutOff(err)) return false;
+  const text = errorText(err);
+  // A wrong key is an INVALID_ARGUMENT too ("API key not valid"); no setting
+  // will mend it.
+  if (/API key/i.test(text)) return false;
+  return /think|INVALID_ARGUMENT|invalid argument/i.test(text);
+}
+
+// Was a try cut off for taking too long (pure)? The caller's own deadline --
+// AbortSignal.timeout, which fetch rejects as a TimeoutError -- or Google's
+// own DEADLINE_EXCEEDED. Either way a long wait has already happened.
+export function isCutOff(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null);
+  if (name && (name.name === 'TimeoutError' || name.name === 'AbortError')) return true;
+  return /\baborted\b|DEADLINE_EXCEEDED|timed out/i.test(errorText(err));
+}
+
+// Each setting in turn, for as long as a model refuses the one before
+// (refusedSetting), remembering per model the first one it took, so the next
+// round does not spend a round trip -- the whole document sent again -- on a
+// setting already refused. The last setting's refusal is a real error.
+// On 2026-11-14 the lighter model refused "thinkingBudget: 0" with nothing
+// but "400 INVALID_ARGUMENT".
+export function settingLadder<S>(settings: S[]) {
+  const from: { [model: string]: number } = {};
+  return async function <T>(model: string, ask: (setting: S) => Promise<T>): Promise<T> {
+    for (let i = from[model] || 0; ; i++) {
+      try {
+        return await ask(settings[i]);
+      } catch (err) {
+        if (i >= settings.length - 1 || !refusedSetting(err)) throw err;
+        from[model] = i + 1;
+      }
+    }
+  };
 }
 
 export type RetryOptions = {
@@ -108,9 +147,9 @@ export async function withBusyRetry<T>(models: string[], attempt: (model: string
   const said: { [model: string]: string } = {};
   const out: { [model: string]: boolean } = {};
   const reasons = () => models.filter((k) => said[k]).map((k) => k + ': ' + said[k]);
-  const outOfTime = () => {
+  const outOfTime = (slow = false) => {
     models.forEach((k) => { if (!said[k]) said[k] = 'not asked: out of time'; });
-    return new AiBusyError(busy ? errorText(busy) : 'out of time', reasons());
+    return new AiBusyError(busy ? errorText(busy) : 'out of time', reasons(), slow);
   };
   for (let round = 0; round < rounds; round++) {
     if (round > 0) {
@@ -126,6 +165,11 @@ export async function withBusyRetry<T>(models: string[], attempt: (model: string
         return { value: await attempt(model), model };
       } catch (err) {
         said[model] = reasonOf(err);
+        // Cut off by the deadline: it was writing, and the time is gone.
+        if (isCutOff(err)) {
+          said[model] = 'no answer in time (' + said[model] + ')';
+          throw outOfTime(true);
+        }
         if (!isBusy(err)) {
           // The first answer of all being a real error is the file or the
           // request: passed straight back, never asked again.
