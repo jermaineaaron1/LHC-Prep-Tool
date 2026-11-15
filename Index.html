@@ -58365,8 +58365,46 @@ var WO = (function() {
       if (!u.md) return item(u.items[0]);
       return '<div class="sbm-side__md"><div class="sbm-side__md-h"><i class="fa-solid fa-layer-group"></i>Medley</div>' + u.items.map(item).join('') + '</div>';
     }).join('');
-    return '<div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Song List<span class="sbm-side__hint">drag to reorder</span></div>' + body +
-      (order ? '<button class="sbm-side__add" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add a song</button>' : '');
+    // Folded (a desk or a tablet, the operator 2026-11-15): a rail of the
+    // songs' numbers, so a song is still one press away while the words
+    // have the width.
+    var dot = function(x) {
+      var i = list.indexOf(x), t = x.title || 'Song ' + (i + 1);
+      return '<button class="sbm-side__dot' + (song && x.id === song.id ? ' is-on' : '') + '" onclick="WO.sbmSelectSong(\'' + escapeJsArg(String(x.id)) + '\')" title="' + escapeHtml((i + 1) + '. ' + t) + '" aria-label="' + escapeHtml('Song ' + (i + 1) + ': ' + t) + '">' + (i + 1) + '</button>';
+    };
+    var rail = _woUnits(list, _woMedleys()).map(function(u) {
+      return u.md ? '<div class="sbm-side__rail-md" title="Medley">' + u.items.map(dot).join('') + '</div>' : dot(u.items[0]);
+    }).join('');
+    return '<div class="sbm-side__full"><div class="sbm-side__hdr"><i class="fa-solid fa-list-ol"></i>Song List<span class="sbm-side__hint">drag to reorder</span>' +
+        '<button type="button" class="sbm-side__fold" onclick="WO.sbmSideFold(true)" title="Hide the song list: more room for the song" aria-label="Hide the song list"><i class="fa-solid fa-angles-left"></i></button></div>' + body +
+      (order ? '<button class="sbm-side__add" onclick="WO.sbmAddSong()"><i class="fa-solid fa-plus"></i>Add a song</button>' : '') + '</div>' +
+      '<div class="sbm-side__rail"><button type="button" class="sbm-side__unfold" onclick="WO.sbmSideFold(false)" title="Show the song list" aria-label="Show the song list"><i class="fa-solid fa-angles-right"></i></button>' + rail +
+      (order ? '<button type="button" class="sbm-side__dot sbm-side__dot--add" onclick="WO.sbmAddSong()" title="Add a song" aria-label="Add a song"><i class="fa-solid fa-plus"></i></button>' : '') + '</div>';
+  }
+  // Whether the list is folded: this device's, like the font (a laptop and
+  // a tablet may want different things), and kept in the page as well for
+  // a browser that keeps nothing.
+  var _SBM_SIDE_KEY = 'lhc_sbm_side_closed';
+  var _sbmSideShut = null;
+  function _sbmSideClosed() {
+    if (_sbmSideShut !== null) return _sbmSideShut;
+    try { return localStorage.getItem(_SBM_SIDE_KEY) === '1'; } catch (e) { return false; }
+  }
+  // Folding is a class on the layout, not a redraw: the score, the drawings
+  // and whatever is being recorded stay as they are. The column changes
+  // width, so the chords are fitted again, the drawings repainted and the
+  // floater asked again -- what a window resize does.
+  function sbmSideFold(shut) {
+    shut = !!shut;
+    _sbmSideShut = shut;
+    try { if (shut) localStorage.setItem(_SBM_SIDE_KEY, '1'); else localStorage.removeItem(_SBM_SIDE_KEY); } catch (e) {}
+    var wrap = document.querySelector('#sbmRoot .sbm-wide');
+    if (!wrap) return;
+    wrap.classList.toggle('is-side-closed', shut);
+    var next = wrap.querySelector(shut ? '.sbm-side__unfold' : '.sbm-side__fold');
+    if (next) { try { next.focus({ preventScroll: true }); } catch (e) {} }
+    _sbmMarksQueue();
+    setTimeout(_sbmGuideCheck, 60);
   }
 
   // ---- a medley read straight through ----
@@ -58550,7 +58588,7 @@ var WO = (function() {
     var seg = function(val, label, on) {
       return '<button class="sbm-seg__btn' + (on ? ' is-on' : '') + '" data-view="' + val + '" onclick="WO.sbmView(\'' + val + '\')">' + label + '</button>';
     };
-    html += '<div class="sbm-card"><div class="sbm-two">' +
+    html += '<div class="sbm-card sbm-card--controls"><div class="sbm-two">' +
       '<div><div class="sbm-label"><i class="fa-solid fa-music"></i>Key / Transpose</div>' +
         '<div class="sbm-seg sbm-seg--xp">' +
           // The two steps are blue and large: the key is what a band changes
@@ -58645,7 +58683,7 @@ var WO = (function() {
     html += _sbmFollowHtml(mdHere, wide) + '</div>';
     root.innerHTML = wide
       ? _sbmTopBar(orderTitle, song, list) +
-        '<div class="sbm-wide"><aside class="sbm-side">' + _sbmSideHtml(list, song) + '</aside>' +
+        '<div class="sbm-wide' + (_sbmSideClosed() ? ' is-side-closed' : '') + '"><aside class="sbm-side">' + _sbmSideHtml(list, song) + '</aside>' +
         '<main class="sbm-main">' + songCard + toolbar + html + '</main></div>'
       : hero + songCard + toolbar + html;
 
@@ -99350,7 +99388,7 @@ var WO = (function() {
     openSongbookByOrderId: openSongbookByOrderId,
     openSongbookStandalone: openSongbookStandalone,
     closeSongbook: closeSongbook,
-    sbmSelectSong: sbmSelectSong, sbmStep: sbmStep, sbmTranspose: sbmTranspose,
+    sbmSelectSong: sbmSelectSong, sbmSideFold: sbmSideFold, sbmStep: sbmStep, sbmTranspose: sbmTranspose,
     sbmView: sbmView, sbmPart: sbmPart, sbmRecord: sbmRecord, sbmEdit: sbmEdit, sbmPageView: sbmPageView,
     sbmReset: sbmReset, sbmContents: sbmContents, sbmMore: sbmMore, sbmResources: sbmResources, sbmVideos: sbmVideos,
     sbmOpenResource: sbmOpenResource, sbmOpenExternal: sbmOpenExternal, sbmCloseSheet: sbmCloseSheet,
@@ -125682,7 +125720,7 @@ html.lbw-lib-dragging .lbw-page .lbw-sec > .lbw-h { outline: 1px dashed #a8cbb2;
 .sbm-side__item .t { min-width: 0; }
 .sbm-side__item small { display: block; font: 500 12px/1.2 var(--sbm-font-body); color: var(--sbm-muted); margin-top: 2px; }
 .sbm-side__item.is-on small { color: rgba(255,255,255,0.75); }
-.sbm-main { max-width: 1060px; width: 100%; margin: 0 auto; padding: 22px 28px 48px; min-width: 0; }
+.sbm-main { max-width: 1090px; width: 100%; margin: 0 auto; padding: 22px 28px 48px; min-width: 0; }
 .sbm--wide .sbm-song { margin: 0 0 14px; }
 .sbm--wide .sbm-song__title { font-size: 28px; }
 .sbm--wide .sbm-stack { padding: 0; gap: 14px; }
@@ -126648,6 +126686,57 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 
 /* medleys in the book */
 .sbm-side__md { margin: 4px 0; padding: 2px 0 2px 6px; border-left: 3px solid var(--sbm-gold); border-radius: 0 10px 10px 0; background: var(--sbm-gold-soft); }
+
+/* ---- The song list folds into a rail (a desk or a tablet, 2026-11-15) ----
+   The operator: fold the list away so the song has the width. Folded, the
+   list is a 56px rail of the songs' numbers; the column takes the 216px it
+   gives back (1090 + 216), so on a laptop the cards really are wider and not
+   just re-centred. The Phone view's narrow desk still hides the whole list
+   (its rule is the more specific). */
+.sbm-side__rail { display: none; }
+.sbm-wide.is-side-closed { grid-template-columns: 56px minmax(0, 1fr); }
+.sbm-wide.is-side-closed .sbm-side__full { display: none; }
+.sbm-wide.is-side-closed .sbm-side__rail { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.sbm-wide.is-side-closed .sbm-main { max-width: 1306px; }
+#sbmRoot.sbm--wide .sbm-wide.is-side-closed .sbm-side { padding: 10px 0 16px; overflow-x: hidden; }
+.sbm-side__fold, .sbm-side__unfold {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0;
+  border-radius: 8px; border: 1px solid var(--sbm-line); background: var(--sbm-card); color: var(--sbm-navy); font-size: 13px; cursor: pointer;
+}
+.sbm-side__fold { margin-left: 8px; }
+.sbm-side__unfold { width: 40px; height: 40px; margin-bottom: 4px; font-size: 15px; }
+.sbm-side__fold:hover, .sbm-side__unfold:hover { background: var(--sbm-navy); border-color: var(--sbm-navy); color: #fff; }
+.sbm-side__fold:focus-visible, .sbm-side__unfold:focus-visible, .sbm-side__dot:focus-visible { outline: 2px solid var(--sbm-teal-2); outline-offset: 2px; }
+.sbm-side__dot {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0;
+  border-radius: 50%; border: 0; background: rgba(15,31,61,0.08); color: var(--sbm-navy); font: 700 13px/1 var(--sbm-font-ui); cursor: pointer;
+}
+.sbm-side__dot:hover { background: rgba(15,31,61,0.16); }
+.sbm-side__dot.is-on { background: var(--sbm-gold); color: var(--sbm-navy); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--sbm-navy); }
+.sbm-side__dot--add { background: transparent; border: 1px dashed rgba(15,31,61,0.3); font-size: 12px; }
+.sbm-side__dot--add:hover { background: var(--sbm-teal-soft); }
+.sbm-side__rail-md { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px; border-radius: 12px; border-left: 3px solid var(--sbm-gold); background: var(--sbm-gold-soft); }
+
+/* ---- The controls card in navy, as the top bar (the operator, 2026-11-15) ----
+   Key, view mode, notes, font and the tiles: the songbook's control deck.
+   The tiles keep their own colours; what was dark on white turns light. */
+.sbm--wide .sbm-card--controls { background: linear-gradient(135deg, var(--sbm-navy-ink), var(--sbm-navy-2)); box-shadow: 0 6px 20px rgba(4,12,28,0.28); }
+.sbm--wide .sbm-card--controls .sbm-label { color: rgba(255,255,255,0.84); }
+.sbm--wide .sbm-card--controls .sbm-label i { color: var(--sbm-gold); }
+.sbm--wide .sbm-card--controls .sbm-sep { border-left-color: rgba(255,255,255,0.18); }
+.sbm--wide .sbm-card--controls .sbm-xp-hint { color: rgba(255,255,255,0.74); }
+.sbm--wide .sbm-card--controls .sbm-seg--view { border-color: transparent; }
+.sbm--wide .sbm-card--controls .sbm-seg--xp .sbm-seg__btn.is-on { background: #24447d; }
+.sbm--wide .sbm-card--controls .sbm-btn { border-color: transparent; }
+.sbm--wide .sbm-card--controls .sbm-btn.is-on { background: var(--sbm-gold); border-color: var(--sbm-gold); color: var(--sbm-navy); }
+.sbm--wide .sbm-card--controls .sbm-font:focus-within { outline-color: var(--sbm-teal-2); }
+.sbm--wide .sbm-card--controls .sbm-tile { border-color: transparent; }
+/* The soft tiles are tints, see-through: laid on white they look as they did on the white card. */
+.sbm--wide .sbm-card--controls .sbm-tile--danger { background: linear-gradient(var(--sbm-danger-soft), var(--sbm-danger-soft)), #fff; }
+.sbm--wide .sbm-card--controls .sbm-tile--teal { background: linear-gradient(var(--sbm-teal-soft), var(--sbm-teal-soft)), #fff; }
+.sbm--wide .sbm-card--controls .sbm-tile--gold { background: linear-gradient(var(--sbm-gold-soft), var(--sbm-gold-soft)), #fff; }
+.sbm--wide .sbm-card--controls .sbm-tile--yt-none { border: 1px dashed rgba(255,140,130,0.75); }
+.sbm--wide .sbm-card--controls .sbm-tile--locked { border: 1px dashed rgba(255,255,255,0.45); }
 .sbm-side__md-h { display: flex; align-items: center; gap: 6px; padding: 5px 10px 2px; font: 700 10px/1 var(--sbm-font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: #8a6510; }
 .sbm-md-ribbon {
   display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 5px 5px 5px 10px; border-radius: 10px;

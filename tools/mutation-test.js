@@ -2739,6 +2739,18 @@ const CASES = [
   ['order-year-harness.js', 'the year is made from the day the order was last edited',
     s => s.replace("    var made = Date.parse((order && (order.createdDate || order.created_date)) || '');",
                    "    var made = Date.parse((order && order.lastEdited) || '');")],
+  // The song list folds into a rail on a desk or a tablet; the column takes
+  // the width; the controls card is navy (the operator, 2026-11-15).
+  ['songbook-side-fold-harness.js', 'folding forgets to fold the layout',
+    s => s.replace("    wrap.classList.toggle('is-side-closed', shut);\r\n", '')],
+  ['songbook-side-fold-harness.js', 'the column changes width and the chords are not fitted again',
+    s => s.replace('    _sbmMarksQueue();\r\n    setTimeout(_sbmGuideCheck, 60);\r\n  }\r\n', '  }\r\n')],
+  ['songbook-side-fold-harness.js', 'a song whose id has an apostrophe cannot be opened from the rail',
+    s => s.replace(String.raw`onclick="WO.sbmSelectSong(\'' + escapeJsArg(String(x.id)) + '\')"`, String.raw`onclick="WO.sbmSelectSong(\'' + escapeHtml(String(x.id)) + '\')"`)],
+  ['songbook-side-fold-harness.js', 'folded, the column is only re-centred, never wider',
+    s => s.replace('.sbm-wide.is-side-closed .sbm-main { max-width: 1306px; }\r\n', '')],
+  ['songbook-side-fold-harness.js', 'Record goes see-through on the navy card',
+    s => s.replace('.sbm--wide .sbm-card--controls .sbm-tile--danger { background: linear-gradient(var(--sbm-danger-soft), var(--sbm-danger-soft)), #fff; }\r\n', '')],
 ];
 
 let caught = 0, missed = 0, stale = 0;
