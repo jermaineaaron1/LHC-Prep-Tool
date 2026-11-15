@@ -93,8 +93,11 @@ function load() {
   check('the nav calls it Services, under the key the nav highlighting goes by',
     /data-libfilter="all-services" onclick="LiturgyModule\.showAllServices\(\)" title="Services">[\s\S]{0,200}<span>Services<\/span>/.test(SRC) &&
     /<i class="fa-solid fa-church" aria-hidden="true"><\/i><span>Services<\/span>/.test(SRC));
-  check('Services opens the collections, and a collection opens its folder',
-    /function showAllServices\(\) \{ openServices\(\); \}/.test(SRC) && /openLibrary\(occId \? 'occ:' \+ occId : \(special \|\| 'recent'\), year \|\| ''\);/.test(fn('openCollection')));
+  // Since 2026-11-15 one service is its own page; this view keeps the lists
+  // that belong to no one service (Recently added, Not filed, the prayers).
+  check('Services opens the collections; a service opens its own page, this view the library-wide lists',
+    /function showAllServices\(\) \{ openServices\(\); \}/.test(SRC) && /openService\(occId, from === 'hub' \? 'hub' : 'services', 'order'\);/.test(fn('openCollection')) &&
+    /openLibrary\(special \|\| 'recent', year \|\| ''\);/.test(fn('openCollection')));
   check('the old card grid entry point is gone (one showAllServices)', (SRC.match(/function showAllServices\(/g) || []).length === 1);
   check('every other panel switcher hides it',
     /function selectOccasion\(occasionId\) \{\r?\n\s*_lfHide\(\);/.test(SRC) &&

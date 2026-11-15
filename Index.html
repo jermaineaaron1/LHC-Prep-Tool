@@ -104099,7 +104099,7 @@ var LiturgyModule = (function() {
       _llAddCollection(_llCollToOcc(got));
       llCloseCollection();
       showToast('Created “' + got.label + '”', 'success');
-      openCollection(got.id, '', 'services');
+      openService(got.id, 'services', 'order');
     }).catch(function(e) {
       if (btn) btn.disabled = false;
       var m = String((e && e.message) || e);
@@ -104414,9 +104414,20 @@ var LiturgyModule = (function() {
   // A collection's own page: the library's folder pane, alone, with the way
   // back to where it was opened from.
   function openCollection(occId, year, from, special) {
+    // One service's things are its own page now (the operator, 2026-11-15,
+    // on this view opened from "All files by year folder": "What is this page
+    // for?"). Asked for a year, the page opens on it. This view is kept for
+    // the lists that belong to no one service: Recently added, Not filed,
+    // Every Prayer of the Day.
+    if (occId && getOccasionById(occId)) {
+      var f = year ? _spYearFolders(occId).filter(function(x) { return x.id === year; })[0] : null;
+      openService(occId, from === 'hub' ? 'hub' : 'services', 'order');
+      if (f) { _sp.year = f.name; renderService(); }
+      return;
+    }
     _lf.solo = true;
     _lf.back = from || 'services';
-    openLibrary(occId ? 'occ:' + occId : (special || 'recent'), year || '');
+    openLibrary(special || 'recent', year || '');
   }
   function lfBackTo() {
     var to = _lf.back;
@@ -104888,8 +104899,8 @@ var LiturgyModule = (function() {
         .sort(function(a, b) { return String(_spYearOf(b, occ.id)).localeCompare(String(_spYearOf(a, occ.id))) || String(a.title || '').localeCompare(String(b.title || '')); });
       // A row opens its preview on a double-click or a double tap
       // (_spBindOpen); the eye does the same in one press, and Enter.
-      body = chips + (shown.length ? '<p class="sp-tip"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i><span>Double-tap ' + (tab === 'links' ? 'a link' : 'a document') + ' to preview it' +
-          ', and choose its year there' + (window.matchMedia && window.matchMedia('(hover: hover)').matches ? ', or drag it onto a year' : '') + '.</span></p>' +
+      body = chips + (shown.length ? '<p class="sp-tip"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i><span>Double-tap ' + (tab === 'links' ? 'a link' : 'a document') + ' to preview it. ' +
+          'Its year button files it under a year' + (window.matchMedia && window.matchMedia('(hover: hover)').matches ? ', or drag it onto a year' : '') + '.</span></p>' +
         '<ul class="sp-docs">' + shown.map(function(it) {
         var k = _lfKind(it), y = _spYearOf(it, occ.id), ext = _spExt(it);
         var canConvert = tab === 'liturgy' && !!it.fileUrl && (/^(docx|doc|pdf|xlsx|xls)$/.test(ext) || !!_spGdocId(it.fileUrl));
@@ -104900,6 +104911,10 @@ var LiturgyModule = (function() {
             ' draggable="true" ondragstart="LiturgyModule.spDragStart(event, this.dataset.id)">' + _lfBadge(k) +
           '<span class="sp-doc__t"><b>' + _lfE(name) + '</b><small>' + _lfE([k.label, y ? _llYearText(occ.id, y) : '', added].filter(Boolean).join(' · ')) + '</small></span>' +
           '<span class="sp-doc__acts">' +
+            // Its year, changed where it is listed (the operator, 2026-11-15:
+            // "How to assign year?" -- the preview and the drag were not found).
+            '<button type="button" class="lf-btn sp-btn-sm sp-yearbtn" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spYearMenu(this, this.dataset.id)" aria-haspopup="menu" title="Change its year">' +
+              '<i class="fa-regular fa-folder" aria-hidden="true"></i><span>' + _lfE(y || 'No year') + '</span><i class="fa-solid fa-caret-down sp-yearbtn__c" aria-hidden="true"></i></button>' +
             (canConvert ? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spConvert(this.dataset.id)" title="Make a ready liturgy the Liturgy Builder and LCD can use"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Make ready</span></button>' : '') +
             '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfOpen(this.dataset.id)" aria-label="Preview" title="Preview"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
             '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spRename(this.dataset.id)" aria-label="Rename" title="Rename"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
@@ -104910,7 +104925,7 @@ var LiturgyModule = (function() {
     return '<section class="ll-box sp-res"><div class="ll-box__hd sp-res__hd"><i class="fa-solid fa-book" aria-hidden="true"></i><h2 class="font-cinzel">Liturgy Library</h2></div>' +
       '<div class="sp-rtabs" role="group" aria-label="Files for this service">' + tabs + '</div>' +
       '<div class="sp-res__bar"><p>' + _lfE(hint) + '</p>' + add + '</div>' + body +
-      '<button type="button" class="ll-link sp-allfiles" data-id="' + _lfE(occ.id) + '" onclick="LiturgyModule.openCollection(this.dataset.id, \'\', \'service\')">All files by year folder <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></section>';
+      '</section>';
   }
 
   function _spReadyHtml(d, orderId) {
@@ -104932,7 +104947,8 @@ var LiturgyModule = (function() {
                 c ? c.sections + ' sections · ' + c.liturgy + ' liturgy' : ''].filter(Boolean).join(' · ')) + '</small></span>' +
             '<span class="sp-ready__acts">' +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spPreviewReady(this.dataset.id)"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>Preview</span></button>' +
-              (LL_SUNDAYS[occId] ? '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spSundays(this.dataset.id)" title="Which Sundays it is for"><i class="fa-regular fa-calendar-check" aria-hidden="true"></i><span>Sundays</span></button>' : '') +
+              '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spSundays(this.dataset.id)" title="' + (LL_SUNDAYS[occId] ? 'Which Sundays it is for, and its year' : 'Its year') + '">' +
+                '<i class="fa-regular fa-calendar-check" aria-hidden="true"></i><span>' + (LL_SUNDAYS[occId] ? 'Sundays & year' : 'Year') + '</span></button>' +
               (orderId ? '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spUse(this.dataset.id)"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Use</span></button>' : '') +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.lfShareItem(this.dataset.id, true)" aria-label="Share"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spDeleteReady(this.dataset.id)" aria-label="Delete"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>' +
@@ -106075,6 +106091,70 @@ var LiturgyModule = (function() {
     ensureOccYearFolder(occ, y).then(function(f) { _spKeepFolder(occ, f); put(f); },
       function(e) { showToast('Could not make the ' + y + ' folder: ' + ((e && e.message) || e), 'error'); });
   }
+  // A row's year menu: its service's year folders, no year folder, a new year.
+  function spYearMenu(btn, id) {
+    var old = document.getElementById('spYearMenu');
+    if (old) { var same = old.getAttribute('data-for') === id; _spFloatClose('spYearMenu'); if (same) return; }
+    var it = getItem(id);
+    if (!it || !btn) return;
+    var occ = it.occasionId || _sp.occ, cur = it.occasionFolderId || '';
+    var ys = _spYearFolders(occ).sort(function(a, b) { return b.name.localeCompare(a.name); });
+    var opt = function(val, label, on) {
+      return '<button type="button" role="menuitemradio" aria-checked="' + on + '" data-y="' + _lfE(val) + '" onclick="LiturgyModule.spYearPick(this)">' +
+        '<i class="' + (on ? 'fa-solid fa-check' : 'fa-regular fa-folder') + '" aria-hidden="true"></i>' + _lfE(label) + '</button>';
+    };
+    _spFloat(btn, 'spYearMenu', ys.map(function(f) { var c = _llCycleFor(occ, f.name); return opt(f.name, f.name + (c ? ' · ' + c : ''), f.id === cur); }).join('') +
+      opt('', 'No year folder', !cur) +
+      '<button type="button" role="menuitem" data-y="__new" onclick="LiturgyModule.spYearPick(this)"><i class="fa-solid fa-plus" aria-hidden="true"></i>A new year…</button>', id);
+  }
+  function spYearPick(b) {
+    var m = document.getElementById('spYearMenu'), id = m && m.getAttribute('data-for'), y = b && b.getAttribute('data-y');
+    _spFloatClose('spYearMenu');
+    if (!id) return;
+    if (y === '__new') lfMoveYear(id, '__new'); else spMoveYear(id, y);
+  }
+  // A menu on <body> under its button, kept there while the page moves and
+  // closed when the button leaves the screen -- Add Item's way (gotcha 103).
+  function _spFloat(btn, menuId, html, forId) {
+    var m = document.createElement('div');
+    m.id = menuId; m.className = 'pl-menu pl-menu--float'; m.setAttribute('role', 'menu');
+    if (forId) m.setAttribute('data-for', forId);
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    var place = function() {
+      if (!btn.isConnected) { _spFloatClose(menuId); return; }
+      var r = btn.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+      var vw = window.innerWidth || document.documentElement.clientWidth, vh = window.innerHeight || document.documentElement.clientHeight;
+      if (r.bottom < 0 || r.top > vh) { _spFloatClose(menuId); return; }
+      var top = r.bottom + 6;
+      if (top + h > vh - 8 && r.top - 6 - h >= 8) top = r.top - 6 - h;
+      m.style.left = Math.max(8, Math.min(r.right - w, vw - w - 8)) + 'px';
+      m.style.top = Math.max(8, top) + 'px';
+    };
+    place();
+    var first = m.querySelector('[aria-checked="true"]') || m.querySelector('button');
+    if (first) { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }
+    setTimeout(function() {
+      var off = function(e) { if (!m.contains(e.target) && !btn.contains(e.target)) _spFloatClose(menuId); };
+      var key = function(e) { if (e.key === 'Escape') { _spFloatClose(menuId); if (btn.focus) btn.focus(); } };
+      m._off = function() {
+        document.removeEventListener('pointerdown', off, true);
+        document.removeEventListener('keydown', key, true);
+        window.removeEventListener('resize', place);
+        window.removeEventListener('scroll', place, true);
+      };
+      document.addEventListener('pointerdown', off, true);
+      document.addEventListener('keydown', key, true);
+      window.addEventListener('resize', place);
+      window.addEventListener('scroll', place, true);
+    }, 0);
+  }
+  function _spFloatClose(menuId) {
+    var m = document.getElementById(menuId);
+    if (!m) return;
+    if (m._off) m._off();
+    m.remove();
+  }
   // A row dragged onto a year chip (a desk; a phone chooses in the preview).
   function spDragStart(e, id) {
     if (!e || !e.dataTransfer || !id) return;
@@ -106143,13 +106223,22 @@ var LiturgyModule = (function() {
       showToast('“' + name + '” added to Liturgy Documents', 'success', { action: 'Make it ready', duration: 9000, onAction: function() { spConvert(item.id); } });
     });
   }
-  // Which Sundays a ready liturgy is for, changed after it was made.
+  // Which Sundays a ready liturgy is for, and its year, changed after it was
+  // made (the year was fixed at Make ready until 2026-11-15).
   function spSundays(id) {
     var r = ((_spData && _spData.rows) || []).filter(function(x) { return x.id === id; })[0];
     var occ = r && (r.occasion_id || _sp.occ);
-    if (!r || !LL_SUNDAYS[occ]) return;
-    _plEd = { kind: 'sundays', id: id, occ: occ, days: ((r.data || {}).forDays || []).slice() };
-    _plModal('Which Sundays is “' + (r.title || 'this liturgy') + '” for?', '<div id="spDaysBox">' + _llDaysHtml(occ, _plEd.days, 'spDay') + '</div>', 'Save', 'spSundaysSave');
+    if (!r) return;
+    var days = !!LL_SUNDAYS[occ];
+    _plEd = { kind: 'sundays', id: id, occ: occ, days: ((r.data || {}).forDays || []).slice(), year: String(r.year || ''), hasDays: days };
+    _plModal((days ? 'Sundays and year: ' : 'Year: ') + (r.title || 'this liturgy'),
+      '<label class="mv-ed__lbl sp-rdyear">Year <small id="spRdCyc">' + _lfE(_llCycleFor(occ, r.year)) + '</small>' +
+        '<input id="spRdYear" type="number" min="1990" max="2100" value="' + _lfE(r.year || '') + '" oninput="LiturgyModule.spRdYear(this.value)"></label>' +
+      (days ? '<p class="cv-days__t"><b>For which Sundays?</b></p><div id="spDaysBox">' + _llDaysHtml(occ, _plEd.days, 'spDay') + '</div>' : ''), 'Save', 'spSundaysSave');
+  }
+  function spRdYear(v) {
+    var ed = _plEd, c = document.getElementById('spRdCyc');
+    if (ed && c) c.textContent = _llCycleFor(ed.occ, v);
   }
   function spDay(key) {
     var ed = _plEd;
@@ -106161,20 +106250,28 @@ var LiturgyModule = (function() {
   function spSundaysSave() {
     var ed = _plEd, sb = SBQ_LITURGY._sb();
     if (!ed || ed.kind !== 'sundays' || !sb) return;
+    var year = _spYearIn(_plVal('spRdYear'));
+    if (!year) { _plErr('Give it a year, e.g. ' + new Date().getFullYear() + '.'); return; }
+    var moved = year !== ed.year;
     _plSaving(true);
     Promise.resolve(sb.from('service_liturgies').select('data').eq('id', ed.id)).then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'it is not there any more');
       var data = Object.assign({}, r.data[0].data || {});
-      if (ed.days.length) data.forDays = ed.days.slice(); else delete data.forDays;
-      return sb.from('service_liturgies').update({ data: data, updated_at: new Date().toISOString() }).eq('id', ed.id).select('id,data');
+      if (ed.hasDays && ed.days.length) data.forDays = ed.days.slice(); else if (ed.hasDays) delete data.forDays;
+      return sb.from('service_liturgies').update({ data: data, year: +year, updated_at: new Date().toISOString() }).eq('id', ed.id).select('id,data,year');
     }).then(function(w) {
       if (w.error || !(w.data || []).length) throw new Error(w.error ? w.error.message : 'the change did not come back');
       var back = ((w.data[0].data || {}).forDays) || [];
-      if (JSON.stringify(back) !== JSON.stringify(ed.days)) throw new Error('the database kept something else');
+      if (String(w.data[0].year) !== year || (ed.hasDays && JSON.stringify(back) !== JSON.stringify(ed.days))) throw new Error('the database kept something else');
+      // Its new year's folder, as Make ready makes one; a folder that cannot
+      // be made never undoes the save.
+      return (moved ? ensureOccYearFolder(ed.occ, year).then(function(f) { _spKeepFolder(ed.occ, f); }, function() {}) : Promise.resolve());
+    }).then(function() {
       ed.saved = true;
       plEdClose();
       delete _occSvlData[ed.id];
-      showToast('Saved: ' + _llSundaysText(ed.occ, ed.days), 'success');
+      delete _lfSvlRows[ed.occ];
+      showToast('Saved: ' + _llYearText(ed.occ, year) + (ed.hasDays ? ' · ' + _llSundaysText(ed.occ, ed.days) : ''), 'success');
       _spLoad(_sp.occ);
     }).catch(function(e) { _plSaving(false); _plErr('Could not save it: ' + ((e && e.message) || e)); });
   }
@@ -106909,7 +107006,8 @@ var LiturgyModule = (function() {
     var occ = _currentOccasion;
     // Planning opened from a service's page goes back to that page.
     if (_spBack && _spBack === occ) { _spBack = ''; openService(occ); return; }
-    openLibrary(occ ? 'occ:' + occ : null, occ ? (_currentOccFolder || '') : '');
+    if (occ && getOccasionById(occ)) { openService(occ); return; }
+    openLibrary(null, '');
   }
 
   function lfSelect(sel, year, keepPane) {
@@ -113185,6 +113283,7 @@ var LiturgyModule = (function() {
     spAddMenuClose: _spAddMenuClose, spUpload: spUpload, fabAdd: fabAdd, spPreviewReady: spPreviewReady, plSongMore: plSongMore, plSongNew: plSongNew,
     spRename: spRename, spAddGdoc: spAddGdoc, spAddGdocSave: spAddGdocSave, spSundays: spSundays, spDay: spDay, spSundaysSave: spSundaysSave, cvDay: cvDay,
     spNewYear: spNewYear, spMoveYear: spMoveYear, spDragStart: spDragStart, spYearOver: spYearOver, spYearDrop: spYearDrop, lfMoveYear: lfMoveYear,
+    spYearMenu: spYearMenu, spYearPick: spYearPick, spRdYear: spRdYear,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -121932,6 +122031,13 @@ function filterLiturgyItems() {
   .sp-pill--days { background: #eef2fb; color: #2f3f73; gap: 5px; }
   .sp-year small { font-size: 0.7rem; font-weight: 700; color: #8a7a66; margin-left: 3px; }
   .sp-year--add { border-style: dashed; color: #1f4d36; }
+  .lf-btn.sp-yearbtn { gap: 6px; padding: 0 10px; font-weight: 600; color: #3d3226; background: #fff; border: 1px solid #ddd0b4; }
+  .lf-btn.sp-yearbtn:hover { border-color: #1f4d36; background: #f3f8f3; }
+  .sp-yearbtn i.fa-folder { color: #8a7a66; }
+  .sp-yearbtn__c { font-size: 0.7rem; color: #8a7a66; }
+  #spYearMenu button[aria-checked="true"] { background: #e6f0e8; color: #111; font-weight: 600; }
+  .sp-rdyear small { font-weight: 600; color: #8a7a66; }
+  .sp-rdyear input { max-width: 160px; }
   .sp-year--add i { font-size: 0.72rem; margin-right: 2px; }
   .sp-year.is-drop { background: #fff3cf; border-color: #c9a24a; box-shadow: 0 0 0 3px rgba(201, 162, 74, 0.3); }
   .sp-doc[draggable="true"] { -webkit-user-drag: element; }

@@ -143,7 +143,7 @@ const run = (names, env, ret) => {
   check('a new collection is written, READ BACK, joins the list and opens',
     /sb\.from\('liturgy_collections'\)\.insert\(\[row\]\)/.test(save) &&
     /return sb\.from\('liturgy_collections'\)\.select\('\*'\)\.eq\('id', row\.id\);/.test(save) &&
-    /_llAddCollection\(_llCollToOcc\(got\)\);/.test(save) && /openCollection\(got\.id, '', 'services'\);/.test(save));
+    /_llAddCollection\(_llCollToOcc\(got\)\);/.test(save) && /openService\(got\.id, 'services', 'order'\);/.test(save));
   check('one called like an existing service is refused', /There is already a service called that\./.test(save));
   const load = fn('_llCollectionsLoad');
   check('collections are added to the list everything files by, and a missing table is said, not retried',

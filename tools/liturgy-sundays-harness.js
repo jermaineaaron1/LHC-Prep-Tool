@@ -162,9 +162,9 @@ try {
   check('a ready liturgy shows its Sundays and its year with its letter, and its Sundays can be changed',
     /_llSundaysText\(occId, \(r\.data \|\| \{\}\)\.forDays\)/.test(ready) && /_llCycleFor\(occId, r\.year\)/.test(ready) && /LiturgyModule\.spSundays\(this\.dataset\.id\)/.test(ready));
   const ss = fn('spSundaysSave');
-  check('...saved into its own data and read back before it is reported', /select\('data'\)\.eq\('id', ed\.id\)/.test(ss) && /delete data\.forDays/.test(ss) &&
-    /update\(\{ data: data, updated_at: new Date\(\)\.toISOString\(\) \}\)\.eq\('id', ed\.id\)\.select\('id,data'\)/.test(ss) &&
-    /if \(JSON\.stringify\(back\) !== JSON\.stringify\(ed\.days\)\) throw/.test(ss));
+  check('...saved into its own data, with its year, and read back before it is reported', /select\('data'\)\.eq\('id', ed\.id\)/.test(ss) && /delete data\.forDays/.test(ss) &&
+    /update\(\{ data: data, year: \+year, updated_at: new Date\(\)\.toISOString\(\) \}\)\.eq\('id', ed\.id\)\.select\('id,data,year'\)/.test(ss) &&
+    /if \(String\(w\.data\[0\]\.year\) !== year \|\| \(ed\.hasDays && JSON\.stringify\(back\) !== JSON\.stringify\(ed\.days\)\)\) throw/.test(ss));
   const res = fn('_spResHtml');
   check('each document says when it was added and its year\'s letter, and can be renamed where it is',
     /var added = it\.created \? 'Added ' \+ _lfWhen\(it\.created\) : '';/.test(res) && /y \? _llYearText\(occ\.id, y\) : ''/.test(res) &&
@@ -285,6 +285,29 @@ try {
     /ensureOccYearFolder\(occ, y\)/.test(fn('spNewYear')) && /A year folder is a year/.test(fn('spNewYear')));
   check('a file\'s preview has its year to change: its folders, no year folder, or a new year', /acts \+= _lfYearPick\(item\) \+/.test(fn('lfOpen')) &&
     /<option value="__new">A new year…<\/option>/.test(fn('_lfYearPick')) && /No year folder/.test(fn('_lfYearPick')) && /spMoveYear\(id, v\)/.test(fn('lfMoveYear')));
+
+  // ------------------------------------------------------------ 9. the year, where it is listed
+  // "How to assign year?" (2026-11-15): the preview and the drag were not
+  // found, a ready liturgy's year was fixed at Make ready, and the folder view
+  // repeated the service page.
+  console.log('\n9. The year where it is listed; one service, one page');
+  const res9 = fn('_spResHtml');
+  check('every document row has its year as a button, "No year" when it has none',
+    /onclick="LiturgyModule\.spYearMenu\(this, this\.dataset\.id\)" aria-haspopup="menu" title="Change its year"/.test(res9) && /_lfE\(y \|\| 'No year'\)/.test(res9));
+  check('...opening its service\'s years, no year folder and a new year, the one it is in ticked',
+    /_spYearFolders\(occ\)\.sort/.test(fn('spYearMenu')) && /opt\('', 'No year folder', !cur\)/.test(fn('spYearMenu')) && /data-y="__new"/.test(fn('spYearMenu')) &&
+    /f\.id === cur/.test(fn('spYearMenu')) && /if \(y === '__new'\) lfMoveYear\(id, '__new'\); else spMoveYear\(id, y\);/.test(fn('spYearPick')));
+  check('...on <body>, kept under its button, gone when the button leaves the screen', /document\.body\.appendChild\(m\);/.test(fn('_spFloat')) &&
+    /window\.addEventListener\('scroll', place, true\);/.test(fn('_spFloat')) && /if \(r\.bottom < 0 \|\| r\.top > vh\) \{ _spFloatClose\(menuId\); return; \}/.test(fn('_spFloat')));
+  const sun9 = fn('spSundays');
+  check('a ready liturgy\'s year can be changed with its Sundays (Year alone where a service has no Sundays to tick)',
+    /<input id="spRdYear" type="number"/.test(sun9) && /if \(!r\) return;/.test(sun9) && !/if \(!r \|\| !LL_SUNDAYS\[occ\]\) return;/.test(sun9) &&
+    /\(LL_SUNDAYS\[occId\] \? 'Sundays & year' : 'Year'\)/.test(fn('_spReadyHtml')) &&
+    /moved \? ensureOccYearFolder\(ed\.occ, year\)/.test(fn('spSundaysSave')) && /var year = _spYearIn\(_plVal\('spRdYear'\)\);/.test(fn('spSundaysSave')));
+  check('one service opens its own page from anywhere that asked for its folder; the folder view keeps the library-wide lists',
+    /if \(occId && getOccasionById\(occId\)\) \{/.test(fn('openCollection')) && /openService\(occId, from === 'hub' \? 'hub' : 'services', 'order'\);/.test(fn('openCollection')) &&
+    /if \(f\) \{ _sp\.year = f\.name; renderService\(\); \}/.test(fn('openCollection')) && /openLibrary\(special \|\| 'recent', year \|\| ''\);/.test(fn('openCollection')) &&
+    !/All files by year folder/.test(res9) && /if \(occ && getOccasionById\(occ\)\) \{ openService\(occ\); return; \}/.test(fn('backToLibrary')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {

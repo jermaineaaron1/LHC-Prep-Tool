@@ -4454,6 +4454,20 @@ the anon key -- verify as `postgres`, not as the app.
       drag carries `application/x-lhc-item`, so a file dragged in from the
       desktop is not taken for one). Every way ends in `spMoveYear`, with
       Undo. A file with no folder still shows a year its name gives.
+      Then (the operator: "How to assign year?" -- neither was found) every
+      row got its year as a button ("No year ▾" / "2026 ▾", `spYearMenu` on
+      `_spFloat`, Add Item's floating menu: on `<body>`, kept under its
+      button, closed when the button leaves the screen), and a ready
+      liturgy's year became changeable with its Sundays (**Sundays & year**;
+      **Year** where a service has none to tick; `spSundaysSave` writes
+      `year` with `data` and reads both back, making the year's folder).
+    - **One service, one page.** The Library's folder view repeated the
+      service page for a single service (the operator: "What is this page
+      for?"). `openCollection(occId)` now opens `openService(occId)` -- on the
+      year asked for -- and so does a new Service Collection and the old
+      panel's back button; "All files by year folder" went. The folder view
+      is kept for what belongs to no one service: Recently added, Not filed,
+      Every Prayer of the Day.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
     years, the matching, the Google helper and the year moves.
 
