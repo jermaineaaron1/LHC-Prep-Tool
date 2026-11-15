@@ -60,7 +60,7 @@ The ones worth knowing; there are around 29 in all.
 | `day_prayers` | The Prayer of the Day, one row per service: `service_key` ('YYYY-MM-DD', '\|pm' on the end for an evening service), `prayer` (the words), `occasion`, `source_file` / `source_url` (the document it was imported from; null when typed). Imported on the Readings page (Import prayers) or typed there; read by the Liturgy Builder, LCD Projection and the bulletin. NOT a roster row. `migrations/2026-11-13_day_prayers.sql`. See gotcha 96 |
 | `saved_medleys` | Medleys kept to be sung again: `songs` [{ songId, title, transposeSteps }] in sung order, one row per sequence (`song_key`, the ids joined by `>`). `migrations/2026-11-01_saved_medleys.sql`. See gotcha 42 |
 | `bulletins` | The weekly Sunday bulletin, one row per service (`service_date` + `year`, uniquely indexed -- the upsert needs it). `data` holds ONLY what somebody types: verse, prayer (empty = print the date's Prayer of the Day; `prayerDoc` notes which imported one it was given, gotcha 96), `notices[]`, `giving.entries[]` (one per purpose: what it is for, account name, bank, number, and `qr`, a data: image the congregation scans -- an older bulletin's two loose `giving.lines` are carried over on open), attendance, `offering[]`, `contacts[]`, `manual` (Acolyte and Flower Offering) and `hidden`. **No duty is stored** -- both Sundays' duties and the four readings are read from `roster` on every open. `migrations/2026-11-10_bulletins.sql`. See gotchas 76-77 |
-| `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes; `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
+| `service_liturgies` | A whole order of worship kept for an occasion (`occasion_id`: the Liturgy page's ids, `pentecost`...) and a `year`; `data` holds its sections, items, songs and notes, and `forDays` -- the Sundays of a season it is for (`['advent:1','advent:3']`; none is every Sunday, gotcha 104); `order_type` is the kind of service it is for. `migrations/2026-11-01_service_liturgies.sql`. See gotcha 51 |
 | `drawer_prefs` | The parts of the band a drawer plays or sings (Drawings > For a group), kept with their NAME: `owner` (folded, as `song_marks.owner`), `owner_name`, `parts` text[]. `migrations/2026-11-07_drawer_prefs.sql`. See gotcha 50 |
 | `liturgy_collections` | Services the church adds to the Liturgy Library's list (Services > Create Service Collection): `id` ('col-<slug>-<time>'), `label`, `description`, `colour`, `icon`. Read at boot into the same `OCCASIONS` list the built-in services are in, so filing, year folders, sharing and saved liturgies treat one exactly as a built-in one. `migrations/2026-11-14_liturgy_collections.sql`. See gotcha 98 |
 | `service_plan_items` | A service's plan, one row per entry: `kind` note / special / task / ref, keyed by `occasion_id` and `service_key` (the date), with `category`, `title`, `body`, `status`, `who`, `due`, `done`, `note_id` (a task made from a note), `links` and `files` (jsonb). One row each so two people planning one service never write over each other. `migrations/2026-11-14_service_plan_items.sql`. See gotcha 102 |
@@ -412,11 +412,16 @@ than a bash heredoc, which quietly eats a level of backslashes.
     **Liturgy Documents first** by year (then LCD Materials, Photos & Files,
     Reference Links), each document previewed on a double-click or double
     tap, and its **Make ready** converting it into a ready liturgy the
-    Builder loads (a .docx read as written, anything else by AI,
-    `/api/parse-liturgy`; checked before it is kept). Beside it: This year's
-    liturgy (into the Liturgy Builder), the Ready-to-use Liturgies (each
-    previewed, or Used), and the tiles. No order of worship or reader: an
-    order is designed in the Builder. Gotcha 103.
+    Builder loads (a .docx or a Google Doc read as written, anything else
+    by AI, `/api/parse-liturgy`; checked before it is kept), and the
+    Sundays it is for ticked. Each document says when it was added and its
+    year's lectionary letter ("2024 · Year B"), and is renamed in place; the
+    preview goes full screen. Beside it: This year's liturgy (the coming
+    Sunday, the ready liturgies for it with **Use**, and how to make one),
+    the Ready-to-use Liturgies (each previewed, Used, or its Sundays
+    changed), and the tiles. No order of worship or reader: an order is
+    designed in the Builder. **Lent Sundays, Easter Season and Epiphany
+    Sundays** are services beside Advent Sundays. Gotchas 103, 104.
   - **Planning Notes, Special Planning, Checklist** are a plan for one
     service DATE (the next one shown; others by the arrows or a date; an
     earlier one copied forward). Notes have a category, status, due date,
@@ -4384,6 +4389,61 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-service-page-harness.js` checks it, running the double-tap
     counter with its clock in hand, the ready preview and the upload's
     filing; `liturgy-library-harness.js` runs `_lfGooglePreview`.
+
+104. **A ready liturgy says which Sundays it is for; a year says its
+    lectionary year; the seasons are services.** From the operator
+    (2026-11-15): "What if the one Liturgy I made applies for all sundays of
+    Advent or half the sundays in lent and another variation is the other
+    half ... how do I refer to the years?" Asked, they chose all three below.
+    - **The seasons.** `epiphany` (Epiphany Sundays), `lent` (Lent Sundays)
+      and `easter-season` (Easter Season) are built-in `OCCASIONS` beside
+      `advent`, with checklists, the library's season filter and the older
+      pickers. WO's `_svlOccasionFor` -- which files a liturgy saved in the
+      Builder, finds a service's next date (`_spNextFor`) and sorts the
+      Memories -- now takes "3rd Sunday in Lent" to Lent, "2nd Sunday after
+      Easter" / "of Easter" to the Easter Season (before the Easter rule:
+      Easter Day stays Easter) and the Sundays after Epiphany, the Baptism of
+      our Lord and the Transfiguration to Epiphany; "after Pentecost" stays
+      ordinary. A Lent Sunday is therefore no longer a Traditional or
+      Contemporary service. The roster names them "1st Sunday in Lent",
+      "1st Sunday after Easter" (not "of"), "1st Sunday of Advent", and has no
+      cells for the Epiphany Sundays yet.
+    - **Sundays.** `LL_SUNDAYS` lists each season's (`'advent:1'`..,
+      `'epiphany:0'` the day, `:1` the Baptism, `:last` the Transfiguration,
+      `'easter-season:1'` the 1st after Easter); `_llSundayOf(day)` reads one
+      from the roster's words, the newer "Nth Sunday of Easter" (one more),
+      or a document's name ("1st Sunday Advent (Communion)"). A ready
+      liturgy's Sundays are `data.forDays` -- no migration; none is every
+      Sunday (`_llForSunday`); ticking all of them empties the list
+      (`_llDaysToggle`). Make ready asks (`cvDay`, starting from the Sunday
+      the document is named for); `spSundays` changes them later, writing the
+      data and reading it back; the Builder's Save over carries them, since
+      it writes the data whole. This year's liturgy lists the ready liturgies
+      for the coming Sunday (`_spForNext`: ticked for it first, then every
+      Sunday; newest year first) with Use.
+    - **Years.** `_llCycleFor(occ, year)`: the year a service of an occasion
+      was used in is in the church year that began the Advent before --
+      Advent, Christmas Eve and Day and Watchnight begin the next one. So
+      Advent 2026 and Easter 2027 are Year B. Shown as "2026 · Year B" on
+      documents, ready liturgies, year chips and Make ready's year; nothing
+      for a funeral, a baptism, a midweek or a church's own collection.
+    - **A Google Doc** is made ready as Word: `/api/google-doc?id=` fetches
+      Google's own `.docx` export (`_lib/googleDoc.ts`: only that address,
+      the id checked; a zip or a refusal -- a Doc only some may see answers
+      with Google's sign-in page, a 200) and the browser reads it with
+      `WO.docxParas`. Shared "Anyone with the link can view", which the
+      church's Advent Docs are. Not offered to the AI (which reads only our
+      own storage). **Add a Google Doc** files one as a liturgy in its year.
+    - **Also:** the LCD item window (`liturgyModal`) is in the library's
+      colours and previews as the LCD's Program screen -- 16:9, gold edge,
+      SAFE ZONE, the words through `WO.projectionHtml` in the LCD's Text
+      settings (`lhc_projection_text_settings`), wrapping and shrinking only
+      on height (`_litLcdFit`); its Size / Colour / Style changed only the
+      preview and went. The preview window goes full screen (`lfFull`, the
+      window). Make ready's Keep button took `--sp-maroon` on `<body>` and was
+      invisible; `.cv` gives it gold and black.
+    `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
+    years, the matching and the Google helper.
 
 ## Quick Commands for Claude Code
 

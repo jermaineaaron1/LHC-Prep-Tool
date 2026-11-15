@@ -560,7 +560,15 @@ console.log('\n[service liturgies]');
   check('the Day of Pentecost is Pentecost', occ('Day of Pentecost') === 'pentecost' && occ('Pentecost Sunday') === 'pentecost');
   check('a Sunday after Pentecost is an ordinary Sunday', occ('5th Sunday after Pentecost') === 'ordinary-traditional' &&
     occ('3rd Sunday after Pentecost', 'contemporary') === 'ordinary-contemporary');
-  check('Holy Trinity is not Pentecost, and Easter\'s Sundays are Easter', occ('The Holy Trinity') === 'holy-trinity' && occ('2nd Sunday of Easter') === 'easter');
+  // Since 2026-11-15 the seasons are collections of their own (the operator
+  // chose it): Easter's Sundays are the Easter Season, Easter Day is Easter.
+  check('Holy Trinity is not Pentecost; Easter Day is Easter, its Sundays the Easter Season', occ('The Holy Trinity') === 'holy-trinity' &&
+    occ('Easter Sunday') === 'easter' && occ('Resurrection of Our Lord') === 'easter' &&
+    occ('2nd Sunday of Easter') === 'easter-season' && occ('3rd Sunday after Easter') === 'easter-season');
+  check('Lent\'s Sundays are Lent; Ash Wednesday, Palm Sunday and a Lenten midweek are not', occ('1st Sunday in Lent') === 'lent' && occ('5th Sunday in Lent') === 'lent' &&
+    occ('Ash Wednesday') === 'ash-wednesday' && occ('Palm Sunday') === 'palm-sunday' && occ('Lenten Midweek') !== 'lent');
+  check('Epiphany\'s Sundays, the Baptism of our Lord and the Transfiguration are Epiphany', occ('2nd Sunday after Epiphany') === 'epiphany' &&
+    occ('Baptism of Our Lord') === 'epiphany' && occ('Transfiguration of Our Lord') === 'epiphany' && occ('The Epiphany of Our Lord') === 'epiphany');
   check('the days of Holy Week and Christmas are told apart', occ('Palm Sunday') === 'palm-sunday' && occ('Maundy Thursday') === 'maundy-thursday' &&
     occ('Good Friday') === 'good-friday' && occ('Christmas Eve') === 'christmas-eve' && occ('Christmas Day') === 'christmas-day');
   check('a day it does not know, or none, is the ordinary service of its kind', occ('All Saints Sunday') === 'ordinary-traditional' && occ('', 'contemporary') === 'ordinary-contemporary');

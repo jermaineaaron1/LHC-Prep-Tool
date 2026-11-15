@@ -82241,17 +82241,22 @@ var WO = (function() {
   }
   // The occasion a liturgical day's name is (pure): "Day of Pentecost" is
   // Pentecost, "5th Sunday after Pentecost" is an ordinary Sunday, and
-  // anything else is the ordinary service of the order's type.
+  // anything else is the ordinary service of the order's type. The season
+  // collections (2026-11-15) take their Sundays: "3rd Sunday in Lent" is
+  // Lent, "2nd Sunday after Easter" the Easter Season, "Baptism of our Lord"
+  // and "4th Sunday after Epiphany" Epiphany -- order matters, a Sunday after
+  // Easter must not be taken for Easter Day.
   function _svlOccasionFor(day, type) {
     var t = String(day || '').toLowerCase();
     var ordinary = type === 'contemporary' ? 'ordinary-contemporary' : 'ordinary-traditional';
-    if (!t || /\bafter (pentecost|trinity|epiphany)\b/.test(t)) return ordinary;
+    if (!t || /\bafter (pentecost|trinity)\b/.test(t)) return ordinary;
     var rules = [
       ['christmas-eve', /christmas eve/], ['christmas-day', /christmas day|nativity of (our|the) lord/],
-      ['watchnight', /watchnight|new year.?s eve/], ['ash-wednesday', /ash wednesday/],
+      ['watchnight', /watchnight|new year.?s eve/], ['epiphany', /epiphany|baptism of (our |the )?lord|transfiguration/],
+      ['ash-wednesday', /ash wednesday/],
       ['palm-sunday', /palm sunday|sunday of the passion/], ['maundy-thursday', /maundy|holy thursday/],
-      ['good-friday', /good friday/], ['holy-trinity', /holy trinity|trinity sunday/], ['pentecost', /pentecost/],
-      ['reformation', /reformation/], ['easter', /easter|resurrection/], ['advent', /advent/],
+      ['good-friday', /good friday/], ['lent', /sunday (of |in )?lent\b/], ['holy-trinity', /holy trinity|trinity sunday/], ['pentecost', /pentecost/],
+      ['reformation', /reformation/], ['easter-season', /sunday (after|of) easter|ascension/], ['easter', /easter|resurrection/], ['advent', /advent/],
       ['midweek', /midweek/], ['mothers-day', /mother.?s day/], ['fathers-day', /father.?s day/]
     ];
     for (var i = 0; i < rules.length; i++) if (rules[i][1].test(t)) return rules[i][0];
@@ -82736,7 +82741,13 @@ var WO = (function() {
                               songOrderSections, function(s) { return _woSongSectionIds(s); });
     var row = { occasion_id: occ, year: year, title: title, order_type: _svlOrderType(), data: data, made_from: o.id || null, updated_at: new Date().toISOString() };
     var go = function() {
-      var q = (over && from && from.id) ? sup.from('service_liturgies').update(row).eq('id', from.id).select() : sup.from('service_liturgies').insert(row).select();
+      // Save over keeps which Sundays the liturgy is for (data.forDays, set on
+      // the Liturgy Library's service page): the data is written whole.
+      var keep = (over && from && from.id) ? sup.from('service_liturgies').select('data').eq('id', from.id).then(function(k) {
+        var was = !k.error && k.data && k.data[0] && k.data[0].data;
+        if (was && Array.isArray(was.forDays) && was.forDays.length) row.data.forDays = was.forDays.slice();
+      }, function() {}) : Promise.resolve();
+      var q = keep.then(function() { return (over && from && from.id) ? sup.from('service_liturgies').update(row).eq('id', from.id).select() : sup.from('service_liturgies').insert(row).select(); });
       q.then(function(r) {
         if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'it did not come back from the database');
         var saved = r.data[0];
@@ -99355,6 +99366,10 @@ var WO = (function() {
     // cut a song into slides the same way.
     parseLyricsIntoSlides: parseLyricsIntoSlides,
     projectionHtml: _projectionHtml,
+    // The LCD's Text settings as this device has them (a copy), for a
+    // preview that should look as the LCD does -- the Liturgy Library's LCD
+    // item window -- without a second copy of the defaults.
+    projectionTextSettings: function() { loadTextSettings(); return JSON.parse(JSON.stringify(textSettings)); },
     sbLyricsEditorClosed: sbLyricsEditorClosed,
     sbGetEditingSid: sbGetEditingSid,
     sbClearEditingSid: sbClearEditingSid,
@@ -99878,6 +99893,7 @@ var LiturgyModule = (function() {
   var OCCASION_SEASON = {
     'ordinary-traditional': 'ordinary', 'ordinary-contemporary': 'ordinary',
     'advent': 'advent',
+    'epiphany': 'epiphany', 'lent': 'lent', 'easter-season': 'easter',
     'midweek': ['advent', 'lent'],
     'christmas-eve': 'christmas', 'christmas-day': 'christmas', 'watchnight': 'christmas',
     'ash-wednesday': 'lent',
@@ -99885,7 +99901,7 @@ var LiturgyModule = (function() {
     'easter': 'easter',
     'pentecost': 'pentecost', 'holy-trinity': 'pentecost', 'reformation': 'pentecost'
   };
-  var SEASON_LABELS = { advent: 'Advent', christmas: 'Christmas', ordinary: 'Ordinary Time', lent: 'Lent', 'holy-week': 'Holy Week', easter: 'Easter', pentecost: 'Pentecost' };
+  var SEASON_LABELS = { advent: 'Advent', christmas: 'Christmas', epiphany: 'Epiphany', ordinary: 'Ordinary Time', lent: 'Lent', 'holy-week': 'Holy Week', easter: 'Easter', pentecost: 'Pentecost' };
   var _detailItemId = null; // currently-open item in the Sacred Library detail modal
 
   function toggleItemFavorite(id) {
@@ -101429,26 +101445,15 @@ var LiturgyModule = (function() {
                 '<button class="liturgy-preview-nav-btn" onclick="LiturgyModule.nextSlide()" title="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>' +
               '</div>' +
             '</div>' +
-            '<!-- Font Controls -->' +
-            '<div class="liturgy-preview-font-controls" style="display:flex;gap:8px;padding:8px 12px;background:#475569;align-items:center;">' +
-              '<label style="color:#94a3b8;font-size:0.7rem;margin-right:4px;">Size:</label>' +
-              '<select id="previewFontSize" onchange="LiturgyModule.updateFontSettings()" style="padding:4px 8px;border-radius:4px;border:none;font-size:0.75rem;background:#334155;color:white;">' +
-                '<option value="0.9">Small</option>' +
-                '<option value="1.1" selected>Medium</option>' +
-                '<option value="1.4">Large</option>' +
-                '<option value="1.8">X-Large</option>' +
-              '</select>' +
-              '<label style="color:#94a3b8;font-size:0.7rem;margin-left:8px;">Color:</label>' +
-              '<input type="color" id="previewFontColor" value="#ffffff" onchange="LiturgyModule.updateFontSettings()" style="width:28px;height:22px;border:none;border-radius:4px;cursor:pointer;">' +
-              '<label style="color:#94a3b8;font-size:0.7rem;margin-left:8px;">Style:</label>' +
-              '<select id="previewFontStyleSelect" onchange="LiturgyModule.updateFontSettings()" style="padding:4px 8px;border-radius:4px;border:none;font-size:0.75rem;background:#334155;color:white;">' +
-                '<option value="normal">Normal</option>' +
-                '<option value="italic">Italic</option>' +
-                '<option value="bold">Bold</option>' +
-              '</select>' +
-            '</div>' +
-            '<div class="liturgy-preview-screen" id="liturgyPreviewScreen">' +
-              '<div class="liturgy-preview-text" id="liturgyPreviewText">Preview will appear here...</div>' +
+            // As the LCD shows it (the operator, 2026-11-15): the Program
+            // screen's 16:9, its gold edge and SAFE ZONE, and the words in the
+            // projector's own renderer and the LCD's Text settings. The Size /
+            // Colour / Style controls that were here changed this preview
+            // alone, and were never saved, so they went.
+            '<div class="lit-lcd__label"><span class="lit-lcd__dot" aria-hidden="true"></span>As the LCD shows it</div>' +
+            '<div class="lit-lcd" id="liturgyPreviewScreen">' +
+              '<div class="lit-lcd__safe"><div class="lit-lcd__words wo-preview-inner" id="liturgyPreviewText"></div></div>' +
+              '<span class="lit-lcd__tag" aria-hidden="true">SAFE ZONE</span>' +
             '</div>' +
             '<div class="liturgy-preview-hint">' +
               '<i class="fa-solid fa-keyboard"></i> Ctrl+Arrow: navigate | Escape: cancel' +
@@ -101784,14 +101789,43 @@ var LiturgyModule = (function() {
     var slideContent = currentSlides[currentSlideIndex] || '';
     if (previewText) {
       if (slideContent.trim()) {
-        previewText.innerHTML = formatLiturgyForPreview(slideContent);
+        previewText.classList.remove('is-empty');
+        previewText.innerHTML = (window.WO && typeof WO.projectionHtml === 'function') ? WO.projectionHtml(slideContent) : _lfE(slideContent);
       } else {
-        previewText.innerHTML = '<span style="color:#9ca3af;font-style:italic;">Empty slide</span>';
+        previewText.classList.add('is-empty');
+        previewText.innerHTML = 'Empty slide';
       }
+      _litLcdFit(previewText);
     }
 
     if (counter) {
       counter.textContent = (currentSlideIndex + 1) + ' / ' + Math.max(1, currentSlides.length);
+    }
+  }
+  // The LCD's Text settings as this device keeps them -- the Orders LCD's
+  // own, from WO, so its defaults live in one place: the font, its size as a
+  // share of the screen's width, the colour, bold and italic.
+  function _litLcdSettings() {
+    return (window.WO && typeof WO.projectionTextSettings === 'function' && WO.projectionTextSettings()) || {};
+  }
+  // The words at the LCD's size for this screen's width, and smaller only
+  // when there are more lines than the screen holds -- as the projector
+  // does (gotcha 75): they wrap, never shrink to fit a line.
+  function _litLcdFit(el) {
+    var t = _litLcdSettings(), box = el && el.parentNode, scr = box && box.parentNode;
+    if (!el || !scr) return;
+    el.style.fontFamily = t.fontFamily || 'Georgia, serif';
+    el.style.color = t.color || '#ffffff';
+    el.style.fontWeight = t.bold ? '700' : '400';
+    el.style.fontStyle = t.italic ? 'italic' : 'normal';
+    var w = scr.clientWidth || 0;
+    if (!w) return;
+    var px = Math.max(8, w * (parseFloat(t.fontSize) || 6.5) / 100), min = px * 0.3;
+    el.style.fontSize = px + 'px';
+    var guard = 0;
+    while (el.scrollHeight > box.clientHeight + 1 && px > min && guard++ < 40) {
+      px = px * 0.93;
+      el.style.fontSize = px + 'px';
     }
   }
 
@@ -103184,11 +103218,14 @@ var LiturgyModule = (function() {
     { id: 'christmas-eve', colour: 'white', label: 'Christmas Eve',          icon: 'fa-fire',                gradient: 'linear-gradient(135deg,#d97706,#fbbf24)', desc: 'Candlelight Service · December 24',                               serviceType: 'both' },
     { id: 'christmas-day', colour: 'white', label: 'Christmas Day',          icon: 'fa-star-of-david',       gradient: 'linear-gradient(135deg,#d97706,#fbbf24)', desc: 'Christmas Celebration · December 25',                             serviceType: 'both' },
     { id: 'watchnight', colour: 'white', label: 'Watchnight Service',     icon: 'fa-hourglass-half',      gradient: 'linear-gradient(135deg,#0b2a14,#14532d)', desc: 'New Year Countdown · December 31',                                serviceType: 'both' },
+    { id: 'epiphany', colour: 'green', label: 'Epiphany Sundays',       icon: 'fa-crown',               gradient: 'linear-gradient(135deg,#a16207,#eab308)', desc: 'From the Baptism of our Lord to the Transfiguration',             serviceType: 'both' },
     { id: 'ash-wednesday', colour: 'purple', label: 'Ash Wednesday',          icon: 'fa-cross',               gradient: 'linear-gradient(135deg,#44403c,#78716c)', desc: 'The beginning of the Lenten season',                              serviceType: 'both' },
+    { id: 'lent', colour: 'purple', label: 'Lent Sundays',             icon: 'fa-cross',               gradient: 'linear-gradient(135deg,#4c1d95,#7c3aed)', desc: 'Five Sundays of repentance on the way to the cross',              serviceType: 'both' },
     { id: 'palm-sunday', colour: 'red', label: 'Palm Sunday',            icon: 'fa-leaf',                gradient: 'linear-gradient(135deg,#166534,#16a34a)', desc: 'The triumphal entry — beginning of Holy Week',                    serviceType: 'both' },
     { id: 'maundy-thursday', colour: 'white', label: 'Maundy Thursday',        icon: 'fa-bowl-food',           gradient: 'linear-gradient(135deg,#0b7644,#079352)', desc: "Lord's Supper & the command to love one another",                 serviceType: 'both' },
     { id: 'good-friday', colour: 'black', label: 'Good Friday',            icon: 'fa-cross',               gradient: 'linear-gradient(135deg,#111827,#374151)', desc: 'The Passion and crucifixion of our Lord Jesus Christ',            serviceType: 'both' },
     { id: 'easter', colour: 'white', label: 'Easter Sunday',          icon: 'fa-sun',                 gradient: 'linear-gradient(135deg,#d97706,#fef08a)', desc: 'Christ is Risen! The celebration of resurrection',                serviceType: 'both' },
+    { id: 'easter-season', colour: 'white', label: 'Easter Season',     icon: 'fa-dove',                gradient: 'linear-gradient(135deg,#d97706,#fde68a)', desc: 'The Sundays after Easter, through the Ascension',                 serviceType: 'both' },
     { id: 'pentecost', colour: 'red', label: 'Pentecost Sunday',       icon: 'fa-fire-flame-curved',   gradient: 'linear-gradient(135deg,#dc2626,#ef4444)', desc: 'The gift of the Holy Spirit and birth of the Church',             serviceType: 'both' },
     { id: 'holy-trinity', colour: 'white', label: 'Holy Trinity Sunday',    icon: 'fa-triangle-exclamation',gradient: 'linear-gradient(135deg,#d97706,#fcd34d)', desc: 'Father, Son and Holy Spirit — One God in Three Persons',          serviceType: 'both' },
     { id: 'reformation', colour: 'red', label: 'Reformation Sunday',     icon: 'fa-hammer',              gradient: 'linear-gradient(135deg,#dc2626,#b91c1c)', desc: 'Celebrating Lutheran heritage and the grace of God',              serviceType: 'both' },
@@ -103317,6 +103354,9 @@ var LiturgyModule = (function() {
     'ordinary-traditional':  [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'confirmation',label:'Confirmation',icon:'fa-hands-praying'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'sunday-school',label:'Sunday School Slot',icon:'fa-children'},{id:'powerpoint',label:'PowerPoint / Media Slides',icon:'fa-display'},{id:'announcements',label:'Announcements Slide',icon:'fa-bullhorn'} ],
     'ordinary-contemporary': [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'dance',label:'Dance Presentation',icon:'fa-person-walking'},{id:'conversation',label:'Conversation / Drama',icon:'fa-comments'},{id:'sunday-school',label:'Sunday School Slot',icon:'fa-children'},{id:'powerpoint',label:'PowerPoint / Media Slides',icon:'fa-display'} ],
     'advent':         [ {id:'candle-lighting',label:'Candle Lighting Ceremony',icon:'fa-fire'},{id:'advent-reading',label:'Advent Readings',icon:'fa-book-open'},{id:'choir',label:'Choir Presentation',icon:'fa-music'},{id:'powerpoint',label:'Advent Slides',icon:'fa-display'} ],
+    'epiphany':       [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'powerpoint',label:'Epiphany Slides',icon:'fa-display'} ],
+    'lent':           [ {id:'confession',label:'Extended Confession / Silence',icon:'fa-hands-praying'},{id:'choir',label:'Choir Presentation',icon:'fa-music'},{id:'powerpoint',label:'Lent Slides',icon:'fa-display'} ],
+    'easter-season':  [ {id:'baptism',label:'Baptism',icon:'fa-water'},{id:'music-pres',label:'Music Presentation',icon:'fa-music'},{id:'powerpoint',label:'Easter Slides',icon:'fa-display'} ],
     'christmas-eve':  [ {id:'candle-ceremony',label:'Candle Lighting Ceremony',icon:'fa-fire'},{id:'choir',label:'Choir Presentation',icon:'fa-music'},{id:'nativity',label:"Children's Nativity",icon:'fa-baby'},{id:'dance',label:'Dance Presentation',icon:'fa-person-walking'},{id:'special-music',label:'Special Music',icon:'fa-guitar'},{id:'powerpoint',label:'Christmas Slides',icon:'fa-display'} ],
     'christmas-day':  [ {id:'choir',label:'Choir Presentation',icon:'fa-music'},{id:'special-music',label:'Special Music',icon:'fa-guitar'},{id:'dance',label:'Dance Presentation',icon:'fa-person-walking'},{id:'children-msg',label:"Children's Message",icon:'fa-child-reaching'},{id:'powerpoint',label:'Christmas Slides',icon:'fa-display'} ],
     'watchnight':     [ {id:'testimony',label:'Testimony Time',icon:'fa-microphone'},{id:'year-review',label:'Year-in-Review Slideshow',icon:'fa-display'},{id:'countdown',label:'Countdown Ceremony',icon:'fa-hourglass-half'},{id:'special-music',label:'Special Music',icon:'fa-music'},{id:'dance',label:'Dance Presentation',icon:'fa-person-walking'},{id:'conversation',label:'Conversation / Sharing',icon:'fa-comments'} ],
@@ -103789,6 +103829,96 @@ var LiturgyModule = (function() {
     var adventOf = function(y) { var dec3 = new Date(y, 11, 3); return new Date(y, 11, 3 - dec3.getDay()); };
     var y = d >= adventOf(d.getFullYear()) ? d.getFullYear() : d.getFullYear() - 1;
     return 'Year ' + 'ABC'.charAt((((y - 2022) % 3) + 3) % 3);
+  }
+
+  // ── Which Sundays a liturgy is for, and its lectionary year ──────────
+  // From the operator (2026-11-15): "What if the one Liturgy I made applies
+  // for all sundays of Advent or half the sundays in lent and another
+  // variation is the other half ... Also, how do I refer to the years?"
+  // Asked, they chose: tick the Sundays a ready liturgy is for (none ticked
+  // is every Sunday), the year a liturgy was used with its lectionary year
+  // beside it ("2026 · Year B"), and Lent, Easter and Epiphany as collections
+  // of their own beside Advent. A Sunday is '<occasion>:<n>'.
+  var LL_ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+  var LL_SUNDAYS = {
+    advent: [1, 2, 3, 4].map(function(n) { return ['advent:' + n, LL_ORD[n] + ' Sunday of Advent', 'Advent ' + n]; }),
+    epiphany: [['epiphany:0', 'The Epiphany of Our Lord', 'Epiphany'], ['epiphany:1', 'Baptism of Our Lord', 'Baptism']]
+      .concat([2, 3, 4, 5, 6, 7, 8].map(function(n) { return ['epiphany:' + n, LL_ORD[n] + ' Sunday after Epiphany', 'Epiphany ' + n]; }))
+      .concat([['epiphany:last', 'Transfiguration of Our Lord', 'Transfiguration']]),
+    lent: [1, 2, 3, 4, 5].map(function(n) { return ['lent:' + n, LL_ORD[n] + ' Sunday in Lent', 'Lent ' + n]; }),
+    'easter-season': [1, 2, 3, 4, 5, 6].map(function(n) { return ['easter-season:' + n, LL_ORD[n] + ' Sunday after Easter', 'Easter ' + n]; })
+  };
+  // Which Sunday of a season a day's name is (pure), or null. The roster's
+  // words ("1st Sunday of Advent", "3rd Sunday in Lent", "2nd Sunday after
+  // Easter"), the newer numbering ("3rd Sunday of Easter" is the 2nd after
+  // it), "Baptism of our Lord", "Transfiguration", and a document's own name
+  // ("1st Sunday Advent (Communion)").
+  function _llSundayOf(day) {
+    var t = String(day || '').toLowerCase().replace(/\s+/g, ' ');
+    var W = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8 };
+    var num = '(?:(\\d+)(?:st|nd|rd|th)?|(first|second|third|fourth|fifth|sixth|seventh|eighth))';
+    var m = null;
+    var n = function() { return m[1] ? +m[1] : W[m[2]]; };
+    var hit = function(occ, k) {
+      var x = (LL_SUNDAYS[occ] || []).filter(function(y) { return y[0] === occ + ':' + k; })[0];
+      return x ? { occ: occ, key: x[0], label: x[1], short: x[2] } : null;
+    };
+    if ((m = new RegExp(num + ' sunday (?:of |in )?advent').exec(t))) return hit('advent', n());
+    if ((m = new RegExp(num + ' sunday (?:of |in )?lent').exec(t))) return hit('lent', n());
+    if ((m = new RegExp(num + ' sunday after easter').exec(t))) return hit('easter-season', n());
+    if ((m = new RegExp(num + ' sunday of easter').exec(t))) return hit('easter-season', n() - 1);
+    if (/transfiguration/.test(t)) return hit('epiphany', 'last');
+    if (/baptism of (our |the )?lord/.test(t)) return hit('epiphany', 1);
+    if ((m = new RegExp(num + ' sunday after (?:the )?epiphany').exec(t))) return hit('epiphany', n());
+    if (/\bepiphany\b/.test(t)) return hit('epiphany', 0);
+    return null;
+  }
+  // A liturgy's Sundays in a few words (pure); none, or all, is every Sunday.
+  function _llSundaysText(occ, keys) {
+    var all = LL_SUNDAYS[occ];
+    if (!all) return '';
+    keys = (keys || []).filter(function(k) { return all.some(function(x) { return x[0] === k; }); });
+    if (!keys.length || keys.length === all.length) return 'All Sundays';
+    return all.filter(function(x) { return keys.indexOf(x[0]) !== -1; }).map(function(x) { return x[2]; }).join(', ');
+  }
+  // Is a liturgy for this Sunday (pure)? No list is every Sunday; a Sunday
+  // not known (no key) takes every liturgy.
+  function _llForSunday(keys, key) { return !Array.isArray(keys) || !keys.length || !key || keys.indexOf(key) !== -1; }
+  // Ticking a Sunday (pure): '*' is every Sunday (the list emptied), and a
+  // list that comes to hold them all is emptied too.
+  function _llDaysToggle(occ, days, key) {
+    var all = (LL_SUNDAYS[occ] || []).map(function(x) { return x[0]; });
+    if (key === '*') return [];
+    var out = (days || []).filter(function(k) { return all.indexOf(k) !== -1; });
+    var i = out.indexOf(key);
+    if (i === -1) out.push(key); else out.splice(i, 1);
+    out.sort(function(a, b) { return all.indexOf(a) - all.indexOf(b); });
+    return out.length === all.length ? [] : out;
+  }
+  function _llDaysHtml(occ, days, fn) {
+    var all = LL_SUNDAYS[occ] || [], on = days || [];
+    return '<div class="ll-days" role="group" aria-label="Sundays">' +
+      '<label class="ll-day ll-day--all' + (!on.length ? ' is-on' : '') + '"><input type="checkbox"' + (!on.length ? ' checked' : '') + ' onchange="LiturgyModule.' + fn + '(\'*\')">All Sundays</label>' +
+      all.map(function(x) {
+        var sel = on.indexOf(x[0]) !== -1;
+        return '<label class="ll-day' + (sel ? ' is-on' : '') + '" title="' + _lfE(x[1]) + '"><input type="checkbox"' + (sel ? ' checked' : '') +
+          ' data-k="' + _lfE(x[0]) + '" onchange="LiturgyModule.' + fn + '(this.dataset.k)">' + _lfE(x[2]) + '</label>';
+      }).join('') + '</div>';
+  }
+  // The lectionary year a service of an occasion in a calendar year was in
+  // (pure but for the occasion list): Advent and Christmas begin the next
+  // church year, everything else is in the one that began the Advent before.
+  // '' for a service with no fixed place in the year -- a funeral, a midweek,
+  // a collection of the church's own.
+  var LL_LATE = ['advent', 'christmas-eve', 'christmas-day', 'watchnight'];
+  function _llCycleFor(occId, year) {
+    var y = parseInt(year, 10), o = getOccasionById(occId);
+    if (!(y > 1900) || !o || o.custom || _occasionKind(o) !== 'season' || occId === 'midweek') return '';
+    return _llCycle(y + (LL_LATE.indexOf(occId) !== -1 ? '-12-24' : '-06-01'));
+  }
+  function _llYearText(occId, year) {
+    var c = _llCycleFor(occId, year);
+    return year ? String(year) + (c ? ' · ' + c : '') : '';
   }
 
   var LL_PANELS = ['liturgyHubPanel', 'liturgyServicesPanel', 'liturgyFolderPanel', 'liturgyServicePanel'];
@@ -104582,13 +104712,42 @@ var LiturgyModule = (function() {
     return '<div class="sp-lib"><div class="sp-lib__main">' + _spResHtml(occ) + '</div>' +
       '<div class="sp-lib__side">' + _spMakeHtml(d, orderId) + _spReadyHtml(d, orderId) + tiles + '</div></div>';
   }
-  // This year's liturgy: made in the Liturgy Builder, often from a past one.
+  // This year's liturgy: the coming Sunday, the ready liturgies made for it,
+  // and how to make one from a past year's (the operator, 2026-11-15: "I'm
+  // not really sure how to add a liturgy from my docs ... and make a liturgy
+  // for say, Advent 1st week or 2nd week").
   function _spMakeHtml(d, orderId) {
-    var next = d && d.next;
+    var next = d && d.next, occ = _sp.occ;
+    var sun = next ? _llSundayOf(next.day) : null;
+    var fits = next ? _spForNext((d && d.rows) || [], sun && sun.occ === occ ? sun.key : '') : [];
+    var cyc = next ? _llCycle(next.key) : '';
+    var list = !next ? '' : fits.length ? '<ul class="sp-fits">' + fits.slice(0, 3).map(function(r) {
+        var days = LL_SUNDAYS[occ] ? _llSundaysText(occ, (r.data || {}).forDays) : '';
+        return '<li class="sp-fit"><span class="sp-fit__t"><b>' + _lfE(r.title || 'Ready liturgy') + '</b><small>' + _lfE([_llYearText(occ, r.year), days].filter(Boolean).join(' · ')) + '</small></span>' +
+          '<span class="sp-fit__acts"><button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spPreviewReady(this.dataset.id)" aria-label="Preview" title="Preview"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
+          (orderId ? '<button type="button" class="lf-btn pl-btn-green sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spUse(this.dataset.id)"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Use</span></button>' : '') +
+          '</span></li>';
+      }).join('') + '</ul>'
+      : '<p class="sp-make__none">No ready liturgy for this Sunday yet.</p>';
     return '<section class="pl-card sp-make"><div class="pl-card__hd"><i class="fa-solid fa-pen-ruler" aria-hidden="true"></i><h2>This year’s liturgy</h2></div>' +
-      '<p>' + (next ? 'For ' + _lfE(_lfLongDate(next.key)) + '. ' : '') + 'Start from a past year’s (<b>Make ready</b>, then <b>Use</b>), or write it in the Liturgy Builder.</p>' +
+      (next ? '<p class="sp-make__when"><b>' + _lfE(_lfLongDate(next.key)) + '</b><span>' + _lfE([next.day, cyc].filter(Boolean).join(' · ')) + '</span></p>'
+            : '<p class="sp-make__when"><span>The roster has no date for this service yet.</span></p>') +
+      list +
+      '<details class="sp-how"' + (fits.length ? '' : ' open') + '><summary>How to make this year’s from a past one</summary><ol>' +
+        '<li>Find a past year’s liturgy in the library, or add it: <b>Upload a liturgy</b> (Word, PDF, Excel) or <b>Add a Google Doc</b>.</li>' +
+        '<li>Press <b>Make ready</b>. Check the words' + (LL_SUNDAYS[occ] ? ' and tick the Sundays it is for (one liturgy can be for every Sunday, or a few)' : '') + '.</li>' +
+        '<li>Press <b>Use</b> beside it here: the Liturgy Builder opens this Sunday’s order with it loaded. Change what differs this year.</li>' +
+      '</ol><p class="sp-how__yr"><b>Years:</b> a liturgy is filed under the year it was used, with its lectionary year beside it. The readings come round every three years, so a Year B liturgy from 2023 suits Year B again in 2026.</p></details>' +
       '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.spEdit()"' + (orderId ? '' : ' title="Make the order in Orders first"') + '>' +
         '<i class="fa-solid fa-pen" aria-hidden="true"></i><span>' + (orderId ? 'Open in the Liturgy Builder' : 'Write it in the Liturgy Builder') + '</span></button></section>';
+  }
+  // The ready liturgies for the coming Sunday (pure): those ticked for it
+  // first, then those for every Sunday; the newest year first within each.
+  function _spForNext(rows, sunKey) {
+    return (rows || []).filter(function(r) { return _llForSunday((r.data || {}).forDays, sunKey); }).sort(function(a, b) {
+      var sa = ((a.data || {}).forDays || []).length ? 0 : 1, sb2 = ((b.data || {}).forDays || []).length ? 0 : 1;
+      return (sa - sb2) || ((+b.year || 0) - (+a.year || 0)) || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
   }
   function spEdit() {
     var d = _spData, id = d && d.order && d.order.id;
@@ -104695,7 +104854,8 @@ var LiturgyModule = (function() {
                  files: 'Photos, videos, scores and anything else that is not a liturgy.',
                  links: 'Pages, videos and chord charts people found for this service.' }[tab];
     var add = { lcd: '<button type="button" class="lf-btn" onclick="LiturgyModule.lfNew()"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>New liturgy text</span></button>',
-                liturgy: '<button type="button" class="lf-btn lf-btn--primary sp-btn-maroon" onclick="LiturgyModule.spUpload(\'liturgy\')"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i><span>Upload a liturgy</span></button>',
+                liturgy: '<span class="sp-res__adds"><button type="button" class="lf-btn lf-btn--primary sp-btn-maroon" onclick="LiturgyModule.spUpload(\'liturgy\')"><i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i><span>Upload a liturgy</span></button>' +
+                  '<button type="button" class="lf-btn" onclick="LiturgyModule.spAddGdoc()"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Add a Google Doc</span></button></span>',
                 files: '<button type="button" class="lf-btn" onclick="LiturgyModule.spUpload(\'\')"><i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i><span>Upload</span></button>',
                 links: '<button type="button" class="lf-btn" onclick="LiturgyModule.spAddLink()"><i class="fa-solid fa-link" aria-hidden="true"></i><span>Add a link</span></button>' }[tab];
     var body;
@@ -104714,7 +104874,9 @@ var LiturgyModule = (function() {
       var ys = Object.keys(years).sort().reverse();
       if (_sp.year && !years[_sp.year]) _sp.year = '';
       var chips = ys.length > 1 ? '<div class="sp-years">' + ['' ].concat(ys).map(function(y) {
-        return '<button type="button" class="sp-year' + (_sp.year === y ? ' is-on' : '') + '" data-y="' + _lfE(y) + '" onclick="LiturgyModule.spYear(this.dataset.y)">' + (y ? _lfE(y === '—' ? 'No year' : y) : 'All years') + '</button>';
+        var cy = y && y !== '—' ? _llCycleFor(occ.id, y) : '';
+        return '<button type="button" class="sp-year' + (_sp.year === y ? ' is-on' : '') + '" data-y="' + _lfE(y) + '" onclick="LiturgyModule.spYear(this.dataset.y)"' + (cy ? ' title="' + _lfE(y + ': ' + cy) + '"' : '') + '>' +
+          (y ? _lfE(y === '—' ? 'No year' : y) + (cy ? ' <small>' + _lfE(cy.slice(-1)) + '</small>' : '') : 'All years') + '</button>';
       }).join('') + '</div>' : '';
       var shown = list.filter(function(it) { return !_sp.year || (_spYearOf(it, occ.id) || '—') === _sp.year; })
         .sort(function(a, b) { return String(_spYearOf(b, occ.id)).localeCompare(String(_spYearOf(a, occ.id))) || String(a.title || '').localeCompare(String(b.title || '')); });
@@ -104723,13 +104885,16 @@ var LiturgyModule = (function() {
       body = chips + (shown.length ? '<p class="sp-tip"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Double-tap ' + (tab === 'links' ? 'a link' : 'a document') + ' to preview it.</p>' +
         '<ul class="sp-docs">' + shown.map(function(it) {
         var k = _lfKind(it), y = _spYearOf(it, occ.id), ext = _spExt(it);
-        var canConvert = tab === 'liturgy' && /^(docx|doc|pdf|xlsx|xls)$/.test(ext) && !!it.fileUrl;
+        var canConvert = tab === 'liturgy' && !!it.fileUrl && (/^(docx|doc|pdf|xlsx|xls)$/.test(ext) || !!_spGdocId(it.fileUrl));
         var name = it.title || it.fileName || 'Untitled';
+        // When it was added (the operator: "see when was last uploaded").
+        var added = it.created ? 'Added ' + _lfWhen(it.created) : '';
         return '<li class="sp-doc" tabindex="0" data-open="item" data-id="' + _lfE(it.id) + '" aria-label="' + _lfE(name) + ': double-tap to preview">' + _lfBadge(k) +
-          '<span class="sp-doc__t"><b>' + _lfE(name) + '</b><small>' + _lfE([k.label, y].filter(Boolean).join(' · ')) + '</small></span>' +
+          '<span class="sp-doc__t"><b>' + _lfE(name) + '</b><small>' + _lfE([k.label, y ? _llYearText(occ.id, y) : '', added].filter(Boolean).join(' · ')) + '</small></span>' +
           '<span class="sp-doc__acts">' +
             (canConvert ? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spConvert(this.dataset.id)" title="Make a ready liturgy the Liturgy Builder and LCD can use"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Make ready</span></button>' : '') +
             '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfOpen(this.dataset.id)" aria-label="Preview" title="Preview"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>' +
+            '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spRename(this.dataset.id)" aria-label="Rename" title="Rename"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
             '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.lfShareItem(this.dataset.id)" aria-label="Share" title="Share"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
           '</span></li>';
       }).join('') + '</ul>' : '<p class="lf-muted">' + (tab === 'liturgy' ? 'No liturgy documents for this service yet. Upload this year’s, and it can be made the base of next year’s.' : 'Nothing else filed for this service.') + '</p>');
@@ -104741,6 +104906,7 @@ var LiturgyModule = (function() {
   }
 
   function _spReadyHtml(d, orderId) {
+    var occId = _sp.occ;
     var used = d && d.orderTpl && d.orderTpl.serviceLiturgy && d.orderTpl.serviceLiturgy.id;
     var rows = d ? d.rows : [];
     var list = !d ? '<p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></p>'
@@ -104750,13 +104916,15 @@ var LiturgyModule = (function() {
           var fromDoc = /^doc:/.test(String(r.made_from || '')) ? getItem(String(r.made_from).slice(4)) : null;
           var c = (window.WO && WO.svlCounts) ? WO.svlCounts(r.data || {}) : null;
           return '<li class="sp-ready__row' + (_sp.fresh === r.id ? ' is-new' : '') + '" tabindex="0" data-open="svl" data-id="' + _lfE(r.id) + '">' +
-            '<span class="sp-ready__yr">' + _lfE(r.year || '—') + '</span>' +
+            '<span class="sp-ready__yr">' + _lfE(r.year || '—') + (r.year && _llCycleFor(occId, r.year) ? '<small>' + _lfE(_llCycleFor(occId, r.year)) + '</small>' : '') + '</span>' +
             '<span class="sp-ready__t"><b>' + _lfE(r.title || 'Ready liturgy') + '</b>' +
               (used === r.id ? '<span class="sp-pill sp-pill--use">In use</span>' : '') +
+              (LL_SUNDAYS[occId] ? '<span class="sp-pill sp-pill--days"><i class="fa-regular fa-calendar-check" aria-hidden="true"></i>' + _lfE(_llSundaysText(occId, (r.data || {}).forDays)) + '</span>' : '') +
               '<small>' + _lfE([fromDoc ? 'From ' + (fromDoc.title || fromDoc.fileName) : (r.made_from ? 'Saved from a service' : ''),
                 c ? c.sections + ' sections · ' + c.liturgy + ' liturgy' : ''].filter(Boolean).join(' · ')) + '</small></span>' +
             '<span class="sp-ready__acts">' +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spPreviewReady(this.dataset.id)"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>Preview</span></button>' +
+              (LL_SUNDAYS[occId] ? '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spSundays(this.dataset.id)" title="Which Sundays it is for"><i class="fa-regular fa-calendar-check" aria-hidden="true"></i><span>Sundays</span></button>' : '') +
               (orderId ? '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spUse(this.dataset.id)"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Use</span></button>' : '') +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.lfShareItem(this.dataset.id, true)" aria-label="Share"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
               '<button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spDeleteReady(this.dataset.id)" aria-label="Delete"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>' +
@@ -105840,6 +106008,86 @@ var LiturgyModule = (function() {
     });
   }
 
+  // A Google Doc's id from its address (pure), or ''.
+  function _spGdocId(url) {
+    var m = /docs\.google\.com\/document\/(?:u\/\d+\/)?d\/([A-Za-z0-9_-]{20,128})/.exec(String(url || ''));
+    return m ? m[1] : '';
+  }
+  // Renamed in place, from its row (the operator, 2026-11-15).
+  function spRename(id) {
+    var it = getItem(id);
+    if (!it || typeof customPrompt !== 'function') return;
+    customPrompt('Rename', '', it.title || it.fileName || '').then(function(name) {
+      name = String(name || '').trim().slice(0, 120);
+      if (!name || name === it.title) return;
+      updateItem(id, { title: name });
+      showToast('Renamed to “' + name + '”', 'success');
+      renderService();
+      _lfRefreshSoon();
+    });
+  }
+  // A liturgy kept as a Google Doc, filed in the year its name gives.
+  function spAddGdoc() {
+    if (!_sp.occ) return;
+    _plEd = { kind: 'gdoc' };
+    _plModal('Add a Google Doc', '<label class="mv-ed__lbl">Link to the Google Doc<input id="spGdocUrl" type="url" placeholder="https://docs.google.com/document/d/…"></label>' +
+      '<label class="mv-ed__lbl">Name<input id="spGdocName" type="text" maxlength="120" placeholder="e.g. Advent Liturgy 2026 – Communion"></label>' +
+      '<p class="lf-muted">In Google Docs, Share it as <b>Anyone with the link can view</b>, so everyone can open it and Make ready can read it.</p>', 'Add', 'spAddGdocSave');
+  }
+  function spAddGdocSave() {
+    var url = _plVal('spGdocUrl'), name = _plVal('spGdocName'), occ = _sp.occ;
+    if (!_spGdocId(url)) { _plErr('That is not a Google Docs link (docs.google.com/document/…).'); return; }
+    if (!name) { _plErr('Give it a name, e.g. Advent Liturgy 2026.'); return; }
+    var ym = name.match(/\b(19|20)\d{2}\b/), year = ym ? ym[0] : String(new Date().getFullYear());
+    _plSaving(true);
+    ensureOccYearFolder(occ, year).catch(function() { return null; }).then(function(f) {
+      if (f && f.id && !(occFolders[occ] || []).some(function(x) { return x.id === f.id; })) (occFolders[occ] = occFolders[occ] || []).push({ id: f.id, name: f.name });
+      var item = { id: generateId(), title: name, type: 'liturgy', content: '', tags: ['link', 'liturgy-doc'], fileUrl: url,
+        fileName: url.split('/').pop().split('?')[0] || 'Google Doc', storageProvider: 'external', folderId: null,
+        occasionId: occ, generalFolder: null, occasionFolderId: f ? f.id : null, created: Date.now(), modified: Date.now() };
+      addItem(item, true);
+      if (_plEd) _plEd.saved = true;
+      plEdClose();
+      if (_sp.occ === occ) { _sp.res = 'liturgy'; _sp.year = ''; renderService(); }
+      showToast('“' + name + '” added to Liturgy Documents', 'success', { action: 'Make it ready', duration: 9000, onAction: function() { spConvert(item.id); } });
+    });
+  }
+  // Which Sundays a ready liturgy is for, changed after it was made.
+  function spSundays(id) {
+    var r = ((_spData && _spData.rows) || []).filter(function(x) { return x.id === id; })[0];
+    var occ = r && (r.occasion_id || _sp.occ);
+    if (!r || !LL_SUNDAYS[occ]) return;
+    _plEd = { kind: 'sundays', id: id, occ: occ, days: ((r.data || {}).forDays || []).slice() };
+    _plModal('Which Sundays is “' + (r.title || 'this liturgy') + '” for?', '<div id="spDaysBox">' + _llDaysHtml(occ, _plEd.days, 'spDay') + '</div>', 'Save', 'spSundaysSave');
+  }
+  function spDay(key) {
+    var ed = _plEd;
+    if (!ed || ed.kind !== 'sundays') return;
+    ed.days = _llDaysToggle(ed.occ, ed.days, key);
+    var box = document.getElementById('spDaysBox');
+    if (box) box.innerHTML = _llDaysHtml(ed.occ, ed.days, 'spDay');
+  }
+  function spSundaysSave() {
+    var ed = _plEd, sb = SBQ_LITURGY._sb();
+    if (!ed || ed.kind !== 'sundays' || !sb) return;
+    _plSaving(true);
+    Promise.resolve(sb.from('service_liturgies').select('data').eq('id', ed.id)).then(function(r) {
+      if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'it is not there any more');
+      var data = Object.assign({}, r.data[0].data || {});
+      if (ed.days.length) data.forDays = ed.days.slice(); else delete data.forDays;
+      return sb.from('service_liturgies').update({ data: data, updated_at: new Date().toISOString() }).eq('id', ed.id).select('id,data');
+    }).then(function(w) {
+      if (w.error || !(w.data || []).length) throw new Error(w.error ? w.error.message : 'the change did not come back');
+      var back = ((w.data[0].data || {}).forDays) || [];
+      if (JSON.stringify(back) !== JSON.stringify(ed.days)) throw new Error('the database kept something else');
+      ed.saved = true;
+      plEdClose();
+      delete _occSvlData[ed.id];
+      showToast('Saved: ' + _llSundaysText(ed.occ, ed.days), 'success');
+      _spLoad(_sp.occ);
+    }).catch(function(e) { _plSaving(false); _plErr('Could not save it: ' + ((e && e.message) || e)); });
+  }
+
   // ── Opening a row: a double-click, a double tap, the eye, or Enter ──────
   // From the operator (2026-11-15): "Double clicking or tapping on the
   // document will preview it". Bound once on the panel, which every draw
@@ -106028,11 +106276,17 @@ var LiturgyModule = (function() {
   function spConvert(itemId) {
     var it = getItem(itemId);
     if (!it || !it.fileUrl) return;
-    var ext = _spExt(it), occ = getOccasionById(it.occasionId || _sp.occ);
-    if (!/^(docx|doc|pdf|xlsx|xls)$/.test(ext)) { showToast('Only Word, PDF and Excel liturgies can be made ready.', 'info'); return; }
-    var y = _spYearOf(it, (occ && occ.id) || _sp.occ) || String(new Date().getFullYear());
-    _cv = { itemId: itemId, occ: (occ && occ.id) || _sp.occ, name: it.title || it.fileName || 'Liturgy', url: it.fileUrl, ext: ext,
-            how: ext === 'docx' ? 'word' : 'ai', step: 'read', title: '', year: y,
+    var ext = _spExt(it), occ = getOccasionById(it.occasionId || _sp.occ), gd = _spGdocId(it.fileUrl);
+    if (!gd && !/^(docx|doc|pdf|xlsx|xls)$/.test(ext)) { showToast('Only Word, PDF, Excel and Google Docs liturgies can be made ready.', 'info'); return; }
+    var occId = (occ && occ.id) || _sp.occ;
+    var y = _spYearOf(it, occId) || String(new Date().getFullYear());
+    // A Google Doc is read as Word: Google hands it over as a .docx
+    // (/api/google-doc), and its headings and bold lines are read as written.
+    // A document named for one Sunday ("1st Sunday Advent") starts ticked for it.
+    var named = _llSundayOf(it.title || '');
+    _cv = { itemId: itemId, occ: occId, name: it.title || it.fileName || 'Liturgy', url: it.fileUrl, ext: gd ? 'gdoc' : ext, gdoc: gd || '',
+            how: (ext === 'docx' || gd) ? 'word' : 'ai', step: 'read', title: '', year: y,
+            forDays: named && named.occ === occId ? [named.key] : [],
             type: (occ && occ.id === 'ordinary-contemporary') ? 'contemporary' : 'traditional', secs: [], err: '' };
     _cvDraw();
     _cvRead();
@@ -106043,8 +106297,12 @@ var LiturgyModule = (function() {
     cv.step = 'read'; cv.err = ''; cv.why = []; _cvDraw();
     var got;
     if (cv.how === 'word') {
-      got = fetch(cv.url).then(function(r) { if (!r.ok) throw new Error('the file could not be downloaded'); return r.arrayBuffer(); })
-        .then(function(ab) { return WO.docxParas(ab); }).then(_cvFromParas);
+      got = fetch(cv.gdoc ? '/api/google-doc?id=' + encodeURIComponent(cv.gdoc) : cv.url).then(function(r) {
+        if (r.ok) return r.arrayBuffer();
+        return r.json().catch(function() { return {}; }).then(function(j) {
+          throw new Error(j.error || (cv.gdoc ? 'Google would not hand the document over' : 'the file could not be downloaded'));
+        });
+      }).then(function(ab) { return WO.docxParas(ab); }).then(_cvFromParas);
     } else {
       got = fetch('/api/parse-liturgy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: cv.url }) })
         .then(function(r) { return r.json().catch(function() { throw new Error('the reader did not answer (status ' + r.status + ')'); }).then(function(j) {
@@ -106108,7 +106366,7 @@ var LiturgyModule = (function() {
         ? '<div class="cv-msg cv-msg--err"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><p>' + _lfE(cv.err) + '</p>' +
             (cv.why && cv.why.length ? '<div class="cv-why"><b>What Google said</b><ul>' + cv.why.map(function(w) { return '<li>' + _lfE(w) + '</li>'; }).join('') + '</ul></div>' : '') +
             '<div class="cv-msg__acts"><button type="button" class="lf-btn" onclick="LiturgyModule.cvRetry()">Try again</button>' +
-            (cv.how === 'word' ? '<button type="button" class="lf-btn" onclick="LiturgyModule.cvHow(\'ai\')"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>Read it with AI</button>' : '') + '</div></div>'
+            (cv.how === 'word' && !cv.gdoc ? '<button type="button" class="lf-btn" onclick="LiturgyModule.cvHow(\'ai\')"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>Read it with AI</button>' : '') + '</div></div>'
         : '<div class="cv-msg"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>' +
             (cv.how === 'word' ? 'Reading the Word document…' : 'The AI is reading the document. A long liturgy takes up to a minute…') + '</p></div>';
     } else {
@@ -106119,16 +106377,19 @@ var LiturgyModule = (function() {
         }).join('');
       };
       body = '<p class="cv-how">' + (cv.how === 'word'
-          ? '<i class="fa-solid fa-file-word" aria-hidden="true"></i> Read as written: its headings became sections. Not right? <button type="button" class="lf-link" onclick="LiturgyModule.cvHow(\'ai\')">Read it with AI instead</button>'
+          ? '<i class="fa-solid fa-file-word" aria-hidden="true"></i> Read as written: its headings became sections.' +
+            (cv.gdoc ? '' : ' Not right? <button type="button" class="lf-link" onclick="LiturgyModule.cvHow(\'ai\')">Read it with AI instead</button>')
           : '<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Read by AI. Check the words before keeping it.') + '</p>' +
         '<div class="cv-fields">' +
           '<label class="mv-ed__lbl">Name<input id="cvTitle" type="text" maxlength="80" value="' + _lfE(cv.title) + '" oninput="LiturgyModule.cvSet(\'title\', this.value)"></label>' +
-          '<label class="mv-ed__lbl cv-fields__yr">Year<input id="cvYear" type="number" min="2000" max="2100" value="' + _lfE(cv.year) + '" oninput="LiturgyModule.cvSet(\'year\', this.value)"></label>' +
+          '<label class="mv-ed__lbl cv-fields__yr">Year <small id="cvCyc">' + _lfE(_llCycleFor(cv.occ, cv.year)) + '</small><input id="cvYear" type="number" min="2000" max="2100" value="' + _lfE(cv.year) + '" oninput="LiturgyModule.cvSet(\'year\', this.value)"></label>' +
           '<label class="mv-ed__lbl">For<select onchange="LiturgyModule.cvSet(\'type\', this.value)">' +
             [['traditional', 'Traditional services'], ['contemporary', 'Contemporary services'], ['special', 'Special services']].map(function(o) {
               return '<option value="' + o[0] + '"' + (cv.type === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
             }).join('') + '</select></label>' +
         '</div>' +
+        (LL_SUNDAYS[cv.occ] ? '<div class="cv-days"><p class="cv-days__t"><b>For which Sundays?</b> One liturgy can be for every Sunday of ' + _lfE((getOccasionById(cv.occ) || {}).label || 'the season') + ', or a few.</p>' +
+          _llDaysHtml(cv.occ, cv.forDays, 'cvDay') + '</div>' : '') +
         '<p class="cv-note">Each section goes in the Liturgy Builder’s section of the same kind, which is what places the date’s readings and songs. ' +
           'Readings are left out: the roster’s readings go in when it is loaded. A song is kept when it is in the song library.</p>' +
         '<ol class="cv-secs">' + cv.secs.map(function(s, i) {
@@ -106176,6 +106437,12 @@ var LiturgyModule = (function() {
       return;
     }
     _cv[k] = String(v || '');
+    if (k === 'year') { var c = document.getElementById('cvCyc'); if (c) c.textContent = _llCycleFor(_cv.occ, _cv.year); }
+  }
+  function cvDay(key) {
+    if (!_cv) return;
+    _cv.forDays = _llDaysToggle(_cv.occ, _cv.forDays, key);
+    _cvDraw();
   }
   function cvSec(i, k, v) {
     var s = _cv && _cv.secs[i];
@@ -106199,6 +106466,8 @@ var LiturgyModule = (function() {
       return { title: s.title, target: s.target, parts: s.parts.filter(function(p) { return p.use; }) };
     });
     var data = WO.docLiturgy(plan, cv.type);
+    // Which Sundays it is for (none: every Sunday), in the liturgy's own data.
+    if (LL_SUNDAYS[cv.occ] && cv.forDays && cv.forDays.length) data.forDays = cv.forDays.slice();
     var row = { occasion_id: cv.occ, year: year, title: title, order_type: cv.type, data: data, made_from: 'doc:' + cv.itemId, updated_at: new Date().toISOString() };
     cv.step = 'saving'; _cvDraw();
     sb.from('service_liturgies').insert(row).select().then(function(r) {
@@ -106888,6 +107157,20 @@ var LiturgyModule = (function() {
   }
 
   function lfCloseViewer() { var v = document.getElementById('lfViewer'); if (v) v.remove(); }
+  // The preview the whole window (the operator, 2026-11-15: "Preview window
+  // able to full screen"), and back. The window, not the browser's own full
+  // screen: an iPhone has no element full screen (gotcha 71).
+  function lfFull() {
+    var v = document.getElementById('lfViewer');
+    if (!v) return;
+    var on = v.classList.toggle('lf-vw--full');
+    var b = v.querySelector('.lf-vw__full');
+    if (b) {
+      b.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
+      b.title = on ? 'Leave full screen' : 'Full screen';
+      b.innerHTML = '<i class="fa-solid ' + (on ? 'fa-compress' : 'fa-expand') + '" aria-hidden="true"></i>';
+    }
+  }
 
   function lfOpen(id, svl) {
     lfCloseViewer();
@@ -106930,6 +107213,7 @@ var LiturgyModule = (function() {
     el.innerHTML = '<div class="lf-vw__card" role="dialog" aria-modal="true" aria-labelledby="lfVwTtl">' +
         '<div class="lf-vw__hd">' + _lfBadge(k) +
           '<div class="lf-vw__ttl"><h2 id="lfVwTtl">' + _lfE(title) + '</h2><p>' + _lfE(sub) + '</p></div>' +
+          '<button type="button" class="lf-vw__full" onclick="LiturgyModule.lfFull()" aria-label="Full screen" title="Full screen"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>' +
           '<button type="button" class="lf-vw__x" onclick="LiturgyModule.lfCloseViewer()" aria-label="Close">&times;</button></div>' +
         '<div class="lf-vw__body">' + body + '</div>' +
         '<div class="lf-vw__ft">' +
@@ -109911,7 +110195,7 @@ var LiturgyModule = (function() {
     // Build popover HTML — list all occasions except current
     var groups = [
       { label: 'Ordinary Sundays', ids: ['ordinary-traditional', 'ordinary-contemporary'] },
-      { label: 'Church Calendar', ids: ['advent','christmas-eve','christmas-day','watchnight','ash-wednesday','palm-sunday','maundy-thursday','good-friday','easter','pentecost','holy-trinity','reformation'] }
+      { label: 'Church Calendar', ids: ['advent','christmas-eve','christmas-day','watchnight','epiphany','ash-wednesday','lent','palm-sunday','maundy-thursday','good-friday','easter','easter-season','pentecost','holy-trinity','reformation'] }
     ];
     var htmlRows = '';
     groups.forEach(function(g) {
@@ -110463,11 +110747,14 @@ var LiturgyModule = (function() {
         qaOccOpt('christmas-eve',         'Christmas Eve',       'fa-fire',                '#d97706') +
         qaOccOpt('christmas-day',         'Christmas Day',       'fa-star-of-david',       '#d97706') +
         qaOccOpt('watchnight',            'Watchnight',          'fa-hourglass-half',      '#14532d') +
+        qaOccOpt('epiphany',              'Epiphany Sundays',    'fa-crown',               '#a16207') +
         qaOccOpt('ash-wednesday',         'Ash Wednesday',       'fa-cross',               '#78716c') +
+        qaOccOpt('lent',                  'Lent Sundays',        'fa-cross',               '#6d28d9') +
         qaOccOpt('palm-sunday',           'Palm Sunday',         'fa-leaf',                '#16a34a') +
         qaOccOpt('maundy-thursday',       'Maundy Thursday',     'fa-bowl-food',           '#0b7644') +
         qaOccOpt('good-friday',           'Good Friday',         'fa-cross',               '#374151') +
         qaOccOpt('easter',                'Easter Sunday',       'fa-sun',                 '#d97706') +
+        qaOccOpt('easter-season',         'Easter Season',       'fa-dove',                '#d97706') +
         qaOccOpt('pentecost',             'Pentecost',           'fa-fire-flame-curved',   '#dc2626') +
         qaOccOpt('holy-trinity',          'Holy Trinity Sunday', 'fa-triangle-exclamation','#d97706') +
         qaOccOpt('reformation',           'Reformation Sunday',  'fa-hammer',              '#dc2626') +
@@ -112464,11 +112751,14 @@ var LiturgyModule = (function() {
           occOpt('christmas-eve',         'Christmas Eve',       'fa-fire',                '#d97706') +
           occOpt('christmas-day',         'Christmas Day',       'fa-star-of-david',       '#d97706') +
           occOpt('watchnight',            'Watchnight',          'fa-hourglass-half',      '#14532d') +
+          occOpt('epiphany',              'Epiphany Sundays',    'fa-crown',               '#a16207') +
           occOpt('ash-wednesday',         'Ash Wednesday',       'fa-cross',               '#78716c') +
+          occOpt('lent',                  'Lent Sundays',        'fa-cross',               '#6d28d9') +
           occOpt('palm-sunday',           'Palm Sunday',         'fa-leaf',                '#16a34a') +
           occOpt('maundy-thursday',       'Maundy Thursday',     'fa-bowl-food',           '#0b7644') +
           occOpt('good-friday',           'Good Friday',         'fa-cross',               '#374151') +
           occOpt('easter',                'Easter Sunday',       'fa-sun',                 '#d97706') +
+          occOpt('easter-season',         'Easter Season',       'fa-dove',                '#d97706') +
           occOpt('pentecost',             'Pentecost',           'fa-fire-flame-curved',   '#dc2626') +
           occOpt('holy-trinity',          'Holy Trinity Sunday', 'fa-triangle-exclamation','#d97706') +
           occOpt('reformation',           'Reformation Sunday',  'fa-hammer',              '#dc2626') +
@@ -112745,7 +113035,7 @@ var LiturgyModule = (function() {
     _llSeasonOf: _llSeasonOf, _llCycle: _llCycle, _lsFilter: _lsFilter,
     openLibrary: openLibrary, backToLibrary: backToLibrary, renderLibrary: renderLibrary,
     lfSelect: lfSelect, lfBack: lfBack, lfKind: lfKind, lfSearch: lfSearch, lfUpload: lfUpload, lfNew: lfNew,
-    lfPlanning: lfPlanning, lfOpenDay: lfOpenDay, lfOpen: lfOpen, lfCloseViewer: lfCloseViewer,
+    lfPlanning: lfPlanning, lfOpenDay: lfOpenDay, lfOpen: lfOpen, lfCloseViewer: lfCloseViewer, lfFull: lfFull,
     lfSvlItem: lfSvlItem, lfEdit: lfEdit, lfMove: lfMove, lfDelete: lfDelete,
     lfShareItem: lfShareItem, lfShareFolder: lfShareFolder, lfShareSunday: lfShareSunday,
     lfShareDay: lfShareDay, lfShareLibrary: lfShareLibrary, lfShareMode: lfShareMode, lfSend: lfSend,
@@ -112781,6 +113071,7 @@ var LiturgyModule = (function() {
     mvShare: mvShare, mvOpenOrder: mvOpenOrder, mvOpenSongbook: mvOpenSongbook,
     openService: openService, renderService: renderService, spBack: spBack, spEdit: spEdit, spReady: spReady, spAddMenu: spAddMenu,
     spAddMenuClose: _spAddMenuClose, spUpload: spUpload, fabAdd: fabAdd, spPreviewReady: spPreviewReady, plSongMore: plSongMore, plSongNew: plSongNew,
+    spRename: spRename, spAddGdoc: spAddGdoc, spAddGdocSave: spAddGdocSave, spSundays: spSundays, spDay: spDay, spSundaysSave: spSundaysSave, cvDay: cvDay,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -119962,6 +120253,45 @@ function filterLiturgyItems() {
   /* Enhanced Liturgy Editor Modal */
   /* 572 — 3-col editor: metadata left | slides centre | preview right */
   .liturgy-editor-modal { max-width: 1250px; width: 98%; }
+  /* The LCD item window in the Liturgy Library's look (the operator,
+     2026-11-15): the green banner, parchment and cards, and on the right the
+     LCD console's navy with the Program screen. */
+  #liturgyModal .liturgy-editor-modal { border-radius: 18px; overflow: hidden; background: #fbf7ef; }
+  #liturgyModal .modal-header { background: radial-gradient(circle at 88% 20%, rgba(232, 196, 120, 0.28), transparent 42%), linear-gradient(120deg, #163b2a, #1f4d36 60%, #2c6b49);
+    border-bottom: 0; padding: 16px 20px; }
+  #liturgyModal .modal-header h2 { color: #fff; font-family: 'Playfair Display', Georgia, serif; font-weight: 600; font-size: 1.35rem; }
+  #liturgyModal .modal-header h2 i { color: #e9b949; }
+  #liturgyModal .modal-close { color: #fff; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 10px; width: 40px; height: 40px; }
+  #liturgyModal .liturgy-editor-container { background: #fbf7ef; }
+  #liturgyModal .liturgy-editor-panel, #liturgyModal .liturgy-slides-panel { background: #fbf7ef; border-color: #e8dfcd; }
+  #liturgyModal .liturgy-form-label { font-family: 'Poppins', sans-serif; color: #3d3226; }
+  #liturgyModal .liturgy-form-input { border: 1px solid #ddd0b4; background: #fff; }
+  #liturgyModal .liturgy-form-input:focus { border-color: #1f4d36; box-shadow: 0 0 0 3px rgba(31, 77, 54, 0.12); }
+  #liturgyModal .liturgy-form-group { background: #fff !important; border: 1px solid #e8dfcd; }
+  #liturgyModal .lit-content-type-chip.active { background: #1f4d36; }
+  #liturgyModal .liturgy-slide-pane { border: 1px solid #e8dfcd; border-radius: 12px; }
+  #liturgyModal .liturgy-slide-pane:focus-within { border-color: #1f4d36; box-shadow: 0 0 0 3px rgba(31, 77, 54, 0.12); }
+  #liturgyModal .liturgy-slide-pane-header { background: #f3ecdd; }
+  #liturgyModal .liturgy-add-slide-btn { border-color: #1f4d36; color: #1f4d36; background: #fff; border-radius: 10px; min-height: 36px; }
+  #liturgyModal .liturgy-add-slide-btn:hover { background: #1f4d36; color: #fff; }
+  #liturgyModal .liturgy-preview-panel { background: #111a2e; }
+  #liturgyModal .liturgy-preview-header { background: #16213b; color: #f8f4ea; font-family: 'Cinzel', Georgia, serif; letter-spacing: 0.06em; border-bottom: 1px solid rgba(193, 153, 63, 0.25); }
+  #liturgyModal .liturgy-preview-nav-btn { background: rgba(217, 180, 106, 0.14); color: #f8f4ea; }
+  #liturgyModal .liturgy-preview-hint { background: transparent; color: rgba(248, 244, 234, 0.45); }
+  #liturgyModal .modal-footer { background: #fff; border-top: 1px solid #e8dfcd; }
+  #liturgyModal .modal-btn-primary { background: #1f4d36; border-color: #1f4d36; color: #fff; }
+  #liturgyModal .modal-btn-primary:hover { background: #163b2a; }
+  .lit-lcd__label { display: flex; align-items: center; gap: 8px; padding: 14px 16px 8px; font: 0.78rem 'Cinzel', Georgia, serif; letter-spacing: 0.1em; color: #f8f4ea; }
+  .lit-lcd__dot { width: 8px; height: 8px; border-radius: 50%; background: #d9b46a; box-shadow: 0 0 0 3px rgba(217, 180, 106, 0.2); }
+  .lit-lcd { position: relative; margin: 0 16px 12px; aspect-ratio: 16 / 9; background: #000; border: 1px solid rgba(193, 153, 63, 0.45); border-radius: 10px;
+    box-shadow: 0 0 0 1px rgba(193, 153, 63, 0.18), 0 14px 34px rgba(0, 0, 0, 0.45); overflow: hidden; }
+  .lit-lcd__safe { position: absolute; inset: 5%; display: flex; align-items: center; justify-content: center; overflow: hidden;
+    border: 1.5px dashed rgba(217, 180, 106, 0.6); border-radius: 4px; }
+  .lit-lcd__tag { position: absolute; top: calc(5% - 8px); left: calc(5% + 6px); font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: #d9b46a;
+    background: rgba(0, 0, 0, 0.6); padding: 0 4px; border-radius: 3px; }
+  .lit-lcd__words.wo-preview-inner { max-width: 100%; max-height: 100%; padding: 0; text-align: center; white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.6;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+  .lit-lcd__words.is-empty { color: #6b7280 !important; font-style: italic !important; font-size: 0.95rem !important; }
   .liturgy-editor-container { display: flex; gap: 0; padding: 0; min-height: 500px; background: #f8f9fa; }
   /* LEFT: metadata + section assignment */
   .liturgy-editor-panel { flex: 0 0 280px; display: flex; flex-direction: column; min-width: 0; background: #ffffff; padding: 18px 16px; border-right: 1px solid #e5e7eb; }
@@ -120551,6 +120881,13 @@ function filterLiturgyItems() {
   .lf-vw__ttl { flex: 1; min-width: 0; }
   .lf-vw__ttl h2 { margin: 0; font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #1f2933; overflow-wrap: anywhere; }
   .lf-vw__ttl p { margin: 2px 0 0; font-size: 0.78rem; color: #5b6670; }
+  .lf-vw__full { width: 44px; height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; background: #fff; color: #1f2933; cursor: pointer; flex-shrink: 0; }
+  .lf-vw__full:hover { background: #eef5ef; }
+  .lf-vw--full { padding: 0; }
+  .lf-vw--full .lf-vw__card { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
+  .lf-vw--full .lf-vw__body { display: flex; flex-direction: column; }
+  .lf-vw--full .lf-prev-frame { flex: 1; height: auto; min-height: 0; }
+  .lf-vw--full .lf-prev-img { flex: 1; min-height: 0; max-height: none; width: 100%; object-fit: contain; }
   .lf-vw__x { width: 44px; height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; background: #fff; font-size: 1.4rem; line-height: 1; cursor: pointer; color: #1f2933; flex-shrink: 0; }
   .lf-vw__body { padding: 16px 18px; overflow: auto; flex: 1; min-height: 120px; }
   .lf-vw__ft { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid #edf1ee; }
@@ -121456,6 +121793,42 @@ function filterLiturgyItems() {
   .pl .lf-btn.sp-btn-maroon, .pl .lf-btn--primary.sp-btn-maroon { background: #e9b949; border-color: #d4a53a; color: #111; }
   .pl .lf-btn.sp-btn-maroon:hover { background: #f1c45c; border-color: #e0b04a; }
   .pl .sp-ready__yr { color: var(--pl-green); }
+  /* The Make ready window is on <body>, outside .pl: its Keep button took
+     --sp-maroon too and was white on nothing (2026-11-15). */
+  .cv .lf-btn.sp-btn-maroon, .cv .lf-btn--primary.sp-btn-maroon { background: #e9b949; border-color: #d4a53a; color: #111; }
+  .cv .lf-btn.sp-btn-maroon:hover { background: #f1c45c; }
+  .cv .lf-btn.sp-btn-maroon:disabled { opacity: 0.5; cursor: default; }
+  /* This year's liturgy, the Sundays, the years (2026-11-15) */
+  .sp-make__when { margin: 0 0 10px; display: flex; flex-direction: column; gap: 2px; }
+  .sp-make__when b { font: 600 0.95rem 'Poppins', sans-serif; color: #1d1a14; }
+  .sp-make__when span { font-size: 0.82rem; color: #6b5f50; }
+  .sp-make__none { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: #fbf7ef; border: 1px dashed #e0d2b4; font-size: 0.86rem; color: #6b5f50; }
+  .sp-fits { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .sp-fit { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f3f8f3; border: 1px solid #cfe2d3; }
+  .sp-fit__t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .sp-fit__t b { font-size: 0.9rem; color: #1d1a14; }
+  .sp-fit__t small { font-size: 0.76rem; color: #5b6b5f; }
+  .sp-fit__acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .sp-how { margin: 0 0 12px; border-radius: 10px; border: 1px solid #ece2cf; background: #fffdf8; }
+  .sp-how summary { cursor: pointer; padding: 10px 12px; font: 600 0.86rem 'Poppins', sans-serif; color: #3d3226; }
+  .sp-how ol { margin: 0; padding: 0 14px 0 32px; font-size: 0.84rem; line-height: 1.55; color: #4b4034; }
+  .sp-how li { margin: 0 0 6px; }
+  .sp-how__yr { margin: 6px 12px 12px; font-size: 0.8rem; line-height: 1.5; color: #6b5f50; }
+  .sp-ready__yr { flex-direction: column; height: auto; min-height: 30px; line-height: 1.15; padding: 4px 8px; }
+  .sp-ready__yr small { font-size: 0.66rem; font-weight: 600; color: #8a7a66; }
+  .sp-pill--days { background: #eef2fb; color: #2f3f73; gap: 5px; }
+  .sp-year small { font-size: 0.7rem; font-weight: 700; color: #8a7a66; margin-left: 3px; }
+  .sp-year.is-on small { color: #333; }
+  .sp-res__adds { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ll-days { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ll-day { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid #ddd0b4; background: #fff;
+    font: 600 0.82rem 'Poppins', sans-serif; color: #3d3226; cursor: pointer; -webkit-user-select: none; user-select: none; }
+  .ll-day input { width: 16px; height: 16px; margin: 0; accent-color: #1f4d36; }
+  .ll-day.is-on { background: #e6f0e8; border-color: #1f4d36; color: #111; }
+  .ll-day--all { border-style: dashed; }
+  .cv-days { margin: 4px 0 12px; padding: 10px 12px; border-radius: 12px; background: #fbf7ef; border: 1px solid #ece2cf; }
+  .cv-days__t { margin: 0 0 8px; font-size: 0.84rem; color: #4b4034; }
+  .cv-fields__yr small { font-weight: 600; color: #8a7a66; }
   /* The Liturgy Order tab is the service's library (2026-11-15): the
      documents by year, wide; beside them this year's liturgy, the ready
      liturgies and the tiles. */
