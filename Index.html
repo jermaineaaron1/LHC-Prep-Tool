@@ -107345,20 +107345,58 @@ var LiturgyModule = (function() {
     return url + (url.indexOf('?') === -1 ? '?' : '&') + 'download=' + encodeURIComponent(item.fileName || item.title || 'file');
   }
 
-  function lfCloseViewer() { var v = document.getElementById('lfViewer'); if (v) v.remove(); }
-  // The preview the whole window (the operator, 2026-11-15: "Preview window
-  // able to full screen"), and back. The window, not the browser's own full
-  // screen: an iPhone has no element full screen (gotcha 71).
-  function lfFull() {
+  function lfCloseViewer() {
     var v = document.getElementById('lfViewer');
-    if (!v) return;
-    var on = v.classList.toggle('lf-vw--full');
+    if (v && _lfFsEl() === v) _lfFsExit();
+    if (v) v.remove();
+  }
+  // The preview full screen, and back (the operator, 2026-11-15: "Preview
+  // window able to full screen"; then "give more priority and space for the
+  // content, the buttons and functions are secondary ... make it as full
+  // screen as possible and a way to exit"). Full screen is the document
+  // alone: no header, no buttons, no note -- a floating Exit full screen,
+  // and Esc. Where the device has one (a desk, Android) it is the real full
+  // screen, which hides the browser's and the app window's own bars too; an
+  // iPhone has no element full screen (gotcha 71), so there it is the window.
+  function _lfFsEl() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function _lfFsExit() {
+    var ex = document.exitFullscreen || document.webkitExitFullscreen;
+    // webkitExitFullscreen returns nothing, so no .catch on it (gotcha 71).
+    if (ex) { try { var r = ex.call(document); if (r && r.catch) r.catch(function() {}); } catch (e) {} }
+  }
+  function _lfSetFull(v, on) {
+    v.classList.toggle('lf-vw--full', on);
     var b = v.querySelector('.lf-vw__full');
     if (b) {
       b.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
       b.title = on ? 'Leave full screen' : 'Full screen';
       b.innerHTML = '<i class="fa-solid ' + (on ? 'fa-compress' : 'fa-expand') + '" aria-hidden="true"></i>';
     }
+    var x = v.querySelector(on ? '.lf-vw__exitfull' : '.lf-vw__full');
+    if (x) { try { x.focus({ preventScroll: true }); } catch (e) {} }
+  }
+  // The device's own way out (Esc, a swipe, the back button) ends ours too.
+  var _lfFsBound = false;
+  function _lfFsChange() {
+    var v = document.getElementById('lfViewer');
+    if (!v) return;
+    if (_lfFsEl() === v) { v._wentFs = true; return; }
+    if (v._wentFs && v.classList.contains('lf-vw--full')) _lfSetFull(v, false);
+    v._wentFs = false;
+  }
+  function lfFull() {
+    var v = document.getElementById('lfViewer');
+    if (!v) return;
+    var on = !v.classList.contains('lf-vw--full');
+    _lfSetFull(v, on);
+    if (!on) { if (_lfFsEl() === v) _lfFsExit(); return; }
+    if (!_lfFsBound) {
+      _lfFsBound = true;
+      document.addEventListener('fullscreenchange', _lfFsChange);
+      document.addEventListener('webkitfullscreenchange', _lfFsChange);
+    }
+    var req = v.requestFullscreen || v.webkitRequestFullscreen;
+    if (req) { try { var r = req.call(v); if (r && r.catch) r.catch(function() {}); } catch (e) {} }
   }
 
   function lfOpen(id, svl) {
@@ -107404,7 +107442,8 @@ var LiturgyModule = (function() {
           '<div class="lf-vw__ttl"><h2 id="lfVwTtl">' + _lfE(title) + '</h2><p>' + _lfE(sub) + '</p></div>' +
           '<button type="button" class="lf-vw__full" onclick="LiturgyModule.lfFull()" aria-label="Full screen" title="Full screen"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>' +
           '<button type="button" class="lf-vw__x" onclick="LiturgyModule.lfCloseViewer()" aria-label="Close">&times;</button></div>' +
-        '<div class="lf-vw__body">' + body + '</div>' +
+        '<div class="lf-vw__body' + (!row && k.group !== 'text' ? ' lf-vw__body--media' : '') + '">' + body + '</div>' +
+        '<button type="button" class="lf-vw__exitfull" onclick="LiturgyModule.lfFull()" aria-label="Leave full screen"><i class="fa-solid fa-compress" aria-hidden="true"></i><span>Exit full screen</span></button>' +
         '<div class="lf-vw__ft">' +
           '<button type="button" class="lf-btn lf-btn--wa"' + idAttr + ' data-svl="' + (row ? '1' : '') + '" onclick="LiturgyModule.lfShareItem(this.dataset.id, this.dataset.svl)"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i><span>Share</span></button>' +
           acts + '</div>' +
@@ -107413,7 +107452,11 @@ var LiturgyModule = (function() {
     // lands on the backdrop: not taken as "close" for a moment.
     var openedAt = Date.now();
     el.addEventListener('click', function(e) { if (e.target === el && Date.now() - openedAt > 450) lfCloseViewer(); });
-    el.addEventListener('keydown', function(e) { if (e.key === 'Escape') lfCloseViewer(); });
+    // Esc leaves full screen first, then closes.
+    el.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape') return;
+      if (el.classList.contains('lf-vw--full')) { e.preventDefault(); lfFull(); } else lfCloseViewer();
+    });
     document.body.appendChild(el);
     var x = el.querySelector('.lf-vw__x');
     if (x) x.focus();
@@ -121096,7 +121139,21 @@ function filterLiturgyItems() {
   .lf-vw__full { width: 44px; height: 44px; border-radius: 12px; border: 1px solid #d8e2dc; background: #fff; color: #1f2933; cursor: pointer; flex-shrink: 0; }
   .lf-vw__full:hover { background: #eef5ef; }
   .lf-vw--full { padding: 0; }
-  .lf-vw--full .lf-vw__card { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
+  .lf-vw--full .lf-vw__card { position: relative; width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
+  /* Full screen is the document alone; its buttons are for outside it. */
+  .lf-vw--full .lf-vw__hd, .lf-vw--full .lf-vw__ft, .lf-vw--full .lf-prev-note { display: none; }
+  .lf-vw--full .lf-vw__body--media { padding: 0; }
+  .lf-vw--full .lf-vw__body--media .lf-prev-frame, .lf-vw--full .lf-vw__body--media .lf-prev-img { border-radius: 0; }
+  .lf-vw:fullscreen { background: #000; }
+  .lf-vw__exitfull { display: none; }
+  .lf-vw--full .lf-vw__exitfull { display: inline-flex; align-items: center; gap: 8px; position: absolute; right: 16px; bottom: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 3; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: rgba(17, 24, 39, 0.82); color: #fff;
+    font: 600 0.86rem 'Poppins', sans-serif; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); cursor: pointer; opacity: 0.88; }
+  .lf-vw--full .lf-vw__exitfull:hover, .lf-vw--full .lf-vw__exitfull:focus-visible { opacity: 1; }
+  @media (hover: none) {
+    .lf-vw--full .lf-vw__exitfull { width: 48px; height: 48px; padding: 0; justify-content: center; }
+    .lf-vw--full .lf-vw__exitfull span { display: none; }
+  }
   .lf-vw--full .lf-vw__body { display: flex; flex-direction: column; }
   .lf-vw--full .lf-prev-frame { flex: 1; height: auto; min-height: 0; }
   .lf-vw--full .lf-prev-img { flex: 1; min-height: 0; max-height: none; width: 100%; object-fit: contain; }
