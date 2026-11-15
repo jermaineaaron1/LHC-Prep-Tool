@@ -269,7 +269,7 @@ try {
     /\.pl \.sp-rtab\.is-on, \.pl \.sp-year\.is-on \{ background: #e6f0e8; border-color: var\(--pl-green\); color: #111; \}/.test(SRC) &&
     /\.pl \.lf-btn\.sp-btn-maroon, \.pl \.lf-btn--primary\.sp-btn-maroon \{ background: #e9b949; border-color: #d4a53a; color: #111; \}/.test(SRC));
   check('the page\'s colours reach what it puts on <body>: its dialogs\' green buttons (Save note, New song) and Add Item\'s menu',
-    /  \.pl, \.pl-ed, \.pl-menu--float \{ --pl-green: #1f4d36;/.test(SRC) && /el\.id = 'plEd'; el\.className = 'mv-ed pl-ed';/.test(fn('_plModal')));
+    /  \.pl, \.pl-ed, \.pl-menu--float(, [^{]+)? \{ --pl-green: #1f4d36;/.test(SRC) && /el\.id = 'plEd'; el\.className = 'mv-ed pl-ed';/.test(fn('_plModal')));
   const am = fn('spAddMenu');
   check('Add Item\'s menu is put on <body> under its button, follows it while the page moves, and closes on Escape, a tap away, or the button leaving the screen',
     /document\.body\.appendChild\(m\);/.test(am) && /m\.className = 'pl-menu pl-menu--float'/.test(am) && /\.pl-menu--float \{ position: fixed; right: auto; z-index: 10010;/.test(SRC) &&
