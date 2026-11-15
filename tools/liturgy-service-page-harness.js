@@ -296,7 +296,7 @@ try {
     /WO\.docLiturgy\(plan, cv\.type\)/.test(save));
   const read = fn('_cvRead');
   check('Word is read in the browser; everything else by the server\'s AI', /WO\.docxParas\(ab\)/.test(read) && /fetch\('\/api\/parse-liturgy'/.test(read) &&
-    /how: ext === 'docx' \? 'word' : 'ai'/.test(fn('spConvert')));
+    /how: \(ext === 'docx' \|\| gd\) \? 'word' : 'ai'/.test(fn('spConvert')));
   check('the Word reader notes a paragraph set wholly in bold', /b: _lbdWBold\(p\)/.test(SRC) && /if \(!b \|\| v === '0' \|\| v === 'false'\) all = false;/.test(fn('_lbdWBold')));
   try {
     // Uploading, run: the year from the name, the folder for it, the kind.
