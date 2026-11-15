@@ -185,7 +185,7 @@ try {
     /cv\.how === 'word' && !cv\.gdoc \?/.test(draw) && /\(cv\.gdoc \? '' : ' Not right\?/.test(draw));
   check('...says why when Google will not hand it over', /throw new Error\(j\.error \|\| \(cv\.gdoc \? 'Google would not hand the document over'/.test(rd));
   check('Make ready asks which Sundays, starting from the one the document is named for, and keeps them with the liturgy',
-    /forDays: named && named\.occ === occId \? \[named\.key\] : \[\]/.test(conv) && /_llDaysHtml\(cv\.occ, cv\.forDays, 'cvDay'\)/.test(draw) &&
+    /forDays: opts\.days \? opts\.days\.slice\(\) : \(named && named\.occ === occId \? \[named\.key\] : \[\]\)/.test(conv) && /_llDaysHtml\(cv\.occ, cv\.forDays, 'cvDay'\)/.test(draw) &&
     /if \(LL_SUNDAYS\[cv\.occ\] && cv\.forDays && cv\.forDays\.length\) data\.forDays = cv\.forDays\.slice\(\);/.test(keep) &&
     /_cv\.forDays = _llDaysToggle\(_cv\.occ, _cv\.forDays, key\);/.test(fn('cvDay')));
   check('...and shows the year\'s letter as the year is typed', /<small id="cvCyc">' \+ _lfE\(_llCycleFor\(cv\.occ, cv\.year\)\)/.test(draw) &&
@@ -339,7 +339,8 @@ try {
     /localStorage\.setItem\(SP_TOUR_KEY, '1'\)/.test(fn('_spTourMark')));
   const steps10 = fn('_spTourSteps');
   check('five steps on the page itself: the past years, Make ready (or Upload), the ready liturgies, Use, the Liturgy Builder; a missing part is left out',
-    /q\('\.sp-res'\)/.test(steps10) && /var mk = q\('\.sp-doc \.sp-btn-maroon'\), use = q\('\.sp-fit \.pl-btn-green'\);/.test(steps10) && /q\('\.sp-readybox'\)/.test(steps10) &&
+    /q\('\.sp-res'\)/.test(steps10) && /var mk = q\('\.sp-doc \.sp-btn-maroon'\), use = q\('\.sp-fit \.pl-btn-green'\), rowUse = q\('\.sp-doc \.sp-usebtn'\);/.test(steps10) &&
+    /el: rowUse \|\| q\('\.sp-readybox'\), tap: !!rowUse/.test(steps10) &&
     /el: use \|\| q\('\.sp-make'\)/.test(steps10) && /q\('\.sp-make > \.lf-btn\.pl-btn-green'\)/.test(steps10) && /\.filter\(function\(x\) \{ return x\.el; \}\)/.test(steps10));
   check('a spotlight, a pulsing ring, a finger tapping what to press, and a card with Back / Next / Skip that follows the page',
     /ltour__hole/.test(fn('spTour')) && /ltour__ring/.test(fn('spTour')) && /ltour__finger/.test(fn('spTour')) && /LiturgyModule\.spTourGo\(-1\)">Back/.test(fn('spTour')) &&
@@ -369,8 +370,8 @@ try {
     /\.in\('id', ids\)\.select\('id,year'\)/.test(fn('_spYearConverted')));
   check('after converting: to its set (its year, the file marked), then Use it for the coming Sunday it suits, or Leave it',
     /_sp\.fresh = saved\.id; _sp\.res = 'liturgy'; _sp\.year = String\(saved\.year\);/.test(save11) && /spReady\(\); _spAfterConvert\(saved\.id\);/.test(save11) &&
-    /var t = _spUseTarget\(d\.upcoming \|\| \[\], occ, days, r\.order_type\);/.test(fn('_spAfterConvert')) && /\(t \? 'Leave it' : 'OK'\)/.test(fn('_spAfterConvert')) &&
-    /LiturgyModule\.spAfterUse\(this\.dataset\.id, this\.dataset\.key\)/.test(fn('_spAfterConvert')) && /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(fn('spUseFor')) &&
+    /if \(m\) spUseDoc\(m\[1\], \{ fresh: true, fileId: id \}\);/.test(fn('_spAfterConvert')) && /\(u\.fresh \? 'Leave it' : 'Cancel'\)/.test(fn('_spUseDraw')) &&
+    /LiturgyModule\.spUseGo\(this\.dataset\.key\)/.test(fn('_spUseDraw')) && /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(fn('spUseFor')) &&
     /action: 'Go to Orders'/.test(fn('spUseFor')));
   if (S) {
     const meta = { '2026-11-29': { day: '1st Sunday of Advent', serviceType: 'Contemporary' }, '2026-12-06': { day: '2nd Sunday of Advent', serviceType: 'Traditional' },
@@ -386,6 +387,115 @@ try {
     const rows = [{ id: 'trad', year: 2026, order_type: 'traditional', data: {} }, { id: 'cont', year: 2025, order_type: 'contemporary', data: {} }, { id: 'any', year: 2024, order_type: 'special', data: {} }];
     check('This year\'s liturgy offers only the files of the coming Sunday\'s kind of service', S.forNext(rows, 'advent:1', 'contemporary').map(r => r.id).join() === 'cont,any' &&
       S.forNext(rows, 'advent:2', 'traditional').map(r => r.id).join() === 'trad,any' && S.forNext(rows, 'advent:2').length === 3);
+  }
+
+  // ------------------------------------------------------------ 12. Converted, and Use
+  // From the operator (2026-11-15): "The layout to see the converted app
+  // files is a bit confusing. I would like to see the converted items where
+  // the 'Convert' function is. Then allow the user to 'Use' that converted
+  // liturgy to the upcoming service (if Advent or Lent decide if it's only
+  // for 1 or few or all the Sundays in the season)".
+  console.log('\n12. Converted, with Use, where Convert was');
+  const res12 = fn('_spResHtml'), ready12 = fn('_spReadyHtml');
+  check('a converted document shows Converted (green, its menu) and Use where Convert was; one not converted keeps Convert',
+    /\(conv\.length\s*\? '<button type="button" class="lf-btn sp-btn-sm sp-convd"/.test(res12) && /LiturgyModule\.spConvMenu\(this, this\.dataset\.id\)/.test(res12) &&
+    /<span>Converted<\/span>/.test(res12) && /class="lf-btn sp-btn-sm pl-btn-green sp-usebtn"[\s\S]{0,80}onclick="LiturgyModule\.spUseDoc\(this\.dataset\.id\)"/.test(res12) &&
+    /: \(canConvert \? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary"/.test(res12) &&
+    /\.lf-btn\.sp-convd \{[^}]*background: #e3f4ea;[^}]*color: #0b5d36;/.test(SRC));
+  check('the Liturgy App Files box keeps only what has no document beside it, and is not drawn when that is nothing',
+    /return !m \|\| !getItem\(m\[1\]\);/.test(ready12) && /if \(d && !d\.svlGone && !rows\.length\) return '';/.test(ready12));
+  check('after converting, its document is marked and scrolled to', /var conv = _spFilesOf\(it\.id\), fresh = _sp\.fresh && conv\.some\(function\(r\) \{ return r\.id === _sp\.fresh; \}\);/.test(res12) && /sp-doc--conv/.test(res12) &&
+    /document\.querySelector\('#liturgyServicePanel \.sp-doc\.is-new'\)/.test(fn('spReady')));
+  check('a service reached any way reads its year folders (they were read only by the landing page and Services, so a service button left every document at No year)',
+    /if \(!_lfFoldersAsked\) \{\s*_lfFoldersAsked = true;\s*var keepOcc = _currentOccasion;\s*_currentOccasion = null;\s*loadOccFolders\(\)\.then\(function\(\) \{ if \(_sp\.occ === occId\) renderService\(\); \}\);/.test(fn('openService')));
+  check('Convert again starts on the kind asked for, else the coming service\'s, and on the Sundays the Use window had',
+    /type: opts\.type \|\| \(\(occ && occ\.id === 'ordinary-contemporary'\) \? 'contemporary'\s*: \(_spData && _spData\.occ === occId && _spData\.next && _spData\.next\.type\) \|\| 'traditional'\)/.test(fn('spConvert')) &&
+    /spConvert\(docId, \{ type: type, days: days \}\);/.test(fn('spUseReconvert')));
+  if (S) {
+    try {
+      const names = ['_spFilesOf', '_spAfterConvert', 'spUseDoc', '_spTypeName', '_spFileTag', '_spUseDraw', 'spUseDay', 'spUseFile', 'spUseClose', '_spUseKeepDays',
+        'spUseLeave', 'spUseGo', 'spUseReconvert', '_spSaveDays', 'spConvMenu', 'spConvAct'];
+      const bodies = names.map(fn);
+      if (!bodies.every(Boolean)) throw new Error('missing: ' + names.filter((n, i) => !bodies[i]).join(', '));
+      const log = [], els = {}, db = {};
+      const mkEl = () => ({ id: '', className: '', innerHTML: '', attrs: {}, addEventListener() {}, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
+        remove() { delete els[this.id]; }, querySelector() { return null; }, contains() { return false; } });
+      const env = {
+        document: { getElementById: id => els[id] || null, createElement: () => mkEl(), body: { appendChild: el => { els[el.id] = el; } }, activeElement: null },
+        _sp: { occ: 'advent' }, _occSvlData: {},
+        getItem: id => ({ d1: { id: 'd1', title: 'Advent liturgy' } })[id] || null,
+        showToast: (m) => log.push('toast ' + m), _spLoad: () => log.push('reload'), spUseFor: (id, key) => log.push('use ' + id + ' ' + key),
+        spConvert: (id, o) => log.push('convert ' + id + ' ' + JSON.stringify(o)), spPreviewReady: id => log.push('preview ' + id),
+        spSundays: id => log.push('sundays ' + id), spDeleteReady: id => log.push('delete ' + id),
+        _spFloat: (btn, id, html, forId) => { const m = mkEl(); m.id = id; m.innerHTML = html; m.attrs['data-for'] = forId; els[id] = m; }, _spFloatClose: id => { delete els[id]; },
+        _lfLongDate: k => 'long ' + k, _lfShortDate: k => k.slice(5), _lfWhen: v => 'on ' + String(v).slice(0, 10),
+        SBQ_LITURGY: { _sb: () => ({ from: () => {
+          const q = { _id: null, _upd: null,
+            select() { return q; }, update(v) { q._upd = v; return q; },
+            eq(k, v) { q._id = v; return q; },
+            then(ok, bad) {
+              let r;
+              if (q._upd) { db[q._id] = Object.assign({}, db[q._id] || {}, q._upd); log.push('write ' + q._id + ' ' + JSON.stringify(q._upd.data.forDays || [])); r = { data: [{ id: q._id, data: db[q._id].data }] }; }
+              else r = { data: db[q._id] ? [{ data: db[q._id].data }] : [] };
+              return Promise.resolve(r).then(ok, bad);
+            } };
+          return q;
+        } }) }
+      };
+      const up = [{ key: '2026-11-29', day: '1st Sunday of Advent', type: 'contemporary' }, { key: '2026-12-06', day: '2nd Sunday of Advent', type: 'traditional' },
+        { key: '2026-12-13', day: '3rd Sunday of Advent', type: 'contemporary' }];
+      const rows = [{ id: 'trad', occasion_id: 'advent', year: 2025, order_type: 'traditional', made_from: 'doc:d1', updated_at: '2026-11-15T14:00:00Z', data: { forDays: ['advent:1'] } },
+        { id: 'svl', occasion_id: 'advent', year: 2025, order_type: 'traditional', made_from: 'order:x', data: {} }];
+      env._spData = { occ: 'advent', rows, upcoming: up };
+      rows.forEach(r => { db[r.id] = { data: JSON.parse(JSON.stringify(r.data)) }; });
+      const keys = Object.keys(env);
+      const U = new Function('OCCASIONS', 'LL_SUNDAYS', '_llSundayOf', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycle', '_llYearText', '_spUseTarget', 'getOccasionById', '_lfE', ...keys,
+        bodies.join('\n') + '\nreturn { filesOf: _spFilesOf, after: _spAfterConvert, doc: spUseDoc, day: spUseDay, file: spUseFile, leave: spUseLeave, go: spUseGo, again: spUseReconvert, menu: spConvMenu, act: spConvAct, state: function() { return _spUse; } };')(
+        S.OCCASIONS, S.SUNDAYS, S.sundayOf, S.forSunday, S.toggle, S.html, S.cycle, S.yearText, S.useTarget, id => S.OCCASIONS.find(o => o.id === id) || null,
+        s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), ...keys.map(k => env[k]));
+      const tick = () => new Promise(r => setTimeout(r, 0));
+      check('a document\'s files are those converted from it, newest first; one saved from the Builder is not', U.filesOf('d1').map(r => r.id).join() === 'trad' && U.filesOf('nope').length === 0);
+      U.doc('d1');
+      let html = (els.spUse || {}).innerHTML || '';
+      check('Use: a Traditional file for Advent 1, when Advent 1 is Contemporary, says so and offers to convert it again for Contemporary -- it is not put where it cannot load',
+        /Which Sundays of Advent/.test(html) && /The next of those Sundays, <b>long 2026-11-29<\/b>, is a Contemporary service/.test(html) &&
+        /spUseReconvert\(this\.dataset\.type\)/.test(html) && /data-type="contemporary"/.test(html) && !/spUseGo/.test(html), html.slice(0, 400));
+      U.day('advent:2');
+      html = els.spUse.innerHTML;
+      check('ticking Advent 2 as well: it will be used for 6 December, the next of its Sundays of its kind', U.state().days.join() === 'advent:1,advent:2' &&
+        /It will be used for <b>long 2026-12-06<\/b>/.test(html) && /Use it for 12-06/.test(html) && /data-key="2026-12-06"/.test(html));
+      U.go('2026-12-06'); await tick(); await tick();
+      check('Use keeps the Sundays ticked (written and read back), then opens that Sunday\'s order with it', log.indexOf('write trad ["advent:1","advent:2"]') !== -1 &&
+        log.indexOf('use trad 2026-12-06') > log.indexOf('write trad ["advent:1","advent:2"]') && !els.spUse && U.state() === null, log.join(' | '));
+      check('every Sunday of the season (none ticked) is the first coming one of its kind', (() => {
+        U.doc('d1'); const was = U.state().days.join(); U.day('advent:1'); U.day('advent:2'); return was === 'advent:1,advent:2' && U.state().days.length === 0 && /It will be used for <b>long 2026-12-06<\/b>/.test(els.spUse.innerHTML);
+      })());
+      const nLog = log.length;
+      U.leave(); await tick();
+      check('Cancel (opened from the row) changes nothing', log.length === nLog && !els.spUse);
+      U.after('trad'); U.day('advent:3'); await tick();
+      check('after converting it opens fresh: says where it went; Leave it keeps the Sundays ticked', /Converted to a Liturgy App File/.test(els.spUse.innerHTML) &&
+        /Leave it/.test(els.spUse.innerHTML) && (U.leave(), true));
+      await tick(); await tick();
+      check('...written and read back', log.some(l => /^write trad \["advent:1","advent:2","advent:3"\]$/.test(l)), log.slice(nLog).join(' | '));
+      U.doc('d1'); U.again('contemporary');
+      check('Convert again for Contemporary opens Convert on that kind and those Sundays', log[log.length - 1] === 'convert d1 {"type":"contemporary","days":["advent:1","advent:2","advent:3"]}' && !els.spUse, log[log.length - 1]);
+      rows.push({ id: 'cont', occasion_id: 'advent', year: 2025, order_type: 'contemporary', made_from: 'doc:d1', updated_at: '2026-11-16T09:00:00Z', data: {} });
+      db.cont = { data: {} };
+      U.doc('d1');
+      html = els.spUse.innerHTML;
+      check('two files from one document: the newest is chosen, the other offered; Contemporary for every Sunday is used for 29 November',
+        U.state().fileId === 'cont' && /name="spUseFile"/.test(html) && /Traditional services · 2025/.test(html) && /It will be used for <b>long 2026-11-29<\/b>/.test(html));
+      U.file('trad');
+      check('choosing the other file takes its own Sundays', U.state().fileId === 'trad' && U.state().days.join() === 'advent:1,advent:2,advent:3' && /long 2026-12-06/.test(els.spUse.innerHTML));
+      U.leave();
+      U.menu({}, 'd1');
+      const menu = (els.spConvMenu || {}).innerHTML || '';
+      check('the Converted menu: each file\'s preview, Sundays and delete, named by kind; and Convert again', /Preview the app file \(Contemporary services · 2025\)/.test(menu) &&
+        /Which Sundays \(Traditional services · 2025\)/.test(menu) && /Delete the app file/.test(menu) && /data-act="again"/.test(menu), menu.slice(0, 300));
+      U.act({ getAttribute: k => ({ 'data-act': 'days', 'data-fid': 'cont' })[k] });
+      check('...whose items do what they say', log[log.length - 1] === 'sundays cont' && !els.spConvMenu, log[log.length - 1]);
+    } catch (e) { check('the Use window runs', false, e.stack); }
   }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
