@@ -4235,25 +4235,39 @@ the anon key -- verify as `postgres`, not as the app.
       2024 Pentecost .doc it came out clean. GEMINI_API_KEY is Vercel's, so the
       AI path is tested on the live site only.
       When Gemini is busy (503 "high demand" -- both of the first two live
-      calls, 2026-11-14) `_lib/aiRetry.ts` (`withBusyRetry`) asks
-      `gemini-flash-lite-latest` next, then both again after 2.5s, within a 25s
-      budget -- in TURN, because an overloaded model is slow to say no (about
-      10s each, the PDF sent every time) and asking it twice first left the
-      lighter one "not asked: out of time"; a backup failing another way is
-      dropped and the rest carry on; only busy
-      answers (503, 429, UNAVAILABLE, overloaded) are retried, and the person is
-      told "busy, try again in a minute" (503, `busy: true`) when all were.
-      Google's library (`@google/genai`) retries a busy answer itself, 5 times
-      with waits growing from 1s, which spent the whole budget on the first
-      model -- the lighter one was never asked -- so the client is made with
+      calls, 2026-11-14) `_lib/aiRetry.ts` (`withBusyRetry`) asks the next
+      model, then both again after 2.5s -- in TURN, because an overloaded
+      model is slow to say no (about 10s each, the PDF sent every time) and
+      asking it twice first left the other "not asked: out of time"; a backup
+      failing another way is dropped and the rest carry on; only busy answers
+      (503, 429, UNAVAILABLE, overloaded) are retried, and the person is told
+      "busy, try again in a minute" (503, `busy: true`) when all were.
+      **The lighter model goes first** (`gemini-flash-lite-latest`, then
+      flash), as in parse-song-sheet: a busy flash spent the time a liturgy
+      needs for writing. Google's library (`@google/genai`) retries a busy
+      answer itself, 5 times with waits growing from 1s, which spent the whole
+      budget on the first model, so the client is made with
       `httpOptions: { retryOptions: { attempts: 1 } }`. Every route that relies
-      on its own retry needs the same. Each model is asked first with
-      thinking off (`thinkingBudget: 0`: copying words needs none, and it is
-      quicker); flash-lite refused that with nothing but "400
-      INVALID_ARGUMENT: Request contains an invalid argument", so a refusal
-      naming thinking OR an invalid argument (`refusedSetting`, never a busy
-      one) is asked again without it, and that model is not offered the
-      setting in the next round.
+      on its own retry needs the same. **Thinking:** each model is asked with
+      the least it takes (`THINKING`, through `settingLadder`): none
+      (`thinkingBudget: 0`), then `thinkingLevel: MINIMAL`, then its own
+      default. Lite refused the first with nothing but "400 INVALID_ARGUMENT:
+      Request contains an invalid argument", so a refusal naming thinking or an
+      invalid argument (`refusedSetting`; never a busy answer, a cut-off or a
+      bad API key) moves to the next setting, and the model starts the next
+      round where it was taken. **The deadline:** asked properly, the Good
+      Friday 2025 PDF then ran into Vercel's 60s and got its HTML page
+      (FUNCTION_INVOCATION_TIMEOUT; the review window could only say "did not
+      answer (status 504)"). The route keeps its own 54s (`DEADLINE_MS`, from
+      the request's start), hands every call what is left as an
+      `abortSignal` (the library rejects with `AbortError`, `isCutOff`), starts
+      no try with under 8s left (`MIN_TRY_MS`), and a try cut off ends the run
+      as `AiBusyError` with `slow` -- 504 JSON, `slow: true`, "took longer than
+      the page can wait ... a .docx is read as written, without AI". Every try
+      is logged (`parse-liturgy try:` model, setting, ms, outcome). Not done:
+      temperature 0, which parse-song-sheet uses -- Google advises its newer
+      models below 1.0 can loop, and a loop on a long liturgy runs to the
+      deadline.
     - **Matched to the Builder's sections** (`_cvMatch`, pure): the same name,
       a name the church uses for it (`CV_SAME`), or one naming it; every
       reading goes to Scripture Readings. `WO.docLiturgy` (`_woDocLiturgy`,

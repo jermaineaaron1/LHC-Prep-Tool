@@ -321,32 +321,71 @@ try {
     const LITE_400 = new Error('{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}');
     check('a refused setting is known by "invalid argument" or by "thinking"; a busy or missing model is not',
       !!R.refusedSetting && R.refusedSetting(LITE_400) && R.refusedSetting(new Error('Thinking budget is not supported for this model.')) &&
-      !R.refusedSetting(BUSY) && !R.refusedSetting(new Error('{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}')));
-    if (R.refusedSetting) {
-      // The route's own attempt, over the retry: flash busy, lite refuses the
-      // setting, lite without it answers.
+      !R.refusedSetting(BUSY) && !R.refusedSetting(new Error('{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}')) &&
+      !R.refusedSetting(new Error('{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}')));
+    if (R.settingLadder) {
+      // The route's own attempt, over the retry: the lighter model first; it
+      // refuses "no thinking" and "minimal thinking", and answers with its
+      // own default. The next round starts where it took one.
       const asked = [];
-      const said = { 'flash/off': BUSY, 'lite/off': LITE_400, 'lite/on': 'liturgy' };
-      const ask = async (model, noThinking) => {
-        const k = model + (noThinking ? '/off' : '/on');
+      const said = { 'lite/0': LITE_400, 'lite/1': LITE_400, 'lite/2': 'liturgy' };
+      const ask = async (model, i) => {
+        const k = model + '/' + i;
         asked.push(k);
         const a = said[k];
         if (a instanceof Error) throw a;
         return a;
       };
-      const got = await R.withBusyRetry(['flash', 'lite'], async (model) => {
-        try { return await ask(model, true); } catch (err) { if (!R.refusedSetting(err)) throw err; return await ask(model, false); }
-      }, { sleep: async () => {}, now: () => 0 }).then(v => v, e => ({ err: e }));
-      check('lite turned away for the setting is asked again without it, and answers',
-        got.model === 'lite' && got.value === 'liturgy' && asked.join() === 'flash/off,lite/off,lite/on', asked.join());
+      const SET = ['budget0', 'minimal', null];
+      const ladder = R.settingLadder(SET);
+      const got = await R.withBusyRetry(['lite', 'flash'], (model) => ladder(model, (st) => ask(model, SET.indexOf(st))),
+        { sleep: async () => {}, now: () => 0 }).then(v => v, e => ({ err: e }));
+      check('a refused setting is asked again with the next, until one is taken',
+        got.model === 'lite' && got.value === 'liturgy' && asked.join() === 'lite/0,lite/1,lite/2', asked.join());
+      asked.length = 0;
+      await ladder('lite', (st) => ask('lite', SET.indexOf(st)));
+      check('...and the setting it took is where that model starts next time', asked.join() === 'lite/2', asked.join());
+      let thrown = null;
+      await R.settingLadder(['a', 'b'])('m', async () => { throw LITE_400; }).catch(e => { thrown = e; });
+      check('the last setting refused too is a real error, passed on', thrown === LITE_400);
+      let n = 0;
+      await R.settingLadder(['a', 'b'])('m', async () => { n++; throw BUSY; }).catch(() => {});
+      check('a busy answer is not a refused setting: asked once, left to the retry', n === 1);
     }
+    // Cut off by the route's own deadline (the Good Friday 2025 PDF ran into
+    // Vercel's 60s on 2026-11-14): the library rejects with an AbortError.
+    const CUT = Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    check('a try cut off is known: the library\'s AbortError, fetch\'s TimeoutError, Google\'s DEADLINE_EXCEEDED; busy and refusals are not',
+      !!R.isCutOff && R.isCutOff(CUT) && R.isCutOff(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })) &&
+      R.isCutOff(new Error('{"error":{"code":504,"message":"Deadline expired before operation could complete.","status":"DEADLINE_EXCEEDED"}}')) &&
+      !R.isCutOff(BUSY) && !R.isCutOff(LITE_400) && !R.refusedSetting(CUT));
+    r = await run([CUT, 'liturgy']);
+    check('a try cut off ends the run as "too slow", the next model said not asked',
+      r.out.err && r.out.err.busy === true && r.out.err.slow === true && r.calls.join() === 'flash' &&
+      JSON.stringify(r.out.err.reasons) === JSON.stringify(['flash: no answer in time (This operation was aborted)', 'lite: not asked: out of time']),
+      JSON.stringify(r.out.err && r.out.err.reasons));
+    r = await run([BUSY, CUT, 'liturgy']);
+    check('...after a busy answer too; busy alone is not slow',
+      r.out.err && r.out.err.slow === true && r.calls.join() === 'flash,lite' && (await run([BUSY, BUSY, BUSY, BUSY])).out.err.slow === false);
   }
   if (RSRC) {
     // Google's library retried a busy answer five times by itself, and the
     // lighter model was never reached within the budget (found live).
-    check('the route asks again without the setting only when it was refused, and remembers it for the next round',
-      /if \(!refusedSetting\(err\)\) throw err;\s*thinks\.add\(model\);\s*return await ask\(model, false\);/.test(RSRC) &&
-      /if \(thinks\.has\(model\)\) return await ask\(model, false\);\s*try \{\s*return await ask\(model, true\);/.test(RSRC));
+    check('the route asks each model with the least thinking it takes: none, minimal, then its own default',
+      /const THINKING[^=]*= \[\s*\{ thinkingBudget: 0 \},\s*\{ thinkingLevel: ThinkingLevel\.MINIMAL \},\s*null,\s*\];/.test(RSRC) &&
+      /const ladder = settingLadder\(THINKING\);/.test(RSRC) &&
+      /withBusyRetry\(GEMINI_MODELS, \(model\) => ladder\(model, \(thinking\) => ask\(model, thinking\)\),/.test(RSRC) &&
+      /\.\.\.\(thinking \? \{ thinkingConfig: thinking \} : \{\}\),/.test(RSRC));
+    check('the route keeps its own deadline inside Vercel\'s 60s: every call cut off when it comes, no try started too late',
+      /const DEADLINE_MS = 54000;/.test(RSRC) && /export const maxDuration = 60;/.test(RSRC) &&
+      /const left = \(\) => DEADLINE_MS - \(Date\.now\(\) - t0\);/.test(RSRC) &&
+      /abortSignal: AbortSignal\.timeout\(Math\.max\(1000, left\(\)\)\),/.test(RSRC) && /\{ budgetMs: left\(\) - MIN_TRY_MS \}/.test(RSRC));
+    check('a liturgy cut off is told so in words (504, slow), never Vercel\'s error page',
+      /if \(err\.slow\) \{[\s\S]{0,200}error: 'Reading this liturgy took longer than the page can wait/.test(RSRC) &&
+      /slow: true, reasons: err\.reasons,\s*\}, \{ status: 504 \}\);/.test(RSRC));
+    check('every try is written to the log: model, setting, time, outcome',
+      /console\.log\('parse-liturgy try:', model, how, \(Date\.now\(\) - at\) \+ 'ms', 'answered'\);/.test(RSRC) &&
+      /console\.log\('parse-liturgy try:', model, how, \(Date\.now\(\) - at\) \+ 'ms', reasonOf\(err\)\);/.test(RSRC));
     check('the library asks once; the retry above decides the rest', /new GoogleGenAI\(\{ apiKey, httpOptions: \{ retryOptions: \{ attempts: 1 \} \} \}\)/.test(RSRC));
     check('the route sends the reasons with "busy", and logs them',
       /busy: true, reasons: err\.reasons \}/.test(RSRC) && /console\.warn\('parse-liturgy: every try was turned away:'/.test(RSRC));
@@ -356,8 +395,8 @@ try {
     /e\.reasons = Array\.isArray\(j\.reasons\) \? j\.reasons : \[\];/.test(cvr) && /cv\.why = \(e && Array\.isArray\(e\.reasons\)\)/.test(cvr) &&
     /class="cv-why"><b>What Google said<\/b>/.test(cvd));
   if (RSRC) {
-    check('the route asks flash, then flash-lite, through the retry, and says "busy" in words',
-      /const GEMINI_MODELS = \['gemini-flash-latest', 'gemini-flash-lite-latest'\];/.test(RSRC) &&
+    check('the route asks flash-lite, then flash, through the retry, and says "busy" in words',
+      /const GEMINI_MODELS = \['gemini-flash-lite-latest', 'gemini-flash-latest'\];/.test(RSRC) &&
       /await withBusyRetry\(GEMINI_MODELS,/.test(RSRC) && /err instanceof AiBusyError/.test(RSRC) && /busy: true, reasons: err\.reasons \}, \{ status: 503 \}/.test(RSRC));
   }
 

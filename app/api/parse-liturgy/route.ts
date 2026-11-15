@@ -18,19 +18,40 @@
 // uploaded (isOwnStorage), as parse-lectionary does.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { isOwnStorage } from '../_lib/isOwnStorage';
-import { withBusyRetry, AiBusyError, refusedSetting } from '../_lib/aiRetry';
+import { withBusyRetry, AiBusyError, settingLadder, reasonOf } from '../_lib/aiRetry';
 
-// The flash model first; when it is busy, the lighter flash-lite. Both are
-// Google's version-free aliases, as parse-lectionary uses, so a retired dated
-// model never breaks this route.
-const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
+// The lighter flash-lite first; when it is busy, flash. Both are Google's
+// version-free aliases, as parse-lectionary uses, so a retired dated model
+// never breaks this route. Lite leads on measurement, as in parse-song-sheet:
+// a busy flash took about ten seconds just to say no (live, 2026-11-14), time
+// a whole liturgy needs for writing, and copying words is well within lite.
+const GEMINI_MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
+
+// Asked with as little thinking as each model takes: none (Gemini 2.5's
+// budget), then the least (the newer models' level), then the model's own
+// default. Copying words needs no reasoning, and thinking first costs most of
+// the time a whole liturgy has. Lite refused the first with only
+// "400 INVALID_ARGUMENT" (2026-11-14); each refusal is quick.
+const THINKING: Array<{ thinkingBudget?: number; thinkingLevel?: ThinkingLevel } | null> = [
+  { thinkingBudget: 0 },
+  { thinkingLevel: ThinkingLevel.MINIMAL },
+  null,
+];
 
 export const runtime = 'nodejs';
 // A whole liturgy is a lot of words to write back. 60s is allowed on every
 // plan and is what the other document routes use.
 export const maxDuration = 60;
+// The platform kills the function at maxDuration and answers with an HTML
+// page ("FUNCTION_INVOCATION_TIMEOUT"), which the review window can only call
+// "the reader did not answer (status 504)" -- what the Good Friday 2025 PDF
+// got on 2026-11-14. So the route keeps its own deadline inside it, every
+// call to Google is cut off when it comes, and the answer is a sentence.
+const DEADLINE_MS = 54000;
+// No try starts with less than this left: too little to write a liturgy in.
+const MIN_TRY_MS = 8000;
 
 const LITURGY_SCHEMA = {
   type: Type.OBJECT,
@@ -122,6 +143,10 @@ type Part = { kind: string; title: string; slides: string[] };
 type Section = { title: string; leader?: string | null; parts: Part[] };
 
 export async function POST(req: NextRequest) {
+  // Ours, inside the platform's 60s: what is left of it is handed to each
+  // try, so the person always gets an answer in words (gotcha 101).
+  const t0 = Date.now();
+  const left = () => DEADLINE_MS - (Date.now() - t0);
   try {
     const { url } = await req.json();
     if (!url || typeof url !== 'string') {
@@ -174,44 +199,52 @@ export async function POST(req: NextRequest) {
     // busy answer on 2026-11-14 listed only gemini-flash-latest, the lighter
     // model never asked. withBusyRetry decides when to ask again, and whom.
     const ai = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
-    // Copying words needs no reasoning, and thinking first costs most of the
-    // time a whole liturgy has. A model that will not run without thinking
-    // refuses the setting, and is asked again without it.
-    const ask = (model: string, noThinking: boolean) => ai.models.generateContent({
-      model,
-      contents: [{ role: 'user', parts }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: LITURGY_SCHEMA,
-        ...(noThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-      },
-    });
-    // When Google's flash model is busy (it was, the day this went live), the
-    // answer goes to the lighter flash-lite model, and round both again
-    // after a moment, before the person is told to try again (_lib/aiRetry).
+    // One try: cut off when the deadline comes (Math.max: never an instant
+    // abort), and written to the log -- which model, which setting, how long,
+    // what came of it -- so a failure can be pinned down from Vercel's logs.
+    const ask = async (model: string, thinking: (typeof THINKING)[number]) => {
+      const at = Date.now();
+      const how = thinking ? JSON.stringify(thinking) : 'default thinking';
+      try {
+        const res = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: LITURGY_SCHEMA,
+            ...(thinking ? { thinkingConfig: thinking } : {}),
+            abortSignal: AbortSignal.timeout(Math.max(1000, left())),
+          },
+        });
+        console.log('parse-liturgy try:', model, how, (Date.now() - at) + 'ms', 'answered');
+        return res;
+      } catch (err: unknown) {
+        console.log('parse-liturgy try:', model, how, (Date.now() - at) + 'ms', reasonOf(err));
+        throw err;
+      }
+    };
+    // Each model with the least thinking it takes (a refusal is asked again
+    // with the next setting, remembered for the next round); when one is busy,
+    // the next, and round both again after a moment (_lib/aiRetry). No try
+    // starts with less than MIN_TRY_MS of the deadline left.
+    const ladder = settingLadder(THINKING);
     let response;
-    // A model that refused the setting once is not offered it again in the
-    // next round: each refusal costs a whole round trip with the file.
-    const thinks = new Set<string>();
     try {
-      ({ value: response } = await withBusyRetry(GEMINI_MODELS, async (model) => {
-        if (thinks.has(model)) return await ask(model, false);
-        try {
-          return await ask(model, true);
-        } catch (err: unknown) {
-          // Thinking off was refused (by name, or as an invalid argument --
-          // all gemini-flash-lite-latest said, live, 2026-11-14): ask once
-          // more without it. Its answer, good or bad, stands.
-          if (!refusedSetting(err)) throw err;
-          thinks.add(model);
-          return await ask(model, false);
-        }
-      }));
+      ({ value: response } = await withBusyRetry(GEMINI_MODELS, (model) => ladder(model, (thinking) => ask(model, thinking)),
+        { budgetMs: left() - MIN_TRY_MS }));
     } catch (err: unknown) {
       if (err instanceof AiBusyError) {
         // What each model said, word for word, so "busy" can be told apart
         // from a free-tier key turned away or a backup model this key lacks.
         console.warn('parse-liturgy: every try was turned away:', err.reasons.join(' | '));
+        if (err.slow) {
+          // Cut off while it was writing: the document is long for one go.
+          return NextResponse.json({
+            error: 'Reading this liturgy took longer than the page can wait (about a minute). A long service sometimes does. ' +
+              'Press Try again; if it keeps happening and you have it as a Word .docx, upload that -- a .docx is read as written, without AI.',
+            slow: true, reasons: err.reasons,
+          }, { status: 504 });
+        }
         return NextResponse.json({ error: 'Google’s AI is busy just now. Wait a minute, then press Try again.', busy: true, reasons: err.reasons }, { status: 503 });
       }
       throw err;
