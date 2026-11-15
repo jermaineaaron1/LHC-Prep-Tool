@@ -4439,8 +4439,14 @@ the anon key -- verify as `postgres`, not as the app.
       SAFE ZONE, the words through `WO.projectionHtml` in the LCD's Text
       settings (`lhc_projection_text_settings`), wrapping and shrinking only
       on height (`_litLcdFit`); its Size / Colour / Style changed only the
-      preview and went. The preview window goes full screen (`lfFull`, the
-      window). Make ready's Keep button took `--sp-maroon` on `<body>` and was
+      preview and went. The preview window goes full screen (`lfFull`): the
+      document alone -- header, buttons and note hidden ("the buttons and
+      functions are secondary") -- the real full screen where the device has
+      one (`requestFullscreen`, webkit's returning nothing, gotcha 71), which
+      also hides the app window's own bar, the window on an iPhone; a floating
+      Exit full screen (bottom right, clear of a PDF's own toolbar), Esc
+      leaving full screen before it closes, and the device's own exit ending
+      ours (`_lfFsChange`). Closing exits full screen first. Make ready's Keep button took `--sp-maroon` on `<body>` and was
       invisible; `.cv` gives it gold and black.
     - **Year folders on the page** (the operator, 2026-11-15: "How do I move
       files from one year to another? also how do I create year folders?").

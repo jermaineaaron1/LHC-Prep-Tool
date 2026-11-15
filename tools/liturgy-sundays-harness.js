@@ -205,9 +205,18 @@ try {
     /<span class="lit-lcd__tag" aria-hidden="true">SAFE ZONE<\/span>/.test(SRC) && !/id="previewFontSize"/.test(SRC) && !/id="previewFontColor"/.test(SRC));
   check('...in the Liturgy Library\'s colours', /#liturgyModal \.modal-header \{ background: radial-gradient\(circle at 88% 20%/.test(SRC) &&
     /#liturgyModal \.modal-btn-primary \{ background: #1f4d36;/.test(SRC) && /#liturgyModal \.liturgy-editor-container \{ background: #fbf7ef; \}/.test(SRC));
-  check('the preview window goes full screen and back (the window, as an iPhone has no element full screen)',
-    /onclick="LiturgyModule\.lfFull\(\)" aria-label="Full screen"/.test(fn('lfOpen')) && /var on = v\.classList\.toggle\('lf-vw--full'\);/.test(fn('lfFull')) &&
-    /\.lf-vw--full \.lf-vw__card \{ width: 100%; max-width: none; height: 100vh; height: 100dvh;/.test(SRC) && /lfFull: lfFull/.test(SRC));
+  // Then (2026-11-15): "give more priority and space for the content ... make
+  // it as full screen as possible and a way to exit".
+  check('the preview goes full screen: the document alone, the real full screen where the device has one, the window on an iPhone',
+    /onclick="LiturgyModule\.lfFull\(\)" aria-label="Full screen"/.test(fn('lfOpen')) && /_lfSetFull\(v, on\);/.test(fn('lfFull')) &&
+    /var req = v\.requestFullscreen \|\| v\.webkitRequestFullscreen;/.test(fn('lfFull')) && /if \(r && r\.catch\) r\.catch/.test(fn('lfFull')) &&
+    /\.lf-vw--full \.lf-vw__hd, \.lf-vw--full \.lf-vw__ft, \.lf-vw--full \.lf-prev-note \{ display: none; \}/.test(SRC) &&
+    /\.lf-vw--full \.lf-vw__card \{ position: relative; width: 100%; max-width: none; height: 100vh; height: 100dvh;/.test(SRC) && /lfFull: lfFull/.test(SRC));
+  check('...with a way out: a floating Exit full screen, Esc (which leaves full screen before it closes), and the device\'s own exit',
+    /class="lf-vw__exitfull" onclick="LiturgyModule\.lfFull\(\)" aria-label="Leave full screen"/.test(fn('lfOpen')) &&
+    /if \(el\.classList\.contains\('lf-vw--full'\)\) \{ e\.preventDefault\(\); lfFull\(\); \} else lfCloseViewer\(\);/.test(fn('lfOpen')) &&
+    /document\.addEventListener\('fullscreenchange', _lfFsChange\);/.test(fn('lfFull')) && /if \(v\._wentFs && v\.classList\.contains\('lf-vw--full'\)\) _lfSetFull\(v, false\);/.test(fn('_lfFsChange')) &&
+    /if \(v && _lfFsEl\(\) === v\) _lfFsExit\(\);/.test(fn('lfCloseViewer')) && /\.lf-vw--full \.lf-vw__exitfull \{ display: inline-flex;/.test(SRC));
 
   // ------------------------------------------------------------ 7. a Google Doc
   console.log('\n7. A Google Doc, read as Word');
