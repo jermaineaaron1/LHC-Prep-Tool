@@ -55,7 +55,7 @@ function check(label, ok, detail) {
 function load() {
   const names = ['_lfE', '_lfKind', '_lfBadge', '_lfYearName', '_lfNewest', '_lfItemsOf', '_lfSvlOf', '_lfShortDate',
     '_lfLongDate', '_lfWhen', '_lfLink', '_lfPlainWords', '_lfItemModel', '_lfSvlModel', '_lfFolderModel', '_lfDayModel',
-    '_lfLibraryModel', '_lfStorageFile', '_lfDownloadUrl', '_lfWordsHtml', '_lfFilePreview', '_lfSharedRow', '_lfSend', '_lfCopy'];
+    '_lfLibraryModel', '_lfStorageFile', '_lfDownloadUrl', '_lfWordsHtml', '_lfGooglePreview', '_lfFilePreview', '_lfSharedRow', '_lfSend', '_lfCopy'];
   const bodies = names.map(fn);
   const missing = names.filter((n, i) => !bodies[i]);
   if (missing.length) return { missing };
@@ -197,6 +197,20 @@ function load() {
     check('a text opens to its words, the people\'s lines bold', /<b>C: And also with you\.<\/b>/.test(rowT));
     check('a name typed with markup is shown as text', /&lt;b&gt;x/.test(A._lfSharedRow(Object.assign({}, text, { title: '<b>x' }), false)));
     check('the page says it is view only, and who to ask', /View only<\/span>/.test(shared) && /To change anything here, ask the worship team\./.test(shared));
+    // A Google document is shown, not just linked (the operator, 2026-11-15:
+    // "Double clicking or tapping on the document will preview it"): its
+    // /preview, the one page of it Google lets a site frame.
+    const gp = A._lfGooglePreview;
+    check('a Google document, sheet, deck or Drive file previews by its /preview address; anything else does not',
+      gp('https://docs.google.com/document/d/1w9drD0Hp_x-9/edit?usp=drive_link') === 'https://docs.google.com/document/d/1w9drD0Hp_x-9/preview' &&
+      gp('https://docs.google.com/spreadsheets/d/AbC/edit#gid=0') === 'https://docs.google.com/spreadsheets/d/AbC/preview' &&
+      gp('https://docs.google.com/presentation/d/Deck1/edit') === 'https://docs.google.com/presentation/d/Deck1/preview' &&
+      gp('https://drive.google.com/file/d/F1le/view?usp=sharing') === 'https://drive.google.com/file/d/F1le/preview' &&
+      gp('https://drive.google.com/open?id=Op3n') === 'https://drive.google.com/file/d/Op3n/preview' &&
+      gp('https://example.com/a?id=x') === '' && gp('') === '');
+    const gdocPv = A._lfFilePreview({ title: 'Advent 2026', fileUrl: 'https://docs.google.com/document/d/D0c/edit', fileName: 'edit' });
+    check('...in a frame, with a word for when it is private', /<iframe class="lf-prev-frame" src="https:\/\/docs\.google\.com\/document\/d\/D0c\/preview"/.test(gdocPv) &&
+      /Press <b>Open<\/b> to see it in Google\./.test(gdocPv));
   }
 
   // ------------------------------------------------------------ 5. layout

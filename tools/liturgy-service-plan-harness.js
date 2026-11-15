@@ -57,13 +57,13 @@ function check(label, ok, detail) {
 }
 const tick = () => new Promise(r => setTimeout(r, 10));
 
-const CONSTS = [block(/  var PL_CATS = \[[\s\S]*?\n  \];/), block(/  var PL_MAX_BYTES = [^\n]*;/), block(/  var PL_WHO = \{[\s\S]*?\};/), block(/  var MV_MON = \[[^\n]*\];/)];
-const NAMES = ['_mvPad', '_mvShortDate', '_plKeysOf', '_plOf', '_plProgress', '_plDueSoon', '_plLinkKind', '_plFileProblem', '_plCopyRows', '_plFromElements', '_plShareText', '_plSpeakers', '_plChordsExcerpt'];
+const CONSTS = [block(/  var PL_CATS = \[[\s\S]*?\n  \];/), block(/  var PL_MAX_BYTES = [^\n]*;/), block(/  var MV_MON = \[[^\n]*\];/)];
+const NAMES = ['_mvPad', '_mvShortDate', '_plKeysOf', '_plOf', '_plProgress', '_plDueSoon', '_plLinkKind', '_plFileProblem', '_plCopyRows', '_plFromElements', '_plShareText', '_plChordsExcerpt', '_plSongsMatching'];
 let P = null;
 try {
   const bodies = NAMES.map(fn);
   if (bodies.every(Boolean) && CONSTS.every(Boolean)) {
-    P = new Function(CONSTS.join('\n') + '\n' + bodies.join('\n') + '\nreturn { keys: _plKeysOf, of: _plOf, progress: _plProgress, soon: _plDueSoon, kind: _plLinkKind, file: _plFileProblem, copy: _plCopyRows, usual: _plFromElements, share: _plShareText, speakers: _plSpeakers, chords: _plChordsExcerpt };')();
+    P = new Function(CONSTS.join('\n') + '\n' + bodies.join('\n') + '\nreturn { keys: _plKeysOf, of: _plOf, progress: _plProgress, soon: _plDueSoon, kind: _plLinkKind, file: _plFileProblem, copy: _plCopyRows, usual: _plFromElements, share: _plShareText, chords: _plChordsExcerpt, songs: _plSongsMatching };')();
   }
 } catch (e) { P = null; console.log('  (could not build: ' + e.message + ')'); }
 
@@ -131,17 +131,27 @@ try {
     check('...in characters every phone keeps (nothing beyond the basic plane)', !/[\uD800-\uDFFF]/.test(text));
   }
 
-  // ------------------------------------------------------------ 4. speakers
-  console.log('\n4. A liturgy laid out by who says it');
+  // ------------------------------------------------------------ 4. songs
+  // The reading card that laid a part out by who says it went with the order
+  // of worship (2026-11-15): the service's page is its library now.
+  console.log('\n4. Songs to plan with');
+  check('the page has no reader of its own any more', !/function _plSpeakers\(/.test(SRC) && !/function spFull\(/.test(SRC));
   if (P) {
-    const b = P.speakers('L: Come, let us worship.\nFor God is our creator.\nC: We come with grateful hearts.\n\nCongregation (C): Amen.\nP: The Lord be with you.');
-    const t = b.map(x => x.who + (x.people ? '*' : '') + '=' + x.lines.join('/'));
-    check('"L:" is the Leader\'s until somebody else is named; "C:" and "Congregation (C):" everyone\'s, in bold',
-      t.join(' | ') === 'Leader=Come, let us worship./For God is our creator. | All*=We come with grateful hearts. | All*=Amen. | Pastor=The Lord be with you.', t.join(' | '));
-    check('words with nobody named stay as they are', JSON.stringify(P.speakers('Lord, have mercy.')) === JSON.stringify([{ who: '', people: false, lines: ['Lord, have mercy.'] }]));
-    check('"Psalm 23: The Lord is my shepherd" is words, not a speaker', P.speakers('Psalm 23: The Lord')[0].who === '');
     check('a song\'s chords, its first lines, as a reminder', P.chords('[Verse 1]\nG    D/F#\nLight of the world\n\n[Chorus]\nHere I am') === 'G    D/F#\nLight of the world');
+    const lib = [{ title: 'Be Thou My Vision' }, { title: 'Amazing Grace' }, { title: 'All Hail King Jesus' }, { id: 'x' }];
+    check('Import from Songs finds by the start of the title, A to Z', P.songs(lib, 'a').map(x => x.title).join() === 'All Hail King Jesus,Amazing Grace' &&
+      P.songs(lib, '').map(x => x.title).join() === 'All Hail King Jesus,Amazing Grace,Be Thou My Vision' && P.songs(lib, 'grace').length === 0);
   }
+  // From the operator (2026-11-15): "expand the song list by grouping it 20
+  // at a time. Also, allow the user to add a song from there".
+  check('twenty at a time, the next twenty a press away, back to twenty for a new search',
+    /var PL_SONG_PAGE = 20;/.test(SRC) && /all\.slice\(0, _plSongShown\)/.test(fn('plSongFind')) &&
+    /if \(q !== _plSongQ\) \{ _plSongQ = q; _plSongShown = PL_SONG_PAGE; \}/.test(fn('plSongFind')) && /_plSongShown \+= PL_SONG_PAGE;/.test(fn('plSongMore')) &&
+    /Showing ' \+ lib\.length \+ ' of ' \+ all\.length/.test(fn('plSongFind')));
+  check('New song opens the library\'s form, and the song saved is imported -- only into the plan it was asked from',
+    /window\._lhcNewSongThen = function\(songId\) \{/.test(fn('plSongNew')) && /WO\.openNewSongFromWO\(\);/.test(fn('plSongNew')) &&
+    /if \(_sp\.occ !== occ \|\| _plKey\(\) !== key/.test(fn('plSongNew')) && /plSongPick\(songId\);/.test(fn('plSongNew')) &&
+    /class="lf-btn pl-btn-green pl-songnew" onclick="LiturgyModule\.plSongNew\(\)"/.test(fn('plImportSong')));
 
   // ------------------------------------------------------------ 5. saving
   console.log('\n5. Saving');
