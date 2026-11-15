@@ -424,15 +424,17 @@ than a bash heredoc, which quietly eats a level of backslashes.
   - **Liturgy Order** is the service's **library** (2026-11-15): its files,
     **Liturgy Documents first** by year (then LCD Materials, Photos & Files,
     Reference Links), each document previewed on a double-click or double
-    tap, and its **Make ready** converting it into a ready liturgy the
-    Builder loads (a .docx or a Google Doc read as written, anything else
-    by AI, `/api/parse-liturgy`; checked before it is kept), and the
-    Sundays it is for ticked. Each document says when it was added and its
-    year's lectionary letter ("2024 · Year B"), and is renamed in place; the
-    preview goes full screen. Beside it: This year's liturgy (the coming
-    Sunday, the ready liturgies for it with **Use**, and how to make one),
-    the Ready-to-use Liturgies (each previewed, Used, or its Sundays
-    changed), and the tiles. No order of worship or reader: an order is
+    tap, and its **Convert** making it a Liturgy App File the Builder
+    loads (a .docx or a Google Doc read as written, anything else by AI,
+    `/api/parse-liturgy`; checked before it is kept). A converted document
+    shows a green **Converted** (its file's preview, Sundays, delete,
+    Convert again) and **Use**, which asks which Sundays of the season it is
+    for and puts it into the coming one of its kind. Each document says
+    when it was added and its year's lectionary letter ("2024 · Year B"),
+    and is renamed in place; the preview goes full screen. Beside it: This
+    year's liturgy (the coming Sunday, the Liturgy App Files for it with
+    **Use**, and how to make one), the Liturgy App Files saved from the
+    Builder (only when there are any), and the tiles. No order of worship or reader: an order is
     designed in the Builder. **Lent Sundays, Easter Season and Epiphany
     Sundays** are services beside Advent Sundays. Gotchas 103, 104.
   - **Planning Notes, Special Planning, Checklist** are a plan for one
@@ -4525,8 +4527,41 @@ the anon key -- verify as `postgres`, not as the app.
       (`spUseFor`). This year's liturgy offers only files of the coming
       Sunday's kind (`_spForNext(rows, key, type)`). The two Advent files
       were moved to 2025 to sit with their documents.
+    - **Converted and Use, on the document** (the operator, 2026-11-15: "The
+      layout to see the converted app files is a bit confusing. I would like
+      to see the converted items where the 'Convert' function is. Then allow
+      the user to 'Use' that converted liturgy to the upcoming service (if
+      Advent or Lent decide if it's only for 1 or few or all the Sundays in
+      the season)"). A document with a file made from it (`_spFilesOf`:
+      `made_from = 'doc:<id>'`, newest first) shows a green **Converted**
+      where Convert was -- its menu (`spConvMenu`): each file's preview,
+      Sundays and delete, and Convert again -- and **Use** (`spUseDoc`); the
+      row takes a line for its buttons (`.sp-doc--conv`) so the name is not
+      squeezed. The Liturgy App Files box now lists only files with no
+      document beside them (saved from the Builder, or from a document since
+      removed) and is not drawn when there are none. **The Use window**
+      (`_spUseDraw`, also what Convert opens when it is done, `fresh`): which
+      file, when a document was converted for both kinds of service
+      (`_spFileTag`); which Sundays (`spUseDay`, the season's own ticks; none
+      is every Sunday); and the coming service those give
+      (`_spUseTarget`). **Use it for <date>** keeps the Sundays ticked
+      (`_spSaveDays`: written into `data.forDays`, read back, and this page's
+      copy updated) and opens that Sunday's order with it (`spUseFor`).
+      When the Sundays ticked come first to a service of the OTHER kind --
+      Advent 1 is Contemporary in 2026, the one Advent file Traditional --
+      it says so and offers **Convert again for Contemporary**
+      (`spUseReconvert` -> `spConvert(doc, { type, days })`), since a
+      Traditional file cannot load into a Contemporary order; Convert now
+      starts on the coming service's kind, not always Traditional. Leave it
+      (after converting) keeps the Sundays ticked too; Cancel (from the row)
+      changes nothing. Also: `openService` reads the year folders when no
+      page before it has (`_lfFoldersAsked`) -- a service reached by its
+      button, not through the landing page or Services, showed every
+      document as No year and no year chips; and a row's buttons wrap
+      (`.sp-doc__acts`), where on a phone they ran off the row's left edge.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
-    years, the matching, the Google helper and the year moves.
+    years, the matching, the Google helper, the year moves and the Use
+    window.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
