@@ -104869,27 +104869,35 @@ var LiturgyModule = (function() {
             (deck ? 'Slide deck' : n + ' slide' + (n === 1 ? '' : 's')) + (it.projectable ? ' · in the LCD picker' : '') + '</span></button>';
       }).join('') + '</div>' : '<p class="lf-muted">No liturgy texts or slide decks kept for this service yet.</p>';
     } else {
+      // Every year folder the service has, empty ones too -- a year is made
+      // before anything is moved into it -- then + Year (the operator,
+      // 2026-11-15: "How do I move files from one year to another? also how
+      // do I create year folders?"). A chip takes a row dropped on it.
       var years = {};
       list.forEach(function(it) { years[_spYearOf(it, occ.id) || '—'] = true; });
-      var ys = Object.keys(years).sort().reverse();
+      _spYearFolders(occ.id).forEach(function(f) { years[f.name] = true; });
+      var ys = Object.keys(years).filter(function(y) { return y !== '—'; }).sort().reverse().concat(years['—'] ? ['—'] : []);
       if (_sp.year && !years[_sp.year]) _sp.year = '';
-      var chips = ys.length > 1 ? '<div class="sp-years">' + ['' ].concat(ys).map(function(y) {
+      var chips = '<div class="sp-years">' + [''].concat(ys).map(function(y) {
         var cy = y && y !== '—' ? _llCycleFor(occ.id, y) : '';
-        return '<button type="button" class="sp-year' + (_sp.year === y ? ' is-on' : '') + '" data-y="' + _lfE(y) + '" onclick="LiturgyModule.spYear(this.dataset.y)"' + (cy ? ' title="' + _lfE(y + ': ' + cy) + '"' : '') + '>' +
+        var drop = y ? ' ondragover="LiturgyModule.spYearOver(event, this)" ondragleave="this.classList.remove(\'is-drop\')" ondrop="LiturgyModule.spYearDrop(event, this)"' : '';
+        return '<button type="button" class="sp-year' + (_sp.year === y ? ' is-on' : '') + '" data-y="' + _lfE(y) + '" onclick="LiturgyModule.spYear(this.dataset.y)"' + drop + (cy ? ' title="' + _lfE(y + ': ' + cy) + '"' : '') + '>' +
           (y ? _lfE(y === '—' ? 'No year' : y) + (cy ? ' <small>' + _lfE(cy.slice(-1)) + '</small>' : '') : 'All years') + '</button>';
-      }).join('') + '</div>' : '';
+      }).join('') + '<button type="button" class="sp-year sp-year--add" onclick="LiturgyModule.spNewYear()" title="Make a year folder"><i class="fa-solid fa-plus" aria-hidden="true"></i> Year</button></div>';
       var shown = list.filter(function(it) { return !_sp.year || (_spYearOf(it, occ.id) || '—') === _sp.year; })
         .sort(function(a, b) { return String(_spYearOf(b, occ.id)).localeCompare(String(_spYearOf(a, occ.id))) || String(a.title || '').localeCompare(String(b.title || '')); });
       // A row opens its preview on a double-click or a double tap
       // (_spBindOpen); the eye does the same in one press, and Enter.
-      body = chips + (shown.length ? '<p class="sp-tip"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i> Double-tap ' + (tab === 'links' ? 'a link' : 'a document') + ' to preview it.</p>' +
+      body = chips + (shown.length ? '<p class="sp-tip"><i class="fa-regular fa-hand-pointer" aria-hidden="true"></i><span>Double-tap ' + (tab === 'links' ? 'a link' : 'a document') + ' to preview it' +
+          ', and choose its year there' + (window.matchMedia && window.matchMedia('(hover: hover)').matches ? ', or drag it onto a year' : '') + '.</span></p>' +
         '<ul class="sp-docs">' + shown.map(function(it) {
         var k = _lfKind(it), y = _spYearOf(it, occ.id), ext = _spExt(it);
         var canConvert = tab === 'liturgy' && !!it.fileUrl && (/^(docx|doc|pdf|xlsx|xls)$/.test(ext) || !!_spGdocId(it.fileUrl));
         var name = it.title || it.fileName || 'Untitled';
         // When it was added (the operator: "see when was last uploaded").
         var added = it.created ? 'Added ' + _lfWhen(it.created) : '';
-        return '<li class="sp-doc" tabindex="0" data-open="item" data-id="' + _lfE(it.id) + '" aria-label="' + _lfE(name) + ': double-tap to preview">' + _lfBadge(k) +
+        return '<li class="sp-doc" tabindex="0" data-open="item" data-id="' + _lfE(it.id) + '" aria-label="' + _lfE(name) + ': double-tap to preview"' +
+            ' draggable="true" ondragstart="LiturgyModule.spDragStart(event, this.dataset.id)">' + _lfBadge(k) +
           '<span class="sp-doc__t"><b>' + _lfE(name) + '</b><small>' + _lfE([k.label, y ? _llYearText(occ.id, y) : '', added].filter(Boolean).join(' · ')) + '</small></span>' +
           '<span class="sp-doc__acts">' +
             (canConvert ? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary" data-id="' + _lfE(it.id) + '" onclick="LiturgyModule.spConvert(this.dataset.id)" title="Make a ready liturgy the Liturgy Builder and LCD can use"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Make ready</span></button>' : '') +
@@ -106006,6 +106014,89 @@ var LiturgyModule = (function() {
       addItem(item, true);
       return getItem(item.id) || item;
     });
+  }
+
+  // ── Year folders: made, and moved into ───────────────────────────────
+  // A service's year folders (liturgy_occ_folders) are its things by year;
+  // the page groups by a four-figure name only, so only those are offered.
+  function _spYearFolders(occId) {
+    return (occFolders[occId] || []).filter(function(f) { return /^\d{4}$/.test(String(f && f.name || '').trim()); })
+      .map(function(f) { return { id: f.id, name: String(f.name).trim() }; });
+  }
+  function _spKeepFolder(occId, f) {
+    if (f && f.id && !(occFolders[occId] || []).some(function(x) { return x.id === f.id; })) (occFolders[occId] = occFolders[occId] || []).push({ id: f.id, name: f.name });
+  }
+  // A year typed (pure): four figures, from 1990 to 2100, or ''.
+  function _spYearIn(v) {
+    var y = String(v == null ? '' : v).trim();
+    return /^\d{4}$/.test(y) && +y >= 1990 && +y <= 2100 ? y : '';
+  }
+  function _spAskYear(title, occId) {
+    var have = _spYearFolders(occId).map(function(f) { return +f.name; });
+    var next = String(Math.max.apply(null, have.concat([new Date().getFullYear() - 1])) + 1);
+    if (typeof customPrompt !== 'function') return Promise.resolve(window.prompt(title, next));
+    return customPrompt(title, 'The year, e.g. ' + new Date().getFullYear(), next);
+  }
+  function spNewYear() {
+    var occ = _sp.occ;
+    if (!occ) return;
+    _spAskYear('New year folder', occ).then(function(v) {
+      if (v == null || !String(v).trim()) return;
+      var y = _spYearIn(v);
+      if (!y) { showToast('A year folder is a year, e.g. ' + new Date().getFullYear() + '.', 'error'); return; }
+      if (_spYearFolders(occ).some(function(f) { return f.name === y; })) { showToast(y + ' is already there.', 'info'); return; }
+      ensureOccYearFolder(occ, y).then(function(f) {
+        _spKeepFolder(occ, f);
+        if (_sp.occ === occ) renderService();
+        showToast('Year folder ' + f.name + ' made. Choose it in a file’s preview' + (window.matchMedia && window.matchMedia('(hover: hover)').matches ? ', or drag a file onto it' : '') + '.', 'success');
+      }, function(e) { showToast('Could not make the ' + y + ' folder: ' + ((e && e.message) || e), 'error'); });
+    });
+  }
+  // A document into a year's folder ('' takes it out of any), the folder made
+  // first if the year has none; with Undo.
+  function spMoveYear(id, year) {
+    var it = getItem(id);
+    if (!it) return;
+    var occ = it.occasionId || _sp.occ, was = it.occasionFolderId || null, name = it.title || it.fileName || 'The file';
+    var redraw = function() { if (_sp.occ === occ) renderService(); _lfRefreshSoon(); };
+    var put = function(f) {
+      var to = f ? f.id : null;
+      lfCloseViewer();
+      if (to === was) { showToast('“' + name + '” is already in ' + (f ? f.name : 'no year folder') + '.', 'info'); return; }
+      updateItem(id, { occasionFolderId: to });
+      redraw();
+      showToast('“' + name + '” moved to ' + (f ? f.name : 'no year folder'), 'success',
+        { action: 'Undo', duration: 7000, onAction: function() { updateItem(id, { occasionFolderId: was }); redraw(); } });
+    };
+    var y = _spYearIn(year);
+    if (!y) { put(null); return; }
+    var have = _spYearFolders(occ).filter(function(f) { return f.name === y; })[0];
+    if (have) { put(have); return; }
+    ensureOccYearFolder(occ, y).then(function(f) { _spKeepFolder(occ, f); put(f); },
+      function(e) { showToast('Could not make the ' + y + ' folder: ' + ((e && e.message) || e), 'error'); });
+  }
+  // A row dragged onto a year chip (a desk; a phone chooses in the preview).
+  function spDragStart(e, id) {
+    if (!e || !e.dataTransfer || !id) return;
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.setData('application/x-lhc-item', id);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function spYearOver(e, chip) {
+    var types = (e && e.dataTransfer && e.dataTransfer.types) || [];
+    if (Array.prototype.indexOf.call(types, 'application/x-lhc-item') === -1) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    chip.classList.add('is-drop');
+  }
+  function spYearDrop(e, chip) {
+    if (!e || !e.dataTransfer) return;
+    var id = e.dataTransfer.getData('application/x-lhc-item');
+    chip.classList.remove('is-drop');
+    if (!id) return;
+    e.preventDefault();
+    var y = chip.getAttribute('data-y');
+    spMoveYear(id, y === '—' ? '' : y);
   }
 
   // A Google Doc's id from its address (pure), or ''.
@@ -107200,7 +107291,7 @@ var LiturgyModule = (function() {
         _lfLiturgyMoveBtn(item);
     }
     if (item) {
-      acts += '<label class="lf-move"><span>Move to</span><select' + idAttr + ' onchange="LiturgyModule.lfMove(this.dataset.id, this.value)">' +
+      acts += _lfYearPick(item) + '<label class="lf-move"><span>Move to</span><select' + idAttr + ' onchange="LiturgyModule.lfMove(this.dataset.id, this.value)">' +
         '<option value="">Choose a service…</option>' +
         OCCASIONS.filter(function(o) { return o.id !== item.occasionId; }).map(function(o) {
           return '<option value="' + _lfE(o.id) + '">' + _lfE(o.label) + '</option>';
@@ -107229,6 +107320,27 @@ var LiturgyModule = (function() {
     var x = el.querySelector('.lf-vw__x');
     if (x) x.focus();
     if (row) _lfSvlFill(el.querySelector('.lf-svl'), id);
+  }
+  // Which year's folder a service's file is in, changed where it is read
+  // (2026-11-15): its folders, no year folder, or a new year.
+  function _lfYearPick(item) {
+    if (!item || !item.occasionId) return '';
+    var cur = item.occasionFolderId || '';
+    var ys = _spYearFolders(item.occasionId).sort(function(a, b) { return b.name.localeCompare(a.name); });
+    var inYear = ys.some(function(f) { return f.id === cur; });
+    return '<label class="lf-move lf-year"><span>Year</span><select data-id="' + _lfE(item.id) + '" onchange="LiturgyModule.lfMoveYear(this.dataset.id, this.value)">' +
+      '<option value=""' + (!inYear ? ' selected' : '') + '>No year folder</option>' +
+      ys.map(function(f) { return '<option value="' + _lfE(f.name) + '"' + (f.id === cur ? ' selected' : '') + '>' + _lfE(f.name) + '</option>'; }).join('') +
+      '<option value="__new">A new year…</option></select></label>';
+  }
+  function lfMoveYear(id, v) {
+    if (v !== '__new') { spMoveYear(id, v); return; }
+    var it = getItem(id);
+    _spAskYear('Move to a new year', (it && it.occasionId) || _sp.occ).then(function(y) {
+      if (y == null || !String(y).trim()) { var v2 = document.getElementById('lfViewer'); if (v2) { lfCloseViewer(); lfOpen(id); } return; }
+      if (!_spYearIn(y)) { showToast('A year folder is a year, e.g. ' + new Date().getFullYear() + '.', 'error'); return; }
+      spMoveYear(id, y);
+    });
   }
   // A service's document said to be a liturgy, or not, in so many words.
   function _lfLiturgyMoveBtn(item) {
@@ -113072,6 +113184,7 @@ var LiturgyModule = (function() {
     openService: openService, renderService: renderService, spBack: spBack, spEdit: spEdit, spReady: spReady, spAddMenu: spAddMenu,
     spAddMenuClose: _spAddMenuClose, spUpload: spUpload, fabAdd: fabAdd, spPreviewReady: spPreviewReady, plSongMore: plSongMore, plSongNew: plSongNew,
     spRename: spRename, spAddGdoc: spAddGdoc, spAddGdocSave: spAddGdocSave, spSundays: spSundays, spDay: spDay, spSundaysSave: spSundaysSave, cvDay: cvDay,
+    spNewYear: spNewYear, spMoveYear: spMoveYear, spDragStart: spDragStart, spYearOver: spYearOver, spYearDrop: spYearDrop, lfMoveYear: lfMoveYear,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -121818,6 +121931,11 @@ function filterLiturgyItems() {
   .sp-ready__yr small { font-size: 0.66rem; font-weight: 600; color: #8a7a66; }
   .sp-pill--days { background: #eef2fb; color: #2f3f73; gap: 5px; }
   .sp-year small { font-size: 0.7rem; font-weight: 700; color: #8a7a66; margin-left: 3px; }
+  .sp-year--add { border-style: dashed; color: #1f4d36; }
+  .sp-year--add i { font-size: 0.72rem; margin-right: 2px; }
+  .sp-year.is-drop { background: #fff3cf; border-color: #c9a24a; box-shadow: 0 0 0 3px rgba(201, 162, 74, 0.3); }
+  .sp-doc[draggable="true"] { -webkit-user-drag: element; }
+  .lf-year select { min-width: 140px; }
   .sp-year.is-on small { color: #333; }
   .sp-res__adds { display: flex; flex-wrap: wrap; gap: 8px; }
   .ll-days { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -249,7 +249,7 @@ try {
     check('...never from a tap on one of its buttons (Make ready, the eye, Share)', ctl === 2);
   } catch (e) { check('a document opens on a double-click or a double tap', false, e.message); }
   check('the rows say so, and are not zoomed or selected by the second tap',
-    /data-open="item" data-id="/.test(fn('_spResHtml')) && /Double-tap ' \+ \(tab === 'links' \? 'a link' : 'a document'\) \+ ' to preview it\./.test(fn('_spResHtml')) &&
+    /data-open="item" data-id="/.test(fn('_spResHtml')) && /Double-tap ' \+ \(tab === 'links' \? 'a link' : 'a document'\) \+ ' to preview it' \+/.test(fn('_spResHtml')) &&
     /\.sp-doc\[data-open\], \.sp-ready__row\[data-open\] \{ cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; \}/.test(SRC) &&
     /_spBindOpen\(p\);/.test(ren));
   check('the click that follows a double tap does not close the preview it opened',

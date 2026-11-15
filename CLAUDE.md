@@ -4442,8 +4442,20 @@ the anon key -- verify as `postgres`, not as the app.
       preview and went. The preview window goes full screen (`lfFull`, the
       window). Make ready's Keep button took `--sp-maroon` on `<body>` and was
       invisible; `.cv` gives it gold and black.
+    - **Year folders on the page** (the operator, 2026-11-15: "How do I move
+      files from one year to another? also how do I create year folders?").
+      The old planning page's Add Year and drag-to-folder were not reached
+      after #468. Now the year chips show every year folder the service has
+      (`_spYearFolders`: four-figure names; empty ones too, to move into),
+      then **+ Year** (`spNewYear`, through `ensureOccYearFolder`, which
+      writes one row and reads it back); a file's preview has **Year**
+      (`_lfYearPick`: its folders, No year folder, A new year…); and on a desk
+      a row drags onto a chip (`spDragStart` / `spYearDrop`, only rows: the
+      drag carries `application/x-lhc-item`, so a file dragged in from the
+      desktop is not taken for one). Every way ends in `spMoveYear`, with
+      Undo. A file with no folder still shows a year its name gives.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
-    years, the matching and the Google helper.
+    years, the matching, the Google helper and the year moves.
 
 ## Quick Commands for Claude Code
 
