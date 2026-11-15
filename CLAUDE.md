@@ -4505,6 +4505,26 @@ the anon key -- verify as `postgres`, not as the app.
       the page redraws or scrolls; Esc and the arrow keys; reduced motion
       stops the animation. Testing in a hidden pane: turn transitions off
       first, or the spotlight is measured at its last step.
+    - **Convert to a Liturgy App File** (the operator, 2026-11-15: "say
+      'Convert to Liturgy App File' and it should sit in the year where it's
+      been assigned and not to any other year. From there, after the
+      conversion, take the user to the set and provide the option to use it
+      for the upcoming year or leave it"). Make ready is **Convert**; a ready
+      liturgy is a **Liturgy App File**, the list **Liturgy App Files**. A
+      converted file's year is its document's (`yearFixed`, shown, not
+      typed); a document with no year is given one in the window and filed
+      in it with its file; the file's Sundays dialog no longer changes its
+      year, and moving the document's year moves its files with it
+      (`_spYearConverted`, read back; Undo moves them back). After
+      converting: the page goes to the file's year with the file marked, then
+      `_spAfterConvert` offers **Use it for <date>** -- the first coming
+      service it suits (`_spUseTarget` over `_spData.upcoming`,
+      `_spUpcomingFor`: its Sundays and its kind of service, since a
+      Traditional file does not load into a Contemporary order) -- or **Leave
+      it**; Use with no order for that date says so, with Go to Orders
+      (`spUseFor`). This year's liturgy offers only files of the coming
+      Sunday's kind (`_spForNext(rows, key, type)`). The two Advent files
+      were moved to 2025 to sit with their documents.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
     years, the matching, the Google helper and the year moves.
 

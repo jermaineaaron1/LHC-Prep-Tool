@@ -65,13 +65,13 @@ try {
   const parts = [
     blk(/  var OCCASIONS = \[[\s\S]*?\r?\n  \];/), blk(/  var LL_ORD = [^\n]*;/), (() => { try { return extractFrom(SRC, /^  var LL_SUNDAYS = \{/); } catch (e) { return ''; } })(),
     blk(/  var LL_LATE = [^\n]*;/),
-    ['_occasionKind', '_llCycle', '_llSundayOf', '_llSundaysText', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycleFor', '_llYearText', '_spForNext', '_spGdocId'].map(fn).join('\n')
+    ['_occasionKind', '_llCycle', '_llSundayOf', '_llSundaysText', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycleFor', '_llYearText', '_spForNext', '_spGdocId', '_spUpcomingFor', '_spUseTarget'].map(fn).join('\n')
   ];
   if (parts.every(Boolean)) {
     S = new Function(parts.join('\n') + '\nfunction getOccasionById(id) { return OCCASIONS.filter(function(o) { return o.id === id; })[0] || null; }' +
       '\nfunction _lfE(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }' +
       '\nreturn { OCCASIONS: OCCASIONS, SUNDAYS: LL_SUNDAYS, sundayOf: _llSundayOf, text: _llSundaysText, forSunday: _llForSunday, toggle: _llDaysToggle, html: _llDaysHtml,' +
-      ' cycle: _llCycle, cycleFor: _llCycleFor, yearText: _llYearText, forNext: _spForNext, gdocId: _spGdocId };')();
+      ' cycle: _llCycle, cycleFor: _llCycleFor, yearText: _llYearText, forNext: _spForNext, gdocId: _spGdocId, upcoming: _spUpcomingFor, useTarget: _spUseTarget };')();
   } else console.log('  (the pieces are not all on the page)');
 } catch (e) { S = null; console.log('  (could not build: ' + e.message + ')'); }
 
@@ -155,9 +155,9 @@ try {
   console.log('\n5. The service page');
   const mk = fn('_spMakeHtml');
   check('This year\'s liturgy: the coming Sunday with its lectionary year, the ready liturgies for it with Use, and how to make one',
-    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(mk) && /\[next\.day, cyc\]/.test(mk) &&
+    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : '', next\.type\)/.test(mk) && /\[next\.day, cyc\]/.test(mk) &&
     /onclick="LiturgyModule\.spUse\(this\.dataset\.id\)"><i class="fa-solid fa-download" aria-hidden="true"><\/i><span>Use<\/span>/.test(mk) &&
-    /How to make this year’s from a past one/.test(mk) && /No ready liturgy for this Sunday yet\./.test(mk) && /a Year B liturgy from 2023 suits Year B again in 2026/.test(mk));
+    /How to make this year’s from a past one/.test(mk) && /No Liturgy App File for this Sunday yet\./.test(mk) && /a Year B liturgy from 2023 suits Year B again in 2026/.test(mk));
   const ready = fn('_spReadyHtml');
   check('a ready liturgy shows its Sundays and its year with its letter, and its Sundays can be changed',
     /_llSundaysText\(occId, \(r\.data \|\| \{\}\)\.forDays\)/.test(ready) && /_llCycleFor\(occId, r\.year\)/.test(ready) && /LiturgyModule\.spSundays\(this\.dataset\.id\)/.test(ready));
@@ -252,7 +252,9 @@ try {
       getItem: id => items[id], updateItem: (id, patch) => { Object.assign(items[id], patch); log.push('update ' + id + ' ' + JSON.stringify(patch)); },
       ensureOccYearFolder: (occ, y) => { log.push('ensure ' + occ + ' ' + y); return Promise.resolve({ id: 'f' + y.slice(2), name: y, created: true }); },
       lfCloseViewer: () => log.push('close'), renderService: () => log.push('render'), _lfRefreshSoon: () => {},
-      showToast: (msg, kind, opts) => { log.push('toast ' + msg); env.lastUndo = opts && opts.onAction; }, _sp: { occ: 'advent' }
+      showToast: (msg, kind, opts) => { log.push('toast ' + msg); env.lastUndo = opts && opts.onAction; }, _sp: { occ: 'advent' },
+      _spYearOf: (it, occ) => { const f = (env.occFolders[occ] || []).find(x => x.id === it.occasionFolderId); return f ? f.name : ''; },
+      _spYearConverted: (id, occ, y) => log.push('converted ' + id + ' ' + y)
     };
     const names = ['_spYearFolders', '_spKeepFolder', '_spYearIn', 'spMoveYear', 'spYearOver', 'spYearDrop', 'spDragStart'];
     const bodies = names.map(fn);
@@ -274,6 +276,8 @@ try {
     check('moved into a year\'s folder; a year with none gets one first and keeps it; Undo puts it back; no year takes it out',
       toExisting === 'f26' && toNew === 'f24' && made && kept && undone === 'f26' && cleared === null, JSON.stringify({ toExisting, toNew, made, kept, undone, cleared }));
     check('...and a move to where it already is changes nothing', log.filter(l => l.startsWith('update')).length === n && /is already in no year folder/.test(log[log.length - 1]));
+    check('its Liturgy App Files go to its new year with it, and back with Undo; out of any year, they stay where they are',
+      log.indexOf('converted d1 2026') !== -1 && log.indexOf('converted d1 2024') !== -1 && log.filter(l => l.startsWith('converted')).length === 3, log.filter(l => l.startsWith('converted')).join(', '));
     let prevented = 0;
     const chip = { getAttribute: () => '—', classList: { add() {}, remove() {} } };
     Y.over({ dataTransfer: { types: ['Files'] }, preventDefault: () => prevented++ }, chip);
@@ -311,8 +315,8 @@ try {
   const sun9 = fn('spSundays');
   check('a ready liturgy\'s year can be changed with its Sundays (Year alone where a service has no Sundays to tick)',
     /<input id="spRdYear" type="number"/.test(sun9) && /if \(!r\) return;/.test(sun9) && !/if \(!r \|\| !LL_SUNDAYS\[occ\]\) return;/.test(sun9) &&
-    /\(LL_SUNDAYS\[occId\] \? 'Sundays & year' : 'Year'\)/.test(fn('_spReadyHtml')) &&
-    /moved \? ensureOccYearFolder\(ed\.occ, year\)/.test(fn('spSundaysSave')) && /var year = _spYearIn\(_plVal\('spRdYear'\)\);/.test(fn('spSundaysSave')));
+    /\(\/\^doc:\/\.test\(String\(r\.made_from \|\| ''\)\) \? 'Sundays' : 'Sundays & year'\)/.test(fn('_spReadyHtml')) &&
+    /moved \? ensureOccYearFolder\(ed\.occ, year\)/.test(fn('spSundaysSave')) && /var year = ed\.yearFixed \? _spYearIn\(ed\.year\) : _spYearIn\(_plVal\('spRdYear'\)\);/.test(fn('spSundaysSave')));
   check('one service opens its own page from anywhere that asked for its folder; the folder view keeps the library-wide lists',
     /if \(occId && getOccasionById\(occId\)\) \{/.test(fn('openCollection')) && /openService\(occId, from === 'hub' \? 'hub' : 'services', 'order'\);/.test(fn('openCollection')) &&
     /if \(f\) \{ _sp\.year = f\.name; renderService\(\); \}/.test(fn('openCollection')) && /openLibrary\(special \|\| 'recent', year \|\| ''\);/.test(fn('openCollection')) &&
@@ -328,9 +332,8 @@ try {
   check('the readings banner under the tabs is gone, its styles with it', !/_spStrip/.test(SRC) && !/\.pl-strip/.test(SRC) &&
     /p\.innerHTML = '<div class="ll pl">' \+ head \+ body \+/.test(ren10));
   const draw10 = fn('_cvDraw');
-  check('Make ready says what it does, and saves "as a ready liturgy"', /<b>What this does:<\/b> turns the document into a liturgy the app can use/.test(draw10) &&
-    /The document itself is not changed\./.test(draw10) && /The words are changed there, in the Liturgy Builder/.test(draw10) &&
-    /Save as a ready liturgy/.test(draw10) && !/Keep as a ready liturgy/.test(draw10));
+  check('Convert says what it does', /<b>What this does:<\/b> converts the document into a <b>Liturgy App File<\/b> the app can use/.test(draw10) &&
+    /The document itself is not changed\./.test(draw10) && /the words are changed in the Liturgy Builder/.test(draw10));
   check('Show me how starts the walk through, which starts by itself once on a device', /onclick="LiturgyModule\.spTour\(\)"><i class="fa-solid fa-person-chalkboard"/.test(fn('_spMakeHtml')) &&
     /if \(tab === 'order' && d && !_spTourDone\(\)\) \{ _spTourMark\(\);/.test(ren10) && /var SP_TOUR_KEY = 'lhc_lit_tour_seen_v1';/.test(SRC) &&
     /localStorage\.setItem\(SP_TOUR_KEY, '1'\)/.test(fn('_spTourMark')));
@@ -346,6 +349,44 @@ try {
   check('Esc and the arrows; the last step closes it; closing stops its timer', /if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); _spTourClose\(\); \}/.test(fn('spTour')) &&
     /if \(_spTourAt \+ d >= n\) \{ _spTourClose\(\);/.test(fn('spTourGo')) && /clearInterval\(_spTourTimer\)/.test(fn('_spTourClose')) &&
     /spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose/.test(SRC));
+
+  // ------------------------------------------------------------ 11. Convert
+  // From the operator (2026-11-15): "say 'Convert to Liturgy App File' and it
+  // should sit in the year where it's been assigned and not to any other
+  // year. From there, after the conversion, take the user to the set and
+  // provide the option to use it for the upcoming year or leave it".
+  console.log('\n11. Convert to a Liturgy App File');
+  const draw11 = fn('_cvDraw'), res11 = fn('_spResHtml'), conv11 = fn('spConvert'), save11 = fn('cvSave');
+  check('it is called what it is: Convert, a Liturgy App File', /Convert to Liturgy App File/.test(draw11) && /<h2 id="cvTtl">Convert to a Liturgy App File<\/h2>/.test(draw11) &&
+    /<span>Convert<\/span><\/button>/.test(res11) && /<h2 class="font-cinzel">Liturgy App Files<\/h2>/.test(fn('_spReadyHtml')) && !/Make ready/.test(res11 + draw11 + fn('_spReadyHtml') + fn('_spMakeHtml')) &&
+    !/Save as a ready liturgy|Keep as a ready liturgy/.test(SRC));
+  check('it sits in its document\'s year: fixed when the document has one; a document with none is given that year with it',
+    /var docYear = _spYearOf\(it, occId\), y = docYear \|\| String\(new Date\(\)\.getFullYear\(\)\);/.test(conv11) && /yearFixed: !!docYear,/.test(conv11) &&
+    /if \(ty && !cv\.yearFixed\) cv\.year = ty;/.test(fn('_cvRead')) && /cv\.yearFixed\s*\? '<div class="mv-ed__lbl cv-fields__yr cv-fields__yr--fixed">/.test(draw11) &&
+    /if \(f && f\.id && !cv\.yearFixed\) \{ _spKeepFolder\(saved\.occasion_id, f\); updateItem\(cv\.itemId, \{ occasionFolderId: f\.id \}\); \}/.test(save11));
+  check('...and stays there: its Sundays change, its year follows its document', /fromDoc = \/\^doc:\/\.test\(String\(r\.made_from \|\| ''\)\)/.test(fn('spSundays')) &&
+    /It moves when its document does\./.test(fn('spSundays')) && /if \(f\) _spYearConverted\(id, occ, f\.name\);/.test(fn('spMoveYear')) &&
+    /\.in\('id', ids\)\.select\('id,year'\)/.test(fn('_spYearConverted')));
+  check('after converting: to its set (its year, the file marked), then Use it for the coming Sunday it suits, or Leave it',
+    /_sp\.fresh = saved\.id; _sp\.res = 'liturgy'; _sp\.year = String\(saved\.year\);/.test(save11) && /spReady\(\); _spAfterConvert\(saved\.id\);/.test(save11) &&
+    /var t = _spUseTarget\(d\.upcoming \|\| \[\], occ, days, r\.order_type\);/.test(fn('_spAfterConvert')) && /\(t \? 'Leave it' : 'OK'\)/.test(fn('_spAfterConvert')) &&
+    /LiturgyModule\.spAfterUse\(this\.dataset\.id, this\.dataset\.key\)/.test(fn('_spAfterConvert')) && /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(fn('spUseFor')) &&
+    /action: 'Go to Orders'/.test(fn('spUseFor')));
+  if (S) {
+    const meta = { '2026-11-29': { day: '1st Sunday of Advent', serviceType: 'Contemporary' }, '2026-12-06': { day: '2nd Sunday of Advent', serviceType: 'Traditional' },
+      '2026-12-13': { day: '3rd Sunday of Advent', serviceType: 'Contemporary' }, '2026-12-20': { day: '4th Sunday of Advent', serviceType: 'Traditional' },
+      '2026-11-22': { day: 'Christ the King Sunday', serviceType: 'Traditional' }, '2026-11-01': { day: '1st Sunday of Advent' } };
+    const occFor = d => /advent/i.test(d) ? 'advent' : 'ordinary-traditional';
+    const up = S.upcoming('advent', meta, '2026-11-15', occFor);
+    check('the coming services of the kind, in order, each with its kind of service', up.map(u => u.key.slice(5) + u.type[0]).join() === '11-29c,12-06t,12-13c,12-20t', up.map(u => u.key).join());
+    check('the Sunday a file suits: its Sundays and its kind of service (a Traditional file is not offered a Contemporary Sunday)',
+      S.useTarget(up, 'advent', ['advent:2', 'advent:4'], 'traditional').key === '2026-12-06' && S.useTarget(up, 'advent', ['advent:1', 'advent:3'], 'contemporary').key === '2026-11-29' &&
+      S.useTarget(up, 'advent', [], 'traditional').key === '2026-12-06' && S.useTarget(up, 'advent', ['advent:1'], 'traditional') === null &&
+      S.useTarget(up, 'advent', [], 'special').key === '2026-11-29' && S.useTarget([], 'advent', [], 'traditional') === null);
+    const rows = [{ id: 'trad', year: 2026, order_type: 'traditional', data: {} }, { id: 'cont', year: 2025, order_type: 'contemporary', data: {} }, { id: 'any', year: 2024, order_type: 'special', data: {} }];
+    check('This year\'s liturgy offers only the files of the coming Sunday\'s kind of service', S.forNext(rows, 'advent:1', 'contemporary').map(r => r.id).join() === 'cont,any' &&
+      S.forNext(rows, 'advent:2', 'traditional').map(r => r.id).join() === 'trad,any' && S.forNext(rows, 'advent:2').length === 3);
+  }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {

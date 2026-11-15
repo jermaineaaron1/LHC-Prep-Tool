@@ -318,7 +318,7 @@ try {
   } catch (e) { check('an upload is filed in the year its name gives', false, e.message); }
   const up = fn('spUploadDoc');
   check('several files at once, each read in turn; one liturgy is offered to be made ready, anything else shown where it went',
-    /files\.reduce\(function\(chain, file\)/.test(up) && /\{ action: 'Make it ready', duration: 9000, onAction: function\(\) \{ spConvert\(last\.id\); \} \}/.test(up) &&
+    /files\.reduce\(function\(chain, file\)/.test(up) && /\{ action: 'Convert it', duration: 9000, onAction: function\(\) \{ spConvert\(last\.id\); \} \}/.test(up) &&
     /action: 'Show'/.test(up) && /if \(mode === 'liturgy'\) \{/.test(up));
   // "What is Other Files?" -- everything filed with a service that is not a
   // liturgy, mostly photographs: named so, and moved only in so many words.
