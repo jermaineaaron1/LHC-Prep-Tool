@@ -259,7 +259,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
      39-41 and 45.
   2. **Songbook** (music team) -- every song as the service runs: key, words
      and chords, markings, recordings, links. It opens over whichever step
-     is showing and closes back to it. It also has the order's **inbox**
+     is showing and closes back to it. On a desk or a tablet its song list
+     folds into a rail of the songs' numbers, and its controls card is navy
+     (gotcha 106). It also has the order's **inbox**
      (links and files shared to the service from a phone's share sheet, the
      share picker, or pasted -- put each on a song), **Add a song** (into a
      section), **Move to section** (More: `sbmMoveToSectionPick`, the
@@ -4586,6 +4588,46 @@ the anon key -- verify as `postgres`, not as the app.
     and the window's open/shut state machine rather than matching them. It
     replaces `tools/lcd-editor-rollup-harness.js`, whose whole subject is
     gone.
+
+106. **The Songbook's song list folds, and the column takes the width.**
+    From the operator (2026-11-15), on two marked-up laptop screenshots:
+    "allow to collapse that song list so that more width space [is] given
+    for the main layout. Expand it by 15px", and "Colour Navy blue" on the
+    controls card. Asked: the 15px is the song column, on each side; the
+    navy is the card with the key, view mode, notes, font and tiles.
+    - **The wide layout only** (`sbm--wide`: wider than 820px -- a laptop, a
+      tablet held sideways). A phone has no side list and keeps its white
+      controls card.
+    - **The list is drawn twice, always**: `.sbm-side__full` (the list, a
+      fold button in its header) and `.sbm-side__rail` (an unfold button,
+      then a 36px number per song -- the song in front gold, a medley's songs
+      in a gold box, each named in its `title` -- and Add a song for a
+      service's book). `.sbm-wide.is-side-closed` shows one or the other.
+      So `sbmSideFold(shut)` is a CLASS flip, never `_sbmRender`: the score,
+      the drawings and a take being recorded stay as they are. The column
+      changes width, so it runs what a window resize runs --
+      `_sbmMarksQueue` (the chord fit, `_sbmEvenRows`, the drawings) and
+      `_sbmGuideCheck` -- and moves the focus to the button that replaced
+      the one pressed.
+    - **This device's**, like the font: `lhc_sbm_side_closed` = '1', and
+      `_sbmSideShut` in the page for a browser that keeps nothing. Read by
+      `_sbmSideClosed()` on every render.
+    - **Folding must WIDEN the column, not re-centre it.** `.sbm-main` is
+      capped (1090px: the old 1060 plus the 15px each side), so on a laptop a
+      fold that only narrowed the grid track would have moved the same cards
+      to the middle. Folded, the cap is 1306px (1090 + the 272px list - the
+      56px rail). Measured at 1518px: the cards are 1054px beside the list,
+      1270px folded; at 1024px, 716 and 932.
+    - The Phone view's narrow desk (`body.sbm-phone-narrow`) still hides the
+      whole list: its rule outranks the fold's, which uses no `!important`.
+    - **The navy card**: `.sbm-card--controls`, the top bar's gradient. Its
+      labels and the key's hint turn light, a pressed button (Liturgist
+      Notes with notes) is gold rather than navy on navy, and the soft tiles
+      (Record, Tracks, a gold one) are TINTS -- `rgba` see-through, which on
+      navy read as dark smudges -- so they are laid on white
+      (`linear-gradient(<tint>, <tint>), #fff`) and look as they did.
+    `tools/songbook-side-fold-harness.js` checks it, running `_sbmSideHtml`
+    and `sbmSideFold` rather than matching them.
 
 ## Quick Commands for Claude Code
 
