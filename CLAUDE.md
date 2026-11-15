@@ -406,8 +406,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   `#liturgyServicePanel`, `openService`) is the operator's green drawings: a
   banner (All Services, Sync, Share, Projection, Add Item), four tabs --
   **Liturgy Order**, **Planning Notes**, **Special Planning**, **Checklist**
-  (and **Preparation Guide** where a service has one) -- and a strip of the
-  next date, church year, colour and readings.
+  (and **Preparation Guide** where a service has one). The strip of the
+  next date, church year, colour and readings under the tabs went on
+  2026-11-15 ("it takes up a lot of space"): This year's liturgy names the
+  coming Sunday and its lectionary year. **Show me how** plays a five-step
+  walk through (gotcha 104).
   - **Liturgy Order** is the service's **library** (2026-11-15): its files,
     **Liturgy Documents first** by year (then LCD Materials, Photos & Files,
     Reference Links), each document previewed on a double-click or double
@@ -4474,6 +4477,24 @@ the anon key -- verify as `postgres`, not as the app.
       panel's back button; "All files by year folder" went. The folder view
       is kept for what belongs to no one service: Recently added, Not filed,
       Every Prayer of the Day.
+    - **Make ready explained, and walked through** (the operator: "Does it
+      help to recreate a selected past year liturgy to the current year? ...
+      what does 'Keep as ready liturgy' mean?" and "can you help to walk
+      through the user with guided animations"). Make ready turns a document
+      into a liturgy the app can use -- sections, and LCD slides from its
+      words -- and saves it (now "Save as a ready liturgy"); the document is
+      not changed, the words are changed in the Liturgy Builder after Use, and
+      the window says all of that at its top (`.cv-what`). **Show me how**
+      (`spTour`, in This year's liturgy; by itself once on a device,
+      `lhc_lit_tour_seen_v1`) walks five steps on the page itself
+      (`_spTourSteps`, each left out when its part is missing): the past
+      years, Make ready (or Upload), the ready liturgies and their Sundays,
+      Use, and the Liturgy Builder's Save This Liturgy. A spotlight (a hole
+      with a 9999px shadow), a pulsing gold ring, a finger tapping the button
+      to press, and a card with Back / Next / Skip, re-placed every 250ms as
+      the page redraws or scrolls; Esc and the arrow keys; reduced motion
+      stops the animation. Testing in a hidden pane: turn transitions off
+      first, or the spotlight is measured at its last step.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
     years, the matching, the Google helper and the year moves.
 

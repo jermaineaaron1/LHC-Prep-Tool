@@ -318,6 +318,35 @@ try {
     /if \(f\) \{ _sp\.year = f\.name; renderService\(\); \}/.test(fn('openCollection')) && /openLibrary\(special \|\| 'recent', year \|\| ''\);/.test(fn('openCollection')) &&
     !/All files by year folder/.test(res9) && /if \(occ && getOccasionById\(occ\)\) \{ openService\(occ\); return; \}/.test(fn('backToLibrary')));
 
+  // ------------------------------------------------------------ 10. the walk through
+  // From the operator (2026-11-15): the readings banner "takes up a lot of
+  // space"; "How does the Make Ready Liturgy work? ... what does 'Keep as
+  // ready liturgy' mean?"; "can you help to walk through the user with guided
+  // animations".
+  console.log('\n10. No banner; Make ready explained; a walk through');
+  const ren10 = fn('renderService');
+  check('the readings banner under the tabs is gone, its styles with it', !/_spStrip/.test(SRC) && !/\.pl-strip/.test(SRC) &&
+    /p\.innerHTML = '<div class="ll pl">' \+ head \+ body \+/.test(ren10));
+  const draw10 = fn('_cvDraw');
+  check('Make ready says what it does, and saves "as a ready liturgy"', /<b>What this does:<\/b> turns the document into a liturgy the app can use/.test(draw10) &&
+    /The document itself is not changed\./.test(draw10) && /The words are changed there, in the Liturgy Builder/.test(draw10) &&
+    /Save as a ready liturgy/.test(draw10) && !/Keep as a ready liturgy/.test(draw10));
+  check('Show me how starts the walk through, which starts by itself once on a device', /onclick="LiturgyModule\.spTour\(\)"><i class="fa-solid fa-person-chalkboard"/.test(fn('_spMakeHtml')) &&
+    /if \(tab === 'order' && d && !_spTourDone\(\)\) \{ _spTourMark\(\);/.test(ren10) && /var SP_TOUR_KEY = 'lhc_lit_tour_seen_v1';/.test(SRC) &&
+    /localStorage\.setItem\(SP_TOUR_KEY, '1'\)/.test(fn('_spTourMark')));
+  const steps10 = fn('_spTourSteps');
+  check('five steps on the page itself: the past years, Make ready (or Upload), the ready liturgies, Use, the Liturgy Builder; a missing part is left out',
+    /q\('\.sp-res'\)/.test(steps10) && /var mk = q\('\.sp-doc \.sp-btn-maroon'\), use = q\('\.sp-fit \.pl-btn-green'\);/.test(steps10) && /q\('\.sp-readybox'\)/.test(steps10) &&
+    /el: use \|\| q\('\.sp-make'\)/.test(steps10) && /q\('\.sp-make > \.lf-btn\.pl-btn-green'\)/.test(steps10) && /\.filter\(function\(x\) \{ return x\.el; \}\)/.test(steps10));
+  check('a spotlight, a pulsing ring, a finger tapping what to press, and a card with Back / Next / Skip that follows the page',
+    /ltour__hole/.test(fn('spTour')) && /ltour__ring/.test(fn('spTour')) && /ltour__finger/.test(fn('spTour')) && /LiturgyModule\.spTourGo\(-1\)">Back/.test(fn('spTour')) &&
+    /LiturgyModule\.spTourClose\(\)">Skip/.test(fn('spTour')) && /_spTourTimer = setInterval\(function\(\) \{ _spTourPlace\(false\); \}, 250\);/.test(fn('spTour')) &&
+    /@keyframes ltourPulse/.test(SRC) && /@keyframes ltourTap/.test(SRC) && /\.ltour\.is-tap \.ltour__finger \{ display: block; \}/.test(SRC) &&
+    /prefers-reduced-motion: reduce\) \{\s*\.ltour__ring, \.ltour__finger \{ animation: none; \}/.test(SRC));
+  check('Esc and the arrows; the last step closes it; closing stops its timer', /if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); _spTourClose\(\); \}/.test(fn('spTour')) &&
+    /if \(_spTourAt \+ d >= n\) \{ _spTourClose\(\);/.test(fn('spTourGo')) && /clearInterval\(_spTourTimer\)/.test(fn('_spTourClose')) &&
+    /spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose/.test(SRC));
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

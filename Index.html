@@ -104663,37 +104663,20 @@ var LiturgyModule = (function() {
     else if (tab === 'special') body = _plSpecialTab(occ, d);
     else if (tab === 'check') body = _plCheckTab(occ, d);
     else body = _spOrderTab(occ, d);
-    p.innerHTML = '<div class="ll pl">' + head + _spStrip(d, tab) + body +
+    // No date strip under the tabs (the operator, 2026-11-15: "it takes up a
+    // lot of space"): This year's liturgy names the coming Sunday and its
+    // lectionary year, and the Readings page has the readings.
+    p.innerHTML = '<div class="ll pl">' + head + body +
       '<input id="spDocFile" type="file" multiple hidden onchange="LiturgyModule.spUploadDoc(this)">' +
     '</div>';
     _spBindOpen(p);
+    // The walk through starts by itself once on a device, the first time a
+    // service's page is open with its liturgies read.
+    if (tab === 'order' && d && !_spTourDone()) { _spTourMark(); setTimeout(function() { if (_sp.occ && document.getElementById('liturgyServicePanel').style.display !== 'none') spTour(); }, 900); }
     if (keepId) {
       var el = document.getElementById(keepId);
       if (el && el.focus) { el.focus(); try { if (keepAt != null) el.setSelectionRange(keepAt, keepAt); } catch (e) {} }
     }
-  }
-
-  // The strip every tab shares: the date, the church year, the colour, the readings.
-  function _spStrip(d, tab) {
-    var next = d && d.next;
-    var key = tab === 'order' ? (next && next.key) : _plKey();
-    if (!d) return '<div class="pl-strip"><p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Reading the roster…</p></div>';
-    var cell = function(icon, label, val, sub) {
-      return '<div class="pl-strip__c"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><div><small>' + label + '</small><b>' + val + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</div></div>';
-    };
-    if (!next) {
-      return '<div class="pl-strip pl-strip--none">' + cell('fa-calendar-days', 'Next service', 'Not on the roster yet',
-        'When the roster has its date, its day, colour and readings show here.') + '</div>';
-    }
-    var s = _llSeason(_llSeasonOf(next.day));
-    var reads = SBQ_READINGS.SLOTS.map(function(sl) { return d.reads[sl.role]; }).filter(Boolean);
-    var thisWeek = next.key.slice(0, 10) <= _mvTodayIso(new Date(Date.now() + 7 * 86400000));
-    return '<div class="pl-strip">' +
-      cell('fa-calendar-days', thisWeek ? 'This Sunday' : 'Next service', _lfE(_lfLongDate(next.key)), _lfE(next.day)) +
-      cell('fa-leaf', 'Church Year', _lfE((s ? s.label : 'Church year') + ' · ' + _llCycle(next.key)), '') +
-      cell('fa-bookmark', 'Liturgical Colour', next.color ? _lfDot(next.color) + _lfE(next.color) : '—', '') +
-      cell('fa-book-open', 'Key Readings', reads.length ? reads.map(_lfE).join(' <i class="pl-strip__bar">|</i> ') : '<em>Not set yet</em>', '') +
-    '</div>';
   }
 
   // ── Liturgy Order: the service's library of liturgies ───────────────
@@ -104744,7 +104727,8 @@ var LiturgyModule = (function() {
       (next ? '<p class="sp-make__when"><b>' + _lfE(_lfLongDate(next.key)) + '</b><span>' + _lfE([next.day, cyc].filter(Boolean).join(' · ')) + '</span></p>'
             : '<p class="sp-make__when"><span>The roster has no date for this service yet.</span></p>') +
       list +
-      '<details class="sp-how"' + (fits.length ? '' : ' open') + '><summary>How to make this year’s from a past one</summary><ol>' +
+      '<button type="button" class="lf-btn sp-tourbtn" onclick="LiturgyModule.spTour()"><i class="fa-solid fa-person-chalkboard" aria-hidden="true"></i><span>Show me how</span></button>' +
+      '<details class="sp-how"><summary>How to make this year’s from a past one</summary><ol>' +
         '<li>Find a past year’s liturgy in the library, or add it: <b>Upload a liturgy</b> (Word, PDF, Excel) or <b>Add a Google Doc</b>.</li>' +
         '<li>Press <b>Make ready</b>. Check the words' + (LL_SUNDAYS[occ] ? ' and tick the Sundays it is for (one liturgy can be for every Sunday, or a few)' : '') + '.</li>' +
         '<li>Press <b>Use</b> beside it here: the Liturgy Builder opens this Sunday’s order with it loaded. Change what differs this year.</li>' +
@@ -106276,6 +106260,126 @@ var LiturgyModule = (function() {
     }).catch(function(e) { _plSaving(false); _plErr('Could not save it: ' + ((e && e.message) || e)); });
   }
 
+  // ── A walk through: this year's liturgy from a past year's ────────────
+  // From the operator (2026-11-15): "How can a user start to plan for a
+  // future year liturgy or series of liturgies using past year's liturgies,
+  // can you help to walk through the user with guided animations". Five
+  // steps on the page itself: a spotlight on each part, a pulsing ring, a
+  // finger tapping the button to press, and a card with Back / Next / Skip.
+  // Once by itself on a device; Show me how any time after.
+  var SP_TOUR_KEY = 'lhc_lit_tour_seen_v1';
+  var _spTourAt = 0, _spTourTimer = null, _spTourSeenHere = false;
+  function _spTourDone() {
+    if (_spTourSeenHere) return true;
+    try { return localStorage.getItem(SP_TOUR_KEY) === '1'; } catch (e) { return false; }
+  }
+  function _spTourMark() {
+    _spTourSeenHere = true;
+    try { localStorage.setItem(SP_TOUR_KEY, '1'); } catch (e) {}
+  }
+  // The steps, from what the page has now (a step whose part is missing is
+  // left out; Make ready points at Upload when there is nothing to make ready).
+  function _spTourSteps() {
+    var P = document.getElementById('liturgyServicePanel');
+    if (!P) return [];
+    var q = function(sel) { return P.querySelector(sel); };
+    var mk = q('.sp-doc .sp-btn-maroon'), use = q('.sp-fit .pl-btn-green');
+    return [
+      { el: q('.sp-res'), title: 'Past years’ liturgies are here',
+        text: 'Every year’s liturgy for this service, newest first. The year chips show one year; a file’s year button files it under a year.' },
+      { el: mk || q('.sp-res__adds .lf-btn') , tap: true, title: mk ? 'Make ready' : 'Add last year’s liturgy',
+        text: mk ? 'Press Make ready on last year’s. It turns the document into a liturgy the app can use: its sections, and LCD slides made from its words. The document is not changed.'
+                 : 'Upload last year’s liturgy (Word, PDF or Excel), or Add a Google Doc. Then press its Make ready.' },
+      { el: q('.sp-readybox'), title: 'Ready to use, Sunday by Sunday',
+        text: 'What Make ready saves is listed here. Sundays & year says which Sundays each is for: one liturgy can serve every Sunday of the season, another only some.' },
+      { el: use || q('.sp-make'), tap: !!use, title: 'Use it this year',
+        text: use ? 'Use opens this Sunday’s order in the Liturgy Builder with the liturgy loaded and this year’s readings put in.'
+                  : 'The coming Sunday’s ready liturgies show here, each with Use, which loads it into that Sunday’s order. Make the order in Orders first.' },
+      { el: q('.sp-make > .lf-btn.pl-btn-green'), tap: true, title: 'Change what differs, then save it',
+        text: 'In the Liturgy Builder, change this year’s words and songs, then Save This Liturgy: next year starts from this one. For a later Sunday, or another year, open that date’s order and Load it.' }
+    ].filter(function(x) { return x.el; });
+  }
+  function spTour() {
+    _spTourClose();
+    _spTourMark();
+    var steps = _spTourSteps();
+    if (!steps.length) return;
+    var L = document.createElement('div');
+    L.id = 'spTour'; L.className = 'ltour';
+    L.setAttribute('role', 'dialog'); L.setAttribute('aria-modal', 'true'); L.setAttribute('aria-label', 'How to plan this year’s liturgy from a past one');
+    L.innerHTML = '<div class="ltour__hole" aria-hidden="true"></div><div class="ltour__ring" aria-hidden="true"></div>' +
+      '<i class="fa-solid fa-hand-pointer ltour__finger" aria-hidden="true"></i>' +
+      '<div class="ltour__card"><p class="ltour__step"></p><h3 class="ltour__t"></h3><p class="ltour__x"></p>' +
+        '<div class="ltour__acts"><button type="button" class="ltour__skip" onclick="LiturgyModule.spTourClose()">Skip</button><span class="ltour__dots" aria-hidden="true"></span>' +
+          '<button type="button" class="lf-btn ltour__back" onclick="LiturgyModule.spTourGo(-1)">Back</button>' +
+          '<button type="button" class="lf-btn pl-btn-green ltour__next" onclick="LiturgyModule.spTourGo(1)">Next</button></div></div>';
+    L.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); _spTourClose(); }
+      else if (e.key === 'ArrowRight') spTourGo(1);
+      else if (e.key === 'ArrowLeft') spTourGo(-1);
+    });
+    document.body.appendChild(L);
+    _spTourAt = 0;
+    _spTourShow(true);
+    _spTourTimer = setInterval(function() { _spTourPlace(false); }, 250);
+    window.addEventListener('resize', _spTourOnResize);
+  }
+  function _spTourOnResize() { _spTourPlace(false); }
+  function spTourGo(d) {
+    var n = _spTourSteps().length;
+    if (!document.getElementById('spTour')) return;
+    if (_spTourAt + d >= n) { _spTourClose(); showToast('That’s it. Show me how plays it again.', 'success'); return; }
+    _spTourAt = Math.max(0, _spTourAt + d);
+    _spTourShow(true);
+  }
+  function _spTourShow(scroll) {
+    var L = document.getElementById('spTour');
+    var steps = _spTourSteps();
+    if (!L || !steps.length) { _spTourClose(); return; }
+    if (_spTourAt >= steps.length) _spTourAt = steps.length - 1;
+    var st = steps[_spTourAt], q = function(sel) { return L.querySelector(sel); };
+    q('.ltour__step').textContent = 'Step ' + (_spTourAt + 1) + ' of ' + steps.length;
+    q('.ltour__t').textContent = st.title;
+    q('.ltour__x').textContent = st.text;
+    q('.ltour__dots').innerHTML = steps.map(function(x, i) { return '<i class="' + (i === _spTourAt ? 'is-on' : '') + '"></i>'; }).join('');
+    q('.ltour__back').disabled = _spTourAt === 0;
+    q('.ltour__next').textContent = _spTourAt === steps.length - 1 ? 'Done' : 'Next';
+    L.classList.toggle('is-tap', !!st.tap);
+    if (scroll && st.el.scrollIntoView) { try { st.el.scrollIntoView({ block: 'center', behavior: 'auto' }); } catch (e) { st.el.scrollIntoView(); } }
+    _spTourPlace(true);
+    try { q('.ltour__next').focus({ preventScroll: true }); } catch (e) {}
+  }
+  // The spotlight, the ring, the finger and the card on the step's part, as
+  // it is now: the page redraws and scrolls under them.
+  function _spTourPlace(force) {
+    var L = document.getElementById('spTour');
+    if (!L) return;
+    var steps = _spTourSteps(), st = steps[Math.min(_spTourAt, steps.length - 1)];
+    if (!st) { _spTourClose(); return; }
+    var r = st.el.getBoundingClientRect(), pad = 8;
+    var vw = window.innerWidth || document.documentElement.clientWidth, vh = window.innerHeight || document.documentElement.clientHeight;
+    var box = { left: r.left - pad, top: r.top - pad, width: r.width + pad * 2, height: r.height + pad * 2 };
+    ['.ltour__hole', '.ltour__ring'].forEach(function(sel) {
+      var e = L.querySelector(sel);
+      e.style.left = box.left + 'px'; e.style.top = box.top + 'px'; e.style.width = box.width + 'px'; e.style.height = box.height + 'px';
+    });
+    var f = L.querySelector('.ltour__finger');
+    f.style.left = Math.round(r.left + r.width / 2 - 8) + 'px';
+    f.style.top = Math.round(r.top + r.height / 2 - 4) + 'px';
+    var card = L.querySelector('.ltour__card'), cw = card.offsetWidth || 340, ch = card.offsetHeight || 180;
+    var top = box.top + box.height + 14;
+    if (top + ch > vh - 12) top = box.top - ch - 14;
+    if (top < 12) top = Math.max(12, vh - ch - 12);
+    card.style.left = Math.round(Math.max(12, Math.min(vw - cw - 12, r.left + r.width / 2 - cw / 2))) + 'px';
+    card.style.top = Math.round(top) + 'px';
+  }
+  function _spTourClose() {
+    var L = document.getElementById('spTour');
+    if (_spTourTimer) { clearInterval(_spTourTimer); _spTourTimer = null; }
+    window.removeEventListener('resize', _spTourOnResize);
+    if (L) L.remove();
+  }
+
   // ── Opening a row: a double-click, a double tap, the eye, or Enter ──────
   // From the operator (2026-11-15): "Double clicking or tapping on the
   // document will preview it". Bound once on the panel, which every draw
@@ -106564,7 +106668,13 @@ var LiturgyModule = (function() {
           return '<option value="' + _lfE(s.id) + '"' + (s.id === sel ? ' selected' : '') + '>' + (i + 1) + '. ' + _lfE(s.title) + '</option>';
         }).join('');
       };
-      body = '<p class="cv-how">' + (cv.how === 'word'
+      // What Make ready is (the operator, 2026-11-15: "Does it help to
+      // recreate a selected past year liturgy to the current year? ... what
+      // does 'Keep as ready liturgy' mean?").
+      body = '<div class="cv-what"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><p><b>What this does:</b> turns the document into a liturgy the app can use -- ' +
+          'its sections, and LCD slides made from its words. The document itself is not changed. Saved, it is listed under Ready-to-use Liturgies, and a Sunday’s order loads it with <b>Use</b>. ' +
+          'The words are changed there, in the Liturgy Builder; here you check what goes where.</p></div>' +
+        '<p class="cv-how">' + (cv.how === 'word'
           ? '<i class="fa-solid fa-file-word" aria-hidden="true"></i> Read as written: its headings became sections.' +
             (cv.gdoc ? '' : ' Not right? <button type="button" class="lf-link" onclick="LiturgyModule.cvHow(\'ai\')">Read it with AI instead</button>')
           : '<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Read by AI. Check the words before keeping it.') + '</p>' +
@@ -106606,7 +106716,7 @@ var LiturgyModule = (function() {
         '<div class="cv__body">' + body + '</div>' +
         '<div class="cv__ft"><button type="button" class="lf-btn" onclick="LiturgyModule.cvClose()">Cancel</button>' +
           '<button type="button" id="cvSave" class="lf-btn lf-btn--primary sp-btn-maroon" onclick="LiturgyModule.cvSave()"' + (cv.step === 'review' && _cvCounts(cv).secs ? '' : ' disabled') + '>' +
-            (cv.step === 'saving' ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Keeping it…' : '<i class="fa-solid fa-book-bookmark" aria-hidden="true"></i> Keep as a ready liturgy') + '</button></div>' +
+            (cv.step === 'saving' ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Saving…' : '<i class="fa-solid fa-book-bookmark" aria-hidden="true"></i> Save as a ready liturgy') + '</button></div>' +
       '</div>';
     var b = el.querySelector('.cv__body');
     if (b) b.scrollTop = keepY;
@@ -113327,6 +113437,7 @@ var LiturgyModule = (function() {
     spRename: spRename, spAddGdoc: spAddGdoc, spAddGdocSave: spAddGdocSave, spSundays: spSundays, spDay: spDay, spSundaysSave: spSundaysSave, cvDay: cvDay,
     spNewYear: spNewYear, spMoveYear: spMoveYear, spDragStart: spDragStart, spYearOver: spYearOver, spYearDrop: spYearDrop, lfMoveYear: lfMoveYear,
     spYearMenu: spYearMenu, spYearPick: spYearPick, spRdYear: spRdYear,
+    spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -122001,7 +122112,7 @@ function filterLiturgyItems() {
   /* The page's colours, on the page and on what it puts on <body> -- its
      dialogs (#plEd) and Add Item's menu -- whose green buttons were white
      on nothing without them (Save note, New song; 2026-11-15). */
-  .pl, .pl-ed, .pl-menu--float { --pl-green: #1f4d36; --pl-green-2: #163b2a; --pl-gold: #c9a24a; --pl-cream: #fbf7ef; --pl-line: #e8dfcd; }
+  .pl, .pl-ed, .pl-menu--float, .ltour { --pl-green: #1f4d36; --pl-green-2: #163b2a; --pl-gold: #c9a24a; --pl-cream: #fbf7ef; --pl-line: #e8dfcd; }
   .pl-hero { position: relative; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: -6px -6px 0; padding: 18px 22px 20px;
     border-radius: 16px 16px 0 0; color: #fff; overflow: hidden;
     background: radial-gradient(circle at 88% 20%, rgba(232, 196, 120, 0.28), transparent 42%), linear-gradient(120deg, var(--pl-green-2), var(--pl-green) 60%, #2c6b49); }
@@ -122034,18 +122145,6 @@ function filterLiturgyItems() {
     color: #4b4034; font: 500 1rem 'Playfair Display', Georgia, serif; cursor: pointer; }
   .pl-tab i { color: #6b5f50; }
   .pl-tab.is-on { color: #1d1a14; font-weight: 700; border-bottom-color: var(--pl-gold); }
-  .pl-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 0; margin: 0 0 16px; padding: 12px 6px; border-radius: 14px; border: 1px solid var(--pl-line);
-    background: linear-gradient(90deg, #fbf6ec, #f4ecdc); }
-  .pl-strip--none { grid-template-columns: minmax(0, 1fr); }
-  .pl-strip > .lf-muted { padding: 0 12px; }
-  .pl-strip__c { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 4px 16px; border-right: 1px solid var(--pl-line); }
-  .pl-strip__c:last-child { border-right: 0; }
-  .pl-strip__c > i { font-size: 1.5rem; color: var(--pl-green); flex-shrink: 0; }
-  .pl-strip__c div { display: flex; flex-direction: column; min-width: 0; }
-  .pl-strip__c small { font: 600 0.78rem 'Poppins', sans-serif; color: #2a2118; }
-  .pl-strip__c b { font-weight: 400; font-size: 0.92rem; color: #4b4034; overflow-wrap: anywhere; }
-  .pl-strip__c span { font-size: 0.8rem; color: #8a7a66; }
-  .pl-strip__bar { font-style: normal; color: #c7b99e; margin: 0 4px; }
   .pl-card { padding: 14px; border-radius: 14px; background: #fff; border: 1px solid var(--pl-line); box-shadow: 0 6px 18px rgba(60, 40, 10, 0.05); }
   .pl-card__hd { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
   .pl-card__hd > i { color: var(--pl-green); }
@@ -122071,6 +122170,36 @@ function filterLiturgyItems() {
   .sp-make__when { margin: 0 0 10px; display: flex; flex-direction: column; gap: 2px; }
   .sp-make__when b { font: 600 0.95rem 'Poppins', sans-serif; color: #1d1a14; }
   .sp-make__when span { font-size: 0.82rem; color: #6b5f50; }
+  .lf-btn.sp-tourbtn { width: 100%; justify-content: center; margin: 0 0 10px; border: 1px dashed #c9a24a; background: #fffaf0; color: #5a4214; font-weight: 600; }
+  .lf-btn.sp-tourbtn:hover { background: #fff3d6; }
+  .cv-what { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #eef5ef; border: 1px solid #cfe2d3; }
+  .cv-what i { color: #1f4d36; margin-top: 3px; }
+  .cv-what p { margin: 0; font-size: 0.85rem; line-height: 1.55; color: #24382c; }
+  /* The walk through (2026-11-15) */
+  .ltour { position: fixed; inset: 0; z-index: 10050; }
+  .ltour__hole { position: fixed; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.58); pointer-events: none;
+    transition: left .35s ease, top .35s ease, width .35s ease, height .35s ease; }
+  .ltour__ring { position: fixed; border-radius: 16px; border: 3px solid #e9b949; pointer-events: none; animation: ltourPulse 1.6s ease-in-out infinite;
+    transition: left .35s ease, top .35s ease, width .35s ease, height .35s ease; }
+  @keyframes ltourPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(233, 185, 73, 0.6); } 50% { box-shadow: 0 0 0 12px rgba(233, 185, 73, 0); } }
+  .ltour__finger { position: fixed; display: none; font-size: 2.1rem; color: #fff; pointer-events: none; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.55));
+    animation: ltourTap 1.4s ease-in-out infinite; transition: left .35s ease, top .35s ease; }
+  .ltour.is-tap .ltour__finger { display: block; }
+  @keyframes ltourTap { 0%, 100% { transform: translate(6px, 10px); } 45% { transform: translate(0, 0); } 55% { transform: translate(0, 0) scale(0.9); } 70% { transform: translate(0, 0); } }
+  .ltour__card { position: fixed; width: min(360px, calc(100vw - 24px)); padding: 16px 18px; border-radius: 16px; background: #fffdf8; border: 1px solid #e8dfcd;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35); transition: left .35s ease, top .35s ease; }
+  .ltour__step { margin: 0 0 4px; font: 700 0.72rem 'Poppins', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #a8741f; }
+  .ltour__t { margin: 0 0 6px; font-family: 'Playfair Display', Georgia, serif; font-size: 1.2rem; color: #1d1a14; }
+  .ltour__x { margin: 0 0 14px; font-size: 0.9rem; line-height: 1.55; color: #3d3226; }
+  .ltour__acts { display: flex; align-items: center; gap: 8px; }
+  .ltour__skip { min-height: 40px; padding: 8px 4px; border: 0; background: none; color: #6b5f50; font: 600 0.84rem 'Poppins', sans-serif; cursor: pointer; }
+  .ltour__dots { flex: 1; display: flex; justify-content: center; gap: 5px; }
+  .ltour__dots i { width: 7px; height: 7px; border-radius: 50%; background: #ddd0b4; }
+  .ltour__dots i.is-on { background: #1f4d36; }
+  @media (prefers-reduced-motion: reduce) {
+    .ltour__ring, .ltour__finger { animation: none; }
+    .ltour__hole, .ltour__ring, .ltour__card, .ltour__finger { transition: none; }
+  }
   .sp-make__none { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: #fbf7ef; border: 1px dashed #e0d2b4; font-size: 0.86rem; color: #6b5f50; }
   .sp-fits { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .sp-fit { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f3f8f3; border: 1px solid #cfe2d3; }
@@ -122317,8 +122446,6 @@ function filterLiturgyItems() {
   }
   @media (max-width: 900px) {
     .pl-3, .pl-2 { grid-template-columns: minmax(0, 1fr); }
-    .pl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
-    .pl-strip__c:nth-child(2) { border-right: 0; }
     .pl-cats { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
     .pl-cats .pl-cat { flex-shrink: 0; }
     .pl-cats__hd { display: none; }
@@ -122331,11 +122458,6 @@ function filterLiturgyItems() {
     .pl-hbtn { flex: 1 1 auto; justify-content: center; padding: 0 10px; }
     .pl-tabs { margin: 0 -16px 12px; border-radius: 0; padding: 0 8px; }
     .pl-tab { font-size: 0.92rem; padding: 0 10px; }
-    .pl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 4px; }
-    .pl-strip__c { border-right: 0; padding: 6px 10px; gap: 8px; }
-    .pl-strip__c > i { font-size: 1.1rem; }
-    .pl-strip__c b, .pl-strip__c span { font-size: 0.82rem; }
-    .pl-strip__c:nth-child(4), .pl-strip--none .pl-strip__c { grid-column: 1 / -1; border-top: 1px solid var(--pl-line); }
     .pl-edgrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .pl-edlink { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .pl-edlink input[type=url] { grid-column: 1 / -1; grid-row: 1; }
