@@ -170,11 +170,11 @@ console.log('\nThe rail is chunked, not one flat list');
 
 const railSrc = fn('_lcdRenderCompactRail');
 check('a song gets a heading row of its own, then its parted rows',
-  /_lcdBuildItemGroupRow\('song', groupTitle, _songBoxes\.length\)/.test(railSrc) &&
+  /_lcdBuildItemGroupRow\('song', groupTitle, _songBoxes\.length, songId, sectionId\)/.test(railSrc) &&
   /_lcdPartedRowsHtml\(sIdx, slideCounter, groupTitle, _songBoxes, 'fa-music'\)/.test(railSrc),
   railSrc.slice(0, 200));
 check('...and so does a liturgy item, which is where hand-added headings land',
-  /_lcdBuildItemGroupRow\('liturgy', litTitle, _litBoxes\.length\)/.test(railSrc) &&
+  /_lcdBuildItemGroupRow\('liturgy', litTitle, _litBoxes\.length, liturgyId, sectionId\)/.test(railSrc) &&
   /_lcdPartedRowsHtml\(sIdx, slideCounter, litTitle, _litBoxes, 'fa-book-bible'\)/.test(railSrc));
 check('a reading goes through the same path, keeping the heading row it had',
   /_lcdBuildScriptureGroupRow\(sectionId, _scrSub, scriptTitle, _scrBoxes\.length\)/.test(railSrc) &&

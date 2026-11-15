@@ -370,7 +370,15 @@ than a bash heredoc, which quietly eats a level of backslashes.
      begins -- a song's own `[Verse 1]` markers, carried down the slides
      that finish the verse, or a heading the operator types on any slide
      (the tag on a row; the pen and cross on the heading). Never projected.
-     See gotcha 73.
+     See gotcha 73. Every section heading, and every song's and liturgy
+     item's heading, carries **All Slides** for that section or that item --
+     the item's is the only way to reach the SECOND item in a section, which
+     `openSectionAllSlides` cannot. The **Slide Editor** is a window over the
+     console, not a column: a double-click (or double-tap) on a slide in the
+     rail or on the projection opens it, Apply / Esc / the X / the backdrop
+     close it, and **Barrier** sits beside Songbook in the console's own
+     controls row. The **Media Tray** is white and keeps a band of its own.
+     See gotcha 105.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
   reading taken out stays out (gotcha 48).
@@ -4470,6 +4478,87 @@ the anon key -- verify as `postgres`, not as the app.
       Every Prayer of the Day.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
     years, the matching, the Google helper and the year moves.
+
+105. **The Slide Editor is a window, and the console's vertical band is
+    zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
+    the console: the Media Tray 5px taller and a brighter white "so that it
+    shows the thumbnails better"; the Slide Editor panel removed and made a
+    popup opened by double-clicking or tapping a slide or the projection,
+    with the freed space "divided amongst the slides panel and the projection
+    panel"; Barrier moved next to Songbook; All Slides on every section
+    header "and also sub-section header".
+    - **The panel did not change -- only where it lives.** It moved whole
+      into `#lcdEditorPop`, ids and handlers intact, so every routine that
+      writes to `#lcdLyricsEditorTextarea`, `#woPreviewScreen` or the
+      formatting toolbar is untouched. The two gestures that already opened
+      the pad (`_lcdBindEditorOpeners`: a double-click on
+      `#lcdCompactRail .lcd-rail-slide-row` or on `#lcdProgramOutput`) now
+      open the window too, and answer two TAPS as well -- a touch screen has
+      no dblclick (gotcha 28) and the editor used not to exist below 1120px,
+      but a window does.
+    - **Open/shut is NOT the lock state.** Preview shuts the pad and keeps
+      the window; Apply saves and shuts the window; so `_lcdPopOn` is tracked
+      apart from `_lcdEditorUnlocked`. Every way out except Apply goes
+      through `_lcdDraftGuard`, so held words are never dropped (gotcha 60),
+      and `lcdCloseEditorPop(true)` is the forced path for callers that have
+      already asked. The backdrop tells a click away from a drag that STARTED
+      inside the window (`_lcdPopDownOnBd`), or selecting a long line and
+      letting go past the edge would shut it mid-edit.
+    - **`--lcd-ivory` and the rest are SCOPED custom properties**, defined on
+      `.wo-main-content:not(.wo-song-order)` -- not on `:root`. The window
+      lives outside that subtree, so `background: var(--lcd-ivory)` resolved
+      to nothing and the panel rendered with a transparent header and body
+      over the console: every rule matched, the colours simply did not exist
+      there. `.lcd-editor-pop` is named on that selector for exactly this
+      reason. Anything else moved out of `.wo-main-content` needs the same.
+    - **The roll-up went with the column.** `_lcdApplyEditorRoll`,
+      `.lcd-editor-rolled` and `@keyframes lcdEditorUnroll` are gone (they
+      were the previous answer to the same complaint), and with them the
+      clip measurement in `_lcdSizeWorkspaceColumns` and the
+      `.lcd-editor-hidden` rules -- `_lcdSetEditorVisible(false)` shuts the
+      window now and `lcdUnlockEditor` refuses to open one.
+    - **The band is zero-sum, and that is the whole difficulty.** The
+      projection is 16:9 and takes its HEIGHT from its column's WIDTH, so
+      giving it the freed column made it 757x426 at 1536x695 and pushed the
+      Media Tray 203px below the fold -- against 122px before, on the very
+      change meant to make the tray taller. `_lcdBandSplit` (pure, run by the
+      harness) settles it from three named figures: `LCD_TRAY_FLOOR` (145),
+      `LCD_MIN_SCREEN_H` (300) and `LCD_OUTPUTS_MIN` (200). The screen's
+      WIDTH is capped (the height follows it) and the box centres what is
+      left. On a tall screen -- Full Screen, or any 1080p window -- nothing
+      binds and the projection takes the whole column, which is where the
+      freed width really pays.
+    - **+5px could not do what it was asked to do.** At 137px the tray spent
+      every pixel on its header, both rows of drawer tabs and the hint:
+      measured, 8 tiles present and 0 visible. It is given its own content
+      height now (capped at 0.42 of the band, which is almost exactly its
+      chrome plus one row of 16:9 tiles), and the old second pass that took
+      the console's overflow off the tray is gone -- it existed to keep the
+      editor and the projection bottom-aligned, wrote 50px, and the
+      stylesheet's `min-height` quietly overrode it anyway. Measured at
+      1536x695: schedule 401 -> 628px, projection 517x291 -> 533x300, tray
+      132 -> 199px with 7 of 8 thumbnails whole, and the console scrolls
+      196px against 122px before. That scroll is the price, said plainly.
+    - **FOUR rules cap the tray's height and the smallest wins**: the base
+      `.lcd-lower-row` min-height (145), `LCD_TRAY_FLOOR` in the script, full
+      screen's max-height (215), and the stacked band below 1201px (137).
+      Move one on its own and nothing changes on screen.
+    - **The tray is the one panel that leaves the parchment.** Its job is to
+      show photographs and slide backgrounds truly, and the console's warm
+      `#f7f3ea` tinted every thumbnail.
+    - **Barrier is a property of the PROJECTION, not of one slide**, so it
+      belongs on the console rather than behind a window nobody has opened.
+      It keeps its id and handler. The controls row wraps to two lines at the
+      operator's 1158px -- as it did before, with fewer buttons in less
+      room -- and chasing one line is futile: `#lcdProjVerLabel` is dynamic
+      and can carry a songbook version's name.
+    - **The grid moved in every band, not only in Fixed mode.** Fixed is the
+      default and the last word, but a half-updated column block is how the
+      next person gets caught.
+    `tools/lcd-editor-popup-harness.js` checks it, running `_lcdBandSplit`
+    and the window's open/shut state machine rather than matching them. It
+    replaces `tools/lcd-editor-rollup-harness.js`, whose whole subject is
+    gone.
 
 ## Quick Commands for Claude Code
 

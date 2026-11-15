@@ -8038,6 +8038,13 @@
                         <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                       </div>
                       <button class="wo-bg-btn" id="lcdProjVerBtn" onclick="WO.lcdProjectionMenu(this)" title="Which songbook projection the song slides follow"><i class="fa-solid fa-bookmark"></i> <span id="lcdProjVerLabel">Songbook</span></button>
+                      <!-- Barrier, beside Songbook (2026-11-15). It was in the
+                           Slide Editor's ribbon, which is a popup now: the safe
+                           zone is a property of the PROJECTION and not of one
+                           slide, so hiding it behind a window nobody has opened
+                           put a whole-service setting two gestures away. Same id
+                           and handler. -->
+                      <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                       <div class="lcd-controls-spacer"></div>
@@ -8107,113 +8114,6 @@
                     </div>
                     <div class="lcd-program-status" id="lcdProjectorStatus"><i class="fa-solid fa-display"></i> <span id="lcdProjectorStatusText">No projector window</span></div>
                   </div>
-                  <div class="lcd-panel lcd-lyrics-panel">
-                    <div class="lcd-panel-header">
-                      <i class="fa-solid fa-pen-to-square"></i> Slide Editor
-                      <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
-                      <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
-                      <!-- Which part of the song or liturgy item this slide
-                           belongs to. Worked out by carrying the nearest
-                           heading above it down (_lcdPartOfBox); shown here
-                           so an operator working from the middle and right
-                           columns need not look back at the list. -->
-                      <span class="lcd-slide-part-badge" id="lcdLyricsEditorPart" style="display:none;"></span>
-                      <!-- Preview / Edit. Preview shows #woPreviewScreen, the
-                           app's existing preview surface -- it is moved into
-                           this panel below rather than duplicated, so every
-                           routine that already writes to it keeps working. -->
-                      <div class="lcd-seg" role="group" aria-label="Slide Editor mode">
-                        <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdUnlockEditor()" aria-pressed="true" title="Open this slide's text for editing"><i class="fa-solid fa-pen"></i> Edit</button>
-                        <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project (press again to roll the editor up)"><i class="fa-solid fa-eye"></i> Preview</button>
-                      </div>
-                      <div class="lcd-lyrics-actions">
-                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
-                        <button class="lcd-mini-btn" id="lcdAllSlidesBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
-                        <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
-                        <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Open this song in the Songbook"><i class="fa-solid fa-book-open"></i> Open in Songbook</button>
-                      </div>
-                    </div>
-                    <div class="lcd-panel-body lcd-lyrics-body">
-                      <!-- Toolbar grouped as Text / Layout / Background. The
-                           align, Barrier and BG controls moved here from the
-                           workspace bar so every slide-level control lives with
-                           the slide; their ids and onclick handlers are
-                           unchanged. -->
-                      <div class="lcd-fmt-toolbar">
-                        <span class="lcd-fmt-group">
-                          <span class="lcd-fmt-group-label">Text</span>
-                          <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
-                          <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
-                          <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
-                          <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
-                            <option value="">Font</option>
-                            <option value="Georgia, serif">Georgia</option>
-                            <option value="'Times New Roman', serif">Times</option>
-                            <option value="Arial, sans-serif">Arial</option>
-                            <option value="'Poppins', sans-serif">Poppins</option>
-                            <option value="'Lato', sans-serif">Lato</option>
-                            <option value="'Cinzel', serif">Cinzel</option>
-                          </select>
-                          <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
-                            <option value="">Size</option>
-                            <option value="14px">14</option>
-                            <option value="18px">18</option>
-                            <option value="24px">24</option>
-                            <option value="30px">30</option>
-                            <option value="36px">36</option>
-                            <option value="48px">48</option>
-                            <option value="60px">60</option>
-                          </select>
-                          <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
-                          <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
-                        </span>
-                        <!-- Alignment, Barrier and BG share one atomic group so
-                             they always land on the same ribbon row (groups wrap
-                             as units). Barrier/BG's old labelled groups made a
-                             third toolbar row; the editor pad absorbed that
-                             height. Ids and handlers unchanged. -->
-                        <span class="lcd-fmt-group">
-                          <span class="wo-align-group" title="Text alignment on projection">
-                            <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                            <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
-                            <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
-                          </span>
-                          <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                          <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
-                        </span>
-                      </div>
-                      <!-- Canvas: the editable text sits on the slide's real
-                           background so it reads like the projected slide. -->
-                      <div class="lcd-editor-canvas" id="lcdEditorCanvas">
-                        <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
-                        <!-- contenteditable starts FALSE. The pad used to be live the moment a
-                             slide was selected, so a stray click during a service typed
-                             into the words on the screen. It opens on a deliberate
-                             act now -- see _lcdApplyEditorLock(). -->
-                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
-                        <!-- Shown only while the pad is shut. Deliberately not
-                             clickable: a click is what must NOT open the editor. It
-                             names all three ways in, and pointer-events:none lets a
-                             click through to the text underneath. -->
-                        <div class="lcd-editor-lockhint" id="lcdEditorLockHint" aria-hidden="true"><i class="fa-solid fa-lock"></i> Double-click this slide in the list, or the projection &mdash; or press <b>Edit</b></div>
-                      </div>
-                      <!-- Preview surface. #woPreviewScreen and #woPreviewBg were
-                           moved here from the lower row, where their container was
-                           `display: none` -- the app kept writing previews into an
-                           element 0px wide that nobody could see. Same ids, so
-                           syncProjectionWithPreview() and every other writer are
-                           untouched; they now render somewhere visible. Deliberately
-                           NOT given .lcd-output-box: inside .lcd-outputs-row that
-                           class is a 50% column track. -->
-                      <div class="lcd-preview-surface" id="lcdPreviewSurface">
-                        <div class="wo-preview-screen" id="woPreviewScreen">
-                          <div class="wo-preview-bg" id="woPreviewBg"></div>
-                          <div class="wo-preview-placeholder">Click any content box to see preview</div>
-                        </div>
-                      </div>
-                      <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
-                    </div>
-                  </div>
                 </div>
 
                 <!-- The stage bar that used to sit here held nothing but a
@@ -8279,6 +8179,129 @@
               <button class="lcd-fs-modebar-btn" onclick="WO.lcdToggleWorkspaceFullscreen(false)" title="Leave full screen (Esc)">
                 <i class="fa-solid fa-compress"></i> Exit Full Screen
               </button>
+            </div>
+
+            <!-- The Slide Editor, a window over the console (2026-11-15).
+                 It was the right-hand half of the outputs row, where it stood
+                 open all service whether or not anybody was editing -- the
+                 operator asked for that half back for the schedule and the
+                 projection. The panel itself is unchanged, ids and handlers
+                 included; only where it lives has moved. It opens on a
+                 double-click (or a double-tap) on a slide in the rail or on
+                 the projection, which were already the two ways in
+                 (_lcdBindEditorOpeners), and closes on Apply, Esc, the X or
+                 the backdrop -- every one of those through _lcdDraftGuard, so
+                 held words are never dropped without being asked about. -->
+            <div class="lcd-editor-pop" id="lcdEditorPop" style="display:none;" onmousedown="WO.lcdEditorPopDown(event)" onclick="WO.lcdEditorPopBackdrop(event)">
+              <div class="lcd-editor-pop__win" role="dialog" aria-modal="true" aria-label="Slide Editor">
+                <div class="lcd-panel lcd-lyrics-panel">
+                  <div class="lcd-panel-header">
+                    <i class="fa-solid fa-pen-to-square"></i> Slide Editor
+                    <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
+                    <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
+                    <!-- Which part of the song or liturgy item this slide
+                         belongs to. Worked out by carrying the nearest
+                         heading above it down (_lcdPartOfBox); shown here
+                         so an operator working from the middle and right
+                         columns need not look back at the list. -->
+                    <span class="lcd-slide-part-badge" id="lcdLyricsEditorPart" style="display:none;"></span>
+                    <!-- Preview / Edit. Preview shows #woPreviewScreen, the
+                         app's existing preview surface -- it is moved into
+                         this panel below rather than duplicated, so every
+                         routine that already writes to it keeps working. -->
+                    <div class="lcd-seg" role="group" aria-label="Slide Editor mode">
+                      <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdUnlockEditor()" aria-pressed="true" title="Open this slide's text for editing"><i class="fa-solid fa-pen"></i> Edit</button>
+                      <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project (press again to roll the editor up)"><i class="fa-solid fa-eye"></i> Preview</button>
+                    </div>
+                    <div class="lcd-lyrics-actions">
+                      <button class="lcd-mini-btn primary" onclick="WO.lcdPopApply()" title="Apply your changes to this slide and close the editor"><i class="fa-solid fa-check"></i> Apply</button>
+                      <button class="lcd-mini-btn" id="lcdAllSlidesBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
+                      <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
+                      <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Open this song in the Songbook"><i class="fa-solid fa-book-open"></i> Open in Songbook</button>
+                      <button class="lcd-mini-btn lcd-pop-close" onclick="WO.lcdCloseEditorPop()" title="Close the Slide Editor (Esc)" aria-label="Close the Slide Editor"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                  </div>
+                  <div class="lcd-panel-body lcd-lyrics-body">
+                    <!-- Toolbar grouped as Text / Layout / Background. The
+                         align, Barrier and BG controls moved here from the
+                         workspace bar so every slide-level control lives with
+                         the slide; their ids and onclick handlers are
+                         unchanged. -->
+                    <div class="lcd-fmt-toolbar">
+                      <span class="lcd-fmt-group">
+                        <span class="lcd-fmt-group-label">Text</span>
+                        <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
+                        <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
+                        <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
+                        <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
+                          <option value="">Font</option>
+                          <option value="Georgia, serif">Georgia</option>
+                          <option value="'Times New Roman', serif">Times</option>
+                          <option value="Arial, sans-serif">Arial</option>
+                          <option value="'Poppins', sans-serif">Poppins</option>
+                          <option value="'Lato', sans-serif">Lato</option>
+                          <option value="'Cinzel', serif">Cinzel</option>
+                        </select>
+                        <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
+                          <option value="">Size</option>
+                          <option value="14px">14</option>
+                          <option value="18px">18</option>
+                          <option value="24px">24</option>
+                          <option value="30px">30</option>
+                          <option value="36px">36</option>
+                          <option value="48px">48</option>
+                          <option value="60px">60</option>
+                        </select>
+                        <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                        <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                      </span>
+                      <!-- Alignment, Barrier and BG share one atomic group so
+                           they always land on the same ribbon row (groups wrap
+                           as units). Barrier/BG's old labelled groups made a
+                           third toolbar row; the editor pad absorbed that
+                           height. Ids and handlers unchanged. -->
+                      <span class="lcd-fmt-group">
+                        <span class="wo-align-group" title="Text alignment on projection">
+                          <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                          <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                          <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                        </span>
+                        <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                      </span>
+                    </div>
+                    <!-- Canvas: the editable text sits on the slide's real
+                         background so it reads like the projected slide. -->
+                    <div class="lcd-editor-canvas" id="lcdEditorCanvas">
+                      <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
+                      <!-- contenteditable starts FALSE. The pad used to be live the moment a
+                           slide was selected, so a stray click during a service typed
+                           into the words on the screen. It opens on a deliberate
+                           act now -- see _lcdApplyEditorLock(). -->
+                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="false" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
+                      <!-- Shown only while the pad is shut. Deliberately not
+                           clickable: a click is what must NOT open the editor. It
+                           names all three ways in, and pointer-events:none lets a
+                           click through to the text underneath. -->
+                      <div class="lcd-editor-lockhint" id="lcdEditorLockHint" aria-hidden="true"><i class="fa-solid fa-lock"></i> Press <b>Edit</b> to type on this slide</div>
+                    </div>
+                    <!-- Preview surface. #woPreviewScreen and #woPreviewBg were
+                         moved here from the lower row, where their container was
+                         `display: none` -- the app kept writing previews into an
+                         element 0px wide that nobody could see. Same ids, so
+                         syncProjectionWithPreview() and every other writer are
+                         untouched; they now render somewhere visible. Deliberately
+                         NOT given .lcd-output-box: inside .lcd-outputs-row that
+                         class is a 50% column track. -->
+                    <div class="lcd-preview-surface" id="lcdPreviewSurface">
+                      <div class="wo-preview-screen" id="woPreviewScreen">
+                        <div class="wo-preview-bg" id="woPreviewBg"></div>
+                        <div class="wo-preview-placeholder">Click any content box to see preview</div>
+                      </div>
+                    </div>
+                    <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Song preview: opened by double-clicking a Song Library card.
@@ -39964,6 +39987,53 @@ var WO = (function() {
   // the fold and gave every panel its own nested scrollbar.
   // Full-screen mode sizes these itself, and below 1201px the stacked
   // phone/tablet layout takes over -- both are left alone.
+  // The projection box and the Media Tray share one vertical band, and on a
+  // short screen it cannot hold both at the size each would like. These three
+  // figures and _lcdBandSplit are the whole of how that is settled; the pure
+  // function is what `tools/lcd-editor-popup-harness.js` runs.
+  //
+  // LCD_TRAY_FLOOR is also written into the stylesheet's three .lcd-lower-row
+  // min-height rules. Whichever is smaller wins, so they move together -- the
+  // +5px asked for on 2026-11-15 is in all four or it is in none.
+  var LCD_TRAY_FLOOR = 145;
+  // The floor under the projection preview. Below this it stops being
+  // readable at a glance, and the operator has the same words in the rail
+  // beside it -- so past this point the console scrolls instead, which is
+  // what it did before the Slide Editor left the row anyway.
+  var LCD_MIN_SCREEN_H = 300;
+  // Neither the row nor the tray may be squeezed out by the other.
+  var LCD_OUTPUTS_MIN = 200;
+
+  // Pure. avail: the band both share. trayWant: the tray's own content
+  // height. boxChrome: what the projection box spends on controls, label,
+  // nav and status. screenH: the 16:9 screen's natural height, which comes
+  // from the COLUMN'S WIDTH -- widening the column makes it taller, which is
+  // why the projection needed a cap the moment the Slide Editor left the row
+  // and gave it the whole column (757x426 at 1536x695, pushing the tray
+  // 203px below the fold on the very change meant to make the tray taller).
+  //
+  // On a tall screen -- Full Screen, or any 1080p window -- nothing binds and
+  // the projection takes the whole column, which is where the freed width
+  // really pays.
+  function _lcdBandSplit(avail, trayWant, boxChrome, screenH) {
+    var rowBudget = Math.round(avail - Math.max(0, Math.min(trayWant, LCD_TRAY_FLOOR)));
+    var screen = Math.max(LCD_MIN_SCREEN_H, rowBudget - boxChrome);
+    var capped = screenH > 0 && screenH > screen;
+    if (!capped) screen = screenH;
+    var natural = Math.round(boxChrome + screen);
+    return {
+      screen: screen,
+      capped: capped,
+      // +10 of slack below the box, as the row has always carried.
+      rowH: Math.max(LCD_OUTPUTS_MIN, natural > LCD_OUTPUTS_MIN ? natural + 10 : rowBudget),
+      // 0.42 of the band is the ceiling this function has always used, and
+      // measured it is almost exactly the tray's own chrome plus one whole
+      // row of 16:9 tiles. Half the band showed a second row starting and
+      // cost another 38px of scroll.
+      tray: Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)))
+    };
+  }
+
   function _lcdSizeWorkspaceColumns() {
     var mc = document.querySelector('.wo-main-content');
     if (!mc) return;
@@ -40048,14 +40118,9 @@ var WO = (function() {
           chrome += _ownRect(c.getBoundingClientRect().height);
         });
         var avail = band - chrome - 24;
-        // The editor and output never drop below this, so a big media library
-        // cannot squeeze them out; past that point the tray body scrolls.
-        var OUTPUTS_MIN = 200;
         // scrollHeight, not the rendered height: it is the tray's natural
         // content height, which is what it wants when expanded and roughly the
-        // header alone when collapsed. Capped at a share of the band rather
-        // than "whatever is left over", so on a short screen the tray still
-        // gets a usable slice instead of being handed 20px.
+        // header alone when collapsed.
         //
         // The previous pass's cap has to come off before measuring, or the
         // reading is of the constrained box rather than the content: re-expanding
@@ -40064,54 +40129,27 @@ var WO = (function() {
         if (lower) lower.style.maxHeight = '';
         var trayWant = lower ? lower.scrollHeight : 0;
 
-        // The row is sized to the Program Output's NATURAL content height --
-        // its controls, label and 16:9 screen -- so the Slide Editor's bottom
-        // edge lands exactly on the output's. The screen's height comes from
-        // the column width, not from the row, which is why the old band
-        // arithmetic never aligned the two: the box carried invisible slack
-        // below the screen at wide sizes and the screen jutted past the editor
-        // at narrow ones. The tray takes what is left and scrolls internally;
-        // the editor is what the user asked to grow, and it now always runs to
-        // the output's full visible depth.
-        var rowH = Math.round(avail - Math.max(0, Math.min(trayWant, Math.round(avail * 0.42))));
         var progBox = outputs.querySelector('.lcd-program-box');
+        var progScreen = document.getElementById('lcdProgramOutput');
+        var split = null;
         if (progBox && progBox.lastElementChild) {
+          // Measured without last pass's cap, or the reading is of the
+          // constrained box -- the same trap the tray's own measurement has.
+          if (progScreen) progScreen.style.maxWidth = '';
           var pcs = getComputedStyle(progBox);
           var natural = Math.round(_own(
             progBox.lastElementChild.getBoundingClientRect().bottom
             - progBox.getBoundingClientRect().top)
             + (parseFloat(pcs.paddingBottom) || 0));
-          // +10 beyond the output's natural depth: the extra lands in the
-          // Slide Editor's scrollable body (the 16:9 screen keeps its
-          // width-driven height), buying the lyric pane more visible lines
-          // in windowed mode while both boxes still bottom out together.
-          if (natural > OUTPUTS_MIN) rowH = natural + 10;
+          var screenH = progScreen ? _ownRect(progScreen.getBoundingClientRect().height) : 0;
+          split = _lcdBandSplit(avail, trayWant, natural - screenH, screenH);
+          // Cap the WIDTH -- the 16:9 height follows it, and the box centres
+          // what is left (margin-left/right: auto on .lcd-program-screen).
+          if (progScreen && split.capped) progScreen.style.maxWidth = Math.round(split.screen * 16 / 9) + 'px';
         }
-        rowH = Math.max(OUTPUTS_MIN, rowH);
-
-        // The editor column's own content (header, ribbon, canvas at its
-        // minimum, summary) can exceed the program-derived height by a
-        // little, which clipped the bottom of the notepad. Grow the row by
-        // the measured clip so the pad is fully visible, capped so the Media
-        // Tray keeps a band below. clientHeight here reflects the PREVIOUS
-        // pass's row height, so this converges on the second sizing pass --
-        // and schedule() already runs applyLayout twice per invocation.
-        var _lyrBody = outputs.querySelector('.lcd-lyrics-body');
-        if (_lyrBody) {
-          // Measured OPEN even while the editor is rolled up to its title
-          // bar (_lcdApplyEditorRoll): a rolled body has no overflow to read,
-          // so the row came out short and opening the editor pushed the Media
-          // Tray down. Unrolled for the reading and rolled again before any
-          // paint, the row is the same height either way and nothing moves.
-          var _lyrPanel = _lyrBody.closest('.lcd-lyrics-panel');
-          var _rolled = !!(_lyrPanel && _lyrPanel.classList.contains('lcd-editor-rolled'));
-          if (_rolled) _lyrPanel.classList.remove('lcd-editor-rolled');
-          var _clip = _lyrBody.scrollHeight - _lyrBody.clientHeight;
-          if (_rolled) _lyrPanel.classList.add('lcd-editor-rolled');
-          if (_clip > 0) rowH = Math.min(rowH + _clip + 2, Math.max(rowH, avail - 60));
-        }
-
-        var trayShare = Math.max(0, Math.min(trayWant, avail - rowH));
+        var rowH = split ? split.rowH : Math.round(avail - Math.min(trayWant, LCD_TRAY_FLOOR));
+        rowH = Math.max(LCD_OUTPUTS_MIN, rowH);
+        var trayShare = split ? split.tray : Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));
         if (lower) lower.style.maxHeight = trayShare ? trayShare + 'px' : '';
         // A definite height, not just a cap: percentages inside the row cannot
         // resolve against a max-height alone.
@@ -40123,22 +40161,15 @@ var WO = (function() {
         outputs.style.height = rowH + 'px';
         outputs.style.maxHeight = '';
 
-        // Second pass. `avail` is derived from measured chrome, but the panel's
-        // own padding and the margins between its rows are not in that figure.
-        // Overflow comes off the TRAY, never the row: shrinking the row would
-        // break the editor/output alignment this function exists to hold, and
-        // the tray's grid scrolls inside itself. On a short screen the content
-        // genuinely exceeds the space -- this decides where that shows up, and
-        // a scrollbar inside the media grid is better than the whole workspace
-        // sliding under the fold.
-        var sect = document.getElementById('worshipOrderView');
-        if (sect) {
-          var over = sect.scrollHeight - sect.clientHeight;
-          if (over > 0 && lower) {
-            var trayNow = lower.getBoundingClientRect().height;
-            lower.style.maxHeight = Math.max(50, Math.round(trayNow - over)) + 'px';
-          }
-        }
+        // There was a second pass here that took any leftover overflow off
+        // the TRAY, never the row: shrinking the row would have broken the
+        // Slide Editor / Program Output alignment this function existed to
+        // hold. The editor left the row on 2026-11-15, so that alignment is
+        // gone and all the pass still did was starve the tray -- it wrote
+        // 50px, the stylesheet's min-height quietly overrode it, and the
+        // tray's real height was decided somewhere else entirely while this
+        // code looked like it was in charge. The console scrolls instead,
+        // which it already did.
       } else {
         outputs.style.flex = '';
         outputs.style.height = '';
@@ -89900,12 +89931,20 @@ var WO = (function() {
   // have had one since they were added; songs and liturgy never did, which is
   // why their title had to be repeated on every slide row. Said once at the
   // top, the rows below can spend their width on the part and the words.
-  function _lcdBuildItemGroupRow(kind, title, count) {
+  function _lcdBuildItemGroupRow(kind, title, count, groupId, sectionId) {
     var icon = (kind === 'song') ? 'fa-music' : 'fa-book-bible';
+    // A section may hold several items -- Benediction holds two liturgies --
+    // and openSectionAllSlides takes the FIRST one it finds. So this heading
+    // is the only place that can name the second, and it says which item it
+    // opens rather than "this section".
+    var allBtn = (groupId && sectionId)
+      ? '<button class="lcd-rail-allslides" onclick="event.stopPropagation(); WO.lcdItemAllSlides(\'' + escapeJsArg(kind) + '\', \'' + escapeJsArg(groupId) + '\', \'' + escapeJsArg(sectionId) + '\')" title="Edit the slides of ' + escapeHtml(title).replace(/"/g, '&quot;') + ' as one text block"><i class="fa-solid fa-align-left"></i></button>'
+      : '';
     return '<div class="lcd-rail-item-group ' + kind + '" title="' + escapeHtml(title).replace(/"/g, '&quot;') + '">' +
       '<i class="fa-solid ' + icon + '"></i>' +
       '<span class="lcd-rail-item-group-name">' + escapeHtml(title) + '</span>' +
       '<span class="lcd-rail-item-group-count" title="' + count + ' slide' + (count === 1 ? '' : 's') + '">' + count + '</span>' +
+      allBtn +
     '</div>';
   }
 
@@ -90528,7 +90567,7 @@ var WO = (function() {
             i++;
           }
           if (_songBoxes.length) {
-            rowsHtml += _lcdBuildItemGroupRow('song', groupTitle, _songBoxes.length);
+            rowsHtml += _lcdBuildItemGroupRow('song', groupTitle, _songBoxes.length, songId, sectionId);
             rowsHtml += _lcdPartedRowsHtml(sIdx, slideCounter, groupTitle, _songBoxes, 'fa-music');
             slideCounter += _songBoxes.length;
           }
@@ -90550,7 +90589,7 @@ var WO = (function() {
             i++;
           }
           if (_litBoxes.length) {
-            rowsHtml += _lcdBuildItemGroupRow('liturgy', litTitle, _litBoxes.length);
+            rowsHtml += _lcdBuildItemGroupRow('liturgy', litTitle, _litBoxes.length, liturgyId, sectionId);
             rowsHtml += _lcdPartedRowsHtml(sIdx, slideCounter, litTitle, _litBoxes, 'fa-book-bible');
             slideCounter += _litBoxes.length;
           }
@@ -90649,7 +90688,13 @@ var WO = (function() {
         // keeps the full row, and the actions get real size and real labels
         // inside the popup.
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
-        var addBtns = '<button class="lcd-rail-menu-btn" onclick="event.stopPropagation(); WO.lcdOpenSectionMenu(event, \'' + sectionId + '\', ' + (isScripture ? 'true' : 'false') + ')" title="Section actions"><i class="fa-solid fa-ellipsis"></i></button>';
+        // All Slides on the heading itself (2026-11-15). It was reachable
+        // from the Slide Editor's header, from the console's own button and
+        // from this section's "..." menu -- all three of which act on the
+        // SELECTED slide's section, so editing a section meant selecting into
+        // it first. Named here, the heading is the target.
+        var addBtns = '<button class="lcd-rail-allslides" onclick="event.stopPropagation(); WO.lcdSectionAllSlides(\'' + escapeJsArg(sectionId) + '\')" title="Edit every slide in this section as one text block"><i class="fa-solid fa-align-left"></i></button>' +
+          '<button class="lcd-rail-menu-btn" onclick="event.stopPropagation(); WO.lcdOpenSectionMenu(event, \'' + sectionId + '\', ' + (isScripture ? 'true' : 'false') + ')" title="Section actions"><i class="fa-solid fa-ellipsis"></i></button>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
@@ -91796,29 +91841,55 @@ var WO = (function() {
       ed.setAttribute('contenteditable', locked ? 'false' : 'true');
       if (locked && document.activeElement === ed) ed.blur();
     }
-    _lcdApplyEditorRoll();
     _lcdDraftPaint();
   }
 
-  // ---- Rolled up unless it is being used ---------------------------------
-  // Shut and not previewing, the Slide Editor is its title bar alone: the
-  // words are on the projection beside it, and the panel's body was a second
-  // copy of them taking half the row. Opening the pad (Edit, or a
-  // double-click on the slide or the projection) rolls it down; shutting it
-  // (a click away, Save, Discard) rolls it back up. Preview, chosen on
-  // purpose, shows its surface, and a second press on it rolls it up again.
-  // The row keeps its height -- _lcdSizeWorkspaceColumns sizes it from the
-  // projection -- so nothing else on the console moves as it rolls.
-  function _lcdApplyEditorRoll() {
-    var panel = document.querySelector('.lcd-lyrics-panel');
-    if (!panel) return;
-    var rolled = !_lcdEditorUnlocked && !panel.classList.contains('lcd-mode-preview');
-    panel.classList.toggle('lcd-editor-rolled', rolled);
-    var hd = panel.querySelector('.lcd-panel-header');
-    if (hd) {
-      if (rolled) hd.title = 'Press Edit, or double-click a slide in the list or the projection, to open the Slide Editor';
-      else hd.removeAttribute('title');
-    }
+  // ---- The Slide Editor is a window over the console ---------------------
+  // Until 2026-11-15 it was the right-hand half of the outputs row, standing
+  // open all service whether or not anybody was editing -- and rolled up to
+  // its title bar the rest of the time, which was the previous answer to the
+  // same complaint. The operator asked for that half back for the schedule
+  // and the projection, so the panel is a window now: the same panel, the
+  // same ids and handlers, opened by the two gestures that already opened
+  // the pad.
+  //
+  // Open/shut is NOT the lock state. Preview shuts the pad and keeps the
+  // window; Apply saves and shuts the window. So they are tracked apart.
+  var _lcdPopOn = false;
+  function _lcdOpenEditorPop() {
+    var pop = document.getElementById('lcdEditorPop');
+    if (!pop || _lcdPopOn) return;
+    pop.style.display = 'flex';
+    _lcdPopOn = true;
+    document.body.classList.add('lcd-editor-pop-on');
+  }
+  // `force` shuts it whatever is held -- every other caller asks first, so a
+  // window closed by Esc, the X or the backdrop can never drop typed words.
+  function lcdCloseEditorPop(force) {
+    if (!_lcdPopOn) return;
+    if (!force && !_lcdDraftGuard(function() { lcdCloseEditorPop(true); })) return;
+    var pop = document.getElementById('lcdEditorPop');
+    if (pop) pop.style.display = 'none';
+    _lcdPopOn = false;
+    document.body.classList.remove('lcd-editor-pop-on');
+    if (_lcdEditorUnlocked) { _lcdEditorUnlocked = false; _lcdApplyEditorLock(); }
+  }
+  // A press that STARTS on the backdrop and ENDS there is a click away. A
+  // drag that began inside the window (selecting words, and letting go past
+  // its edge) is not, or editing a long line would shut the window.
+  var _lcdPopDownOnBd = false;
+  function lcdEditorPopDown(e) { _lcdPopDownOnBd = !!(e && e.target && e.target.id === 'lcdEditorPop'); }
+  function lcdEditorPopBackdrop(e) {
+    if (!e || !e.target || e.target.id !== 'lcdEditorPop' || !_lcdPopDownOnBd) { _lcdPopDownOnBd = false; return; }
+    _lcdPopDownOnBd = false;
+    lcdCloseEditorPop();
+  }
+  // Apply is the window's "done": it saves and shuts. A refusal (another
+  // device holds the slide) returns false and leaves the window open with
+  // the words still in it.
+  function lcdPopApply() {
+    if (_lcdApplySlideEdit() === false) return;
+    lcdCloseEditorPop(true);
   }
 
   function lcdUnlockEditor() {
@@ -91826,6 +91897,8 @@ var WO = (function() {
     // silently belongs to no slide is worse than a refusal.
     var box = document.querySelector('#woWorshipOrder .wo-slide-box.selected');
     if (!box) { showToast('Select a slide first', 'warning'); return; }
+    if (!_lcdEditorAvailable) { showToast('This slide has no text to edit', 'warning'); return; }
+    _lcdOpenEditorPop();
     // Preview is a read-only render; Edit is where the pad lives.
     lcdSetEditorMode('edit');
     _lcdEditorUnlocked = true;
@@ -91859,6 +91932,34 @@ var WO = (function() {
         lcdUnlockEditor();
       }
     });
+    // The same two targets answer two TAPS. A touch screen has no dblclick
+    // (CLAUDE.md gotcha 28) and the editor used not to exist below 1120px --
+    // a window does, so the gesture has to. 350ms and 32px, the figures the
+    // Songbook's own double-tap uses.
+    var _tapAt = 0, _tapX = 0, _tapY = 0;
+    document.addEventListener('touchend', function(e) {
+      if (!document.body.classList.contains('lcd-console-open')) return;
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (!t.closest('#lcdCompactRail .lcd-rail-slide-row') && !t.closest('#lcdProgramOutput')) return;
+      var p = (e.changedTouches && e.changedTouches[0]);
+      if (!p) return;
+      var now = Date.now();
+      if (now - _tapAt < 350 && Math.abs(p.clientX - _tapX) < 32 && Math.abs(p.clientY - _tapY) < 32) {
+        _tapAt = 0;
+        lcdUnlockEditor();
+        return;
+      }
+      _tapAt = now; _tapX = p.clientX; _tapY = p.clientY;
+    }, true);
+    // Esc shuts the window -- but not while the question is up, which owns
+    // Esc itself (Keep editing).
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape' || !_lcdPopOn) return;
+      if (document.getElementById('lcdDraftAsk')) return;
+      e.preventDefault(); e.stopPropagation();
+      lcdCloseEditorPop();
+    }, true);
     // ...and one pair for the way out: a click away from the editor.
     document.addEventListener('mousedown', _lcdOnAwayMouseDown, true);
     document.addEventListener('click', _lcdOnAwayClick, true);
@@ -92009,7 +92110,6 @@ var WO = (function() {
     // NOT reopen it -- only lcdUnlockEditor() does, which is what the Edit
     // button calls.
     if (preview) { _lcdEditorUnlocked = false; _lcdApplyEditorLock(); }
-    _lcdApplyEditorRoll();
   }
 
   // ---- Add a slide from the editor -----------------------------------
@@ -93730,6 +93830,20 @@ var WO = (function() {
     openSectionAllSlides(secId);
   }
 
+  // Named from a heading in the rail: this section, whatever is selected.
+  function lcdSectionAllSlides(sectionId) {
+    if (!_lcdDraftGuard(function() { lcdSectionAllSlides(sectionId); })) return;
+    openSectionAllSlides(sectionId);
+  }
+
+  // Named from an ITEM's heading: this song or this liturgy item, which is
+  // the one thing openSectionAllSlides cannot pick out of a section holding
+  // more than one.
+  function lcdItemAllSlides(kind, groupId, sectionId) {
+    if (!_lcdDraftGuard(function() { lcdItemAllSlides(kind, groupId, sectionId); })) return;
+    openAllSlidesModal(kind, groupId, sectionId);
+  }
+
   function openSectionAllSlides(sectionId) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -94452,11 +94566,15 @@ var WO = (function() {
   // The element reference can be lost; which presentation is live cannot.
   var _pptActiveSection = null;
 
-  // Show or hide the Slide Editor. Called wherever the selection moves between
-  // something the editor can work on and something it cannot.
+  // Whether the Slide Editor has anything to act on. Called wherever the
+  // selection moves between something it can work on and something it cannot
+  // (a presentation page, a picture, a video). It used to hide the panel in
+  // the outputs row; the panel is a window now, so this shuts a window open
+  // over content it cannot touch, and refuses to open one.
+  var _lcdEditorAvailable = true;
   function _lcdSetEditorVisible(on) {
-    var row = document.querySelector('.lcd-outputs-row');
-    if (row) row.classList.toggle('lcd-editor-hidden', !on);
+    _lcdEditorAvailable = !!on;
+    if (!_lcdEditorAvailable) lcdCloseEditorPop(true);
   }
 
   function _pptReacquire() {
@@ -98813,6 +98931,10 @@ var WO = (function() {
     lcdSetLayoutMode: lcdSetLayoutMode,
     lcdUnlockEditor: lcdUnlockEditor,
     lcdLockEditor: lcdLockEditor,
+    lcdCloseEditorPop: lcdCloseEditorPop,
+    lcdEditorPopBackdrop: lcdEditorPopBackdrop,
+    lcdEditorPopDown: lcdEditorPopDown,
+    lcdPopApply: lcdPopApply,
     lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
     getOrderType: getOrderType,
     lcdRemoveScriptureSlot: lcdRemoveScriptureSlot,
@@ -98978,6 +99100,8 @@ var WO = (function() {
     openContentAllSlides: openContentAllSlides,
     openSectionAllSlides: openSectionAllSlides,
     lcdOpenSectionAllSlides: lcdOpenSectionAllSlides,
+    lcdSectionAllSlides: lcdSectionAllSlides,
+    lcdItemAllSlides: lcdItemAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
@@ -113968,10 +114092,14 @@ function filterLiturgyItems() {
   .lcd-media-item { position: relative; }
   .lcd-media-vid-badge { position: absolute; bottom: 4px; right: 4px; width: 17px; height: 17px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; pointer-events: none; }
   .lcd-slide-num-badge { color: var(--lcd-ivory-muted); font-size: 0.7rem; font-weight: 600; background: var(--lcd-navy-700); border-radius: var(--lcd-radius-sm); padding: 1px 7px; margin-left: 2px; }
-  .lcd-lower-row { display: flex; gap: var(--lcd-space-4); margin-top: var(--lcd-space-3); min-height: 140px; }
+  /* 145px, not 140: the +5px asked for on 2026-11-15, so a row of thumbnails
+     lands whole rather than clipped. FOUR rules cap this row -- this one,
+     LCD_TRAY_FLOOR in the script, full screen's max-height, and the stacked
+     band below 1201px -- and the SMALLEST of them wins. Move one on its own
+     and nothing changes on screen. */
+  .lcd-lower-row { display: flex; gap: var(--lcd-space-4); margin-top: var(--lcd-space-3); min-height: 145px; }
   .lcd-lower-row .lcd-output-box { display: none; }
   .lcd-lower-row .wo-preview-screen { min-height: 130px; }
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 auto; min-width: 0; }
   .lcd-outputs-row .lcd-output-box { flex: 0 0 calc(50% - 9px); min-width: 0; }
   .lcd-panel { flex: 1; min-width: 0; background: var(--lcd-navy-800); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-lg); display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--lcd-shadow-sm); }
   .lcd-panel-header { color: var(--lcd-ivory-100); font-size: 0.8rem; font-weight: 600; padding: 9px var(--lcd-space-3); border-bottom: 1px solid var(--lcd-navy-line); display: flex; align-items: center; gap: 7px; }
@@ -114078,7 +114206,14 @@ function filterLiturgyItems() {
      and Media Tray become warm ivory working surfaces; more width, bigger
      controls, restrained gold, 16:9 projector output.
      ========================================================================== */
-  .wo-main-content:not(.wo-song-order) {
+  /* .lcd-editor-pop is named here too, and it has to be: the Slide Editor
+     moved out of .wo-main-content into a window of its own (2026-11-15), and
+     these are SCOPED custom properties, not :root ones. Outside this subtree
+     `background: var(--lcd-ivory)` resolves to nothing, so the panel rendered
+     with a transparent header and body over the console -- the rules all
+     matched, the colours simply did not exist there. */
+  .wo-main-content:not(.wo-song-order),
+  .lcd-editor-pop {
     --lcd-ivory:      #f7f3ea;   /* main parchment working surface */
     --lcd-ivory-2:    #fffdf8;   /* raised cards on top of it */
     --lcd-ivory-3:    #ece5d7;   /* recessed / header bands */
@@ -114271,10 +114406,11 @@ function filterLiturgyItems() {
 
   /* ---- 4. Program Output: landscape 16:9, the hero of the workspace ------- */
   .lcd-outputs-row { gap: var(--lcd-space-4); align-items: stretch; }
-  /* Even halves, so the Slide Editor and the Program Output each end up the
-     same width as the Service Schedule beside them. */
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; min-width: 0; }
-  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; min-width: 280px; }
+  /* The whole row, since the Slide Editor left it for a window of its own.
+     The 16:9 screen takes its height from this width, so the projection grew
+     rather than merely moved -- which is half of what the freed column was
+     asked to buy; the Service Schedule's wider track is the other half. */
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 100%; min-width: 280px; }
   .lcd-program-box .lcd-output-label {
     font-family: 'Cinzel', Georgia, serif; font-size: 0.8rem; letter-spacing: 0.1em;
     color: var(--lcd-ivory-100); margin-bottom: 9px;
@@ -114285,6 +114421,10 @@ function filterLiturgyItems() {
     aspect-ratio: 16 / 9 !important; width: 100% !important;
     height: auto !important; min-height: 0 !important; max-height: none !important;
     flex: 0 0 auto;
+    /* _lcdSizeWorkspaceColumns writes a max-width when the band cannot hold a
+       16:9 screen the full width of the column; these centre what is left
+       rather than leaving it against the column's edge. */
+    margin-left: auto; margin-right: auto;
     border: 1px solid rgba(193,153,63,.45);
     border-radius: var(--lcd-radius-md);
     box-shadow: 0 0 0 1px rgba(193,153,63,.18), 0 14px 34px rgba(0,0,0,.45);
@@ -114315,12 +114455,18 @@ function filterLiturgyItems() {
   }
 
   /* ---- 6. Media Tray: visual assets on paper ------------------------------ */
+  /* White rather than the console's parchment (2026-11-15, asked for). The
+     tiles are photographs and slide backgrounds; the warm #f7f3ea behind
+     them tinted every thumbnail and the darker ones read as muddy. This is
+     the one panel whose job is to show pictures truly, so it is the one
+     panel that leaves the parchment. */
   .lcd-media-panel {
-    background: var(--lcd-ivory); border: 1px solid var(--lcd-ivory-line);
+    background: #ffffff; border: 1px solid var(--lcd-ivory-line);
     border-radius: var(--lcd-radius-lg); box-shadow: var(--lcd-shadow-paper);
   }
+  .lcd-media-panel .lcd-panel-body { background: #ffffff; }
   .lcd-media-panel .lcd-panel-header {
-    background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3));
+    background: linear-gradient(180deg, #ffffff, #f6f2e9);
     color: var(--lcd-ink); border-bottom: 1px solid var(--lcd-ivory-line);
     font-family: 'Cinzel', Georgia, serif; padding: 11px 14px;
   }
@@ -114387,8 +114533,8 @@ function filterLiturgyItems() {
   body.lcd-workspace-fullscreen .lcd-lyrics-panel { display: flex; flex-direction: column; min-height: 0; }
   body.lcd-workspace-fullscreen .lcd-lyrics-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   body.lcd-workspace-fullscreen .lcd-editor-canvas { flex: 1 1 auto; min-height: 220px; }
-  body.lcd-workspace-fullscreen .lcd-lower-row { flex: 0 0 auto; max-height: 210px; }
-  body.lcd-workspace-fullscreen .lcd-media-panel { max-height: 210px; overflow-y: auto; }
+  body.lcd-workspace-fullscreen .lcd-lower-row { flex: 0 0 auto; max-height: 215px; }
+  body.lcd-workspace-fullscreen .lcd-media-panel { max-height: 215px; overflow-y: auto; }
 
   /* ---- 7. Workspace bar + shell breathing room --------------------------- */
   .lcd-shell { padding: var(--lcd-space-5); gap: 0; }
@@ -114570,10 +114716,11 @@ function filterLiturgyItems() {
 
      Proportions follow the approved console mockup, against the usable width
      left after the global app sidebar:
-        Content Library ~12%   Service Slides ~28%
-        Preview / Edit  ~34%   Program / Live ~25%
-     Preview/Edit and Program/Live share the third track and split it 58:42
-     inside .lcd-outputs-row; see the min-width:1201px block further down.
+        Content Library ~12%   Service Slides ~35%   Program / Live ~53%
+     The third track was shared with the Slide Editor, 58:42 inside
+     .lcd-outputs-row, until the editor became a window on 2026-11-15. It is
+     Program / Live alone now, and the Service Schedule took most of what the
+     editor left.
 
      fr units carry the proportions, minmax() floors stop any column
      collapsing, and the floors are what take over below ~1500px.
@@ -114581,25 +114728,34 @@ function filterLiturgyItems() {
 
   /* Base: 1440-1799. */
   .wo-main-content:not(.wo-song-order) {
-    grid-template-columns: minmax(196px, 11.5fr) minmax(330px, 28.5fr) minmax(600px, 60fr);
+    grid-template-columns: minmax(196px, 11.5fr) minmax(360px, 35fr) minmax(540px, 53.5fr);
   }
   .wo-main-content:not(.wo-song-order).lcd-library-hidden {
-    grid-template-columns: 44px minmax(330px, 30fr) minmax(600px, 70fr);
+    grid-template-columns: 44px minmax(360px, 38fr) minmax(540px, 62fr);
   }
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
-    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+    grid-template-columns: 44px minmax(440px, 56fr) minmax(400px, 44fr);
   }
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden {
-    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+    grid-template-columns: 44px minmax(440px, 56fr) minmax(400px, 44fr);
   }
+
+  /* The three tracks moved toward the Service Schedule on 2026-11-15, in
+     every band and in Fixed mode below: the Slide Editor left the third
+     column for a window of its own, and the projection -- 16:9, so its
+     height comes from its width -- can only use so much of what it left
+     before the Media Tray goes under the fold. The schedule takes the rest,
+     which is where it shows: measured at 1536x695 in Fixed mode, 401px wide
+     before and 628px after, while the projection still grew from 517x291 to
+     533x300. See _lcdBandSplit for the vertical half of the same decision. */
 
   /* Wide desktops. */
   @media (min-width: 1800px) {
     .wo-main-content:not(.wo-song-order) {
-      grid-template-columns: minmax(215px, 11.5fr) minmax(370px, 28.5fr) minmax(700px, 60fr);
+      grid-template-columns: minmax(215px, 11.5fr) minmax(370px, 34fr) minmax(620px, 54.5fr);
     }
     .wo-main-content:not(.wo-song-order).lcd-library-hidden {
-      grid-template-columns: 44px minmax(370px, 30fr) minmax(700px, 70fr);
+      grid-template-columns: 44px minmax(370px, 38fr) minmax(620px, 62fr);
     }
   }
 
@@ -114607,17 +114763,17 @@ function filterLiturgyItems() {
      Slides still gets comfortably more than the library. */
   @media (max-width: 1439px) {
     .wo-main-content:not(.wo-song-order) {
-      grid-template-columns: minmax(180px, 11fr) minmax(300px, 29fr) minmax(470px, 60fr);
+      grid-template-columns: minmax(180px, 11fr) minmax(330px, 35fr) minmax(420px, 54fr);
     }
     .wo-main-content:not(.wo-song-order).lcd-library-hidden {
-      grid-template-columns: 44px minmax(300px, 30fr) minmax(470px, 70fr);
+      grid-template-columns: 44px minmax(330px, 38fr) minmax(420px, 62fr);
     }
   }
 
   /* Below 1280 an expanded schedule cannot also fit the library. */
   @media (max-width: 1599px) {
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
-      grid-template-columns: 44px minmax(420px, 1.4fr) minmax(430px, 1fr);
+      grid-template-columns: 44px minmax(440px, 1.6fr) minmax(400px, 1fr);
     }
   }
 
@@ -114639,7 +114795,7 @@ function filterLiturgyItems() {
   @media (min-width: 1120px) and (max-width: 1279px) {
     .wo-main-content:not(.wo-song-order) {
       position: relative;
-      grid-template-columns: 44px minmax(258px, 30fr) minmax(424px, 70fr);
+      grid-template-columns: 44px minmax(300px, 38fr) minmax(400px, 62fr);
     }
     /* Existing semantics, reused rather than reinvented: lcdToggleLibrary()
        persists a flag and _lcdApplyLayoutFlags() puts .lcd-library-hidden on
@@ -114679,13 +114835,13 @@ function filterLiturgyItems() {
      ---------------------------------------------------------------------- */
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) {
     display: grid;
-    grid-template-columns: minmax(180px, 11fr) minmax(300px, 29fr) minmax(470px, 60fr);
+    grid-template-columns: minmax(180px, 11fr) minmax(360px, 41fr) minmax(420px, 48fr);
   }
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-library-hidden {
-    grid-template-columns: 44px minmax(300px, 30fr) minmax(470px, 70fr);
+    grid-template-columns: 44px minmax(360px, 47fr) minmax(420px, 53fr);
   }
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
-    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+    grid-template-columns: 44px minmax(460px, 58fr) minmax(400px, 42fr);
   }
   /* Whether the Song Library is open is the OPERATOR'S decision (the tab, and
      lcdToggleLibrary's stored flag) -- never the window's. That is the single
@@ -114721,13 +114877,11 @@ function filterLiturgyItems() {
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .wo-preview-panel {
     width: auto !important; min-width: 0 !important;
   }
-  /* Program / Live and the Slide Editor stay side by side, in the shares the
-     split rule sets further down (58:42 to the projection). Restated because
-     that rule is behind `min-width: 1120px`, which a scaled-down window is
-     by definition not. */
+  /* Program / Live has the row to itself. Restated because the rule that
+     says so is behind `min-width: 1120px`, which a scaled-down window is by
+     definition not. */
   body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: row; min-height: 200px; }
-  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box { flex: 1 1 58%; min-width: 0; }
-  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel { flex: 1 1 42%; min-width: 260px; }
+  body.lcd-fixed-layout .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box { flex: 1 1 100%; min-width: 0; }
   /* Same reason: the columns' scroll containment is a min-width: 1120px rule,
      and without it a long order stretches the page instead of scrolling
      inside its own column. _lcdSizeWorkspaceColumns writes the real cap
@@ -114816,6 +114970,28 @@ function filterLiturgyItems() {
   .lcd-rail-collapse { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: none; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 0; border-radius: 5px; font-size: 0.72rem; transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
   .lcd-rail-collapse:hover { color: var(--lcd-gold-400, #d9b46a); background: rgba(255,255,255,0.06); }
   .lcd-rail-section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* All Slides, on a section's heading and on each song's or liturgy item's
+     heading (2026-11-15). Always visible rather than on hover: a hover-only
+     control cannot be reached on a touch screen (CLAUDE.md gotcha 28), and
+     this is the one way to open the SECOND item in a section. */
+  .lcd-rail-allslides {
+    flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 7px; cursor: pointer;
+    color: var(--lcd-ivory-200, #e6ddc9); font-size: 0.68rem;
+    transition: background var(--lcd-motion-fast) ease, border-color var(--lcd-motion-fast) ease;
+  }
+  .lcd-rail-allslides:hover {
+    background: var(--lcd-gold-wash, rgba(193, 153, 63, .22));
+    border-color: var(--lcd-gold-500, #c1993f);
+    color: var(--lcd-ivory-100, #f8f4ea);
+  }
+  .lcd-rail-allslides:focus-visible { outline: 2px solid var(--lcd-gold-500, #c1993f); outline-offset: 1px; }
+  /* On an item's heading it is smaller and quieter: the section's is the one
+     an operator reaches for, and the row it sits on is a label, not a bar. */
+  .lcd-rail-item-group .lcd-rail-allslides { width: 22px; height: 22px; font-size: 0.62rem; margin-left: 2px; }
   /* Per-section slide count. Letter-spacing/transform reset because the
      section header sets uppercase + tracking on the whole row. */
   .lcd-rail-section-count {
@@ -116127,22 +116303,57 @@ function filterLiturgyItems() {
   /* Preview has no pad at all, so the hint would be describing nothing. */
   .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-lockhint { display: none; }
 
-  /* ---- Rolled up: the title bar alone until the editor is used ----------- */
-  /* _lcdApplyEditorRoll() sets .lcd-editor-rolled while the pad is shut and
-     Preview is not showing. The panel stops stretching to the row (which
-     keeps its height, so the projection and the Media Tray stay put), its
-     body goes, and Apply -- which has nothing to apply while shut -- goes
-     with it. All Slides and Delete act on the slide and stay. */
-  .lcd-outputs-row .lcd-lyrics-panel.lcd-editor-rolled { align-self: flex-start; min-height: 0; }
-  .lcd-lyrics-panel.lcd-editor-rolled .lcd-lyrics-body { display: none; }
-  .lcd-lyrics-panel.lcd-editor-rolled .lcd-panel-header { border-bottom: 0; }
-  .lcd-lyrics-panel.lcd-editor-rolled .lcd-lyrics-actions .lcd-mini-btn.primary { display: none; }
-  /* Rolling down, the body unrolls from the title bar. */
-  .lcd-lyrics-panel:not(.lcd-editor-rolled) .lcd-lyrics-body { animation: lcdEditorUnroll 0.2s ease-out; }
-  @keyframes lcdEditorUnroll {
-    from { clip-path: inset(0 0 100% 0); opacity: 0.35; }
-    to { clip-path: inset(0 0 0 0); opacity: 1; }
+  /* ---- The Slide Editor as a window (2026-11-15) ------------------------- */
+  /* It used to be the right-hand half of the outputs row, rolled up to its
+     title bar whenever nobody was editing. The operator asked for that half
+     back, so the panel is a window over the console: a dim backdrop, a card
+     in the middle, and the SAME panel inside it.
+
+     Modal on purpose. The pad holds typed words until they are saved
+     (gotcha 60), and a window you can click past is a window somebody edits
+     a slide in while the projection carries on behind it -- the backdrop is
+     what makes "away" a single, answerable gesture again. Every way out
+     (Esc, the X, the backdrop, Apply) goes through _lcdDraftGuard.
+
+     z-index 16040: under the Song Preview overlay (16050), which is a
+     separate way of reading a song, and well under the draft question
+     (10060 on its own stacking context) and the app's toasts. */
+  .lcd-editor-pop {
+    position: fixed; inset: 0; z-index: 16040;
+    display: none; align-items: center; justify-content: center;
+    padding: 3vh 3vw;
+    background: rgba(6, 11, 22, 0.72);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
   }
+  .lcd-editor-pop__win {
+    display: flex; flex-direction: column;
+    width: min(880px, 94vw); max-height: 92vh;
+    background: var(--lcd-ivory, #f7f3ea);
+    border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 26px 72px rgba(0, 0, 0, .55);
+    animation: lcdEditorPopIn 0.16s ease-out;
+  }
+  @keyframes lcdEditorPopIn {
+    from { transform: translateY(10px) scale(0.985); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lcd-editor-pop__win { animation: none; }
+  }
+  /* Inside the window the panel IS the window: no border of its own over the
+     card's, and it fills the height it is given so the canvas can grow. */
+  .lcd-editor-pop .lcd-lyrics-panel {
+    flex: 1 1 auto; min-height: 0; width: 100%;
+    border: 0; border-radius: 0; box-shadow: none;
+    max-height: none;
+  }
+  .lcd-editor-pop .lcd-lyrics-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .lcd-editor-pop .lcd-editor-canvas { min-height: 220px; }
+  /* The close button sits at the end of the header's action row. Danger-red
+     would read as Delete, which is its neighbour. */
+  .lcd-mini-btn.lcd-pop-close { width: 40px; padding: 0; justify-content: center; }
+  .lcd-mini-btn.lcd-pop-close:hover { background: var(--lcd-ivory-3, #ece5d7); color: var(--lcd-ink, #211d16); }
   @media (prefers-reduced-motion: reduce) {
     .lcd-lyrics-panel .lcd-lyrics-body { animation: none; }
   }
@@ -116302,20 +116513,14 @@ function filterLiturgyItems() {
   .lcd-outputs-row { min-height: 200px; gap: var(--lcd-space-3); margin-bottom: 0; }
   /* Fullscreen manages this row's height itself and must stay free to shrink. */
   body.lcd-workspace-fullscreen .lcd-outputs-row { min-height: 0; }
-  /* 55/45 left the editor too narrow for its own toolbar and header, both of
-     which then wrapped to three and two rows and ate the canvas. 60/40 gets
-     both onto single rows; the Program Output is still a full 16:9 preview,
-     just no longer claiming width the editor needs more. */
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 60%; min-height: 200px; }
-  .lcd-outputs-row .lcd-program-box { flex: 0 1 40%; min-width: 220px; }
-  /* Short laptops (1366x768 being the common one): give back 50px of the floor
-     on both the row and the editor rather than pushing the page into a scroll.
-     150px still holds the editor's header, toolbar and ~4 lines of canvas.
-     Must come after the 200px rule above -- a media query adds no specificity,
-     so source order is what decides this. */
+  /* The row was split 60/40 with the Slide Editor, which needed the larger
+     share for its own toolbar and header. The editor is a window now
+     (.lcd-editor-pop), so the projection has the row. */
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 100%; min-width: 220px; }
+  /* Short laptops (1366x768 being the common one): give back 50px of the
+     row's floor rather than pushing the page into a scroll. */
   @media (max-height: 820px) {
     .lcd-outputs-row { min-height: 150px; }
-    .lcd-outputs-row .lcd-lyrics-panel { min-height: 150px; }
   }
   /* Below 1201px the stacked phone/tablet layout takes over and the outputs
      row is no longer height-managed, so it needs its floor back -- otherwise
@@ -116799,7 +117004,11 @@ function filterLiturgyItems() {
          past must go behind this panel, and this panel must go behind the nav. */
       z-index: 20 !important;
     }
-    #worshipOrderView.lcd-mode .lcd-lyrics-panel { display: none !important; }
+    /* :not(.lcd-editor-pop *) -- the rule took the editor COLUMN off a
+       phone, where the All Slides modal was the only way in. The panel is a
+       window now and two taps open it, so the rule must stop at the
+       window's edge. */
+    #worshipOrderView.lcd-mode .lcd-outputs-row .lcd-lyrics-panel { display: none !important; }
     /* min-height:0 undoes a 340px floor set for tablets further up
        (max-width: 1119px). With the floor in place the row stayed 340px tall
        however small its contents became, and align-content spread the five
@@ -117037,7 +117246,7 @@ function filterLiturgyItems() {
      tray never gets squeezed into its own scrollbar by the flex column. */
   /* 6px breathing room between the Program Output's bottom edge and the
      Media Tray, per the user's spacing spec. */
-  .lcd-lower-row { flex: 0 0 auto; min-height: 132px; margin-top: 6px; }
+  .lcd-lower-row { flex: 0 0 auto; min-height: 137px; margin-top: 6px; }
   .lcd-media-hint { font-size: 0.6rem; margin-bottom: 5px; line-height: 1.3; }
   .lcd-media-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 7px; }
   .lcd-media-panel .lcd-panel-body { padding: 8px 10px; }
@@ -117105,11 +117314,10 @@ function filterLiturgyItems() {
      content height (see _lcdSizeWorkspaceColumns), so the editor's bottom edge
      lands exactly on the output's. */
   .lcd-outputs-row { align-items: flex-start; }
-  /* These two are overridden by the scoped min-width:1201px block further down
-     ("the one that decides"). Left at parity so the stacked layouts below
-     1201px, which this block does still reach, keep an even split. */
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; align-self: stretch; }
-  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; height: 100%; }
+  /* Overridden by the scoped min-width:1120px block further down ("the one
+     that decides"); this is what the stacked layouts below 1201px get. One
+     panel, the whole row, either way. */
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 100%; height: 100%; }
   /* flex: 0 0 auto matters — with `1 1 auto` the column stretches the box to
      fill and the definite height wins over aspect-ratio, which silently threw
      away the 16:9 shape (measured 364x268 instead of 364x205). */
@@ -117225,12 +117433,8 @@ function filterLiturgyItems() {
      specific than the .lcd-outputs-row pair in section L above. */
   @media (min-width: 1120px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box {
-      flex: 1 1 58%;
+      flex: 1 1 100%;
       min-width: 0;
-    }
-    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel {
-      flex: 1 1 42%;
-      min-width: 260px;
     }
   }
 
@@ -117312,15 +117516,9 @@ function filterLiturgyItems() {
   .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
 
   /* A presentation page, a picture or a video cannot be edited, so the Slide
-     Editor beside it has nothing to act on -- it sat there looking available
-     over content it could not touch. It is hidden for those and the Program
-     Output takes the whole row; selecting an editable slide brings it back. */
-  .lcd-outputs-row.lcd-editor-hidden > .lcd-lyrics-panel { display: none; }
-  @media (min-width: 1120px) {
-    .wo-main-content:not(.wo-song-order) .lcd-outputs-row.lcd-editor-hidden > .lcd-program-box {
-      flex: 1 1 100%;
-    }
-  }
+     Editor has nothing to act on. It used to be hidden in the row for those;
+     as a window it is simply not opened, and one already open is shut --
+     _lcdSetEditorVisible. Nothing to say in CSS any more. */
   /* Collapsed: only the header bar remains, and the row stops claiming height
      so the Slide Editor above it gets the space back. */
   .lcd-lower-row.lcd-tray-collapsed { min-height: 0; max-height: none; }
