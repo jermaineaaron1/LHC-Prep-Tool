@@ -206,9 +206,85 @@ try {
   check('the preparation guide, opened from the page, comes back to it', /if \(_spBack && _spBack === occ\) \{ _spBack = ''; openService\(occ\); return; \}/.test(fn('backToLibrary')) &&
     /_spBack = occ;/.test(fn('spGuide')) && /switchOccasionTab\('prepare'\);/.test(fn('spGuide')));
   const ren = fn('renderService');
-  check('the order of worship is a ready liturgy or the next service\'s own, read only', /WO\.svlOutline\(src\.data\)/.test(fn('_spParts')) &&
-    /'order:' \+ d\.order\.id/.test(fn('_spSources')) && !/contenteditable/.test(ren));
-  check('a part is read slide by slide, laid out by who says it', /_plSpeakers\(texts\[_sp\.slide\]\)/.test(fn('_spOrderTab')) && /WO\.svlItemTexts/.test(fn('_spTexts')));
+  // From the operator (2026-11-15): "This page is to help users access the
+  // library of liturgies, not designing one." The Liturgy Order tab is the
+  // service's library: its documents by year first, then this year's liturgy,
+  // the ready ones and the tiles. The order of worship and its reader went.
+  const ot = fn('_spOrderTab');
+  check('the Liturgy Order tab is the service\'s library, its documents first; no order of worship, no reader',
+    /'<div class="sp-lib"><div class="sp-lib__main">' \+ _spResHtml\(occ\) \+ '<\/div>'/.test(ot) &&
+    /_spMakeHtml\(d, orderId\) \+ _spReadyHtml\(d, orderId\) \+ tiles/.test(ot) &&
+    !fn('_spParts') && !fn('_spSource') && !fn('spFull') && !/pl-ow|pl-text|_spTexts/.test(ot) && !/contenteditable/.test(ren));
+  check('this year\'s liturgy is a way into the Liturgy Builder', /onclick="LiturgyModule\.spEdit\(\)"/.test(fn('_spMakeHtml')) && /_llOpenInBuilder\(id\)/.test(fn('spEdit')));
+  // "Double clicking or tapping on the document will preview it."
+  try {
+    const opened = [];
+    let T = 1000;
+    const B = new Function('lfOpen', 'spPreviewReady', 'Date', fn('_spRowAt') + '\n' + fn('_spOpenRow') + '\nvar _spTap = null;\n' + fn('_spBindOpen') + '\nreturn { bind: _spBindOpen };')(
+      id => opened.push('item:' + id), id => opened.push('svl:' + id), { now: () => T });
+    const on = {};
+    const panel = { addEventListener: (k, f) => { on[k] = f; } };
+    B.bind(panel); B.bind(panel);
+    const mkRow = (kind, id) => ({ getAttribute: k => ({ 'data-open': kind, 'data-id': id })[k], contains: () => true, matches: sel => sel === '[data-open]' });
+    const doc = mkRow('item', 'd1'), ready = mkRow('svl', 'r1');
+    const inside = row => ({ closest: sel => sel === '[data-open]' ? row : null });
+    const btn = { tag: 'button' };
+    const onBtn = row => ({ closest: sel => sel === '[data-open]' ? row : btn });
+    const tap = (target, x, dt) => { T += dt; on.pointerup({ pointerType: 'touch', target, clientX: x, clientY: 40 }); };
+    on.dblclick({ target: inside(doc), preventDefault() {} });
+    const a = opened.join();
+    tap(inside(doc), 100, 1000); const one = opened.length; tap(inside(doc), 104, 200); const two = opened.length;
+    tap(inside(doc), 100, 1000); tap(inside(doc), 100, 600); const slow = opened.length;
+    tap(inside(doc), 100, 1000); tap(inside(doc), 180, 100); const far = opened.length;
+    tap(inside(doc), 100, 1000); tap(inside(ready), 100, 100); const other = opened.length;
+    on.dblclick({ target: onBtn(doc), preventDefault() {} });
+    tap(onBtn(doc), 100, 1000); tap(onBtn(doc), 100, 100); const ctl = opened.length;
+    on.pointerup({ pointerType: 'mouse', target: inside(doc), clientX: 1, clientY: 1 }); on.pointerup({ pointerType: 'mouse', target: inside(doc), clientX: 1, clientY: 1 });
+    const mouse = opened.length;
+    on.dblclick({ target: inside(ready), preventDefault() {} });
+    on.keydown({ key: 'Enter', target: doc, preventDefault() {} });
+    check('a document opens on a double-click, a double tap (two taps within 350ms and 32px on one row) or Enter; bound once',
+      a === 'item:d1' && one === 1 && two === 2 && slow === 2 && far === 2 && other === 2 && mouse === 2 &&
+      opened.slice(2).join() === 'svl:r1,item:d1', opened.join() + ' ' + [one, two, slow, far, other, ctl, mouse].join());
+    check('...never from a tap on one of its buttons (Make ready, the eye, Share)', ctl === 2);
+  } catch (e) { check('a document opens on a double-click or a double tap', false, e.message); }
+  check('the rows say so, and are not zoomed or selected by the second tap',
+    /data-open="item" data-id="/.test(fn('_spResHtml')) && /Double-tap ' \+ \(tab === 'links' \? 'a link' : 'a document'\) \+ ' to preview it\./.test(fn('_spResHtml')) &&
+    /\.sp-doc\[data-open\], \.sp-ready__row\[data-open\] \{ cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; \}/.test(SRC) &&
+    /_spBindOpen\(p\);/.test(ren));
+  check('the click that follows a double tap does not close the preview it opened',
+    /if \(e\.target === el && Date\.now\(\) - openedAt > 450\) lfCloseViewer\(\);/.test(fn('lfOpen')));
+  try {
+    const R = { _lfSvlRows: {}, _occSvlData: {}, opened: [] };
+    const prev = new Function('_spData', '_sp', '_lfSvlRows', '_occSvlData', 'lfOpen', fn('spPreviewReady') + '\nreturn spPreviewReady;')(
+      { rows: [{ id: 'r9', occasion_id: 'good-friday', title: 'Good Friday 2025', data: { v: 1 } }] }, { occ: 'good-friday' }, R._lfSvlRows, R._occSvlData,
+      (id, svl) => R.opened.push(id + (svl ? ':svl' : '')));
+    prev('r9'); prev('r9');
+    check('a ready liturgy previews in the library\'s window, its row put where that window reads', R.opened.join() === 'r9:svl,r9:svl' &&
+      R._lfSvlRows['good-friday'].length === 1 && R._occSvlData.r9 && R._occSvlData.r9.v === 1);
+  } catch (e) { check('a ready liturgy previews in the library\'s window', false, e.message); }
+  // Black, where the new page drew white on nothing: --sp-maroon was the old
+  // page's colour and is not defined on .pl (the operator, 2026-11-15).
+  check('the active files tab, the year chip and Make ready read in black on the new page',
+    /\.pl \.sp-rtab\.is-on, \.pl \.sp-year\.is-on \{ background: #e6f0e8; border-color: var\(--pl-green\); color: #111; \}/.test(SRC) &&
+    /\.pl \.lf-btn\.sp-btn-maroon, \.pl \.lf-btn--primary\.sp-btn-maroon \{ background: #e9b949; border-color: #d4a53a; color: #111; \}/.test(SRC));
+  check('the page\'s colours reach what it puts on <body>: its dialogs\' green buttons (Save note, New song) and Add Item\'s menu',
+    /  \.pl, \.pl-ed, \.pl-menu--float \{ --pl-green: #1f4d36;/.test(SRC) && /el\.id = 'plEd'; el\.className = 'mv-ed pl-ed';/.test(fn('_plModal')));
+  const am = fn('spAddMenu');
+  check('Add Item\'s menu is put on <body> under its button, follows it while the page moves, and closes on Escape, a tap away, or the button leaving the screen',
+    /document\.body\.appendChild\(m\);/.test(am) && /m\.className = 'pl-menu pl-menu--float'/.test(am) && /\.pl-menu--float \{ position: fixed; right: auto; z-index: 10010;/.test(SRC) &&
+    /if \(e\.key === 'Escape'\)/.test(am) && /window\.addEventListener\('scroll', place, true\);/.test(am) && /window\.addEventListener\('resize', place\);/.test(am) &&
+    /if \(r\.bottom < 0 \|\| r\.top > vh\) \{ _spAddMenuClose\(\); return; \}/.test(am));
+  // "Remove this way of uploading documents": the "Add to <service>" window
+  // (paste a link / upload a file / copy to the General Library) is not opened
+  // from a service's page; every Upload there goes straight to the picker.
+  check('every upload on a service\'s page goes straight to the file picker, never the old Add window',
+    !/lfUpload\(/.test(fn('_spResHtml') + fn('_plSideFiles') + fn('spAddMenu')) && !/lfUpload/.test(SRC.slice(SRC.indexOf('var SP_ADD_ITEMS'), SRC.indexOf('function spAddMenu'))) &&
+    /LiturgyModule\.spUpload\(\\'liturgy\\'\)/.test(SRC) && /f\.accept = _spUpMode \? '\.docx,\.doc,\.pdf,\.xlsx,\.xls' : '';/.test(fn('spUpload')) && /f\.click\(\);/.test(fn('spUpload')) &&
+    /<input id="spDocFile" type="file" multiple hidden onchange="LiturgyModule\.spUploadDoc\(this\)">/.test(ren));
+  check('the green + uploads into the service whose page is open, and opens the library\'s Add window anywhere else',
+    /<button id="litAddFAB" class="lit-add-fab" onclick="LiturgyModule\.fabAdd\(\)"/.test(SRC) &&
+    /if \(p && p\.style\.display !== 'none' && _sp\.occ\) \{ spUpload\(''\); return; \}/.test(fn('fabAdd')) && /openQuickAddModal\(null, null\);/.test(fn('fabAdd')));
   const use = fn('spUse');
   check('Use opens the next service in the Builder with its Load on that liturgy', /_llOpenInBuilder\(orderId, function\(\) \{/.test(use) &&
     /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(use) && /_svlOpen = openKey \|\| '';/.test(fn('lbdServiceLiturgies')));
@@ -222,9 +298,34 @@ try {
   check('Word is read in the browser; everything else by the server\'s AI', /WO\.docxParas\(ab\)/.test(read) && /fetch\('\/api\/parse-liturgy'/.test(read) &&
     /how: ext === 'docx' \? 'word' : 'ai'/.test(fn('spConvert')));
   check('the Word reader notes a paragraph set wholly in bold', /b: _lbdWBold\(p\)/.test(SRC) && /if \(!b \|\| v === '0' \|\| v === 'false'\) all = false;/.test(fn('_lbdWBold')));
+  try {
+    // Uploading, run: the year from the name, the folder for it, the kind.
+    const added = [], folders = [];
+    const one = new Function('ensureOccYearFolder', 'uploadToSupabase', 'addItem', 'getItem', 'generateId', 'occFolders', 'SP_DOC_EXT', 'SP_LIT_WORDS',
+      fn('_spUploadOne') + '\nreturn _spUploadOne;')(
+      (occ, year) => { folders.push(occ + ':' + year); return Promise.resolve({ id: 'f' + year, name: year }); },
+      (file, dir) => Promise.resolve({ url: 'https://x.supabase.co/storage/v1/object/public/Liturgy%20Files/' + dir + '/' + file.name, path: dir + '/' + file.name }),
+      it => added.push(it), id => added.filter(x => x.id === id)[0], (() => { let n = 0; return () => 'id' + (++n); })(), {},
+      /\.(docx?|pdf|xlsx?|odt|rtf|pages)$/i, /liturg|\bservice\b|order of (worship|service)|communion|vespers|evening prayer|compline|framework|seder/i);
+    await one({ name: 'Maundy_Thursday_Liturgy_2026.docx', size: 10 }, 'maundy-thursday', '');
+    await one({ name: 'Foot washing 2015.jpg', size: 10 }, 'maundy-thursday', '');
+    await one({ name: 'Notes for the band.pdf', size: 10 }, 'maundy-thursday', '');
+    await one({ name: 'Order.pdf', size: 10 }, 'maundy-thursday', 'liturgy');
+    const k = added.map(x => x.type + (x.tags.indexOf('liturgy-doc') !== -1 ? '+doc' : '') + '@' + x.occasionFolderId).join(' | ');
+    check('an upload is filed in the year its name gives (else this year), a liturgy by its name or because it was sent as one',
+      k === 'liturgy@f2026 | media@f2015 | documents@f' + new Date().getFullYear() + ' | liturgy+doc@f' + new Date().getFullYear() &&
+      added[0].title === 'Maundy Thursday Liturgy 2026' && added.every(x => x.occasionId === 'maundy-thursday' && x.storageProvider === 'supabase'), k);
+  } catch (e) { check('an upload is filed in the year its name gives', false, e.message); }
   const up = fn('spUploadDoc');
-  check('an uploaded liturgy is marked one, filed in its year\'s folder, and offered to be made ready',
-    /tags: \['uploaded', 'document', 'liturgy-doc'\]/.test(up) && /ensureOccYearFolder\(occ, year\)/.test(up) && /spConvert\(id\)/.test(up));
+  check('several files at once, each read in turn; one liturgy is offered to be made ready, anything else shown where it went',
+    /files\.reduce\(function\(chain, file\)/.test(up) && /\{ action: 'Make it ready', duration: 9000, onAction: function\(\) \{ spConvert\(last\.id\); \} \}/.test(up) &&
+    /action: 'Show'/.test(up) && /if \(mode === 'liturgy'\) \{/.test(up));
+  // "What is Other Files?" -- everything filed with a service that is not a
+  // liturgy, mostly photographs: named so, and moved only in so many words.
+  check('"Other Files" is Photos & Files; a document is moved between it and the liturgies from its preview, in words',
+    /var SP_FILES_LABEL = 'Photos & Files';/.test(SRC) && !/spMark/.test(fn('_spResHtml')) && /_lfLiturgyMoveBtn\(item\)/.test(fn('lfOpen')) &&
+    /Not a liturgy: move to ' \+ SP_FILES_LABEL/.test(fn('_lfLiturgyMoveBtn')) && /It is a liturgy: move to Liturgy Documents/.test(fn('_lfLiturgyMoveBtn')) &&
+    /lfCloseViewer\(\);/.test(fn('spMark')));
   check('a ready liturgy\'s delete asks, and is read back gone', /window\.lhcAskDelete/.test(fn('spDeleteReady')) && /if \(\(back\.data \|\| \[\]\)\.length\) throw/.test(fn('spDeleteReady')));
 
   // ------------------------------------------------------------ 6. server

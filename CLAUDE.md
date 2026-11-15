@@ -408,15 +408,15 @@ than a bash heredoc, which quietly eats a level of backslashes.
   **Liturgy Order**, **Planning Notes**, **Special Planning**, **Checklist**
   (and **Preparation Guide** where a service has one) -- and a strip of the
   next date, church year, colour and readings.
-  - **Liturgy Order:** the order of worship (numbered, from a ready liturgy
-    or the next service's own order) | the part chosen, read as the
-    congregation reads it, by who says it ("Leader:", "All:" in bold), slide
-    by slide, larger or smaller, full screen | tiles into the service's
-    Ready-to-use Liturgies, Liturgy Documents, LCD Materials, Other Files and
-    Reference Links. Under them the files themselves, **Liturgy Documents
-    first**, each document's **Make ready** converting it into a ready
-    liturgy the Builder loads (a .docx read as written, anything else by AI,
-    `/api/parse-liturgy`; checked before it is kept).
+  - **Liturgy Order** is the service's **library** (2026-11-15): its files,
+    **Liturgy Documents first** by year (then LCD Materials, Photos & Files,
+    Reference Links), each document previewed on a double-click or double
+    tap, and its **Make ready** converting it into a ready liturgy the
+    Builder loads (a .docx read as written, anything else by AI,
+    `/api/parse-liturgy`; checked before it is kept). Beside it: This year's
+    liturgy (into the Liturgy Builder), the Ready-to-use Liturgies (each
+    previewed, or Used), and the tiles. No order of worship or reader: an
+    order is designed in the Builder. Gotcha 103.
   - **Planning Notes, Special Planning, Checklist** are a plan for one
     service DATE (the next one shown; others by the arrows or a date; an
     earlier one copied forward). Notes have a category, status, due date,
@@ -4280,8 +4280,9 @@ the anon key -- verify as `postgres`, not as the app.
       read back, and the year's folder made.
     - **Use** (`spUse`) opens the next service's order in the Builder and its
       Load window on that liturgy (`lbdServiceLiturgies(occ, kind, openKey)`,
-      `_llOpenInBuilder(id, then)`); the Load path is unchanged. The page's
-      order of worship is read only: the Builder is where an order changes.
+      `_llOpenInBuilder(id, then)`); the Load path is unchanged. A ready
+      liturgy is read in the library's preview window (`spPreviewReady`);
+      the Builder is where an order changes.
     `tools/liturgy-service-page-harness.js` checks it, running the sorting,
     the next date, the Word reading, the matching, the liturgy made, and the
     .doc reader.
@@ -4319,11 +4320,70 @@ the anon key -- verify as `postgres`, not as the app.
       `specialElements`) starts a date's checklist (`_plFromElements`, by the
       words of each); the per-service planning notes stay readable under
       Planning Notes ("Notes kept for <service>").
-    - The reading card lays a part out by speaker (`_plSpeakers`, pure:
-      "L:" Leader, "P:" Pastor, "C:" / "Congregation (C):" All in bold, until
-      somebody else is named; "Psalm 23:" is words).
+    - Import from Songs lists twenty at a time (`PL_SONG_PAGE`, Show 20
+      more; a new search starts at twenty again), found by the start of the
+      title (`_plSongsMatching`), and **New song** opens the library's Add
+      Song form and imports the song once saved -- the Builder's hand-over,
+      `window._lhcNewSongThen` -- only into the plan it was asked from.
     `tools/liturgy-service-plan-harness.js` checks it, running the plan's
     pure functions and its saves against a stand-in database.
+
+103. **A service's page is its library first, and nothing on it opens the
+    old Add window.** From the operator (2026-11-15), on screenshots of the
+    page as #465/#468 built it: "This page is to help users access the
+    library of liturgies, not designing one. They may choose to create a
+    liturgy for the occasion but they should know where the other year's
+    liturgies are."
+    - **The Liturgy Order tab** (`_spOrderTab`) is `.sp-lib`: the files box
+      (`_spResHtml`, "Liturgy Library", Liturgy Documents first, by year) |
+      This year's liturgy (`_spMakeHtml`, into the Builder), the Ready-to-use
+      Liturgies and the tiles. The order of worship, its reader, its full
+      screen and their state (`_sp.src/part/slide/zoom`, `_spSources`,
+      `_spParts`, `_spTexts`, `spFull`, `_plSpeakers`...) were deleted. A
+      ready liturgy opens in the library's preview window (`spPreviewReady`
+      puts the page's row in `_lfSvlRows` / `_occSvlData`, which `lfOpen(id,
+      true)` reads); Make ready marks the new one (`_sp.fresh`) and scrolls
+      to it.
+    - **A row opens on a double-click or a double tap** (`_spBindOpen`, bound
+      once on the panel: `dblclick`, and two touch `pointerup`s within 350ms
+      and 32px on one row -- a phone has no dblclick), the eye, or Enter;
+      never from one of its buttons (`_spRowAt`). Rows are `touch-action:
+      manipulation` and unselectable, so the second tap is neither a zoom
+      nor a word selected. `lfOpen` ignores a backdrop click for 450ms after
+      opening: the click that follows the second tap landed on it and
+      closed the preview at once, which is why a double-click "did
+      nothing". A **Google document** previews by its `/preview` address
+      (`_lfGooglePreview`; `/edit` refuses to be framed), with a word for a
+      private one; it used to be only an "Open it" card.
+    - **Black text.** The new page is `.pl`; its active files tab, year chip
+      and Make ready / Upload a liturgy took `var(--sp-maroon)`, defined only
+      on the old page's `.sp`, so they drew white on nothing. `.pl` rules
+      give them a light green or gold ground and `#111` text. The page's own
+      colours (`--pl-green`...) are defined on `.pl, .pl-ed, .pl-menu--float`:
+      the planning dialogs (`#plEd`) and Add Item's menu are on `<body>`, and
+      without them every green button there -- Save note, Save task, New
+      song -- was white on nothing (live from #468 to here).
+    - **Add Item's menu is on `<body>`** (`pl-menu--float`, fixed, placed
+      from the button's rect, flipped above when there is no room below;
+      closes on Escape, a tap away, scroll or resize): inside the banner it
+      was clipped by the banner's `overflow: hidden`.
+    - **Uploading is the device's picker, straight away** (`spUpload(mode)`
+      on the panel's `#spDocFile`, `multiple`; 'liturgy' takes Word, PDF and
+      Excel and tags them `liturgy-doc`, '' takes anything): Add Item, the
+      files box, Planning Notes' Upload Document and the green + on a
+      service's page (`fabAdd`). `_spUploadOne` files each in the year its
+      name gives (else this year), as a liturgy by its name or by mode,
+      media by type. The "Add to <service>" window (`openQuickAddModal`) is
+      still the Services list's and the year-folder page's Upload, where it
+      asks which service.
+    - **"Other Files" is Photos & Files** (`SP_FILES_LABEL`): everything filed
+      with a service that is not a liturgy. The row's unlabelled arrow that
+      moved a document there (it had put the 2026 Maundy Thursday liturgy,
+      a Google Doc kept twice, among the 2015 foot-washing photos) went; the
+      preview window says it in words (`_lfLiturgyMoveBtn` -> `spMark`).
+    `tools/liturgy-service-page-harness.js` checks it, running the double-tap
+    counter with its clock in hand, the ready preview and the upload's
+    filing; `liturgy-library-harness.js` runs `_lfGooglePreview`.
 
 ## Quick Commands for Claude Code
 
