@@ -764,7 +764,7 @@ try {
   const mk16 = fn('_spMakeHtml'), use16 = fn('_spInUseHtml');
   check('This year\'s liturgy: with its order made, the in-use card; else the files to use, as before',
     /if \(d && d\.order && next\) return _spInUseHtml\(d, next, cyc, kind, list, head\);/.test(mk16) && /How to make this year’s from a past one/.test(mk16) &&
-    /'<div class="spi-node spi-node--from"><small>' \+ \(used \? 'The liturgy of' : 'Its liturgy'\)/.test(use16) &&
+    /'<div class="spi-node spi-node--from"><div class="spi-node__t"><small>' \+ \(used \? 'The liturgy of' : 'Its liturgy'\)/.test(use16) &&
     /'<div class="spi-node__t"><small>' \+ \(used \? 'Used for' : 'For'\)/.test(use16) && /In use<\/span>/.test(use16));
   check('...read from the Builder\'s own copy when it holds the order here, else from the stored order (kept by _spLoad)',
     /var mem = \(window\.WO && WO\.libOutlineOf\) \? WO\.libOutlineOf\(d\.order\.id\) : null;/.test(fn('_spOrderOutline')) &&
@@ -969,6 +969,32 @@ try {
     /sb\.from\('service_liturgies'\)\.select\('\*'\)\.eq\('id', svl\.id\)\.maybeSingle\(\)/.test(fn('_spOrigRow')) &&
     /WO\.svlSecMap\(row\.data \|\| \{\}, ol\.type, row\.order_type\)/.test(fn('_spCmpNow')) &&
     /if \(orderType !== 'special' \|\| fileType === 'special'\) return \{\};/.test(fn('_woSvlSecMap')));
+
+  // ------------------------------------------------------------ 19. the original, marked, and the way to it
+  // From the operator (2026-11-16), on the card: "Label as 'original'" and
+  // "link to direct to where the file is".
+  console.log('\n19. The original: a badge, and Go to file');
+  let T19 = null;
+  try { T19 = new Function(fn('_spOrigTarget') + '\nreturn _spOrigTarget;')(); } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (T19) {
+    const items = { d1: { id: 'd1', title: 'Advent Week 1 2025', occasionId: 'advent' } };
+    const find = id => items[id] || null, yearOf = (it) => (String(it.title).match(/20\d\d/) || [''])[0];
+    const t1 = T19({ made_from: 'doc:d1', occasion_id: 'advent' }, 'f1', find, yearOf);
+    const t2 = T19({ made_from: 'doc:gone', occasion_id: 'advent' }, 'f1', find, yearOf);
+    const t3 = T19({ made_from: 'order:x', occasion_id: 'advent' }, 'f1', find, yearOf);
+    check('the original is the document its Liturgy App File was converted from, with its service and year; else the app file itself',
+      t1.kind === 'doc' && t1.id === 'd1' && t1.occ === 'advent' && t1.year === '2025' && t1.file === 'f1' && t1.name === 'Advent Week 1 2025' &&
+      t2.kind === 'file' && t2.removed === true && t3.kind === 'file' && t3.removed === false && T19({}, '', find, yearOf) === null, JSON.stringify([t1, t2, t3]));
+  }
+  check('the card: the "The liturgy of" block carries an Original badge and Go to file (Go to file only for a Liturgy App File)',
+    /<span class="spi-orig__badge"><i class="fa-solid fa-star" aria-hidden="true"><\/i>Original<\/span>/.test(use16) &&
+    /\(svl\.id \? '<button type="button" class="spi-golink" onclick="LiturgyModule\.spoGoOrig\(\)"/.test(use16) && /'<\/div>' \+ orig \+ '<\/div>'/.test(use16) &&
+    /var docName = \(otg && otg\.kind === 'doc' && otg\.name !== svl\.title\) \? otg\.name : '';/.test(use16) && /'<span class="spi-docname">/.test(use16));
+  check('...Go to file: the document\'s row on its year in the Liturgies tab, lit (the Converted mark) and scrolled to -- on the page of the service it is filed under; no document, the app file\'s preview',
+    /_spOrigTarget\(row, svl\.id, getItem, _spYearOf\)/.test(fn('spoGoOrig')) && /spPreviewReady\(t\.id\)/.test(fn('spoGoOrig')) &&
+    /if \(t\.occ && t\.occ !== _sp\.occ\) \{ _spFocusNext = focus; openService\(t\.occ, _sp\.from, 'order'\); return; \}/.test(fn('spoGoOrig')) &&
+    /_sp\.res = 'liturgy'; _sp\.year = f\.year \|\| ''; _sp\.fresh = f\.fresh;/.test(fn('_spFocusOn')) && /\.sp-doc\.is-new/.test(fn('_spFocusOn')) &&
+    /if \(_spFocusNext\) \{/.test(fn('openService')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
