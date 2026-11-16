@@ -439,10 +439,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
     parts to add (Holy Communion before, during and after...), and Confirm. Each document says
     when it was added and its year's lectionary letter ("2024 · Year B"),
     and is renamed in place; the preview goes full screen. Beside it: This
-    year's liturgy (the coming Sunday and, once its order is made, ITS
-    liturgy -- where it came from and every section, a liturgy part's words
-    editable there and in the Builder alike; else the Liturgy App Files for
-    it with **Use**), the Liturgy App Files saved from the
+    year's liturgy (the coming Sunday and, once its order is made, the
+    in-use card: the past year's liturgy over the day it is used for, the
+    liturgy folded under one bar with every section's words editable there
+    and in the Builder alike, the Builder, PDF and Share, another liturgy,
+    and Remove, which undoes Use; else the Liturgy App Files for it with
+    **Use**), the Liturgy App Files saved from the
     Builder (only when there are any), and the tiles. No order of worship or reader: an order is
     designed in the Builder. **Lent Sundays, Easter Season and Epiphany
     Sundays** are services beside Advent Sundays. Gotchas 103, 104.
@@ -4760,6 +4762,60 @@ the anon key -- verify as `postgres`, not as the app.
       bar), and **Back** (`llBackToLib`) saves the order first and opens the
       service's page on its Liturgy Order tab; the bar goes when another
       order is opened, or on its x.
+    - **The in-use card, a PDF, and Remove** (the operator, 2026-11-16, on a
+      screenshot of that box: "a better overall design to show that the
+      liturgy which was used based on a previous year is being used for this
+      particular day's service ... more concise and also shareable in PDF
+      format for the confirmed and final liturgy as prepared in the app",
+      "Able to delete the liturgy set / And collapse / Expand", and "enable to
+      delete the created liturgy and revert back from Use"). With the order
+      made, `_spMakeHtml` hands over to `_spInUseHtml`: an In use badge, two
+      blocks joined by an arrow -- "The liturgy of" (gold: its name, year and
+      lectionary letter) over "Used for" (green: the date, day, letter and
+      kind) -- then the liturgy FOLDED under one bar with its counts
+      (`spoShow`; open or shut kept on the device, `lhc_sp_liturgy_open`,
+      shut at first), Expand all / Collapse all inside (`spoOpenAll`), then
+      Open in the Liturgy Builder, **PDF** and **Share**, and a line with
+      **Use another liturgy** (`spoChange`: the Liturgy App Files with Use)
+      and **Remove from this service**. 453px at 480px wide, folded. An order
+      the Builder wrote with no file is the same card, "Written in the
+      Liturgy Builder", with no Remove. The walk through's Builder step finds
+      the button in either card. **The PDF** is the Builder's own export
+      (`WO.libPdf` -> `_woLibExportModel`): `_lbdExportModel` when the Builder
+      holds the order here, otherwise the same model from the stored rows --
+      the order's own sections (`_woSectionsOf`), a song by its sections with
+      its words (chords out) and its key moved by its steps, readings with
+      their verse numbers, liturgy and text, each section's notes -- laid out
+      by `_lbdExportPdf`. Share gives the file to the phone's share sheet
+      (`navigator.share({ files })`, WhatsApp or email), all inside the click
+      so the sheet is allowed to open; a desk downloads it. Measured on the
+      29 Nov order: 7 pages, every section, the liturgy's words and the four
+      readings. **Remove** undoes Use. Use now notes on the order how it came
+      in (`template.serviceLiturgy.use`: `at`, whether it MADE the order, the
+      Roster's kind before -- `SBQ_READINGS.serviceTypeAt`, read before
+      Special is written -- the readings it changed, `{ role, was, ref }`, and
+      the songs it brought) and, when the order was there before, what it was
+      (`template.useBefore = { at, snap }`, `_svlUseSnap`: kind, sections,
+      non-song parts, notes, medleys, the liturgy it had and ITS restore
+      point, where its songs were). Every `_svlApply` keeps it, so the
+      Builder's own Load can be removed too. The Builder's Undo carries
+      `useBefore` by reference (`ub`: it is replaced, never changed). Remove
+      (`spoRemove` -> `_spRmDraw`) says first exactly what will happen, from
+      `_spUseRecord` and `_spUnusePlan` (pure): an order Use made is DELETED
+      (`WO.libDelete`: let go of here first, refused while LCD Projection has
+      it, then `SBQ.deleteOrder` and `_forgetDeletedOrder`); an order that
+      was there goes BACK (`WO.libUnuse` -> `_svlUnuse`, one Builder Undo,
+      its save waited on; the songs Use brought go, songs added since stay),
+      here at once when the Builder holds it, else the Builder opens, puts
+      it back and returns to the page (`llBackToLib`); then the Roster's kind
+      goes back while it still says Special, and each reading while it is
+      still the liturgy's -- one changed since by somebody else stays, and
+      the window says so. Two Uses on one order come off one at a time (each
+      snapshot keeps the one before). A liturgy put in before the record was
+      kept (the live 29 Nov) is worked out from `roster_changes`: a change
+      to Special in the two minutes before the order was made says Use made
+      it, from what (Contemporary); otherwise the window says it cannot be
+      taken off and offers nothing. To have it back, Use it again.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
