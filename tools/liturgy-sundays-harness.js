@@ -1128,6 +1128,59 @@ try {
   check('...the page keeps its place (Show all, Reorder) across the trip to the Builder and back',
     /allSecs: _sp\.occ === occId \? !!_sp\.allSecs : false/.test(fn('openService')) && /reorder: _sp\.occ === occId \? !!_sp\.reorder : false/.test(fn('openService')));
 
+
+  // ------------------------------------------------------------ 21. words for a section, even an empty one
+  // From the operator (2026-11-16), circling "Nothing in it yet." under two
+  // sections: "make the content editable as well, even if there's none".
+  console.log('\n21. Words typed for a section, even an empty one');
+  try {
+    const log = [];
+    const order = { id: 'o', allItems: [{ id: 'a', itemType: 'liturgy', sectionId: 'inv', slides: [{ content: 'In the name' }] }] };
+    const env = { _lbdIsActive: () => true, _woLcdInPage: () => false, _lbdPfx: () => 'p_', _lbdUid: () => 'u1', _woStripNum: t => String(t).replace(/^\d+\.\s*/, ''),
+      _woSectionList: () => [{ id: 'gather', title: '1. Gather' }, { id: 'inv', title: 'Invocation' }],
+      _soSaveSettled: () => Promise.resolve(true), _lbdChange: f => { log.push('change'); return f() !== false; },
+      _lbdInsertItem: (it, after) => { log.push('insert after ' + after); order.allItems.push(it); }, _lbdClearClearedFor: id => log.push('uncleared ' + id) };
+    const keys = Object.keys(env);
+    const W = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibAddPart'].map(fn).join('\n') +
+      '\nreturn { add: _woLibAddPart, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    let refused = null;
+    await W.add('o', 'gather', ['x'], 'Gather').catch(e => { refused = e; });
+    check('words for a section go only into the Builder\'s copy: refused (code builder, so the page opens the Builder) while it does not hold the order',
+      !!refused && refused.code === 'builder' && order.allItems.length === 1, refused && refused.message);
+    W.hold(order);
+    const res = await W.add('o', 'gather', ['L: Come, let us worship', '  ', 'C: The Lord is here'], '');
+    const it = order.allItems[order.allItems.length - 1];
+    check('...then one part of the service\'s own (source lbd_<uid>), named for its section, its slides the words typed (blank ones dropped), at the end of the section, the section\'s cleared record let go, one Undo, the save waited on',
+      res && res.saved === true && res.id === 'p_liturgy_lbd_u1_gather' && it.id === res.id && it.itemType === 'liturgy' && it.sourceId === 'lbd_u1' && it.sectionId === 'gather' &&
+      it.title === 'Gather' && it.slides.length === 2 && it.slides[0].content === 'L: Come, let us worship' && it.slides[1].index === 1 && it.slides[1].background === '' &&
+      log.filter(l => l === 'change').length === 1 && log.indexOf('insert after null') >= 0 && log.indexOf('uncleared gather') >= 0, JSON.stringify({ it, log }));
+    let none = null, gone = null;
+    await W.add('o', 'gather', ['  ', ''], 'Gather').catch(e => { none = e; });
+    await W.add('o', 'nowhere', ['x'], 'X').catch(e => { gone = e; });
+    check('...nothing for no words, or a section no longer in the order', !!none && !!gone && order.allItems.length === 2);
+  } catch (e) { check('adding words runs', false, e.stack); }
+  try {
+    const H = new Function('_sp', '_lfE', fn('_spoAddHtml') + '\nreturn _spoAddHtml;');
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const sec = { id: 'gather', title: 'Gather' };
+    const empty = H({}, esc)(sec, true), more = H({}, esc)(sec, false), typing = H({ add: { secId: 'gather', text: 'L: Come', busy: false } }, esc)(sec, true);
+    const busy = H({ add: { secId: 'gather', text: 'L: Come', busy: true } }, esc)(sec, true), other = H({ add: { secId: 'inv', text: 'x' } }, esc)(sec, true);
+    const sorting = H({ reorder: true }, esc)(sec, true);
+    check('an empty section is a box to write in ("Nothing in it yet." / Add words); one with parts has Add words under them; neither while sections are reordered',
+      /class="spo-addwords"/.test(empty) && /Nothing in it yet\./.test(empty) && /LiturgyModule\.spoAdd\(this\.dataset\.id\)/.test(empty) && /Add words/.test(empty) &&
+      /spo-mini--add/.test(more) && !/spo-addwords/.test(more) && /LiturgyModule\.spoAdd/.test(more) &&
+      !/spoAdd\(/.test(sorting) && /Nothing in it yet/.test(sorting) && /spo-addwords/.test(other), empty);
+    check('...opened, the words typed in place with who speaks and the slide break explained, Cancel and Save; Saving… while it saves',
+      /id="spoAddText"/.test(typing) && />L: Come<\/textarea>/.test(typing) && /LiturgyModule\.spoAddInput\(this\.value\)/.test(typing) && /<b>---<\/b>/.test(typing) && /<b>L:<\/b>/.test(typing) &&
+      /LiturgyModule\.spoAddCancel\(\)/.test(typing) && /LiturgyModule\.spoAddSave\(\)/.test(typing) && /Saving…/.test(busy) && / disabled/.test(busy), typing);
+  } catch (e) { check('the add box draws', false, e.stack); }
+  const out21 = fn('_spOutlineHtml');
+  check('every section in the outline offers it (not the parts in no section)',
+    /\(x\.id \? _spoAddHtml\(x, !ps\.some\(function\(q\) \{ return q\.kind !== 'gone'; \}\)\) : /.test(out21));
+  check('Save goes through the Builder like every change on the page, with Undo on its toast; empty words are refused; the words typed survive a failed trip to the Builder',
+    /_spEdit\(function\(oid\) \{ return WO\.libAddPart\(oid, a\.secId, slides, a\.title\); \}/.test(fn('spoAddSave')) && /Type some words first/.test(fn('spoAddSave')) &&
+    /add: _sp\.occ === occId && _sp\.add \? Object\.assign\(\{\}, _sp\.add, \{ busy: false \}\) : null/.test(fn('openService')) &&
+    /libAddPart: _woLibAddPart/.test(SRC) && /spoAddSave: spoAddSave/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
