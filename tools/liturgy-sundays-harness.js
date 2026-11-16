@@ -765,7 +765,7 @@ try {
   check('This year\'s liturgy: with its order made, the in-use card; else the files to use, as before',
     /if \(d && d\.order && next\) return _spInUseHtml\(d, next, cyc, kind, list, head\);/.test(mk16) && /How to make this year’s from a past one/.test(mk16) &&
     /'<div class="spi-node spi-node--from"><small>' \+ \(used \? 'The liturgy of' : 'Its liturgy'\)/.test(use16) &&
-    /'<div class="spi-node spi-node--to"><small>' \+ \(used \? 'Used for' : 'For'\)/.test(use16) && /In use<\/span>/.test(use16));
+    /'<div class="spi-node__t"><small>' \+ \(used \? 'Used for' : 'For'\)/.test(use16) && /In use<\/span>/.test(use16));
   check('...read from the Builder\'s own copy when it holds the order here, else from the stored order (kept by _spLoad)',
     /var mem = \(window\.WO && WO\.libOutlineOf\) \? WO\.libOutlineOf\(d\.order\.id\) : null;/.test(fn('_spOrderOutline')) &&
     /d\.orderItems = got\.items \|\| \[\];/.test(fn('_spLoad')) && /if \(!_woLibHeld\(orderId\) \|\| !_lbdIsActive\(\) \|\| _woLcdInPage\(\)\) return null;/.test(fn('_woLibOutlineOf')));
@@ -785,7 +785,7 @@ try {
     /if \(_llShown\('liturgyServicePanel'\) && _sp\.occ\) \{/.test(fn('_llOpenInBuilder')) && /_llBackBar\(\);/.test(fn('_llOpenInBuilder')) &&
     /view\.appendChild\(b\)/.test(fn('_llBackBar')) && /cur !== _llBack\.orderId/.test(fn('_llBackBar')) &&
     /WO\.saveImmediately\(\)/.test(fn('llBackToLib')) && /openService\(b\.occ, b\.from \|\| 'services', 'order'\)/.test(fn('llBackToLib')) &&
-    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, currentOrderId:/.test(SRC));
+    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore,/.test(SRC));
 
   // ------------------------------------------------------------ 17. in use: concise, a PDF, Remove
   // From the operator (2026-11-16), on a screenshot of the box: "a better
@@ -795,9 +795,11 @@ try {
   // set / And collapse / Expand", and "enable to delete the created liturgy
   // and revert back from Use".
   console.log('\n17. In use: where it came from, folded, a PDF, and Remove');
-  check('the liturgy is folded under one bar, with its counts; open or shut kept on this device; Expand all / Collapse all inside',
-    /'<button type="button" class="spi-ol__hd" aria-expanded="' \+ open \+ '" onclick="LiturgyModule\.spoShow\(\)">'/.test(use16) &&
-    /\(open \? _spOutlineHtml\(ol\) : ''\)/.test(use16) && /var SP_OL_KEY = 'lhc_sp_liturgy_open';/.test(SRC) &&
+  check('the liturgy is folded, opened by Show liturgy in the block it is used for (a date tile beside it); open or shut kept on this device; its counts and Expand all / Collapse all inside',
+    /'<div class="spi-node spi-node--to">' \+ _spDateTile\(next\.key\)/.test(use16) &&
+    /'<button type="button" class="spi-showbtn' \+ \(open \? ' is-on' : ''\) \+ '" aria-expanded="' \+ open \+ '" onclick="LiturgyModule\.spoShow\(\)"><i class="fa-solid fa-list-ol"/.test(use16) &&
+    /\(open \? 'Hide liturgy' : 'Show liturgy'\)/.test(use16) && !/spi-ol__hd/.test(use16) &&
+    /\(open \? _spOutlineHtml\(ol, cmp\) : ''\)/.test(use16) && /plural\(n\.secs, 'section', 'sections'\)/.test(fn('_spOutlineHtml')) && /var SP_OL_KEY = 'lhc_sp_liturgy_open';/.test(SRC) &&
     /localStorage\.setItem\(SP_OL_KEY, _sp\.olOpen \? '1' : '0'\)/.test(fn('spoShow')) && /olOpen: _spOlPref\(\), change: false/.test(fn('openService')) &&
     /LiturgyModule\.spoOpenAll\(true\)">.*Expand all/.test(fn('_spOutlineHtml')) && /LiturgyModule\.spoOpenAll\(false\)">.*Collapse all/.test(fn('_spOutlineHtml')));
   check('...the Builder, PDF and Share, then another liturgy and Remove (Remove only for a liturgy put in)',
@@ -881,6 +883,92 @@ try {
   check('...Share hands the file to the phone\'s share sheet (WhatsApp, email), in the click; a desk downloads it', /navigator\.canShare\(\{ files: \[file\] \}\)/.test(pdf17) &&
     /navigator\.share\(\{ title: base, text: \(meta && meta\.text\) \|\| base, files: \[file\] \}\)/.test(pdf17) && /_lbdDownload\(blob, name\);/.test(pdf17) &&
     /WO\.libPdf\(d\.order\.id, d\.orderFull, d\.orderItems, meta, !!share\)/.test(fn('spoPdf')));
+
+  // ------------------------------------------------------------ 18. changed from the original
+  // From the operator (2026-11-16): "what if the user has modified the
+  // content within the ready to use liturgy. Meaning it's no longer the same
+  // as the base PDF and what if he/she want to revert back to original?"
+  // Asked: per part, plus all at once. And the sketch: a date tile on the
+  // left of "Used for", Show liturgy moved into it.
+  console.log('\n18. Changed from the original: marked, seen, put back');
+  let C18 = null;
+  try { C18 = new Function(['_spCompare', '_spDateTile'].map(fn).join('\n').replace('function _spDateTile', SRC.match(/  var SP_MON = [^\n]*;/)[0] + '\nfunction _spDateTile') + '\nreturn { cmp: _spCompare, tile: _spDateTile };')(); }
+  catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (C18) {
+    const sl = (...t) => t.map((c, i) => ({ index: i, content: c, background: '' }));
+    const file = [
+      { id: 'a', itemType: 'liturgy', sourceId: 'doc_1', sectionId: 'wo-section-0', title: 'Invocation', slides: sl('In the name') },
+      { id: 'b', itemType: 'liturgy', sourceId: 'doc_2', sectionId: 'wo-section-1', title: 'Confession', slides: sl('We confess', 'Amen.') },
+      { id: 'c', itemType: 'liturgy', sourceId: 'doc_3', sectionId: 'wo-section-1', title: 'Absolution', slides: sl('You are forgiven') },
+      { id: 'r', itemType: 'scripture', sourceId: 'x', sectionId: 'wo-section-2', title: 'Isaiah 64', slides: sl('Oh that') },
+      { id: 'd', itemType: 'liturgy', sourceId: '', sectionId: 'wo-section-3', title: 'Blessing', slides: sl('The Lord bless you') }];
+    const map = { 'wo-section-0': 'wo-section-sp0', 'wo-section-1': 'wo-section-sp1', 'wo-section-3': 'wo-section-sp3' };
+    const ord = [
+      { id: 'o1', itemType: 'liturgy', sourceId: 'doc_1', sectionId: 'wo-section-sp0', title: 'Invocation', slides: sl('In the name  ') },
+      { id: 'o2', itemType: 'liturgy', sourceId: 'doc_2', sectionId: 'wo-section-sp1', title: 'Confession', slides: sl('We confess our sins', 'Amen.') },
+      { id: 'o4', itemType: 'liturgy', sourceId: 'lib9', sectionId: 'wo-section-sp1', title: 'Kyrie', slides: sl('Lord have mercy') },
+      { id: 'o5', itemType: 'scripture', sourceId: 'y', sectionId: 'wo-section-0', title: 'Mark 1', slides: sl('The beginning') },
+      { id: 'o6', itemType: 'liturgy', sourceId: 'lbd_x', sectionId: 'wo-section-sp3', title: 'blessing', slides: sl('The Lord bless you') }];
+    const r = C18.cmp(file, ord, map, ['wo-section-sp0', 'wo-section-sp1', 'wo-section-sp3']);
+    check('a part is matched to the original by its source id, else by its title; words compared without trailing spaces; readings never',
+      r.byItem.o1.st === 'same' && r.byItem.o6.st === 'same' && !r.byItem.o5 && r.byItem.o2.st === 'changed' && r.changed === 1, JSON.stringify(r.byItem));
+    check('...the changed part carries the original\'s words; a part not in the original is "added"; one of the original\'s not here is taken out, with its section renamed as the order names it and the part it followed',
+      JSON.stringify(r.byItem.o2.orig) === JSON.stringify(['We confess', 'Amen.']) && r.byItem.o4.st === 'added' && r.added === 1 &&
+      r.missing.length === 1 && r.missing[0].key === 'doc_3' && r.missing[0].secId === 'wo-section-sp1' && r.missing[0].secOk === true && r.missing[0].after === 'o2', JSON.stringify(r.missing));
+    const r3 = C18.cmp([{ id: 'w', itemType: 'liturgy', sourceId: 'doc_7', sectionId: 'wo-section-0', title: 'Wreath', slides: sl('C: Lord,\n    we light this candle\nHymn: Whisper (SUO GAN)') }],
+      [{ id: 'ow', itemType: 'liturgy', sourceId: 'doc_7', sectionId: 'wo-section-sp0', title: 'Wreath', slides: sl('C: Lord,\nwe light  this candle\nHymn: Whisper') }], map, ['wo-section-sp0']);
+    const r4 = C18.cmp([{ id: 'w', itemType: 'liturgy', sourceId: 'doc_7', sectionId: 'wo-section-0', title: 'Wreath', slides: sl('C: Lord,\nwe light this candle') }],
+      [{ id: 'ow', itemType: 'liturgy', sourceId: 'doc_7', sectionId: 'wo-section-sp0', title: 'Wreath', slides: sl('C: Lord,\nwe light two candles') }], map, ['wo-section-sp0']);
+    check('...compared as the wall shows the words: indents, runs of spaces and a parenthetical (never projected) are not changes -- the live 29 Nov order\'s Confession and Advent Wreath -- but a word is', r3.byItem.ow.st === 'same' && r3.changed === 0 && r4.byItem.ow.st === 'changed' && r4.byItem.ow.orig[0] === 'C: Lord,\nwe light this candle', JSON.stringify(r3.byItem));
+    const r2 = C18.cmp(file, ord.filter(o => o.id !== 'o1'), map, ['wo-section-sp1', 'wo-section-sp3']);
+    check('...a part whose section was taken out too cannot be put back in it', r2.missing.find(m => m.key === 'doc_1').secOk === false);
+    check('the date tile: the day and the month', /<b>29<\/b><span>Nov<\/span>/.test(C18.tile('2026-11-29')) && C18.tile('') === '');
+  }
+  let K18 = null;
+  try { K18 = new Function(['_woLibKeepBg'].map(fn).join('\n') + '\nreturn _woLibKeepBg;')(); } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (K18) {
+    const back = K18([{ content: 'mine', background: 'img1' }, { content: 'x', background: '' }], [{ content: 'A', richHtml: '<b>A</b>' }, { content: 'B', background: 'own' }, { content: 'C' }]);
+    check('a part put back takes the original\'s words and formatting, and keeps the background the service gave each place',
+      back.length === 3 && back[0].content === 'A' && back[0].richHtml === '<b>A</b>' && back[0].background === 'img1' && back[1].background === 'own' && back[2].background === '' &&
+      back.map(x => x.index).join() === '0,1,2');
+  }
+  try {
+    const log = [];
+    let held = true, active = true, lcd = false;
+    const order = { id: 'o', allItems: [{ id: 's1', itemType: 'song' }, { id: 'o2', itemType: 'liturgy', sectionId: 'sp1', slides: [{ content: 'mine', background: 'bg' }] }, { id: 'o9', itemType: 'liturgy', sectionId: 'sp2', slides: [] }] };
+    const env = { _lbdIsActive: () => active, _woLcdInPage: () => lcd, _lbdPfx: () => 'p_', _lbdUid: () => 'u1',
+      _woSectionList: () => [{ id: 'sp1' }, { id: 'sp2' }], _soSaveSettled: () => { log.push('save'); return Promise.resolve(true); },
+      _lbdChange: f => { log.push('change'); return f() !== false; }, SBQ: { _sb: () => null }, _lbdClearClearedFor: id => log.push('uncleared ' + id) };
+    const keys = Object.keys(env);
+    const L = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibKeepBg', '_woLibSlides', '_woLibSetSlides', '_woLibRestore'].map(fn).join('\n') +
+      '\nreturn { restore: _woLibRestore, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    L.hold(order);
+    let res = null;
+    await L.restore('o', { put: [{ id: 'o2', slides: [{ content: 'orig' }] }], add: [{ item: { id: 'f3', itemType: 'liturgy', sourceId: 'doc_3', sectionId: 'wo-section-1', slides: [{ content: 'gone' }] }, secId: 'sp1', after: 'o2' },
+                                                                                  { item: { id: 'f4', itemType: 'liturgy', sectionId: 'x' }, secId: 'nowhere', after: null }] }).then(r => { res = r; });
+    check('Put all back in the Builder\'s copy: one Undo step, the words back with the background kept, a part taken out back after the part it followed, its save waited on; a part with no section left alone',
+      res.via === 'builder' && res.put === 1 && res.added === 1 && log.join() === 'change,uncleared sp1,save' && order.allItems[1].slides[0].content === 'orig' && order.allItems[1].slides[0].background === 'bg' &&
+      order.allItems[2].id === 'p_svl_u1' && order.allItems[2].sectionId === 'sp1' && order.allItems.length === 4, JSON.stringify(order.allItems.map(x => x.id + '@' + x.sectionId)));
+    L.hold(null); let err = null;
+    await L.restore('o', { put: [], add: [{ item: { id: 'z' }, secId: 'sp1' }] }).catch(e => { err = e; });
+    check('...not held here: a part taken out goes back only through the Builder (the page opens it and asks again)', !!err && err.code === 'builder');
+  } catch (e) { check('the put-back runs', false, e.stack); }
+  check('the page: a changed part marked Changed, its original to see, Put back the original; a part taken out shown in its section with Put back; a part not in the original says so',
+    /spo-tag spo-tag--ch">Changed/.test(fn('_spoPartHtml')) && /LiturgyModule\.spoOrig\(this\.dataset\.id\)/.test(fn('_spoPartHtml')) && /Put back the original/.test(fn('_spoPartHtml')) &&
+    /spo-tag spo-tag--gone">Taken out/.test(fn('_spoPartHtml')) && /LiturgyModule\.spoPutGone\(this\.dataset\.key\)/.test(fn('_spoPartHtml')) && /Not in the original/.test(fn('_spoPartHtml')) &&
+    /ps\.concat\(gone\[x\.id\] \|\| \[\]\)/.test(fn('_spOutlineHtml')));
+  check('...the line under the blocks: Same as the original, or what changed with See and Put all back (asked first, the changes named; parts added since stay)',
+    /Same as the original/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoShowChanged\(\)/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoPutAll\(\)/.test(fn('_spDiffHtml')) &&
+    /title: 'Put back the original\?'/.test(fn('spoPutAll')) && /Parts added since, the readings and the songs stay as they are\./.test(fn('spoPutAll')) &&
+    /_spCmpNow\(d, ol\)/.test(use16) && /flow \+ _spDiffHtml\(cmp\) \+ olBox/.test(use16));
+  check('...one part put back through WO.libSetSlides with Undo; all of them through WO.libRestore, by the Builder and back when a part has to go back in its place',
+    /WO\.libSetSlides\(oid, id, null, function\(cur\) \{ return WO\.libKeepBg\(cur, orig\); \}\)/.test(fn('spoPutBack')) && /WO\.libSetSlides\(oid, id, null, res\.before\)/.test(fn('spoPutBack')) &&
+    /if \(!err \|\| err\.code !== 'builder'\) \{ fail\(err\); return; \}/.test(fn('_spRestore')) && /_llOpenInBuilder\(oid, function\(\) \{ WO\.libRestore\(oid, plan\)/.test(fn('_spRestore')) &&
+    /if \(via === 'away'\) llBackToLib\(\);/.test(fn('_spRestore')));
+  check('...the original is the Liturgy App File it came from (this page\'s, or read once), its sections renamed as a Special order names them',
+    /sb\.from\('service_liturgies'\)\.select\('\*'\)\.eq\('id', svl\.id\)\.maybeSingle\(\)/.test(fn('_spOrigRow')) &&
+    /WO\.svlSecMap\(row\.data \|\| \{\}, ol\.type, row\.order_type\)/.test(fn('_spCmpNow')) &&
+    /if \(orderType !== 'special' \|\| fileType === 'special'\) return \{\};/.test(fn('_woSvlSecMap')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
