@@ -5006,6 +5006,34 @@ the anon key -- verify as `postgres`, not as the app.
       onto Kyrie's closed row (renamed `..._liturgy_doc_2_wo-section-sp4`), a
       section added after Gather with its words, an Absolution subsection
       added, renamed and removed, and Reset back to "Same as the original".
+    - **A phone's layout A: fewer boxes** (the operator, 2026-11-16, on a
+      phone screenshot: "this layout looks really busy especially for the
+      mobile version"; of three sketches, A, "fewer boxes", and "Remove the
+      most bottom section text. Just say no documents uploaded (PDF, Word,
+      Google Docs, etc.)"). Up to 768px wide, scoped to
+      `#liturgyServicePanel`: the Liturgy Library box is no box (no border,
+      background or padding); Upload and Google Doc are one **Add** (`.sp-addm`
+      -> `spAddDocs` / `spAddDocsAct` on `_spFloat`: Upload a liturgy, Add a
+      Google Doc, Make a year folder -- NOT `spAddMenu`, which is the old Add
+      Item menu's name, gotcha 42); the row of file-type tabs is a dropdown
+      (`.sp-rsel`, each kind with its count, `spResTab`) at the head of the
+      year chips -- alone in a row for LCD (`.sp-years--sel`) -- and the year
+      chips are one line that scrolls sideways. This year's liturgy is one
+      card: its heading, the gold and green blocks and the two rows of
+      buttons are hidden there, and `_spInUseHtml` draws for a phone the day
+      on its tile with its day and kind (`.spi-c`), "From <file>, <year> ·
+      Original" (Original goes to the file, `spoGoOrig`), the line saying
+      whether it is the same as the original (plain text when it is), and
+      **Show liturgy**, **Builder** and **⋯** (`.spi-c__acts`; `spoMore` /
+      `spoMoreAct`: Download the PDF, Share the PDF, Go to the original file,
+      Use another liturgy, Remove from this service in red) -- each only
+      where it applies. `.sp-make .lf-btn` is a desk's full-width button, so
+      the three are given their own widths. Use another's list is drawn
+      after the buttons on both, so it shows on a phone too. A desk is as it
+      was. A year with nothing uploaded, in the Liturgies tab, says only "No
+      documents uploaded (PDF, Word, Google Docs, etc.)", with no "2026
+      documents" heading over it. Measured at 480px: the card is 238px tall,
+      the three buttons in one row inside it.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
