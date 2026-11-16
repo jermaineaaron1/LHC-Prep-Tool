@@ -155,7 +155,7 @@ try {
   console.log('\n5. The service page');
   const mk = fn('_spMakeHtml');
   check('This year\'s liturgy: the coming Sunday with its lectionary year, the ready liturgies for it with Use, and how to make one',
-    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(mk) && /\[next\.day, cyc\]/.test(mk) &&
+    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(mk) && /\[next\.day, cyc, kind\]/.test(mk) &&
     /data-key="' \+ _lfE\(next\.key\) \+ '" onclick="LiturgyModule\.spUse\(this\.dataset\.id, this\.dataset\.key\)"><i class="fa-solid fa-download" aria-hidden="true"><\/i><span>Use<\/span>/.test(mk) &&
     /How to make this year’s from a past one/.test(mk) && /No Liturgy App File for this Sunday yet\./.test(mk) && /a Year B liturgy from 2023 suits Year B again in 2026/.test(mk));
   const ready = fn('_spReadyHtml');
@@ -676,6 +676,113 @@ try {
   check('the service page is slim: All Services a badge, the name, no Sync / Share / Add Item; the files\' tabs small; the add buttons beside the heading',
     /class="pl-hero pl-hero--slim"/.test(fn('renderService')) && !/spSync\(\)|spShare\(\)|spAddMenu\(this\)/.test(fn('renderService')) &&
     /<div class="sp-res__top"><h2 class="font-cinzel">/.test(fn('_spResHtml')) && !/sp-res__bar/.test(fn('_spResHtml')) && /\.pl \.sp-rtab \{ min-height: 30px;/.test(SRC));
+
+  // ------------------------------------------------------------ 16. the coming service's liturgy, here
+  // From the operator (2026-11-17): "Shouldn't this place show the preview
+  // of the liturgy? And I should be able to make some edits here as well.
+  // The changes will be reflected in the Liturgy builder and vice versa",
+  // and "When hitting the liturgy builder, help to direct the user back to
+  // this page".
+  console.log('\n16. This year\'s liturgy shows the service\'s own, and changes it');
+  let P = null;
+  try {
+    P = new Function(['_spOutline', '_spoSlidesOf', '_woLibSlides'].map(fn).join('\n') + '\nreturn { outline: _spOutline, slides: _spoSlidesOf, lib: _woLibSlides };')();
+  } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (P) {
+    const ol = P.outline([{ id: 's1', title: 'Invocation' }, { id: 's2', title: 'Readings' }, { id: 's3', title: 'Hymn' }], [
+      { id: 'a', itemType: 'liturgy', sectionId: 's1', title: 'Invocation', slides: [{ content: 'P: In the name...' }, { content: '  ' }, { content: 'C: Amen.\n' }] },
+      { id: 'b', itemType: 'scripture', sectionId: 's2', title: 'Isaiah 64:1-9', slides: [{ content: 'Oh that you would...' }] },
+      { id: 'c', itemType: 'song', sectionId: '', title: 'O Come', customizations: { serviceSections: ['s3'] } },
+      { id: 'd', itemType: 'content', sectionId: 's1', title: 'Welcome', content: { text: 'Welcome all' }, slides: [] },
+      { id: 'e', itemType: 'liturgy', sectionId: 'gone', title: 'Stray', slides: [{ content: 'x' }] }]);
+    check('the outline: the sections in order, each part where it is -- a song by its sections -- its words without blank slides, and a part in no section at the end',
+      ol.map(x => x.title + ':' + x.parts.map(q => q.kind + '/' + q.id).join('+')).join(' | ') === 'Invocation:liturgy/a+text/d | Readings:reading/b | Hymn:song/c | Not in a section:liturgy/e' &&
+      ol[0].parts[0].slides.join('|') === 'P: In the name...|C: Amen.' && ol[0].parts[1].slides[0] === 'Welcome all' && ol[0].parts[0].edit === true && ol[1].parts[0].edit === false,
+      JSON.stringify(ol.map(x => [x.title, x.parts.map(q => q.id)])));
+    check('words to slides: a line of three dashes or more starts the next; blank lines at a slide\'s ends go; at least one',
+      JSON.stringify(P.slides('P: Peace\n---\nC: And also with you\n\n-----\n\n')) === JSON.stringify(['P: Peace', 'C: And also with you']) &&
+      JSON.stringify(P.slides('')) === JSON.stringify(['']) && JSON.stringify(P.slides('one\r\n---\r\ntwo')) === JSON.stringify(['one', 'two']));
+    const old = [{ index: 0, content: 'A', background: 'bg1', richHtml: '<b>A</b>' }, { index: 1, content: 'B', background: 'bg2', header: 'Verse' }];
+    const nx = P.lib(old, ['A', 'B changed', 'C new']);
+    check('a slide left as it was keeps its formatting and background; a changed one is plain words with the background of its place; a new one plain',
+      nx[0].richHtml === '<b>A</b>' && nx[0].background === 'bg1' && nx[1].content === 'B changed' && !nx[1].richHtml && nx[1].background === 'bg2' && nx[1].header === 'Verse' &&
+      nx[2].content === 'C new' && nx[2].background === '' && nx.map(x => x.index).join() === '0,1,2' && old[0].index === 0);
+  }
+  try {
+    const log = [];
+    const rows = { it1: { id: 'it1', slides: [{ index: 0, content: 'Old words', background: 'b' }] } };
+    let readBack = null;
+    const sbFake = { from: t => {
+      const q = { _t: t, _upd: null, _id: null,
+        select() { return q; }, eq(k, v) { if (k === 'id') q._id = v; return q; }, maybeSingle() { return q; },
+        update(v) { q._upd = v; return q; },
+        then(ok, bad) {
+          let r;
+          if (q._t === 'order_items' && q._upd) { rows[q._id].slides = readBack || q._upd.slides; log.push('write item ' + q._id); r = { data: [{ slides: rows[q._id].slides }] }; }
+          else if (q._t === 'order_items') r = { data: rows[q._id] || null };
+          else { log.push('touch order ' + q._id); r = { data: [] }; }
+          return Promise.resolve(r).then(ok, bad);
+        } };
+      return q;
+    } };
+    let held = null, active = false, lcd = false, changed = 0;
+    let saveSays = true;
+    const env = { SBQ: { _sb: () => sbFake, _noteOwnEdit: (id) => log.push('own ' + id) },
+      _lbdIsActive: () => active, _woLcdInPage: () => lcd, _soSaveSettled: () => { log.push('save now'); return Promise.resolve(saveSays); },
+      _lbdChange: f => { changed++; return f() !== false; } };
+    const keys = Object.keys(env);
+    const L = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibSlides', '_woLibSetSlides'].map(fn).join('\n') +
+      '\nreturn { set: _woLibSetSlides, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    let res = null;
+    await L.set('o1', 'it1', ['New words', 'Second']).then(r => { res = r; });
+    check('not open here: the one row written, read back, the order\'s last_edited moved and noted as this device\'s own',
+      res && res.via === 'stored' && rows.it1.slides.length === 2 && rows.it1.slides[0].background === 'b' && log.join() === 'write item it1,own o1,touch order o1' &&
+      res.before[0].content === 'Old words', log.join());
+    readBack = [{ content: 'something else' }];
+    let err = null;
+    await L.set('o1', 'it1', ['Again']).catch(e => { err = e; });
+    check('...a write the database did not keep is not reported as kept', !!err && /kept something else/.test(err.message), err && err.message);
+    readBack = null;
+    const order = { id: 'o1', allItems: [{ id: 'it1', slides: [{ index: 0, content: 'Mem', background: '' }] }] };
+    L.hold(order); active = true; log.length = 0;
+    await L.set('o1', 'it1', ['Mem changed']).then(r => { res = r; });
+    check('open in the Builder here: its own copy changed in one Undo step and saved at once -- nothing written past it',
+      res.via === 'builder' && res.saved === true && changed === 1 && order.allItems[0].slides[0].content === 'Mem changed' && log.join() === 'save now' && res.before[0].content === 'Mem', log.join());
+    saveSays = false;
+    await L.set('o1', 'it1', ['Mem again']).then(r => { res = r; });
+    check('...and a save that did not land is said to have not landed (the toast must not say Saved)', res.saved === false && changed === 2);
+    lcd = true; err = null;
+    await L.set('o1', 'it1', ['x']).catch(e => { err = e; });
+    check('...open in LCD Projection here: refused, to be changed there (its page is what a save writes)', !!err && /LCD Projection/.test(err.message) && changed === 2);
+    lcd = false; active = false; err = null;
+    await L.set('o1', 'it1', ['x']).catch(e => { err = e; });
+    check('...open here but not in the Builder: refused rather than written behind the copy here', !!err && /Liturgy Builder/.test(err.message));
+  } catch (e) { check('the part\'s save runs', false, e.stack); }
+  const mk16 = fn('_spMakeHtml');
+  check('This year\'s liturgy: with its order made, ITS liturgy -- where it came from, the outline, and another file folded under it; else the files to use',
+    /var ol = \(d && d\.order\) \? _spOrderOutline\(d\) : null;/.test(mk16) && /'Its liturgy: <b>' \+ _lfE\(svl\.title\) \+ '<\/b>'/.test(mk16) &&
+    /state \+ \(ol \? _spOutlineHtml\(ol\)/.test(mk16) && /<summary>Use another Liturgy App File for it<\/summary>/.test(mk16) && /: list\) \+/.test(mk16));
+  check('...read from the Builder\'s own copy when it holds the order here, else from the stored order (kept by _spLoad)',
+    /var mem = \(window\.WO && WO\.libOutlineOf\) \? WO\.libOutlineOf\(d\.order\.id\) : null;/.test(fn('_spOrderOutline')) &&
+    /d\.orderItems = got\.items \|\| \[\];/.test(fn('_spLoad')) && /if \(!_woLibHeld\(orderId\) \|\| !_lbdIsActive\(\) \|\| _woLcdInPage\(\)\) return null;/.test(fn('_woLibOutlineOf')));
+  check('...a liturgy part has Edit; the words open in a box, saved through WO.libSetSlides with Undo; readings and songs say where they change',
+    /p\.edit && !ed \? '<button type="button" class="spo-pen"/.test(fn('_spoPartHtml')) && /id="spoText"/.test(fn('_spoPartHtml')) &&
+    /From the Roster: change it on the Readings page\./.test(fn('_spoPartHtml')) && /its words are in the Songbook/.test(fn('_spoPartHtml')) &&
+    /WO\.libSetSlides\(oid, e\.id, _spoSlidesOf\(e\.text\)\)/.test(fn('spoSave')) && /WO\.libSetSlides\(oid, e\.id, null, res\.before\)/.test(fn('spoSave')) &&
+    /if \(res\.saved === false\) \{ showToast\('Changed in the Liturgy Builder, but it did not save/.test(fn('spoSave')));
+  check('...a save waited on watches the indicator: saved, failed, or not known in time',
+    /_soSetSaveStatus\('saving'\);\s+saveImmediately\(\);/.test(fn('_soSaveSettled')) && /if \(_soState === 'failed' \|\| _soState === ''\) return res\(false\);/.test(fn('_soSaveSettled')) &&
+    /_soState = state \|\| '';/.test(fn('_soSetSaveStatus')));
+  check('the outline closes its own box', /: ''\) \+\s+'<\/div>';/.test(fn('_spOutlineHtml')));
+  check('an order with no readings offers this date\'s from the Roster: the Builder opens on it and fills them',
+    /\(n\.read \? '' : '<button type="button" class="spo-fill" onclick="LiturgyModule\.spoReadings\(\)"/.test(fn('_spOutlineHtml')) &&
+    /_llOpenInBuilder\(d\.order\.id, function\(\) \{ WO\.lbdFillReadings\(\); \}\)/.test(fn('spoReadings')) && /lbdFillReadings: lbdFillReadings/.test(SRC));
+  check('the Builder opened from a service\'s page carries a bar back to it, in the Orders view only, gone when another order is opened; Back saves first',
+    /if \(_llShown\('liturgyServicePanel'\) && _sp\.occ\) \{/.test(fn('_llOpenInBuilder')) && /_llBackBar\(\);/.test(fn('_llOpenInBuilder')) &&
+    /view\.appendChild\(b\)/.test(fn('_llBackBar')) && /cur !== _llBack\.orderId/.test(fn('_llBackBar')) &&
+    /WO\.saveImmediately\(\)/.test(fn('llBackToLib')) && /openService\(b\.occ, b\.from \|\| 'services', 'order'\)/.test(fn('llBackToLib')) &&
+    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, currentOrderId:/.test(SRC));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {

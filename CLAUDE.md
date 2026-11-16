@@ -439,8 +439,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
     parts to add (Holy Communion before, during and after...), and Confirm. Each document says
     when it was added and its year's lectionary letter ("2024 · Year B"),
     and is renamed in place; the preview goes full screen. Beside it: This
-    year's liturgy (the coming Sunday, the Liturgy App Files for it with
-    **Use**, and how to make one), the Liturgy App Files saved from the
+    year's liturgy (the coming Sunday and, once its order is made, ITS
+    liturgy -- where it came from and every section, a liturgy part's words
+    editable there and in the Builder alike; else the Liturgy App Files for
+    it with **Use**), the Liturgy App Files saved from the
     Builder (only when there are any), and the tiles. No order of worship or reader: an order is
     designed in the Builder. **Lent Sundays, Easter Season and Epiphany
     Sundays** are services beside Advent Sundays. Gotchas 103, 104.
@@ -4713,6 +4715,51 @@ the anon key -- verify as `postgres`, not as the app.
       description line went (it is the box's title). A converted document's
       six buttons fit one line at 480px (the year without its folder icon, a
       4px gap).
+    - **This year's liturgy shows the service's own, and changes it** (the
+      operator, 2026-11-16, having used the 2025 Advent file for 29 Nov:
+      "Shouldn't this place show the preview of the liturgy? And I should be
+      able to make some edits here as well. The changes will be reflected in
+      the Liturgy builder and vice versa", and "When hitting the liturgy
+      builder, help to direct the user back to this page"). With the coming
+      service's order made, the box says what it is ("1st Sunday of Advent ·
+      Year B · Special service" -- `_spNextFor` now reads Special, as
+      `_spUpcomingFor` does), where its liturgy came from
+      (`template.serviceLiturgy`), and its outline (`_spOutline`, pure: the
+      order's sections in order, each part where it is, a song by its
+      sections, a part in no section last; `_spOutlineHtml`: the counts, eight
+      sections and Show all). A section opens to its parts' words; a LITURGY
+      part has **Edit** (`spoEdit`): its slides in one box, a line of `---`
+      between slides (`_spoSlidesOf`), saved by **Save** (`spoSave`) with Undo.
+      A reading says it is the Roster's, a song that its words are in the
+      Songbook. **One copy, never two**: `spoSave` goes through
+      `WO.libSetSlides` (`_woLibSetSlides`). When this device holds the order
+      in the Builder (`_woLibHeld` and `_lbdIsActive`) the change is the
+      Builder's own -- one `_lbdChange`, so one Builder Undo -- saved at once
+      and WAITED ON (`_soSaveSettled`: the save indicator's state, `_soState`,
+      saved / failed / not known in 12s), and the toast says so when it did
+      not save. Held in LCD Projection here, or open here but not in the
+      Builder, it is refused (the page there is what a save writes, gotcha
+      35). Otherwise the one `order_items` row is written and read back, and
+      the order's `last_edited` moved and noted as this device's own, so the
+      Builder anywhere else picks it up as any other device's change. An
+      unchanged slide keeps its formatting and background, a changed one is
+      plain words with its place's background (`_woLibSlides`, as
+      `_lbdSetSlide` does). The outline reads the Builder's copy when it holds
+      the order here (`WO.libOutlineOf`), else the stored order and items that
+      `_spLoad` keeps (`orderFull`, `orderItems`) -- so a change made in the
+      Builder shows here on the way back. No readings in it: **Put in this
+      date's readings from the Roster** (`spoReadings`) opens the Builder on
+      it and runs its Roster readings (`WO.lbdFillReadings`, every slot
+      missing, whatever `template.rosterReadings` notes -- the live 29 Nov
+      order had all four noted and none in it, so the automatic fill would
+      never have put them back). Another Liturgy App File is folded under
+      **Use another Liturgy App File for it**. **The way back**: the Builder
+      opened from a service's page (`_llOpenInBuilder`, any of its ways in)
+      carries a bar at the foot, "Back to <service>" (`#llBackBar`, in
+      `#worshipOrderView` only, z-index 1500; on a phone over the bottom
+      bar), and **Back** (`llBackToLib`) saves the order first and opens the
+      service's page on its Liturgy Order tab; the bar goes when another
+      order is opened, or on its x.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
