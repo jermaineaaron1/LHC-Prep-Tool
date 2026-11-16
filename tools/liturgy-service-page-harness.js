@@ -126,6 +126,8 @@ try {
     check('Contemporary: by the roster\'s service type, never one already past', n('ordinary-contemporary') === '2026-11-22:contemporary', n('ordinary-contemporary'));
     check('a feast: its own day, an evening one included', n('christmas-eve') === '2026-12-24|pm:traditional', n('christmas-eve'));
     check('a kind the roster has no date for: none', n('good-friday') === '' && L.next('x', meta, '2026-11-14', null) === null);
+    const sp = L.next('advent', { '2026-11-29': { day: '1st Sunday of Advent', serviceType: 'Special' } }, '2026-11-14', () => 'advent');
+    check('a date the Roster calls Special says so (a liturgy used from the Library makes it one)', sp && sp.type === 'special', JSON.stringify(sp));
   }
 
   // ------------------------------------------------------------ 3. word
