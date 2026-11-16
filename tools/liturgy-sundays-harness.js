@@ -429,7 +429,7 @@ try {
   if (S) {
     try {
       const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseExtras', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
-        '_spUseState', '_spUseReads', '_spUseStep1', '_spUseStep2', '_spUseBrings', '_spUseStep3', '_spUseStep4', '_spUseDraw', 'spUseStep', 'spUseDate', 'spUseFile', 'spUseReadsFrom',
+        '_spUseState', '_spUseReads', '_spUseStep1', '_spUseStep2', '_spSlidesOf', '_spUseLits', '_spUseWordsHtml', '_spUseBrings', '_spUseStep3', '_spUseStep4', '_spUseDraw', 'spUseStep', 'spUseDate', 'spUseFile', 'spUseReadsFrom',
         'spUseExtra', 'spUseSongs', 'spUseComm', 'spUseClose', 'spUseLeave', 'spUseReadings', '_spUseBackBar', 'spUseReturn', '_spPutReadings', 'spUseGo', 'spUseReconvert',
         'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName'];
       const bodies = names.map(fn);
@@ -456,7 +456,7 @@ try {
         LiturgyModule: { getAssignedLiturgyForSection: (t, sec) => sec === 'kyrie' ? [{ id: 'k1', title: 'Kyrie (sung)' }] : sec === 'sanctus' ? [{ id: 's1', title: 'Sanctus' }, { id: 's2', title: 'Words of Institution' }] : [] },
         _sp: { occ: 'advent' }, _readingRefsByDate: {},
         getItem: id => ({ d1: { id: 'd1', title: 'Advent liturgy' } })[id] || null,
-        showToast: (m) => log.push('toast ' + m), _llOpenInBuilder: (id, then) => { log.push('open ' + id); then && then(); },
+        showToast: (m) => log.push('toast ' + m), _llOpenInBuilder: (id, then) => { log.push('open ' + id); then && then(); }, llBackToLib: () => log.push('back'),
         openService: occ => log.push('service ' + occ), _spLoad: () => Promise.resolve(), lfOpenDay: k => log.push('readings ' + k),
         spConvert: (id, o) => log.push('convert ' + id + ' ' + JSON.stringify(o)), spPreviewReady: id => log.push('preview ' + id),
         spSundays: id => log.push('sundays ' + id), spDeleteReady: id => log.push('delete ' + id),
@@ -520,14 +520,14 @@ try {
       const n0 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       const ran = log.slice(n0).filter(l => !/^reads /.test(l));
       check('Use: the readings on the Roster, the date made Special there, a Special order made, then the Builder with the liturgy in -- in that order',
-        ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Opening its order… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6 made=true roster=Traditional reads=gospel:Mark 13:24-37>Mark 1:1-8',
+        ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Putting the liturgy in… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6 made=true roster=Traditional reads=gospel:Mark 13:24-37>Mark 1:1-8 | back',
         ran.join(' | '));
       U.use('trad', '2026-12-13'); await tick(); U.step(4);
       check('...a Contemporary date with its order made: Special now, its order takes the liturgy (Undo)', /it is Contemporary now/.test(html()) && /Its order takes this liturgy in place of what it has/.test(html()));
       U.from('roster'); U.songs(false);
       const n1 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       const ran1 = log.slice(n1).filter(l => !/^reads /.test(l) && !/^toast /.test(l));
-      check('...its own order kept, nothing made; the Roster\'s readings kept; without its songs -- and noted so, for Remove', ran1.join(' | ') === 'kind 2026-12-13 Special | open o13 | apply trad songs=false extras= made=false roster=Contemporary reads=', ran1.join(' | '));
+      check('...its own order kept, nothing made; the Roster\'s readings kept; without its songs -- and noted so, for Remove', ran1.join(' | ') === 'kind 2026-12-13 Special | open o13 | apply trad songs=false extras= made=false roster=Contemporary reads= | back', ran1.join(' | '));
       U.use('trad', '2027-11-28'); await tick(); U.step(4);
       const n2 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       check('a date the Roster already calls Special is not written again', /A <b>Special<\/b> service already/.test(html() || '') || !log.slice(n2).some(l => /^kind /.test(l)), log.slice(n2).join(' | '));
@@ -674,7 +674,7 @@ try {
   check('...each Traditional part added with its usual library liturgy, once in the order', /LiturgyModule\.getAssignedLiturgyForSection\('traditional', tpl\.liturgySectionId\)/.test(ap) &&
     /it\.itemType === 'liturgy' && it\.sourceId === lit\.id/.test(ap) && /currentOrderData\.allItems\.push\(_lbdLiturgyItem\(nid, lit\.id, lit\)\)/.test(ap));
   check('...and Use from the Library goes in through it, whatever kind the liturgy was made for', /var sp = _svlSpecialize\(row\.data\);/.test(fn('svlUseFromLibrary')) &&
-    /_svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\], use: opts\.use \|\| null \}\);/.test(fn('svlUseFromLibrary')) &&
+    /return _svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\], use: opts\.use \|\| null \}\) \|\| true;/.test(fn('svlUseFromLibrary')) &&
     /svlUseFromLibrary: svlUseFromLibrary,/.test(SRC));
   check('the Roster: a date marked Special, logged and read back, and shown as Special in its row', /setServiceType: function\(iso, value\) \{/.test(SRC) &&
     /role_id: 'service_type', service_date: k\.serviceDate, old_value: oldVal, new_value: v,/.test(SRC) && /throw new Error\('the Roster did not keep it'\)/.test(SRC) &&
@@ -995,7 +995,7 @@ try {
   check('the card: the "The liturgy of" block carries an Original badge and Go to file (Go to file only for a Liturgy App File)',
     /<span class="spi-orig__badge"><i class="fa-solid fa-star" aria-hidden="true"><\/i>Original<\/span>/.test(use16) &&
     /\(svl\.id \? '<button type="button" class="spi-golink" onclick="LiturgyModule\.spoGoOrig\(\)"/.test(use16) && /'<\/div>' \+ orig \+ '<\/div>'/.test(use16) &&
-    /var docName = \(otg && otg\.kind === 'doc' && otg\.name !== svl\.title\) \? otg\.name : '';/.test(use16) && /'<span class="spi-docname">/.test(use16));
+    /var srcs = used \? _spSourcesHtml\(svl, occ\) : '';/.test(use16) && /srcs \+ '<\/div>' \+ orig \+ '<\/div>'/.test(use16));
   check('...Go to file: the document\'s row on its year in the Liturgies tab, lit (the Converted mark) and scrolled to -- on the page of the service it is filed under; no document, the app file\'s preview',
     /_spOrigTarget\(row, svl\.id, getItem, _spYearOf\)/.test(fn('spoGoOrig')) && /spPreviewReady\(t\.id\)/.test(fn('spoGoOrig')) &&
     /if \(t\.occ && t\.occ !== _sp\.occ\) \{ _spFocusNext = focus; openService\(t\.occ, _sp\.from, 'order'\); return; \}/.test(fn('spoGoOrig')) &&
@@ -1321,7 +1321,7 @@ try {
     /#liturgyServicePanel \.sp-years \{ flex-wrap: nowrap; overflow-x: auto;/.test(SRC));
   check('...the library box itself no box on a phone; this year\'s liturgy one card: the day on its tile, where it came from on one line (Original goes to the file), Show liturgy, the Builder and a menu',
     /#liturgyServicePanel \.sp-res\.ll-box \{ background: transparent; border: 0; box-shadow: none; padding: 0;/.test(SRC) &&
-    /'<div class="spi-c__day">' \+ _spDateTile\(next\.key\)/.test(use23) && /'From <b>' \+ _lfE\(fromName\) \+ '<\/b>'/.test(use23) && /LiturgyModule\.spoGoOrig\(\)" title="Go to the original file">Original/.test(use23) &&
+    /'<div class="spi-c__day">' \+ _spDateTile\(next\.key\)/.test(use23) && /\(used \? srcs : '<p class="spi-c__from">/.test(use23) &&
     /class="lf-btn pl-btn-green spi-c__show"/.test(use23) && /LiturgyModule\.spEdit\(\)" title="Open in the Liturgy Builder"/.test(use23) && /LiturgyModule\.spoMore\(this\)/.test(use23) &&
     /#liturgyServicePanel \.sp-make--use \.pl-card__hd, #liturgyServicePanel \.sp-make--use \.spi-flow,\s*#liturgyServicePanel \.sp-make--use \.spi-acts, #liturgyServicePanel \.sp-make--use \.spi-more \{ display: none; \}/.test(SRC) &&
     /flow \+ ctop \+ _spDiffHtml\(cmp\) \+ cacts \+ olBox \+ acts \+ change/.test(use23) && /#liturgyServicePanel \.spi-c__acts \.lf-btn \{ width: auto;/.test(SRC));
@@ -1426,12 +1426,103 @@ try {
       log.filter(l => l === 'change').length === 2 && res.n === 2 && order.template.serviceLiturgy.blend.map(f => f.id).join() === 'B' && order.template.serviceLiturgy.use.made === true && order.template.serviceLiturgy.id === 'A');
   } catch (e) { check('the blend runs', false, e.stack); }
   check('Reset to original lets go of the blend\'s note; the in-use card says what it was blended with',
-    /WO\.libRestore\(oid, Object\.assign\(\{ unblend: true \}, plan\)\)/.test(fn('spoPutAll')) && /if \(plan\.unblend && svlR && Array\.isArray\(svlR\.blend\)\)/.test(fn('_woLibRestore')) &&
-    /With parts of ' \+ _lfE\(blendOf\)/.test(use24) && /' · with parts of ' \+ _lfE\(blendOf\)/.test(use24) && /libBlend: _woLibBlend/.test(SRC) && /spoBlendGo: spoBlendGo/.test(SRC));
+    /WO\.libRestore\(oid, Object\.assign\(\{ unblend: true \}, plan\)\)/.test(fn('spoPutAll')) && /if \(plan\.unblend && svlR && \(Array\.isArray\(svlR\.blend\) \|\| svlR\.blendMap\)\)/.test(fn('_woLibRestore')) &&
+    /delete tplR\.serviceLiturgy\.blend; delete tplR\.serviceLiturgy\.blendMap;/.test(fn('_woLibRestore')) && /libBlend: _woLibBlend/.test(SRC) && /spoBlendGo: spoBlendGo/.test(SRC));
   check('the blend window: a dropdown per section ("As it is" first), "Only this one" where there is no other, the extra sections ticked in, a choice never redrawing the window, Blend n sections',
     /'<option value="">As it is<\/option>'/.test(fn('_spBlendDraw')) && /Only this one/.test(fn('_spBlendDraw')) && /Sections only another liturgy has/.test(fn('_spBlendDraw')) &&
-    /_spBlendCountShow\(\);/.test(fn('spoBlendPick')) && !/_spBlendDraw\(\)/.test(fn('spoBlendPick')) && /WO\.libBlend\(oid, plan\)/.test(fn('spoBlendGo')) &&
-    /Choose another liturgy for a section first/.test(fn('spoBlendGo')));
+    /if \(bodyNow && scrollWas\) bodyNow\.scrollTop = scrollWas;/.test(fn('_spBlendDraw')) && /WO\.libBlend\(oid, plan\)/.test(fn('spoBlendGo')) &&
+    /Choose another liturgy for a section, tick a section to add, or drag them into a new order first/.test(fn('spoBlendGo')));
+
+  // ------------------------------------------------------------ 25. Use comes back; the parts to add; sources; the blend's sources and order
+  // From the operator (2026-11-16): "when using a liturgy, it will direct the
+  // user to the liturgy builder. Don't do that, rather direct them to the
+  // This Year page"; the parts to add "list in order and allow to expand and
+  // collapse each"; "a section called sources ... clicking on the badge link
+  // will directly open the preview window"; and on the blend page "a badge
+  // that shows the source ... double clicking on the badge will open the
+  // preview ... expand and collapse ... drag to reorder. Once hit blend, the
+  // new draft of the liturgy will be created".
+  console.log('\n25. Use comes back; the parts to add; sources; the blend\'s sources and order');
+  check('Use puts the liturgy in through the Builder and comes straight back to This Year, once its readings are in; the window says so',
+    /WO\.svlUseFromLibrary\(\{ id: f\.id,[\s\S]*?\}\) : null;\s*Promise\.race\(\[Promise\.resolve\(r\), new Promise\(function\(res\) \{ setTimeout\(res, 15000\); \}\)\]\)\.then\(function\(\) \{ llBackToLib\(\); \}\);/.test(fn('spUseGo')) &&
+    /return _lbdFillReadings\(\{ quiet: true \}\)\.then\(function\(n\) \{/.test(fn('_svlApply')) && /if \(readings\) \{ showToast\(said, 'success', _woUndoOpts\(\)\); return Promise\.resolve\(true\); \}/.test(fn('_svlApply')) &&
+    /Then you are back here, on This Year, with the liturgy in it to read and change\./.test(fn('_spUseStep4')) && !/The Liturgy Builder opens on it after/.test(fn('_spUseStep4')));
+  check('...the parts to add: one list in a Traditional service\'s order, each opening in place to the words it brings; a tick keeps the window\'s place',
+    /st\.extras\.slice\(\)\.sort\(function\(a, b\) \{ return a\.i - b\.i; \}\)/.test(fn('_spUseStep3')) && /LiturgyModule\.spUseOpen\(\+this\.dataset\.i, this\)/.test(fn('_spUseStep3')) &&
+    /'<div class="spu-xrow__words"' \+ \(op \? '' : ' hidden'\) \+ '>' \+ _spUseWordsHtml\(x\)/.test(fn('_spUseStep3')) && /\.spu-extras \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(SRC) &&
+    /if \(box\) box\.hidden = !on;/.test(fn('spUseOpen')) && /if \(bodyNow && scrollWas\) bodyNow\.scrollTop = scrollWas;/.test(fn('_spUseDraw')));
+  try {
+    const LM = { getAssignedLiturgyForSection: (type, sec) => sec === 'communion' ? [{ title: 'Pre-Communion', content: 'P: The Lord be with you.\nC: And also with you.\n═════\nP: Lift up your hearts.' }, { title: 'Contemporary only', serviceType: 'contemporary', content: 'x' }] : [] };
+    const UW = new Function('LiturgyModule', '_lfE', fn('_spSlidesOf') + '\n' + fn('_spUseLits') + '\n' + fn('_spUseWordsHtml') + '\nreturn _spUseWordsHtml;')(LM, t => String(t));
+    const hc = UW({ lit: 'communion', kind: '' }), so = UW({ lit: '', kind: 'songs' });
+    check('...a part\'s words: its library liturgy, slide by slide (a Contemporary one left out); a place for songs says nothing comes with it',
+      /<b>Pre-Communion<\/b>/.test(hc) && (hc.match(/<p>/g) || []).length === 2 && /And also with you/.test(hc) && !/Contemporary only/.test(hc) && /A place for its songs: nothing comes with it\./.test(so), hc);
+  } catch (e) { check('the parts\' words draw', false, e.stack); }
+  try {
+    const SH = new Function('_lfE', '_llYearText', fn('_spSourcesHtml') + '\nreturn _spSourcesHtml;')(t => String(t), (o, y) => y + ' · Year A');
+    const one = SH({ id: 'f1', title: 'No Communion', year: 2025, occasion: 'advent' }, 'advent');
+    const two = SH({ id: 'f1', title: 'No Communion', year: 2025, blend: [{ id: 'f2', title: 'Advent liturgy', year: 2023 }, { title: 'no id' }] }, 'advent');
+    const past = SH({ fromOrder: 'o9', title: 'Service 1 Dec 2025' }, 'advent');
+    check('Sources on the card: how many, the original starred, each a badge opening its preview; a past service a badge to read',
+      /Sources <b>1<\/b>/.test(one) && /class="spi-srcb is-orig" data-id="f1" onclick="LiturgyModule\.spoSrc\(this\.dataset\.id\)"/.test(one) && /<em>Original<\/em>/.test(one) &&
+      /Sources <b>2<\/b>/.test(two) && /data-id="f2"/.test(two) && !/no id/.test(two) && /class="spi-srcb is-orig is-past"/.test(past) && SH(null, 'a') === '', two);
+  } catch (e) { check('the sources draw', false, e.stack); }
+  check('...a badge opens the document the file came from (PDF, Word, Google Doc), else the app file; never the folder',
+    /var m = \/\^doc:\(\.\+\)\$\/\.exec\(String\(\(r && r\.made_from\) \|\| ''\)\), doc = m \? getItem\(m\[1\]\) : null;\s*if \(doc\) \{ lfOpen\(doc\.id\); return; \}/.test(fn('spoSrc')) &&
+    /if \(r\) \{ _spSvlRowIn\(r\); lfOpen\(id, true\); return; \}/.test(fn('spoSrc')) && !/spoGoOrig/.test(fn('spoSrc')) &&
+    /Open its document<\/span>/.test(fn('lfOpen')));
+  try {
+    const K = new Function(fn('_spBlKey') + '\nreturn _spBlKey;')();
+    const M = new Function('_spBlKey', fn('_spBlendModel') + '\nreturn _spBlendModel;')(K);
+    const P = new Function(fn('_spBlendPlan') + '\nreturn _spBlendPlan;')();
+    const lit = (id, sec, t) => ({ id, itemType: 'liturgy', sectionId: sec, sourceId: 'doc_' + id, title: t, slides: [{ content: t }] });
+    const secs = [{ id: 's1', title: 'Gather', parts: [] }, { id: 's2', title: 'Confession', parts: [{ id: 'p', kind: 'liturgy', title: 'Confession', slides: ['We confess'] }, { id: 'r', kind: 'reading', title: 'Ps 51' }] }, { id: 's3', title: 'Kyrie', parts: [] }];
+    const rows = [{ id: 'A', title: 'No Communion', year: '2025', data: { sectionLayout: [{ id: 'a1', title: 'Confession' }, { id: 'a2', title: 'Kyrie' }], items: [lit('1', 'a1', 'Confession'), lit('2', 'a2', 'Kyrie')] } },
+                  { id: 'B', title: 'Advent', year: '2023', data: { sectionLayout: [{ id: 'b1', title: 'Kyrie' }, { id: 'b2', title: 'Wreath' }], items: [lit('3', 'b1', 'Kyrie B'), lit('4', 'b2', 'Wreath')] } }];
+    const m = M(secs, rows, 'A', { s3: { row: 'B', title: 'Advent', year: '2023', secTitle: 'Kyrie' } });
+    const by = id => m.secs.find(c => c.id === id);
+    check('the blend\'s source badges: a blended section its file, a section the file in use has that file (starred), one only this service has none; the words as it is, readings left out',
+      by('s3').src.row === 'B' && by('s3').src.secTitle === 'Kyrie' && by('s2').src.row === 'A' && by('s2').src.orig === true && by('s1').src === null &&
+      by('s2').parts.length === 1 && by('s2').parts[0].kind === 'liturgy' && by('s2').opts[0].secTitle === 'Confession', JSON.stringify(m.secs.map(c => [c.id, c.src])));
+    const plan = P(m, { s3: 'B|b1' }, { wreath: 'B|b2' }, ['s3', 's2', 'x:wreath', 's1']);
+    const same = P(m, {}, {}, ['s1', 's2', 's3']);
+    check('...the draft\'s order goes with the plan (a new section by "x:<name>") only when it differs, and where each section\'s words came from',
+      plan.order.join() === 's3,s2,x:wreath,s1' && !same.order && plan.add[0].key === 'wreath' && plan.map.s3.row === 'B' && plan.replace[0].secId === 's3' && plan.map['x:wreath'].secTitle === 'Wreath', JSON.stringify(plan));
+  } catch (e) { check('the blend\'s sources and order run', false, e.stack); }
+  try {
+    const log = [];
+    const order = { id: 'o', template: { serviceLiturgy: { id: 'A', title: 'No Communion', blendMap: { s9: { row: 'Z' } } } },
+      sectionLayout: [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }, { id: 's3', title: 'Kyrie' }], allItems: [] };
+    let uid = 0;
+    const lid = id => { for (let k = 0; k < order.sectionLayout.length; k++) if (order.sectionLayout[k].id === id) return k; return -1; };
+    const env = { _lbdIsActive: () => true, _woLcdInPage: () => false, _lbdPfx: () => 'o__', _lbdUid: () => 'u' + (++uid),
+      _woSectionList: () => order.sectionLayout.map(x => ({ id: x.id, title: x.title })), _lbdSecIndex: lid,
+      _soSaveSettled: () => Promise.resolve(true), _lbdChange: f => { log.push('change'); return f() !== false; },
+      _lbdClearClearedFor: () => {}, _lbdNoteCleared: () => {}, _lbdSortSongsByService: () => log.push('sort') };
+    const keys = Object.keys(env);
+    const W = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibBlend'].map(fn).join('\n') +
+      '\nreturn { blend: _woLibBlend, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    W.hold(order);
+    const res = await W.blend('o', { add: [{ key: 'wreath', after: 's2', title: 'Wreath', items: [] }], order: ['s3', 's2', 'x:wreath', 's1'],
+      map: { s2: { row: 'B', title: 'Advent', secTitle: 'Confession' }, 'x:wreath': { row: 'B', title: 'Advent', secTitle: 'Wreath' } }, from: [{ id: 'B', title: 'Advent' }] });
+    const wr = order.sectionLayout.find(x => x.title === 'Wreath'), bm = order.template.serviceLiturgy.blendMap;
+    check('a blend makes the draft: its sections in the order dragged (the new one where it was put), one Undo; where each came from noted by the section\'s id here',
+      order.sectionLayout.map(x => x.title).join() === 'Kyrie,Confession,Wreath,Gather' && log.filter(l => l === 'change').length === 1 && res.n === 2 &&
+      bm.s2.row === 'B' && bm[wr.id].secTitle === 'Wreath' && bm.s9.row === 'Z' && !Object.keys(bm).some(k => /^x:/.test(k)), JSON.stringify(order.sectionLayout) + JSON.stringify(bm));
+    log.length = 0;
+    const only = await W.blend('o', { order: ['s1', 's2'] });
+    check('...a new order alone is a blend too', only.n === 1 && order.sectionLayout.map(x => x.title).join() === 'Gather,Confession,Kyrie,Wreath', JSON.stringify(order.sectionLayout));
+  } catch (e) { check('the draft runs', false, e.stack); }
+  const bd25 = fn('_spBlendDraw');
+  check('the blend window: each row its grip, its number, a heading that opens its words, its source badge and its choice; a section only another has, ticked, joins the list as New with a way out',
+    /class="spo-grip spb-grip" data-tok="/.test(bd25) && /LiturgyModule\.spoBlendOpen\(this\.dataset\.tok\)/.test(bd25) && /'<div class="spb-words">' \+ words \+ '<\/div>'/.test(bd25) &&
+    /onclick="LiturgyModule\.spoBlendSrc\(this\)" title="Double-tap to preview it, at this section"/.test(bd25) && /<em class="spb-new">New<\/em>/.test(bd25) &&
+    /LiturgyModule\.spoBlendAdd\(this\.dataset\.key, false\)/.test(bd25) && /b\.order\.splice\(aft === -1 \? b\.order\.length : aft \+ 1, 0, tk\)/.test(fn('spoBlendAdd')) && /_spBlDragBind\(el\);/.test(bd25));
+  check('...a double tap on a badge opens that liturgy\'s preview at the section, lit and its words open; a drag reorders the draft; Blend counts every change',
+    /again = _spBlTap\.el === btn && now - _spBlTap\.at < 450/.test(fn('spoBlendSrc')) && /_spOpenSvlAt\(btn\.getAttribute\('data-row'\), btn\.getAttribute\('data-sec'\)\)/.test(fn('spoBlendSrc')) &&
+    /li\.classList\.add\('is-hit'\);/.test(fn('_spOpenSvlAt')) && /if \(first\) first\.click\(\);/.test(fn('_spOpenSvlAt')) &&
+    /if \(!cancel && _spBl && toks\.join\('\|'\) !== _spBl\.order\.join\('\|'\)\) \{ _spBl\.order = toks; _spBl\.moved = true; \}/.test(fn('_spBlDragBind')) &&
+    /return p\.replace\.length \+ p\.add\.length \+ \(p\.order && b\.moved \? 1 : 0\);/.test(fn('_spBlendCount')) && /This is the new draft of this year’s liturgy/.test(fn('spoBlendGo')));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
