@@ -83102,6 +83102,9 @@ var WO = (function() {
           }
           n.added++;
         });
+        // Reset to original: the blend's note goes with the blended parts.
+        var tplR = currentOrderData.template, svlR = tplR && tplR.serviceLiturgy;
+        if (plan.unblend && svlR && Array.isArray(svlR.blend)) { tplR.serviceLiturgy = Object.assign({}, svlR); delete tplR.serviceLiturgy.blend; n.secs++; }
         if (!n.put && !n.added && !n.secs && !n.dropped) return false;
         if (n.secs) _lbdSortSongsByService();
       });
@@ -83261,6 +83264,70 @@ var WO = (function() {
     } else return Promise.reject(new Error('that change is not known'));
     if (!ok) return same ? Promise.resolve({ same: true }) : Promise.reject(new Error('the order could not be changed'));
     return _soSaveSettled(12000).then(function(saved) { return { saved: saved, id: it.id }; });
+  }
+  // A blend (2026-11-16, the operator: "how can the user use a blend of 2
+  // or more" -- asked, section by section): sections' liturgy and texts
+  // taken from other Liturgy App Files, and sections only another has added.
+  // In the Builder's copy only -- one Undo, the save waited on.
+  //   plan.replace: [{ secId, items }] -- the section's liturgy and texts
+  //     out (its readings and songs stay), these in their place;
+  //   plan.add: [{ after, title, items }] -- a new section after another, or
+  //     last;
+  //   plan.from: [{ id, title, year }] -- noted beside the liturgy the order
+  //     came from (serviceLiturgy.blend), so the page can say so.
+  // Every part comes in as this order's own, with a new source id: two
+  // files' "doc_3" are not one liturgy, and the LCD draws a liturgy once an
+  // order (gotcha 37).
+  function _woLibBlend(orderId, plan) {
+    if (!_woLibHeld(orderId) || !_lbdIsActive() || _woLcdInPage()) { var e = new Error('the order is not open in the Liturgy Builder here'); e.code = 'builder'; return Promise.reject(e); }
+    plan = plan || {};
+    var rep = plan.replace || [], add = plan.add || [], n = 0;
+    var words = function(it) { return !!it && (it.itemType === 'liturgy' || it.itemType === 'content'); };
+    var copy = function(it, secId) {
+      var c = JSON.parse(JSON.stringify(it)), src = 'lbd_' + _lbdUid();
+      c.sectionId = secId;
+      if (c.itemType === 'liturgy') { c.sourceId = src; c.id = _lbdPfx() + 'liturgy_' + src + '_' + secId; }
+      else { c.sourceId = ''; c.id = _lbdPfx() + 'content_' + secId + '_' + _lbdUid(); }
+      return c;
+    };
+    var ok = _lbdChange(function() {
+      var secs = {}, k;
+      _woSectionList().forEach(function(x) { secs[x.id] = true; });
+      rep.forEach(function(r) {
+        if (!r || !secs[r.secId]) return;
+        var A = currentOrderData.allItems, at = -1;
+        for (k = 0; k < A.length; k++) if (A[k] && A[k].sectionId === r.secId && words(A[k])) { at = k; break; }
+        A.forEach(function(x) { if (x && x.sectionId === r.secId && x.itemType === 'liturgy') _lbdNoteCleared(r.secId, x.sourceId); });
+        A = currentOrderData.allItems = A.filter(function(x) { return !(x && x.sectionId === r.secId && words(x)); });
+        if (at < 0) for (k = 0; k < A.length; k++) if (A[k] && A[k].itemType !== 'song' && A[k].sectionId === r.secId) at = k + 1;
+        if (at < 0 || at > A.length) at = A.length;
+        Array.prototype.splice.apply(A, [at, 0].concat((r.items || []).filter(words).map(function(it) { return copy(it, r.secId); })));
+        _lbdClearClearedFor(r.secId);
+        n++;
+      });
+      var L = currentOrderData.sectionLayout, t0 = Date.now();
+      add.forEach(function(a, i) {
+        var t = String((a && a.title) || '').replace(/\s+/g, ' ').trim();
+        if (!t) return;
+        var id = 'wo-section-' + (t0 + i), at = a.after && _lbdSecIndex(a.after) >= 0 ? _lbdSecIndex(a.after) + 1 : L.length;
+        L.splice(at, 0, { id: id, title: t, serviceSectionId: '' });
+        (a.items || []).filter(words).forEach(function(it) { currentOrderData.allItems.push(copy(it, id)); });
+        n++;
+      });
+      if (!n) return false;
+      var tpl = currentOrderData.template || (currentOrderData.template = {}), svl = tpl.serviceLiturgy;
+      if (svl && (plan.from || []).length) {
+        var seen = {};
+        var all = (Array.isArray(svl.blend) ? svl.blend : []).concat(plan.from).filter(function(f) {
+          if (!f || !f.id || seen[f.id] || f.id === svl.id) return false;
+          seen[f.id] = true; return true;
+        });
+        tpl.serviceLiturgy = Object.assign({}, svl, { blend: all });
+      }
+      _lbdSortSongsByService();
+    });
+    if (!ok) return n ? Promise.reject(new Error('the order could not be changed')) : Promise.resolve({ same: true });
+    return _soSaveSettled(12000).then(function(saved) { return { saved: saved, n: n }; });
   }
   // The Builder's own Undo and Redo, offered on the Library page while the
   // Builder holds the order here.
@@ -99690,7 +99757,7 @@ var WO = (function() {
     lbdFillReadings: lbdFillReadings,
     svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
     orderForIso: _woOrderForIso, orderInfoForIso: _woOrderInfoForIso, createOrderForIso: _woCreateOrderForIso, svlUseFromLibrary: svlUseFromLibrary, exportDoc: _woExportDoc,
-    libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libAddPart: _woLibAddPart, libPart: _woLibPart, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
+    libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libAddPart: _woLibAddPart, libPart: _woLibPart, libBlend: _woLibBlend, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
     docxParas: _lbdDocxParas, splitSlides: _lbdSplitSlides, normTitle: _lbdNormTitle, typeSections: _woTypeSections,
     docLiturgy: _woDocLiturgy, svlItemTexts: _svlItemTexts, svlItemHtml: _svlItemHtml, snapshotOfOrder: _lldSnapshotFromOrder,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
@@ -105882,7 +105949,9 @@ var LiturgyModule = (function() {
     if (on) { _sp.allSecs = true; ol.secs.forEach(function(x) { _sp.open[x.id] = true; }); }
     renderService();
   }
-  function spoChange() { _sp.change = !_sp.change; renderService(); }
+  // "Use another liturgy" (the desk's link, the phone's menu) is the
+  // chooser now (2026-11-16).
+  function spoChange() { _sp.change = false; spoPick(); }
   // Where a service's original is (pure but for the items): the document its
   // Liturgy App File was converted from, in that service's library, with its
   // year; else the app file itself (saved from the Builder, or its document
@@ -105994,7 +106063,7 @@ var LiturgyModule = (function() {
       message: msg.charAt(0).toUpperCase() + msg.slice(1), cancelLabel: 'Keep my changes', okLabel: 'Reset', okIcon: 'fa-rotate-left' }) : Promise.resolve(true);
     ask.then(function(ok) {
       if (!ok) return;
-      _spEdit(function(oid) { return WO.libRestore(oid, plan); }, 'Back as the original has it.', function() { _sp.orig = {}; });
+      _spEdit(function(oid) { return WO.libRestore(oid, Object.assign({ unblend: true }, plan)); }, 'Back as the original has it.', function() { _sp.orig = {}; });
     });
   }
   // Through the Builder's copy here, the stored rows, or -- for a part that
@@ -106387,6 +106456,234 @@ var LiturgyModule = (function() {
     if (f && !r.busy) { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } }
   }
   function spoRemoveClose() { if (_spRm && _spRm.busy) return; _spRm = null; var el = document.getElementById('spRemove'); if (el) el.remove(); }
+
+  // ── Choosing the liturgy, and blending (2026-11-16) ─────────────────
+  // The operator: "I have a few concerns about knowing which liturgy to use
+  // or how can the user unuse the currently selected liturgy ... or how can
+  // the user use a blend of 2 or more". Of the sketches they chose: a sheet
+  // for the coming service, opened by Change on the card -- the Liturgy App
+  // Files that suit its Sunday first, the one in use marked, each to preview
+  // or use, Blend and Stop using at its foot -- and a blend made section by
+  // section.
+  var _spPk = null;
+  // The files for the sheet (pure): those that suit this Sunday (ticked for
+  // it, or for every Sunday), then those made for other Sundays; ticked ones
+  // first, the newest year first.
+  function _spPickGroups(rows, sunKey) {
+    var suit = [], other = [];
+    (rows || []).forEach(function(r) { if (r) (_llForSunday((r.data || {}).forDays, sunKey) ? suit : other).push(r); });
+    var by = function(a, b) {
+      var sa = ((a.data || {}).forDays || []).length ? 0 : 1, sb = ((b.data || {}).forDays || []).length ? 0 : 1;
+      return (sa - sb) || ((+b.year || 0) - (+a.year || 0)) || String(a.title || '').localeCompare(String(b.title || ''));
+    };
+    return { suit: suit.sort(by), other: other.sort(by) };
+  }
+  function spoPick() {
+    var d = _spData;
+    if (!d || !d.next) return;
+    _spFloatClose('spoMoreMenu');
+    _spPk = { key: d.next.key };
+    _spPickDraw();
+  }
+  function spoPickClose() { _spPk = null; var el = document.getElementById('spPick'); if (el) el.remove(); }
+  function _spPickDraw() {
+    var p = _spPk, d = _spData, el = document.getElementById('spPick');
+    if (!p || !d || !d.next) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'spPick'; el.className = 'mv-ed pl-ed';
+      el.addEventListener('click', function(e) { if (e.target === el) spoPickClose(); });
+      el.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); spoPickClose(); } });
+      document.body.appendChild(el);
+    }
+    var occ = _sp.occ, next = d.next, svl = d.orderTpl && d.orderTpl.serviceLiturgy;
+    var usedId = svl && svl.id, used = !!(svl && (svl.id || svl.fromOrder));
+    var sun = _llSundayOf(next.day), sunKey = sun && sun.occ === occ ? sun.key : '';
+    var g = _spPickGroups(d.rows || [], sunKey), rows = d.rows || [];
+    var occName = (getOccasionById(occ) || {}).label || 'this service';
+    var row = function(r) {
+      var on = !!usedId && r.id === usedId, t = r.order_type;
+      var sub = [_llYearText(occ, r.year), LL_SUNDAYS[occ] ? _llSundaysText(occ, (r.data || {}).forDays) : '',
+                 (t === 'traditional' || t === 'contemporary' || t === 'special') ? _spTypeName(t) : ''].filter(Boolean).join(' · ');
+      return '<li class="spk-row' + (on ? ' is-on' : '') + '"><div class="spk-t"><span class="spk-name"><b>' + _lfE(r.title || 'Liturgy App File') + '</b>' +
+          (on ? '<span class="spk-pill">In use</span>' : '') + '</span><small>' + _lfE(sub) + '</small></div>' +
+        '<div class="spk-acts"><button type="button" class="lf-btn sp-btn-sm" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spPreviewReady(this.dataset.id)"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>Preview</span></button>' +
+          (on ? '' : '<button type="button" class="lf-btn sp-btn-sm pl-btn-green" data-id="' + _lfE(r.id) + '" onclick="LiturgyModule.spoPickUse(this.dataset.id)"><i class="fa-solid fa-download" aria-hidden="true"></i><span>Use this</span></button>') +
+        '</div></li>';
+    };
+    var list = !rows.length ? '<p class="lf-muted">No Liturgy App Files for ' + _lfE(occName) + ' yet. Convert a past year’s document in the library to make one.</p>'
+      : sunKey ? (g.suit.length ? '<p class="spk-grp">Made for this Sunday</p><ul class="spk-list">' + g.suit.map(row).join('') + '</ul>' : '') +
+                 (g.other.length ? '<p class="spk-grp">Made for other Sundays</p><ul class="spk-list">' + g.other.map(row).join('') + '</ul>' : '')
+      : '<ul class="spk-list">' + g.suit.concat(g.other).map(row).join('') + '</ul>';
+    var kind = next.type ? _spTypeName(next.type) + ' service' : '';
+    el.innerHTML = '<div class="mv-ed__card sp-usewin spk-win" role="dialog" aria-modal="true" aria-labelledby="spPkT">' +
+        '<div class="spu-hd"><div class="spu-hd__t"><h2 id="spPkT">Liturgy for ' + _lfE(_lfLongDate(next.key)) + '</h2>' +
+          '<p><span>' + _lfE([next.day, kind].filter(Boolean).join(' · ')) + '</span></p></div>' +
+          '<button type="button" class="lf-vw__x" onclick="LiturgyModule.spoPickClose()" aria-label="Close">&times;</button></div>' +
+        '<div class="sp-usewin__body">' + list +
+          // A blend needs another liturgy to take from.
+          (!d.order ? '' : rows.some(function(r) { return r.id !== usedId; })
+            ? '<button type="button" class="spk-foot" onclick="LiturgyModule.spoBlend()"><i class="fa-solid fa-shuffle" aria-hidden="true"></i><span><b>Blend in parts of another</b>' +
+              '<small>Choose, section by section, which liturgy its words come from.</small></span><i class="fa-solid fa-chevron-right spk-go" aria-hidden="true"></i></button>'
+            : '<p class="spk-none"><i class="fa-solid fa-shuffle" aria-hidden="true"></i><span>To blend, convert another year’s liturgy document first: then there are two to take from.</span></p>') +
+          (used ? '<button type="button" class="spk-foot spk-foot--stop" onclick="LiturgyModule.spoPickStop()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span><b>Stop using a liturgy</b>' +
+            '<small>Put the service back as it was before this one came in. You see what changes first.</small></span><i class="fa-solid fa-chevron-right spk-go" aria-hidden="true"></i></button>' : '') +
+        '</div></div>';
+    var f = el.querySelector('.lf-vw__x');
+    if (f) { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } }
+  }
+  function spoPickUse(id) { var key = _spPk && _spPk.key; spoPickClose(); if (key) spUse(id, key); }
+  function spoPickStop() { spoPickClose(); spoRemove(); }
+
+  // A blend's choices (pure): for each of this service's sections, the
+  // Liturgy App Files with a section of the same name that has words; and
+  // the sections only another has, each after the nearest section before it
+  // there that this service has (else last). Names line up ignoring their
+  // numbers, case and punctuation.
+  function _spBlKey(t) {
+    return String(t || '').replace(/^\s*\d+[.)]?\s*/, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function _spBlendModel(secs, rows, usedId) {
+    var cur = (secs || []).filter(function(x) { return x && x.id; }).map(function(x) { return { id: x.id, title: x.title || 'Section', key: _spBlKey(x.title), opts: [] }; });
+    var have = {}, extra = [], ex = {};
+    cur.forEach(function(c) { if (c.key && !have[c.key]) have[c.key] = c.id; });
+    (rows || []).forEach(function(r) {
+      if (!r) return;
+      var dd = r.data || {}, lay = Array.isArray(dd.sectionLayout) ? dd.sectionLayout : [], items = Array.isArray(dd.items) ? dd.items : [];
+      var taken = {};
+      lay.forEach(function(sx, i) {
+        if (!sx || !sx.id) return;
+        var k = _spBlKey(sx.title);
+        var its = items.filter(function(it) { return it && it.sectionId === sx.id && (it.itemType === 'liturgy' || it.itemType === 'content'); });
+        if (!k || !its.length || taken[k]) return;
+        taken[k] = true;
+        var o = { row: r.id, title: r.title || 'Liturgy App File', year: r.year || '', sec: sx.id, items: its, inUse: !!usedId && r.id === usedId };
+        if (have[k]) { cur.forEach(function(c) { if (c.key === k) c.opts.push(o); }); return; }
+        var after = '';
+        for (var j = i - 1; j >= 0; j--) { var kk = lay[j] && _spBlKey(lay[j].title); if (kk && have[kk]) { after = have[kk]; break; } }
+        if (!ex[k]) { ex[k] = { key: k, title: String(sx.title || '').replace(/^\s*\d+[.)]?\s*/, '').trim() || 'Section', opts: [] }; extra.push(ex[k]); }
+        o.after = after;
+        ex[k].opts.push(o);
+      });
+    });
+    return { secs: cur, extra: extra };
+  }
+  // The plan the choices make (pure): WO.libBlend's.
+  function _spBlendPlan(model, pick, add) {
+    var plan = { replace: [], add: [], from: [] }, seen = {};
+    var from = function(o) { if (o && !o.inUse && !seen[o.row]) { seen[o.row] = true; plan.from.push({ id: o.row, title: o.title, year: o.year }); } };
+    var find = function(opts, v) { return (opts || []).filter(function(o) { return o.row + '|' + o.sec === v; })[0] || null; };
+    (model.secs || []).forEach(function(c) {
+      var o = pick && pick[c.id] ? find(c.opts, pick[c.id]) : null;
+      if (o) { plan.replace.push({ secId: c.id, items: o.items }); from(o); }
+    });
+    (model.extra || []).forEach(function(x) {
+      var o = add && add[x.key] ? find(x.opts, add[x.key]) : null;
+      if (o) { plan.add.push({ after: o.after || '', title: x.title, items: o.items }); from(o); }
+    });
+    return plan;
+  }
+  var _spBl = null;
+  function spoBlend() {
+    var d = _spData, ol = d && d.order ? _spOrderOutline(d) : null;
+    if (!ol) { showToast('Still reading its order. Try again in a moment.', 'info'); return; }
+    var svl = d.orderTpl && d.orderTpl.serviceLiturgy;
+    spoPickClose();
+    _spBl = { model: _spBlendModel(ol.secs, d.rows || [], svl && svl.id), pick: {}, add: {}, busy: false };
+    _spBlendDraw();
+  }
+  function spoBlendClose() { if (_spBl && _spBl.busy) return; _spBl = null; var el = document.getElementById('spBlend'); if (el) el.remove(); }
+  function _spBlendCount() {
+    var b = _spBl;
+    if (!b) return 0;
+    var p = _spBlendPlan(b.model, b.pick, b.add);
+    return p.replace.length + p.add.length;
+  }
+  function _spBlendDraw() {
+    var b = _spBl, el = document.getElementById('spBlend');
+    if (!b) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'spBlend'; el.className = 'mv-ed pl-ed';
+      el.addEventListener('click', function(e) { if (e.target === el) spoBlendClose(); });
+      el.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); spoBlendClose(); } });
+      document.body.appendChild(el);
+    }
+    var m = b.model, any = m.secs.some(function(c) { return c.opts.length; }) || m.extra.length;
+    var lab = function(o) { return (o.title || 'Liturgy App File') + (o.year ? ', ' + o.year : '') + (o.inUse ? ' (in use)' : ''); };
+    var rows = m.secs.map(function(c, i) {
+      var sel = !c.opts.length ? '<span class="spb-only">Only this one</span>'
+        : '<select class="spb-sel" data-sec="' + _lfE(c.id) + '" onchange="LiturgyModule.spoBlendPick(this.dataset.sec, this.value)"' + (b.busy ? ' disabled' : '') + ' aria-label="' + _lfE('Words for ' + c.title) + '">' +
+            '<option value="">As it is</option>' + c.opts.map(function(o) { var v = o.row + '|' + o.sec; return '<option value="' + _lfE(v) + '"' + (b.pick[c.id] === v ? ' selected' : '') + '>' + _lfE(lab(o)) + '</option>'; }).join('') + '</select>';
+      return '<li class="spb-row' + (c.opts.length ? '' : ' is-only') + (b.pick[c.id] ? ' is-on' : '') + '"><span class="spb-n">' + (i + 1) + '</span><span class="spb-t">' + _lfE(c.title) + '</span>' + sel + '</li>';
+    }).join('');
+    var titleOf = function(id) { var c = m.secs.filter(function(x) { return x.id === id; })[0]; return c ? c.title : ''; };
+    var extra = m.extra.map(function(x) {
+      var v = b.add[x.key] || '', o = x.opts.filter(function(y) { return y.row + '|' + y.sec === v; })[0] || x.opts[0];
+      return '<li class="spb-row spb-row--extra' + (v ? ' is-on' : '') + '"><label class="spb-add"><input type="checkbox" data-key="' + _lfE(x.key) + '"' + (v ? ' checked' : '') + (b.busy ? ' disabled' : '') +
+          ' onchange="LiturgyModule.spoBlendAdd(this.dataset.key, this.checked)"><span class="spb-t">' + _lfE(x.title) + '<small>' + _lfE(o.after ? 'After ' + titleOf(o.after) : 'At the end') + '</small></span></label>' +
+        (x.opts.length > 1 ? '<select class="spb-sel" data-key="' + _lfE(x.key) + '" onchange="LiturgyModule.spoBlendAddFrom(this.dataset.key, this.value)"' + (b.busy ? ' disabled' : '') + '>' +
+            x.opts.map(function(y) { var vv = y.row + '|' + y.sec; return '<option value="' + _lfE(vv) + '"' + (vv === v ? ' selected' : '') + '>' + _lfE(lab(y)) + '</option>'; }).join('') + '</select>'
+          : '<span class="spb-only">' + _lfE(lab(x.opts[0])) + '</span>') + '</li>';
+    }).join('');
+    var n = _spBlendCount(), bodyWas = el.querySelector('.sp-usewin__body'), scrollWas = bodyWas ? bodyWas.scrollTop : 0;
+    el.innerHTML = '<div class="mv-ed__card sp-usewin spb-win" role="dialog" aria-modal="true" aria-labelledby="spBlT">' +
+        '<div class="spu-hd"><div class="spu-hd__t"><h2 id="spBlT">Blend: which liturgy for each section</h2>' +
+          '<p><span>Sections with the same name line up. Their readings and songs stay as they are.</span></p></div>' +
+          '<button type="button" class="lf-vw__x" onclick="LiturgyModule.spoBlendClose()" aria-label="Close">&times;</button></div>' +
+        '<div class="sp-usewin__body">' +
+          (!any ? '<p class="lf-muted">No other Liturgy App File has a section with words that this service could take.</p>'
+            : '<ol class="spb-list">' + rows + '</ol>' +
+              (extra ? '<p class="spk-grp">Sections only another liturgy has</p><ul class="spb-list">' + extra + '</ul>' : '')) +
+        '</div>' +
+        '<div class="mv-ed__acts spu-acts"><button type="button" class="lf-btn" onclick="LiturgyModule.spoBlendClose()"' + (b.busy ? ' disabled' : '') + '>Cancel</button>' +
+          '<button type="button" id="spBlGo" class="lf-btn pl-btn-green" onclick="LiturgyModule.spoBlendGo()"' + (b.busy ? ' disabled' : '') + '>' +
+            (b.busy ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>Blending…</span>' : '<i class="fa-solid fa-shuffle" aria-hidden="true"></i><span>' + (n ? 'Blend ' + n + ' section' + (n === 1 ? '' : 's') : 'Blend') + '</span>') + '</button></div>' +
+      '</div>';
+    // A redraw keeps the list where it was scrolled to.
+    var bodyNow = el.querySelector('.sp-usewin__body');
+    if (bodyNow && scrollWas) bodyNow.scrollTop = scrollWas;
+  }
+  // A choice changes the state and the button's count, never the window:
+  // a redraw would throw away where the list was scrolled to.
+  function _spBlendCountShow() {
+    var go = document.getElementById('spBlGo'), n = _spBlendCount();
+    if (go && _spBl && !_spBl.busy) go.innerHTML = '<i class="fa-solid fa-shuffle" aria-hidden="true"></i><span>' + (n ? 'Blend ' + n + ' section' + (n === 1 ? '' : 's') : 'Blend') + '</span>';
+  }
+  function _spBlendMark(sel, on) { var li = sel && sel.closest ? sel.closest('.spb-row') : null; if (li) li.classList.toggle('is-on', !!on); }
+  function spoBlendPick(secId, v) {
+    if (!_spBl || _spBl.busy) return;
+    if (v) _spBl.pick[secId] = v; else delete _spBl.pick[secId];
+    var el = document.querySelector('#spBlend select[data-sec="' + (window.CSS && CSS.escape ? CSS.escape(secId) : secId) + '"]');
+    _spBlendMark(el, !!v);
+    _spBlendCountShow();
+  }
+  function spoBlendAdd(key, on) {
+    if (!_spBl || _spBl.busy) return;
+    var x = _spBl.model.extra.filter(function(e) { return e.key === key; })[0];
+    if (!x) return;
+    if (on) _spBl.add[key] = _spBl.add[key] || (x.opts[0].row + '|' + x.opts[0].sec); else delete _spBl.add[key];
+    var el = document.querySelector('#spBlend input[data-key="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+    _spBlendMark(el, on);
+    _spBlendCountShow();
+  }
+  function spoBlendAddFrom(key, v) {
+    if (!_spBl || _spBl.busy) return;
+    if (_spBl.add[key] || v) { _spBl.add[key] = v; _spBlendDraw(); }
+  }
+  function spoBlendGo() {
+    var b = _spBl;
+    if (!b || b.busy || !(window.WO && WO.libBlend)) return;
+    var plan = _spBlendPlan(b.model, b.pick, b.add), n = plan.replace.length + plan.add.length;
+    if (!n) { showToast('Choose another liturgy for a section first, or tick a section to add.', 'info'); return; }
+    b.busy = true; _spBlendDraw();
+    _spEdit(function(oid) { return WO.libBlend(oid, plan); }, 'Blended ' + n + ' section' + (n === 1 ? '' : 's') + '. The Liturgy Builder has it too.',
+      function(ok) {
+        if (_spBl !== b) return;
+        if (ok) { _spBl = null; var el = document.getElementById('spBlend'); if (el) el.remove(); _sp.olOpen = true; }
+        else { b.busy = false; _spBlendDraw(); }
+      });
+  }
   // The order first (deleted, or put back by the Builder), then the Roster:
   // its kind and readings, only where nobody has changed them since.
   function spoRemoveGo() {
@@ -106544,11 +106841,16 @@ var LiturgyModule = (function() {
     var orow = (used && svl.id) ? _spOrigRow(d) : null;
     var otg = (orow && !orow.gone && !orow.failed) ? _spOrigTarget(orow, svl.id, getItem, _spYearOf) : null;
     var docName = (otg && otg.kind === 'doc' && otg.name !== svl.title) ? otg.name : '';
-    var orig = !used ? '' : '<div class="spi-orig"><span class="spi-orig__badge"><i class="fa-solid fa-star" aria-hidden="true"></i>Original</span>' +
-      (svl.id ? '<button type="button" class="spi-golink" onclick="LiturgyModule.spoGoOrig()" title="Show the file this liturgy came from"><i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Go to file</span></button>' : '') + '</div>';
+    // Change: the chooser, in sight on the card (2026-11-16).
+    var chg = '<button type="button" class="spi-golink spi-chg" onclick="LiturgyModule.spoPick()" title="Choose, change, blend or stop using the liturgy"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>Change</span></button>';
+    var orig = !used ? '<div class="spi-orig">' + chg + '</div>' : '<div class="spi-orig"><span class="spi-orig__badge"><i class="fa-solid fa-star" aria-hidden="true"></i>Original</span>' +
+      (svl.id ? '<button type="button" class="spi-golink" onclick="LiturgyModule.spoGoOrig()" title="Show the file this liturgy came from"><i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Go to file</span></button>' : '') + chg + '</div>';
+    // A blend says what it took from (serviceLiturgy.blend).
+    var blendOf = (used && Array.isArray(svl.blend) && svl.blend.length) ? svl.blend.map(function(f) { return (f.title || 'A Liturgy App File') + (f.year ? ' (' + f.year + ')' : ''); }).join(', ') : '';
     var flow = '<div class="spi-flow">' +
         '<div class="spi-node spi-node--from"><div class="spi-node__t"><small>' + (used ? 'The liturgy of' : 'Its liturgy') + '</small><b>' + _lfE(fromName) + '</b>' + (fromSub ? '<span>' + _lfE(fromSub) + '</span>' : '') +
-          (docName ? '<span class="spi-docname"><i class="fa-regular fa-file-lines" aria-hidden="true"></i>From ' + _lfE(docName) + '</span>' : '') + '</div>' + orig + '</div>' +
+          (docName ? '<span class="spi-docname"><i class="fa-regular fa-file-lines" aria-hidden="true"></i>From ' + _lfE(docName) + '</span>' : '') +
+          (blendOf ? '<span class="spi-docname spi-blendof"><i class="fa-solid fa-shuffle" aria-hidden="true"></i>With parts of ' + _lfE(blendOf) + '</span>' : '') + '</div>' + orig + '</div>' +
         '<div class="spi-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-down"></i></div>' +
         '<div class="spi-node spi-node--to">' + _spDateTile(next.key) +
           '<div class="spi-node__t"><small>' + (used ? 'Used for' : 'For') + '</small><b>' + _lfE(_lfLongDate(next.key)) + '</b><span>' + _lfE([next.day, cyc, kind].filter(Boolean).join(' · ')) + '</span></div>' +
@@ -106566,10 +106868,12 @@ var LiturgyModule = (function() {
     // blocks above and the rows of buttons below are a desk's.
     var ctop = '<div class="spi-c">' +
         '<div class="spi-c__day">' + _spDateTile(next.key) + '<div class="spi-c__t"><b>' + _lfE(next.day || _lfLongDate(next.key)) + '</b><span>' +
-          _lfE([kind, cyc].filter(Boolean).join(' · ') || _lfLongDate(next.key)) + '</span></div></div>' +
+          _lfE([kind, cyc].filter(Boolean).join(' · ') || _lfLongDate(next.key)) + '</span></div>' +
+          '<button type="button" class="spi-c__chg" onclick="LiturgyModule.spoPick()" title="Choose, change, blend or stop using the liturgy"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>Change</span></button></div>' +
         '<p class="spi-c__from"><i class="fa-regular fa-file-lines" aria-hidden="true"></i><span>' +
           (used ? 'From <b>' + _lfE(fromName) + '</b>' + (fromSub ? ', ' + _lfE(fromSub) : '') +
-            (svl.id ? ' · <button type="button" class="spi-c__orig" onclick="LiturgyModule.spoGoOrig()" title="Go to the original file">Original</button>' : ' · Original')
+            (svl.id ? ' · <button type="button" class="spi-c__orig" onclick="LiturgyModule.spoGoOrig()" title="Go to the original file">Original</button>' : ' · Original') +
+            (blendOf ? ' · with parts of ' + _lfE(blendOf) : '')
             : _lfE(fromName)) + '</span></p>' +
       '</div>';
     var cacts = '<div class="spi-c__acts">' +
@@ -108262,7 +108566,7 @@ var LiturgyModule = (function() {
     _spFloat(btn, 'spoMoreMenu',
       (ol ? item('pdf', 'fa-file-pdf', 'Download the PDF') + item('share', 'fa-share-nodes', 'Share the PDF') : '') +
       (used && svl.id ? item('orig', 'fa-folder-open', 'Go to the original file') : '') +
-      item('change', 'fa-arrows-rotate', used ? 'Use another liturgy' : 'Use a Liturgy App File') +
+      item('change', 'fa-arrows-rotate', used ? 'Change or blend the liturgy' : 'Choose a Liturgy App File') +
       (used ? item('rm', 'fa-trash-can', 'Remove from this service', true) : ''), '');
   }
   function spoMoreAct(b) {
@@ -116175,7 +116479,8 @@ var LiturgyModule = (function() {
     spoPutBack: spoPutBack, spoPutGone: spoPutGone, spoPutAll: spoPutAll, spoPutSec: spoPutSec, spoSecEdit: spoSecEdit, spoSecName: spoSecName,
     spoSecCancel: spoSecCancel, spoSecSave: spoSecSave, spoSecRemove: spoSecRemove, spoSecMove: spoSecMove, spoReorder: spoReorder, spoUndo: spoUndo, spoRedo: spoRedo,
     spoRemove: spoRemove, spoRemoveClose: spoRemoveClose, spoRemoveGo: spoRemoveGo, spoAll: spoAll, spoEdit: spoEdit, spoInput: spoInput, spoName: spoName, spoCancel: spoCancel, spoSave: spoSave, spoAdd: spoAdd, spoAddInput: spoAddInput, spoAddName: spoAddName, spoAddCancel: spoAddCancel, spoAddSave: spoAddSave,
-    spAddDocs: spAddDocs, spAddDocsAct: spAddDocsAct, spoMore: spoMore, spoMoreAct: spoMoreAct, spoSecAdd: spoSecAdd, spoSecAddName: spoSecAddName, spoSecAddAfter: spoSecAddAfter, spoSecAddCancel: spoSecAddCancel, spoSecAddSave: spoSecAddSave, spoPartRemove: spoPartRemove, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
+    spAddDocs: spAddDocs, spAddDocsAct: spAddDocsAct, spoPick: spoPick, spoPickClose: spoPickClose, spoPickUse: spoPickUse, spoPickStop: spoPickStop,
+    spoBlend: spoBlend, spoBlendClose: spoBlendClose, spoBlendPick: spoBlendPick, spoBlendAdd: spoBlendAdd, spoBlendAddFrom: spoBlendAddFrom, spoBlendGo: spoBlendGo, spoMore: spoMore, spoMoreAct: spoMoreAct, spoSecAdd: spoSecAdd, spoSecAddName: spoSecAddName, spoSecAddAfter: spoSecAddAfter, spoSecAddCancel: spoSecAddCancel, spoSecAddSave: spoSecAddSave, spoPartRemove: spoPartRemove, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -125373,6 +125678,41 @@ function filterLiturgyItems() {
   .sp-addm, .sp-rsel, .spi-c, .spi-c__acts { display: none; }
   .sp-years.sp-years--sel { display: none; }
   .pl-menu button.is-danger, .pl-menu button.is-danger i { color: #b42318; }
+  /* The chooser and the blend (2026-11-16). */
+  .spi-c__chg { margin-left: auto; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid #c9dccf; border-radius: 999px; background: #fff;
+    font: 600 0.74rem 'Poppins', sans-serif; color: #1f4d36; cursor: pointer; flex-shrink: 0; }
+  .spi-chg { margin-top: 4px; }
+  .spi-blendof i { color: #6d28d9; }
+  .spk-win, .spb-win { max-width: 560px; }
+  .spk-grp { margin: 12px 0 6px; font: 700 0.72rem 'Poppins', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; color: #8a6a24; }
+  .spk-grp:first-child { margin-top: 2px; }
+  .spk-list, .spb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .spk-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid #ece2cf; border-radius: 10px; background: #fff; }
+  .spk-row.is-on { border-color: #1f4d36; box-shadow: 0 0 0 1px #1f4d36; background: #f4faf6; }
+  .spk-t { min-width: 0; flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
+  .spk-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 0.9rem; color: #1d1a14; }
+  .spk-t small { font-size: 0.76rem; color: #6b5f50; }
+  .spk-pill { padding: 1px 8px; border-radius: 999px; background: #e1f5ee; font: 700 0.66rem 'Poppins', sans-serif; color: #085041; }
+  .spk-acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .spk-foot { display: flex; align-items: center; gap: 10px; width: 100%; margin: 12px 0 0; padding: 10px 12px; border: 1px solid #d8c9a8; border-radius: 10px; background: #fbf8f2; text-align: left; cursor: pointer; color: #1d1a14; }
+  .spk-foot > i:first-child { color: #6d28d9; width: 18px; text-align: center; }
+  .spk-foot span { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 0.86rem; }
+  .spk-foot small { font-size: 0.76rem; color: #6b5f50; }
+  .spk-go { color: #a39380; font-size: 0.72rem; }
+  .spk-foot--stop { border-color: #f1c7c4; background: #fff8f7; }
+  .spk-none { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; padding: 10px 12px; border: 1px dashed #d8c9a8; border-radius: 10px; font-size: 0.8rem; line-height: 1.45; color: #6b5f50; }
+  .spk-none i { margin-top: 3px; color: #a39380; }
+  .spk-foot--stop > i:first-child, .spk-foot--stop b { color: #b42318; }
+  .spb-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #ece2cf; border-radius: 10px; background: #fff; }
+  .spb-row.is-only { background: #fbf8f2; border-color: transparent; }
+  .spb-row.is-on { border-color: #6d28d9; box-shadow: 0 0 0 1px #6d28d9; }
+  .spb-n { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 6px; background: #f4efe4; font: 700 0.72rem 'Poppins', sans-serif; color: #5c4a2c; flex-shrink: 0; }
+  .spb-t { flex: 1; min-width: 0; display: flex; flex-direction: column; font: 600 0.84rem 'Poppins', sans-serif; color: #1d1a14; overflow-wrap: anywhere; }
+  .spb-t small { font: 400 0.74rem 'Lato', sans-serif; color: #6b5f50; }
+  .spb-sel { flex: 0 1 46%; min-width: 0; max-width: 240px; padding: 6px 8px; border: 1px solid #c9b89a; border-radius: 8px; background: #fff; font: 0.8rem 'Lato', sans-serif; color: #1d1a14; }
+  .spb-only { flex: 0 1 46%; text-align: right; font-size: 0.76rem; color: #8a7a62; }
+  .spb-add { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .spb-add input { width: 18px; height: 18px; accent-color: #6d28d9; flex-shrink: 0; }
   @media (max-width: 768px) {
     #liturgyServicePanel .sp-res.ll-box { background: transparent; border: 0; box-shadow: none; padding: 0; border-radius: 0; }
     #liturgyServicePanel .sp-res__adds, #liturgyServicePanel .sp-rtabs { display: none; }
