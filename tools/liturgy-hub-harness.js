@@ -191,7 +191,7 @@ const run = (names, env, ret) => {
   const ex = fn('_woExportDoc');
   check('Readings\' export is the Builder\'s own, word for word', /paras: _lbdExportParas\(p\.texts \|\| \[\]\)/.test(ex) &&
     /_lbdExportPdf\(model\)/.test(ex) && /_lbdExportDocx\(model\)/.test(ex));
-  check('both are lent to the Liturgy page', /orderForIso: _woOrderForIso, exportDoc: _woExportDoc,/.test(SRC));
+  check('both are lent to the Liturgy page', /orderForIso: _woOrderForIso, [^\n]*exportDoc: _woExportDoc,/.test(SRC));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
