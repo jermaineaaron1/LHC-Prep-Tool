@@ -4863,6 +4863,26 @@ the anon key -- verify as `postgres`, not as the app.
       (`llBackToLib`). Measured in the preview on the 29 Nov order: an edit
       made in the Builder and a part taken out there were both found, put
       back, and the line read "Same as the original" again.
+    - **The original, marked, and the way to it** (the operator, 2026-11-16,
+      on the card: "Label as 'original'" and "link to direct to where the file
+      is"). The "The liturgy of" block is a row: its words, then a gold
+      **Original** badge and **Go to file** (`spoGoOrig`, for a Liturgy App
+      File; a past service gets the badge alone). When the file's name is not
+      its document's it says which document, "From <name>" -- the 29 Nov file
+      is "No Communion Liturgy Framework - Advent", converted from the Google
+      Doc "1st Sunday Advent (Communion)" (its title came from the document's
+      heading). `_spOrigTarget` (pure) says where the original is: the
+      document the file was converted from (`made_from = 'doc:<id>'`), with
+      its service and year (`_spYearOf`); else the app file itself (saved
+      from the Builder, or its document since removed, which the toast says).
+      Go to file (`_spFocusOn`) puts the library box on its Liturgies tab and
+      its year, lights the document's row with the Converted mark's own
+      highlight (`_sp.fresh` = the file's id, `.sp-doc.is-new`) and scrolls
+      it into sight once drawn (it looks for up to 3s), with a toast naming
+      it; a document filed under ANOTHER service opens that service's page
+      first (`_spFocusNext`, taken by `openService`). No document: the app
+      file's preview (`spPreviewReady`). Measured on the 29 Nov card: the box
+      went from All years to 2025 with the Google Doc lit at the top.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

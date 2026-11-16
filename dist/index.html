@@ -105292,6 +105292,7 @@ var LiturgyModule = (function() {
     var host = document.getElementById('liturgyView');
     if (host && occ.colour) host.setAttribute('data-altar', occ.colour);
     if (_spData && _spData.occ !== occId) _spData = null;
+    if (_spFocusNext) { var _fx = _spFocusNext; _spFocusNext = null; _sp.res = 'liturgy'; _sp.year = _fx.year || ''; _sp.fresh = _fx.fresh; setTimeout(function() { if (_sp.occ === occId) _spFocusOn(_fx); }, 400); }
     renderService();
     _spLoad(occId);
     _plLoad(occId);
@@ -105571,6 +105572,52 @@ var LiturgyModule = (function() {
     renderService();
   }
   function spoChange() { _sp.change = !_sp.change; renderService(); }
+  // Where a service's original is (pure but for the items): the document its
+  // Liturgy App File was converted from, in that service's library, with its
+  // year; else the app file itself (saved from the Builder, or its document
+  // since removed). null when there is nothing to go to.
+  function _spOrigTarget(row, svlId, findItem, yearOf) {
+    if (!svlId) return null;
+    var m = /^doc:(.+)$/.exec(String((row && row.made_from) || ''));
+    var doc = m && findItem ? findItem(m[1]) : null;
+    if (doc) {
+      var occ = doc.occasionId || (row && row.occasion_id) || '';
+      return { kind: 'doc', id: doc.id, name: doc.title || doc.fileName || 'its document', occ: occ, year: yearOf ? (yearOf(doc, occ) || '') : '', file: svlId };
+    }
+    return { kind: 'file', id: svlId, removed: !!m, occ: (row && row.occasion_id) || '' };
+  }
+  var _spFocusNext = null;
+  // Go to the original: its document's row in the library, on its year, lit
+  // and in sight -- on this service's page, or the page of the service it is
+  // filed under. Without a document, the app file opens in the preview.
+  function spoGoOrig() {
+    var d = _spData, svl = d && d.orderTpl && d.orderTpl.serviceLiturgy;
+    if (!svl || !svl.id) return;
+    var row = _spOrigRow(d);
+    if (row === undefined) { showToast('Still finding the original. Try again in a moment.', 'info'); return; }
+    if (!row || row.gone || row.failed) { showToast(row && row.gone ? 'Its Liturgy App File has been deleted.' : 'Could not find the original.', 'error'); return; }
+    var t = _spOrigTarget(row, svl.id, getItem, _spYearOf);
+    if (t.kind === 'file') {
+      if (t.removed) showToast('The document it was converted from has been removed. This is its Liturgy App File.', 'info');
+      spPreviewReady(t.id);
+      return;
+    }
+    var focus = { fresh: t.file, year: t.year, name: t.name };
+    if (t.occ && t.occ !== _sp.occ) { _spFocusNext = focus; openService(t.occ, _sp.from, 'order'); return; }
+    _spFocusOn(focus);
+  }
+  function _spFocusOn(f) {
+    _sp.tab = 'order'; _sp.res = 'liturgy'; _sp.year = f.year || ''; _sp.fresh = f.fresh;
+    renderService();
+    // The row is drawn once the page's files are read: look for it a while.
+    var tries = 0;
+    (function find() {
+      var el = document.querySelector('#liturgyServicePanel .sp-doc.is-new');
+      if (el && el.scrollIntoView) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+      if (++tries < 15) setTimeout(find, 200);
+    })();
+    showToast('The original: ' + f.name + (f.year ? ', in ' + f.year : '') + '. Double-tap it to preview it.', 'success', { duration: 6000 });
+  }
   // What the page compares now: the outline and the comparison with the original.
   function _spCmpCur() {
     var d = _spData, ol = (d && d.order) ? _spOrderOutline(d) : null;
@@ -105905,8 +105952,20 @@ var LiturgyModule = (function() {
     var fromSub = !tpl || !used ? '' : svl.fromOrder ? 'A past service' : _llYearText(svl.occasion || occ, svl.year);
     // The day as a date tile, and Show liturgy in the block it is used for
     // (2026-11-16, the operator's sketch: "Number" and "shift here").
+    // Marked as the original, with the way to the file itself (2026-11-16,
+    // the operator's sketch: "Label as 'original'", "link to direct to where
+    // the file is").
+    // The document it was converted from, named when its name is not the
+    // file's own (the 29 Nov file is "No Communion Liturgy Framework -
+    // Advent", from the document "1st Sunday Advent (Communion)").
+    var orow = (used && svl.id) ? _spOrigRow(d) : null;
+    var otg = (orow && !orow.gone && !orow.failed) ? _spOrigTarget(orow, svl.id, getItem, _spYearOf) : null;
+    var docName = (otg && otg.kind === 'doc' && otg.name !== svl.title) ? otg.name : '';
+    var orig = !used ? '' : '<div class="spi-orig"><span class="spi-orig__badge"><i class="fa-solid fa-star" aria-hidden="true"></i>Original</span>' +
+      (svl.id ? '<button type="button" class="spi-golink" onclick="LiturgyModule.spoGoOrig()" title="Show the file this liturgy came from"><i class="fa-solid fa-folder-open" aria-hidden="true"></i><span>Go to file</span></button>' : '') + '</div>';
     var flow = '<div class="spi-flow">' +
-        '<div class="spi-node spi-node--from"><small>' + (used ? 'The liturgy of' : 'Its liturgy') + '</small><b>' + _lfE(fromName) + '</b>' + (fromSub ? '<span>' + _lfE(fromSub) + '</span>' : '') + '</div>' +
+        '<div class="spi-node spi-node--from"><div class="spi-node__t"><small>' + (used ? 'The liturgy of' : 'Its liturgy') + '</small><b>' + _lfE(fromName) + '</b>' + (fromSub ? '<span>' + _lfE(fromSub) + '</span>' : '') +
+          (docName ? '<span class="spi-docname"><i class="fa-regular fa-file-lines" aria-hidden="true"></i>From ' + _lfE(docName) + '</span>' : '') + '</div>' + orig + '</div>' +
         '<div class="spi-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-down"></i></div>' +
         '<div class="spi-node spi-node--to">' + _spDateTile(next.key) +
           '<div class="spi-node__t"><small>' + (used ? 'Used for' : 'For') + '</small><b>' + _lfE(_lfLongDate(next.key)) + '</b><span>' + _lfE([next.day, cyc, kind].filter(Boolean).join(' · ')) + '</span></div>' +
@@ -115371,7 +115430,7 @@ var LiturgyModule = (function() {
     spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose, spAfterConvert: _spAfterConvert, spUseDoc: spUseDoc, spUseDate: spUseDate, spUseFile: spUseFile, spUseLeave: spUseLeave,
     spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spUseReadsFrom: spUseReadsFrom,
     spUseStep: spUseStep, spUseExtra: spUseExtra, spUseSongs: spUseSongs, spUseComm: spUseComm, spUseReturn: spUseReturn,
-    spoToggle: spoToggle, spoReadings: spoReadings, spoShow: spoShow, spoOpenAll: spoOpenAll, spoChange: spoChange, spoPdf: spoPdf, spoOrig: spoOrig, spoShowChanged: spoShowChanged,
+    spoToggle: spoToggle, spoReadings: spoReadings, spoShow: spoShow, spoOpenAll: spoOpenAll, spoChange: spoChange, spoPdf: spoPdf, spoGoOrig: spoGoOrig, spoOrig: spoOrig, spoShowChanged: spoShowChanged,
     spoPutBack: spoPutBack, spoPutGone: spoPutGone, spoPutAll: spoPutAll,
     spoRemove: spoRemove, spoRemoveClose: spoRemoveClose, spoRemoveGo: spoRemoveGo, spoAll: spoAll, spoEdit: spoEdit, spoInput: spoInput, spoCancel: spoCancel, spoSave: spoSave, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
@@ -124350,7 +124409,14 @@ function filterLiturgyItems() {
   .spi-node--to { background: #eef7f1; border-color: #c9dccf; }
   .spi-node--to small { color: #2f6b4a; }
   /* The day it is used for: a date tile, the words, Show liturgy. */
-  .spi-node--to { flex-direction: row; align-items: center; gap: 10px; }
+  .spi-node--to, .spi-node--from { flex-direction: row; align-items: center; gap: 10px; }
+  .spi-orig { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .spi-node .spi-orig__badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #c9a24a; color: #1d1a14; font: 700 0.62rem 'Poppins', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
+  .spi-orig__badge i { font-size: 0.55rem; }
+  .spi-golink { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid #c9a24a; border-radius: 999px; background: #fff; color: #6b4a10; font: 600 0.74rem 'Poppins', sans-serif; white-space: nowrap; cursor: pointer; }
+  .spi-node .spi-golink span { font-size: inherit; color: inherit; }
+  .spi-golink:hover { background: #fbf3df; }
+  .spi-node .spi-docname { display: flex; align-items: baseline; gap: 5px; margin-top: 2px; font-size: 0.74rem; color: #6b4a10; }
   .spi-node__t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .spi-date { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 46px; padding: 4px 0; border: 1px solid #c9dccf; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(31, 77, 54, 0.08); }
   .spi-node .spi-date b { font: 700 1.25rem/1.05 'Poppins', sans-serif; color: #1f4d36; }
