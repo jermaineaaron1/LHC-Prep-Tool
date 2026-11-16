@@ -4930,6 +4930,24 @@ the anon key -- verify as `postgres`, not as the app.
       after which the line read "Same as the original" again. A brief for
       redesigning this page in ChatGPT, naming every component, state and
       class, is `docs/design/service-page-chatgpt-brief.md`.
+    - **Words for a section, even an empty one** (the operator, 2026-11-16,
+      circling "Nothing in it yet." under two sections: "make the content
+      editable as well, even if there's none"). An empty section's open
+      outline is a dashed box, "Nothing in it yet." with **Add words**; one
+      with parts has Add words under them; neither while sections are
+      reordered (`_spoAddHtml`). It opens a box in place (`spoAdd`, state
+      `_sp.add`, kept across the trip to the Builder so words typed survive a
+      change that failed there): who speaks by L: / C: / All:, `---` for a new
+      slide, Cancel and Save (`spoAddSave`, through `_spEdit` like every
+      change on the page). `WO.libAddPart` (`_woLibAddPart`) makes it a part
+      of the service's own, as the Builder's Write your own liturgy does --
+      source `lbd_<uid>`, named for its section, at the end of it, blank
+      slides dropped, the section's `clearedSections` record let go -- in one
+      `_lbdChange`, its save waited on. Against the original it is "Not in
+      the original" and counts as a part added, so Reset to original takes it
+      out. Measured in the preview on the 29 Nov order: two slides into
+      Gather through the Builder and back, "Modified: 1 part added", and
+      Undo put back "Same as the original".
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
