@@ -106729,6 +106729,31 @@ var LiturgyModule = (function() {
     if (mine && first && mine.year !== first.year) mine = null;
     return (mine || first || {}).key || '';
   }
+  // The readings a Liturgy App File names (pure): a converted one keeps them
+  // as data.readings; one saved from the Builder has them as its scripture
+  // parts, the slot in each part's label. In the Roster's order.
+  function _spFileReadings(f) {
+    var d = (f && f.data) || {};
+    if (Array.isArray(d.readings)) return d.readings.filter(function(x) { return x && x.role && x.ref; });
+    var got = {};
+    (d.items || []).forEach(function(it) {
+      if (!it || it.itemType !== 'scripture') return;
+      var ref = _cvRefOf(it.title) || String(it.title || '').trim();
+      var role = _cvReadingRole((it.content && it.content.subLabel) || '', ref);
+      if (ref && role && !got[role]) got[role] = ref;
+    });
+    return CV_ROLES.filter(function(r) { return got[r[0]]; }).map(function(r) { return { role: r[0], ref: got[r[0]] }; });
+  }
+  // Two references the same passage (pure): case, spaces, dashes and "Psalms" aside.
+  function _spRefKey(x) {
+    return String(x || '').toLowerCase().replace(/[\u2013\u2014]/g, '-').replace(/^psalms\b/, 'psalm').replace(/\s+/g, '');
+  }
+  // Where the liturgy's readings and the Roster's differ for a date (pure):
+  // each of the liturgy's that the Roster does not already have.
+  function _spReadDiff(mine, roster) {
+    return (mine || []).filter(function(x) { return _spRefKey((roster || {})[x.role]) !== _spRefKey(x.ref); })
+      .map(function(x) { return { role: x.role, ref: x.ref, was: String((roster || {})[x.role] || '') }; });
+  }
   // "Sun 29 Nov".
   function _spUseDay(key) {
     var p = String(key || '').slice(0, 10).split('-');
@@ -106741,7 +106766,7 @@ var LiturgyModule = (function() {
     if (!files || !files.length) return;
     var f = files.filter(function(x) { return x.id === fileId; })[0] || files[0];
     _spUse = { files: files.map(function(x) { return x.id; }), docId: opts.docId || '', fileId: f.id, fresh: !!opts.fresh,
-      want: opts.key || '', key: '', reads: null, busy: false };
+      want: opts.key || '', key: '', reads: null, busy: false, busyMsg: '', readsFrom: 'liturgy' };
     _spUseDraw();
     _spUseReads();
   }
@@ -106832,24 +106857,50 @@ var LiturgyModule = (function() {
       : u.docId ? '<p class="sp-usewin__conv">For a ' + _lfE(_spTypeName(other)) + ' service: <button type="button" class="lf-link" data-type="' + other + '" onclick="LiturgyModule.spUseReconvert(this.dataset.type)">convert the document for ' +
           _lfE(_spTypeName(other)) + ' services</button>.</p>'
       : '';
-    // 2. What goes in: the liturgy, and the date's readings from the Roster.
+    // 2. What goes in: the liturgy, and its readings -- the liturgy's own
+    // when it names them, put on the Roster for that date (the operator,
+    // 2026-11-16: "The liturgy set should be the one dictating the
+    // readings"); else the Roster's.
     var what = '';
     if (sel) {
       var rd = u.reads == null ? null : (u.reads[sel.key] || u.reads[String(sel.key).slice(0, 10)] || {});
-      var refs = rd ? SBQ_READINGS.SLOTS.map(function(x) { return rd[x.role] ? rd[x.role] : null; }).filter(Boolean) : null;
+      var mine = _spFileReadings(f), diff = rd ? _spReadDiff(mine, rd) : [];
+      var chips = function(list) { return list.map(function(x) { return '<span class="sp-usewin__ref">' + _lfE(x) + '</span>'; }).join(''); };
+      var change = ' <button type="button" class="lf-link" data-key="' + _lfE(sel.key) + '" onclick="LiturgyModule.spUseReadings(this.dataset.key)">Change them</button>';
+      var readsLi;
+      if (rd == null) {
+        readsLi = '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b>Readings</b>: <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></span></li>';
+      } else if (!mine.length) {
+        var refs = SBQ_READINGS.SLOTS.map(function(x) { return rd[x.role] || null; }).filter(Boolean);
+        readsLi = '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b>Readings from the Roster</b> (this liturgy names none): ' +
+          (refs.length ? chips(refs) : '<em>none on the Roster yet</em>') + change +
+          (u.docId && /^doc:/.test(String(f.made_from || '')) ? '<small class="sp-usewin__old">Converted before readings were kept: convert it again to keep its document’s readings.</small>' : '') +
+          '</span></li>';
+      } else if (!diff.length) {
+        readsLi = '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b>This liturgy’s readings</b>, which the Roster has for that date too: ' +
+          chips(mine.map(function(x) { return x.ref; })) + '</span></li>';
+      } else {
+        var mineOn = u.readsFrom !== 'roster';
+        readsLi = '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b>This liturgy’s readings</b>: ' + chips(mine.map(function(x) { return x.ref; })) +
+          '<span class="sp-usewin__rdiff"><small>The Roster has others for ' + _lfE(_lfShortDate(sel.key)) + ':</small>' +
+            diff.map(function(x) { return '<small class="sp-usewin__rrow"><b>' + _lfE(_cvRoleName(x.role)) + '</b> ' + (x.was ? '<s>' + _lfE(x.was) + '</s> ' : '<em>none</em> ') +
+              '<i class="fa-solid fa-arrow-right" aria-hidden="true"></i> ' + _lfE(x.ref) + '</small>'; }).join('') +
+            '<label class="sp-usewin__pick' + (mineOn ? ' is-on' : '') + '"><input type="radio" name="spUseReads" value="liturgy"' + (mineOn ? ' checked' : '') + ' onchange="LiturgyModule.spUseReadsFrom(this.value)">' +
+              '<span>Use this liturgy’s: the Roster for that date is changed to them, and the Readings page and bulletin follow.</span></label>' +
+            '<label class="sp-usewin__pick' + (mineOn ? '' : ' is-on') + '"><input type="radio" name="spUseReads" value="roster"' + (mineOn ? '' : ' checked') + ' onchange="LiturgyModule.spUseReadsFrom(this.value)">' +
+              '<span>Keep the Roster’s.</span></label>' +
+          '</span></span></li>';
+      }
       what = '<h3 class="sp-usewin__h"><span>2</span>What goes into ' + _lfE(_spUseDay(sel.key)) + '</h3><ul class="sp-usewin__what">' +
           '<li><i class="fa-solid fa-list-ol" aria-hidden="true"></i><span><b>This liturgy</b>: its sections, words and LCD slides, in place of what that service has.</span></li>' +
-          '<li><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b>Readings from the Roster</b> (a Liturgy App File keeps none): ' +
-            (refs == null ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>'
-              : refs.length ? refs.map(function(x) { return '<span class="sp-usewin__ref">' + _lfE(x) + '</span>'; }).join('') : '<em>none on the Roster yet</em>') +
-            ' <button type="button" class="lf-link" data-key="' + _lfE(sel.key) + '" onclick="LiturgyModule.spUseReadings(this.dataset.key)">Change them</button></span></li>' +
+          readsLi +
         '</ul>' +
         '<p class="sp-usewin__next"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>' + (sel.order ? '' : 'Its order is made first. ') +
-          'The Liturgy Builder then opens it with this liturgy in its Load window: press <b>Load</b> to put it in. Undo takes it out again.</span></p>';
+          'The Liturgy Builder then opens it with this liturgy in its Load window: press <b>Load</b> to put it in, with those readings. Undo takes it out again.</span></p>';
     }
     var go = !sel ? ''
       : '<button type="button" class="lf-btn pl-btn-green" onclick="LiturgyModule.spUseGo()"' + (u.busy ? ' disabled' : '') + '>' +
-          (u.busy ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>Making the order…</span>'
+          (u.busy ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>' + _lfE(u.busyMsg || 'Working…') + '</span>'
                   : '<i class="fa-solid fa-download" aria-hidden="true"></i><span>' + (sel.order ? 'Use it for ' : 'Make the order and use it for ') + _lfE(_lfShortDate(sel.key)) + '</span>') + '</button>';
     var keepFocus = el.contains(document.activeElement) && document.activeElement.name;
     el.innerHTML = '<div class="mv-ed__card sp-usewin" role="dialog" aria-modal="true" aria-labelledby="spUseT">' +
@@ -106876,23 +106927,63 @@ var LiturgyModule = (function() {
   function spUseLeave() { if (_spUse && _spUse.busy) return; spUseClose(); }
   // Change them: the Readings page, at that date.
   function spUseReadings(key) { spUseClose(); lfOpenDay(key); }
+  function spUseReadsFrom(v) { if (_spUse && !_spUse.busy) { _spUse.readsFrom = v === 'roster' ? 'roster' : 'liturgy'; _spUseDraw(); } }
+  // A date's readings put on the Roster, one slot at a time, then READ BACK:
+  // a write the Roster did not keep is not reported as kept. The change log
+  // keeps what each was (setReference writes roster_changes).
+  function _spPutReadings(key, diff) {
+    var day = String(key || '').slice(0, 10);
+    var put = function(i) {
+      if (i >= diff.length) return Promise.resolve();
+      var idx = SBQ_READINGS.SLOTS.map(function(x) { return x.role; }).indexOf(diff[i].role);
+      if (idx === -1) return put(i + 1);
+      return Promise.resolve(SBQ_READINGS.setReference(key, idx, diff[i].ref)).then(function() { return put(i + 1); });
+    };
+    return put(0).then(function() { return SBQ_READINGS.getRange(day, day); }).then(function(map) {
+      var now = (map || {})[key] || (map || {})[day] || {};
+      var missed = diff.filter(function(x) { return _spRefKey(now[x.role]) !== _spRefKey(x.ref); });
+      if (missed.length) throw new Error('the Roster did not keep ' + missed.map(function(x) { return x.ref; }).join(', '));
+      if (_readingRefsByDate[key]) _readingRefsByDate[key] = Object.assign({}, _readingRefsByDate[key], now);
+      return now;
+    });
+  }
   function spUseGo() {
     var st = _spUseState();
     if (!st || st.u.busy || !st.sel || !st.sel.fits) return;
     var u = st.u, row = st.sel, id = st.f.id, occ = st.occ;
+    var rd = u.reads && (u.reads[row.key] || u.reads[String(row.key).slice(0, 10)]);
+    var diff = (rd && u.readsFrom !== 'roster') ? _spReadDiff(_spFileReadings(st.f), rd) : [];
     var then = function() { if (window.WO && WO.lbdServiceLiturgies) WO.lbdServiceLiturgies(occ, 'all', 's:' + id); };
-    if (row.order) { spUseClose(); _llOpenInBuilder(row.order.id, then); return; }
-    if (!(window.WO && WO.createOrderForIso)) return;
-    u.busy = true; _spUseDraw();
-    WO.createOrderForIso(row.key, row.kind, row.day).then(function(orderId) {
-      spUseClose();
-      showToast('Made the order for ' + _lfLongDate(row.key) + '.', 'success');
-      _llOpenInBuilder(orderId, then);
-    }, function(e) {
+    var fail = function(what) {
+      return function(e) {
+        if (_spUse !== u) return;
+        u.busy = false; _spUseDraw();
+        showToast('Could not ' + what + ': ' + ((e && e.message) || e), 'error');
+      };
+    };
+    var open = function(saidReads) {
+      if (row.order) {
+        spUseClose();
+        if (saidReads) showToast('The Roster’s readings for ' + _lfLongDate(row.key) + ' are now this liturgy’s.', 'success');
+        _llOpenInBuilder(row.order.id, then);
+        return;
+      }
+      if (!(window.WO && WO.createOrderForIso)) return;
+      u.busy = true; u.busyMsg = 'Making the order…'; _spUseDraw();
+      WO.createOrderForIso(row.key, row.kind, row.day).then(function(orderId) {
+        spUseClose();
+        showToast('Made the order for ' + _lfLongDate(row.key) + (saidReads ? ', with this liturgy’s readings on the Roster' : '') + '.', 'success');
+        _llOpenInBuilder(orderId, then);
+      }, fail('make the order'));
+    };
+    if (!diff.length) { open(false); return; }
+    u.busy = true; u.busyMsg = 'Putting the readings on the Roster…'; _spUseDraw();
+    _spPutReadings(row.key, diff).then(function(now) {
       if (_spUse !== u) return;
-      u.busy = false; _spUseDraw();
-      showToast('Could not make the order: ' + ((e && e.message) || e), 'error');
-    });
+      if (u.reads) u.reads[row.key] = now;
+      u.busy = false;
+      open(true);
+    }, fail('put the readings on the Roster'));
   }
   function spUseReconvert(type) {
     var st = _spUseState();
@@ -106947,6 +107038,74 @@ var LiturgyModule = (function() {
   var CV_SPEAKER = /^\s*(L|P|C|A|R|M|All|Leader|Pastor|People|Congregation|Cong|Liturgist|Minister|Reader|Choir|Women|Men|Everyone)\b[^:\n]{0,24}:/i;
   var CV_SONG = /^(\s*(opening|closing|gathering|dismissal|sending|entrance|first|second|third|final|communion)\s+)?(hymn|song|anthem|choir|carol|psalm sung)\b|^song (of|\d)|^hymn of|^\s*\w+ song\b/i;
   var CV_READING = /\b(reading|gospel|lesson|epistle|old testament|new testament)\b|^psalm\b/i;
+  // The readings a liturgy names are KEPT with it (the operator, 2026-11-16:
+  // "The liturgy set should be the one dictating the readings"): by
+  // reference and slot, never by text. Use puts them on the Roster for the
+  // date it is used for, and the Builder fills the order from there, so the
+  // Readings page, the bulletin, the Builder and LCD Projection all agree.
+  var CV_BOOKS = 'Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|1 Samuel|2 Samuel|1 Kings|2 Kings|1 Chronicles|2 Chronicles|Ezra|Nehemiah|Esther|Job|Psalms|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|1 Corinthians|2 Corinthians|Galatians|Ephesians|Philippians|Colossians|1 Thessalonians|2 Thessalonians|1 Timothy|2 Timothy|Titus|Philemon|Hebrews|James|1 Peter|2 Peter|1 John|2 John|3 John|Jude|Revelation'.split('|');
+  var CV_ROLES = [['reading1', '1st Reading'], ['psalm', 'Psalm'], ['reading2', '2nd Reading'], ['gospel', 'Gospel']];
+  // A book named in a document (pure): its full name, a "Psalm", or a
+  // shortening of three letters or more ("Isa", "Matt", "1 Cor").
+  function _cvBook(num, word) {
+    var w = String(word || '').toLowerCase().replace(/\.$/, '').replace(/\s+/g, ' ');
+    if (w === 'psalm' || w === 'ps' || w === 'pss') w = 'psalms';
+    if (w === 'song of songs') w = 'song of solomon';
+    var key = (num ? num + ' ' : '') + w;
+    var exact = CV_BOOKS.filter(function(b) { return b.toLowerCase() === key; })[0];
+    if (exact) return exact;
+    if (w.length < 3) return '';
+    return CV_BOOKS.filter(function(b) {
+      var bl = b.toLowerCase();
+      return num ? bl.indexOf(num + ' ' + w) === 0 : (!/^\d/.test(bl) && bl.indexOf(w) === 0);
+    })[0] || '';
+  }
+  // The first Bible reference in a line of a document (pure), written as the
+  // Roster writes one: "Isaiah 61:1-4, 8-11", "Psalm 80:1-7". '' for none.
+  function _cvRefOf(text) {
+    var t = String(text || '').replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ');
+    var re = /(?:^|[^A-Za-z0-9])((?:[1-3]|I{1,3})\s*)?([A-Z][a-z]+(?:\s+of\s+(?:Solomon|Songs))?)\.?\s+(\d{1,3}(?:\s*[:.]\s*\d{1,3}[a-z]?)?(?:\s*-\s*\d{1,3}(?:\s*[:.]\s*\d{1,3})?[a-z]?)?(?:\s*[,;]\s*\d{1,3}(?:\s*[:.]\s*\d{1,3})?[a-z]?(?:\s*-\s*\d{1,3}(?:\s*[:.]\s*\d{1,3})?[a-z]?)?)*)/g;
+    var m;
+    while ((m = re.exec(t))) {
+      var num = m[1] ? String(m[1]).trim() : '';
+      num = num === 'III' ? '3' : num === 'II' ? '2' : num === 'I' ? '1' : num;
+      var book = _cvBook(num, m[2]);
+      if (!book) continue;
+      var rest = m[3].replace(/\s*[:.]\s*/g, ':').replace(/\s*-\s*/g, '-').replace(/\s*([,;])\s*/g, '$1 ').replace(/[,;]\s*$/, '').trim();
+      return (book === 'Psalms' ? 'Psalm' : book) + ' ' + rest;
+    }
+    return '';
+  }
+  // Which of the four a reading is (pure): what the document calls it
+  // ("First Reading", "Epistle", "Gospel") when that names one slot -- a
+  // Good Friday's "First Word" from the cross is no First Reading -- else
+  // its book -- a heading over several ("The Readings and Psalm", "Lessons",
+  // "Scripture") says nothing of any one of them.
+  function _cvReadingRole(label, ref) {
+    var l = String(label || '').toLowerCase(), book = String(ref || '').replace(/\s+\d[\s\S]*$/, '');
+    if (/\b(readings|lessons|scriptures?)\b/.test(l)) l = '';
+    var said = [['gospel', /gospel/], ['psalm', /psalm/], ['reading1', /\b(first|1st)\s+(reading|lesson)\b|\bold testament\b|\bot\b/], ['reading2', /\b(second|2nd)\s+(reading|lesson)\b|\bepistle\b|\bnew testament\b|\bnt\b/]]
+      .filter(function(x) { return x[1].test(l); });
+    if (said.length === 1) return said[0][0];
+    if (book === 'Psalm' || book === 'Psalms') return 'psalm';
+    var i = CV_BOOKS.indexOf(book);
+    if (i === -1) return '';
+    if (i >= 39 && i <= 42) return 'gospel';
+    return i < 39 ? 'reading1' : 'reading2';
+  }
+  // The readings a reviewed conversion keeps (pure): the first of each slot,
+  // from the sections and readings left ticked, in the Roster's order.
+  function _cvReadings(secs) {
+    var got = {};
+    (secs || []).forEach(function(sec) {
+      if (!sec || sec.include === false) return;
+      (sec.parts || []).forEach(function(p) {
+        if (p && p.kind === 'reading' && p.use !== false && p.ref && p.role && !got[p.role]) got[p.role] = p.ref;
+      });
+    });
+    return CV_ROLES.filter(function(r) { return got[r[0]]; }).map(function(r) { return { role: r[0], ref: got[r[0]] }; });
+  }
+  function _cvRoleName(role) { var r = CV_ROLES.filter(function(x) { return x[0] === role; })[0]; return r ? r[1] : 'Reading'; }
 
   // A Word document's paragraphs as sections (pure). Its headings are Word's
   // Heading styles when it uses them; else a short line set wholly in bold
@@ -106998,7 +107157,8 @@ var LiturgyModule = (function() {
       parts.push({ kind: 'song', title: song || before.trim(), slides: [] });
     } else if (CV_READING.test(before)) {
       title = before.trim();
-      parts.push({ kind: 'reading', title: after || before.trim(), slides: [] });
+      // The reference is after the heading's colon, or on the line under it.
+      parts.push({ kind: 'reading', title: after || _cvRefOf(words.slice(0, 2).join(' ')) || before.trim(), slides: [] });
     } else if (words.length) {
       parts.push({ kind: 'liturgy', title: head || 'Liturgy', slides: _cvSlides(lines) });
     }
@@ -107126,8 +107286,12 @@ var LiturgyModule = (function() {
         return { title: s.title || 'Section', leader: s.leader || '', target: target, include: true,
           parts: (s.parts || []).map(function(p) {
             var songId = p.kind === 'song' ? _cvSongId(p.title, lib) : '';
-            return { kind: p.kind, title: p.title || '', slides: p.slides || [], songId: songId,
-                     use: p.kind === 'liturgy' || p.kind === 'text' || (p.kind === 'song' && !!songId) };
+            var ref = p.kind === 'reading' ? (_cvRefOf(p.title) || _cvRefOf((p.slides || []).slice(0, 2).join(' '))) : '';
+            // What the document calls it: the section's heading, and the part's
+            // own title when that is not the reference itself.
+            var role = ref ? _cvReadingRole((s.title || '') + ' ' + (_cvRefOf(p.title) ? '' : (p.title || '')), ref) : '';
+            return { kind: p.kind, title: ref || p.title || '', slides: p.kind === 'reading' ? [] : (p.slides || []), songId: songId, ref: ref, role: role,
+                     use: p.kind === 'liturgy' || p.kind === 'text' || (p.kind === 'song' && !!songId) || (p.kind === 'reading' && !!role) };
           }) };
       });
       cv.step = cv.secs.length ? 'review' : 'read';
@@ -107147,8 +107311,9 @@ var LiturgyModule = (function() {
     (cv.secs || []).forEach(function(s) {
       if (!s.include) return;
       c.secs++;
-      s.parts.forEach(function(p) { if (!p.use) return; if (p.kind === 'song') c.songs++; else { c.parts++; c.slides += p.slides.length; } });
+      s.parts.forEach(function(p) { if (!p.use || p.kind === 'reading') return; if (p.kind === 'song') c.songs++; else { c.parts++; c.slides += p.slides.length; } });
     });
+    c.readings = _cvReadings(cv.secs).length;
     return c;
   }
   function _cvDraw() {
@@ -107163,7 +107328,7 @@ var LiturgyModule = (function() {
     }
     var keepY = (el.querySelector('.cv__body') || {}).scrollTop || 0;
     var tpl = (window.WO && WO.typeSections) ? WO.typeSections(cv.type) : [];
-    var body;
+    var body, kept = {};
     if (cv.step === 'read') {
       body = cv.err
         ? '<div class="cv-msg cv-msg--err"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><p>' + _lfE(cv.err) + '</p>' +
@@ -107201,9 +107366,18 @@ var LiturgyModule = (function() {
         '</div>' +
         (LL_SUNDAYS[cv.occ] ? '<div class="cv-days"><p class="cv-days__t"><b>For which Sundays?</b> One liturgy can be for every Sunday of ' + _lfE((getOccasionById(cv.occ) || {}).label || 'the season') + ', or a few.</p>' +
           _llDaysHtml(cv.occ, cv.forDays, 'cvDay') + '</div>' : '') +
-        '<p class="cv-note">Each section goes in the Liturgy Builder’s section of the same kind, which is what places the date’s readings and songs. ' +
-          'Readings are left out: the roster’s readings go in when it is loaded. A song is kept when it is in the song library.</p>' +
-        '<ol class="cv-secs">' + cv.secs.map(function(s, i) {
+        '<p class="cv-note">Each section goes in the Liturgy Builder’s section of the same kind, which is what places the readings and songs. ' +
+          'Its readings are kept by reference: when it is used for a date, they go on the Roster for that date, and the order takes them from there. A song is kept when it is in the song library.</p>' +
+        (function() {
+          var same = _spFilesOf(cv.itemId).filter(function(r) { return (r.order_type || 'traditional') === cv.type && r.occasion_id === cv.occ; })[0];
+          return same ? '<p class="cv-note cv-note--replace"><i class="fa-solid fa-rotate" aria-hidden="true"></i> This replaces its ' + _lfE(_spTypeName(cv.type)) +
+            ' app file' + (same.updated_at ? ', converted ' + _lfE(_lfWhen(same.updated_at)) : '') + '.</p>' : '';
+        })() +
+        '<ol class="cv-secs">' + (function() {
+          // The reading each slot keeps: the first ticked, as _cvReadings keeps it.
+          cv.secs.forEach(function(sx) { if (!sx.include) return; sx.parts.forEach(function(px) { if (px.kind === 'reading' && px.use && px.role && !kept[px.role]) kept[px.role] = px; }); });
+          return '';
+        })() + cv.secs.map(function(s, i) {
           return '<li class="cv-sec' + (s.include ? '' : ' is-off') + '">' +
             '<div class="cv-sec__hd"><label class="cv-chk"><input type="checkbox"' + (s.include ? ' checked' : '') + ' data-i="' + i + '" onchange="LiturgyModule.cvSec(+this.dataset.i, \'include\', this.checked)"><span class="sr-only">Keep this section</span></label>' +
               '<input class="cv-sec__t" type="text" maxlength="80" value="' + _lfE(s.title) + '" data-i="' + i + '" oninput="LiturgyModule.cvSec(+this.dataset.i, \'title\', this.value)" aria-label="Section name">' +
@@ -107211,16 +107385,20 @@ var LiturgyModule = (function() {
             (s.leader ? '<p class="cv-sec__lead">Led by ' + _lfE(s.leader) + '</p>' : '') +
             (s.parts.length ? '<ul class="cv-parts">' + s.parts.map(function(p, j) {
               var what = p.kind === 'song' ? (p.songId ? 'In the song library' : 'Not in the song library: left out')
-                : p.kind === 'reading' ? 'The roster’s reading goes in instead' : p.slides.length + ' slide' + (p.slides.length === 1 ? '' : 's');
+                : p.kind === 'reading' ? (!p.role ? 'No Bible reference found: left out'
+                    : (kept[p.role] && kept[p.role] !== p ? 'Another ' + _cvRoleName(p.role) + ': only the first is kept'
+                    : 'Kept as the ' + _cvRoleName(p.role)))
+                : p.slides.length + ' slide' + (p.slides.length === 1 ? '' : 's');
               return '<li class="cv-part' + (p.use ? '' : ' is-off') + '"><label class="cv-chk"><input type="checkbox"' + (p.use ? ' checked' : '') +
-                  (p.kind === 'reading' || (p.kind === 'song' && !p.songId) ? ' disabled' : '') + ' data-i="' + i + '" data-j="' + j + '" onchange="LiturgyModule.cvPart(+this.dataset.i, +this.dataset.j, this.checked)">' +
+                  ((p.kind === 'reading' && !p.role) || (p.kind === 'song' && !p.songId) ? ' disabled' : '') + ' data-i="' + i + '" data-j="' + j + '" onchange="LiturgyModule.cvPart(+this.dataset.i, +this.dataset.j, this.checked)">' +
                   '<i class="fa-solid ' + (SP_KIND_ICON[p.kind] || 'fa-circle') + '" aria-hidden="true"></i><b>' + _lfE(p.title) + '</b></label><small>' + _lfE(what) + '</small>' +
                 (p.slides.length ? '<details class="cv-words"><summary>' + _lfE(String(p.slides[0]).split('\n')[0].slice(0, 80)) + '…</summary>' +
                   p.slides.map(function(t, k) { return '<p><small>Slide ' + (k + 1) + '</small>' + _lfE(t).replace(/\n/g, '<br>') + '</p>'; }).join('') + '</details>' : '') + '</li>';
             }).join('') + '</ul>' : '<p class="cv-sec__lead">No words of its own.</p>') + '</li>';
         }).join('') + '</ol>';
       body += '<p class="cv-sum">' + c.secs + ' section' + (c.secs === 1 ? '' : 's') + ' · ' + c.parts + ' liturgy part' + (c.parts === 1 ? '' : 's') +
-        ' · ' + c.slides + ' slide' + (c.slides === 1 ? '' : 's') + (c.songs ? ' · ' + c.songs + ' song' + (c.songs === 1 ? '' : 's') : '') + '</p>';
+        ' · ' + c.slides + ' slide' + (c.slides === 1 ? '' : 's') + (c.songs ? ' · ' + c.songs + ' song' + (c.songs === 1 ? '' : 's') : '') +
+        (c.readings ? ' · ' + c.readings + ' reading' + (c.readings === 1 ? '' : 's') : '') + '</p>';
     }
     var occ = getOccasionById(cv.occ);
     el.innerHTML = '<div class="cv__card" role="dialog" aria-modal="true" aria-labelledby="cvTtl">' +
@@ -107279,14 +107457,21 @@ var LiturgyModule = (function() {
     var data = WO.docLiturgy(plan, cv.type);
     // Which Sundays it is for (none: every Sunday), in the liturgy's own data.
     if (LL_SUNDAYS[cv.occ] && cv.forDays && cv.forDays.length) data.forDays = cv.forDays.slice();
+    var reads = _cvReadings(cv.secs);
+    if (reads.length) data.readings = reads;
     var row = { occasion_id: cv.occ, year: year, title: title, order_type: cv.type, data: data, made_from: 'doc:' + cv.itemId, updated_at: new Date().toISOString() };
+    // A document has one app file of each kind: converting it again for a
+    // kind it already has writes over that one (same id, so an order that
+    // loaded it still names it), as its review says.
+    var same = _spFilesOf(cv.itemId).filter(function(r) { return (r.order_type || 'traditional') === cv.type && r.occasion_id === cv.occ; })[0];
     cv.step = 'saving'; _cvDraw();
-    sb.from('service_liturgies').insert(row).select().then(function(r) {
+    (same ? sb.from('service_liturgies').update(row).eq('id', same.id).select() : sb.from('service_liturgies').insert(row).select()).then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'it did not come back from the database');
       var saved = r.data[0];
-      // Read back, as next year's order will read it.
-      return sb.from('service_liturgies').select('id,title,year,occasion_id').eq('id', saved.id).then(function(r2) {
+      // Read back, as next year's order will read it -- its readings too.
+      return sb.from('service_liturgies').select('id,title,year,occasion_id,data').eq('id', saved.id).then(function(r2) {
         if (r2.error || !(r2.data || []).length) throw new Error('the database did not keep it');
+        if (JSON.stringify(((r2.data[0].data || {}).readings) || []) !== JSON.stringify(reads)) throw new Error('the database did not keep its readings');
         return ensureOccYearFolder(saved.occasion_id, saved.year).catch(function() { return null; }).then(function(f) {
           // A document with no year goes into the year its file was given.
           if (f && f.id && !cv.yearFixed) { _spKeepFolder(saved.occasion_id, f); updateItem(cv.itemId, { occasionFolderId: f.id }); }
@@ -113961,7 +114146,7 @@ var LiturgyModule = (function() {
     spNewYear: spNewYear, spMoveYear: spMoveYear, spDragStart: spDragStart, spYearOver: spYearOver, spYearDrop: spYearDrop, lfMoveYear: lfMoveYear,
     spYearMenu: spYearMenu, spYearPick: spYearPick, spRdYear: spRdYear,
     spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose, spAfterConvert: _spAfterConvert, spUseDoc: spUseDoc, spUseDate: spUseDate, spUseFile: spUseFile, spUseLeave: spUseLeave,
-    spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spConvMenu: spConvMenu, spConvAct: spConvAct,
+    spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spUseReadsFrom: spUseReadsFrom, spConvMenu: spConvMenu, spConvAct: spConvAct,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -122828,6 +123013,16 @@ function filterLiturgyItems() {
   .sp-usewin__what li > i { color: #1f4d36; margin-top: 4px; width: 14px; text-align: center; }
   .sp-usewin__what li > span { min-width: 0; }
   .sp-usewin__ref { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 8px; border-radius: 6px; background: #f4efe4; color: #1d1a14; font-weight: 600; }
+  .sp-usewin__rdiff { display: block; margin: 8px 0 0; padding: 9px 11px; border-radius: 10px; background: #fff6e0; border: 1px solid #f0d68f; }
+  .sp-usewin__rdiff > small { display: block; color: #5c4a2c; }
+  .sp-usewin__rrow { display: block; margin: 3px 0; font-size: 0.82rem; color: #3d3226; overflow-wrap: anywhere; }
+  .sp-usewin__rrow b { display: inline-block; min-width: 86px; }
+  .sp-usewin__rrow s { color: #8a7f70; }
+  .sp-usewin__rrow i { color: #8a5a00; font-size: 0.72rem; }
+  .sp-usewin__pick { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; font-size: 0.84rem; line-height: 1.45; color: #3d3226; cursor: pointer; }
+  .sp-usewin__pick input { margin-top: 3px; accent-color: #1f4d36; flex-shrink: 0; }
+  .sp-usewin__pick.is-on { color: #1d1a14; font-weight: 600; }
+  .sp-usewin__old { display: block; margin-top: 4px; color: #8a5a00; }
   .sp-usewin__next { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0; padding: 9px 12px; border-radius: 10px; background: #f7f3ea; font-size: 0.84rem; line-height: 1.5; color: #3d3226; }
   .sp-usewin__next i { color: #8a7a62; margin-top: 3px; }
   .sp-docs + .sp-tip { margin: 10px 0 0; }

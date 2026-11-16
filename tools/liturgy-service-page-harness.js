@@ -60,11 +60,11 @@ function check(label, ok, detail) {
 
 // The Liturgy page's pure pieces, run.
 const CONSTS = [line(/  var SP_DOC_EXT = [^\n]*;/), line(/  var SP_DECK_EXT = [^\n]*;/), line(/  var SP_LIT_WORDS = [^\n]*;/),
-  line(/  var CV_SPEAKER = [^\n]*;/), line(/  var CV_SONG = [^\n]*;/), line(/  var CV_READING = [^\n]*;/)].join('\n');
+  line(/  var CV_SPEAKER = [^\n]*;/), line(/  var CV_SONG = [^\n]*;/), line(/  var CV_READING = [^\n]*;/), line(/  var CV_BOOKS = [^\n]*;/)].join('\n');
 const SAME = (SRC.match(/  var CV_SAME = \{[\s\S]*?\n  \};/) || [''])[0];
 let L = null;
 try {
-  const names = ['_spKind', '_spNextFor', '_spSlidesOf', '_cvFromParas', '_cvSectionOf', '_cvSlides', '_cvMatch', '_cvSongId'];
+  const names = ['_spKind', '_spNextFor', '_spSlidesOf', '_cvFromParas', '_cvSectionOf', '_cvSlides', '_cvMatch', '_cvSongId', '_cvBook', '_cvRefOf'];
   const bodies = names.map(fn);
   if (bodies.every(Boolean) && SAME && CONSTS.split('\n').every(Boolean)) {
     L = new Function('_lfYearName', CONSTS + '\n' + SAME + '\n' + bodies.join('\n') +
@@ -291,8 +291,8 @@ try {
   check('the Builder opens, then does what it was asked', /if \(typeof then === 'function'\) setTimeout\(then, 700\);/.test(fn('_llOpenInBuilder')));
   const save = fn('cvSave');
   check('a converted liturgy is kept for the service and its year, from its document, and READ BACK',
-    /made_from: 'doc:' \+ cv\.itemId/.test(save) && /sb\.from\('service_liturgies'\)\.insert\(row\)\.select\(\)/.test(save) &&
-    /select\('id,title,year,occasion_id'\)\.eq\('id', saved\.id\)/.test(save) && /ensureOccYearFolder\(saved\.occasion_id, saved\.year\)/.test(save) &&
+    /made_from: 'doc:' \+ cv\.itemId/.test(save) && /: sb\.from\('service_liturgies'\)\.insert\(row\)\.select\(\)\)/.test(save) &&
+    /select\('id,title,year,occasion_id,data'\)\.eq\('id', saved\.id\)/.test(save) && /ensureOccYearFolder\(saved\.occasion_id, saved\.year\)/.test(save) &&
     /WO\.docLiturgy\(plan, cv\.type\)/.test(save));
   const read = fn('_cvRead');
   check('Word is read in the browser; everything else by the server\'s AI', /WO\.docxParas\(ab\)/.test(read) && /fetch\('\/api\/parse-liturgy'/.test(read) &&
