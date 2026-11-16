@@ -604,7 +604,7 @@ console.log('\n[service liturgies]');
 (function() {
   const has = re => re.test(SRC);
   check('using one replaces the order\'s liturgy as one undoable change, each item with an id of this order',
-    has(/var ok = _lbdChange\(function\(\) \{\r?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/) &&
+    has(/var ok = _lbdChange\(function\(\) \{[\s\S]{0,900}?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/) &&
     has(/\.map\(function\(it\) \{ it\.id = _lbdPfx\(\) \+ 'svl_' \+ _lbdUid\(\); return it; \}\);/));
   check('its readings and songs come only when asked; else this date\'s readings come from the roster, in the same undo step',
     has(/filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/) && has(/if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/) &&

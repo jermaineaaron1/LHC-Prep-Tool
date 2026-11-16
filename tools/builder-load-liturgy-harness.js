@@ -139,7 +139,7 @@ const use = fn('lbdSvlUse'), apply = fn('_svlApply');
 check('a saved liturgy and a past service are loaded by the same step', /\(x\.kind === 'order' \? _lldOrderData\(x\.id\) : Promise\.resolve\(x\.data\)\)\.then\(function\(d\) \{ _svlApply\(d \|\| \{\}, x, songs, readings\); \}/.test(use));
 check('only into an order of the kind it was made for', /if \(x\.type !== _svlOrderType\(\)\) \{ showToast\('That liturgy was made for another kind of service'/.test(use));
 check('it replaces the sections and liturgy as one Undo, songs and readings only when asked',
-  /var ok = _lbdChange\(function\(\) \{\r?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/.test(apply) &&
+  /var ok = _lbdChange\(function\(\) \{[\s\S]{0,900}?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/.test(apply) &&
   /filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/.test(apply) && /if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/.test(apply) &&
   /if \(n && _lbdUndoStack\.length === mark \+ 1\) _lbdUndoStack\.splice\(mark, 1\);/.test(apply));
 check('the order notes where its liturgy came from: a saved one (Save over is offered) or a past service',

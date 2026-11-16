@@ -201,8 +201,8 @@ try {
     /var SP_TABS = \[\['order', 'fa-list-ol', 'Liturgy Order'\], \['notes', 'fa-file-lines', 'Planning Notes'\],\r?\n\s*\['special', 'fa-wand-magic-sparkles', 'Special Planning'\], \['check', 'fa-square-check', 'Checklist'\]\];/.test(SRC) &&
     !/Team Planning/.test(fn('renderService')));
   check('the files open on Liturgy Documents', /res: _sp\.occ === occId \? _sp\.res : 'liturgy'/.test(fn('openService')) &&
-    /var tab = groups\[_sp\.res\] \? _sp\.res : 'liturgy';/.test(fn('_spResHtml')) && /\[\['liturgy', 'fa-file-word', 'Liturgy Documents'\], \['lcd'/.test(fn('_spResHtml')));
-  check('reference links are a group of their own', /return 'links';/.test(fn('_spKind')) && /\['links', 'fa-link', 'Reference Links'\]/.test(fn('_spResHtml')));
+    /var tab = groups\[_sp\.res\] \? _sp\.res : 'liturgy';/.test(fn('_spResHtml')) && /\[\['liturgy', 'fa-file-word', 'Liturgies', 'Liturgy Documents'\], \['lcd'/.test(fn('_spResHtml')));
+  check('reference links are a group of their own', /return 'links';/.test(fn('_spKind')) && /\['links', 'fa-link', 'Links', 'Reference Links'\]/.test(fn('_spResHtml')));
   check('a task says who does it, from the roster\'s names', /who: _plVal\('plWho'\) \|\| null/.test(fn('plSaveTask')) && /list="plWhoEd"/.test(fn('plEditTask')) &&
     /d\.people/.test(fn('_plWhoList')));
   check('...and the page has no other element called plWho (it once had, and the editor read that instead)', !/id="plWho"/.test(fn('_plCheckTab')));

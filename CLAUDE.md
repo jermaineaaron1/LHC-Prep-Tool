@@ -419,7 +419,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
   chips went. Gotcha 98.
 - **A service's page** (a Services card, or any way into a service;
   `#liturgyServicePanel`, `openService`) is the operator's green drawings: a
-  banner (All Services, Sync, Share, Projection, Add Item), four tabs --
+  slim banner (All Services as a badge, the name, Projection when its order
+  is made; Sync, Share and Add Item went on 2026-11-16), four tabs --
   **Liturgy Order**, **Planning Notes**, **Special Planning**, **Checklist**
   (and **Preparation Guide** where a service has one). The strip of the
   next date, church year, colour and readings under the tabs went on
@@ -433,8 +434,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
     loads (a .docx or a Google Doc read as written, anything else by AI,
     `/api/parse-liturgy`; checked before it is kept). A converted document
     shows a green **Converted** (its file's preview, Sundays, delete,
-    Convert again) and **Use**, which asks which Sundays of the season it is
-    for and puts it into the coming one of its kind. Each document says
+    Convert again) and **Use**: four steps -- the service (any coming one;
+    it becomes a **Special** service), the readings, the usual Traditional
+    parts to add (Holy Communion before, during and after...), and Confirm. Each document says
     when it was added and its year's lectionary letter ("2024 · Year B"),
     and is renamed in place; the preview goes full screen. Beside it: This
     year's liturgy (the coming Sunday, the Liturgy App Files for it with
@@ -4643,6 +4645,74 @@ the anon key -- verify as `postgres`, not as the app.
       order from the Roster as ever (`_svlApply` -> `_lbdFillReadings`), so
       the Readings page, the bulletin, the Builder and LCD Projection agree.
       The text is fetched for the reference, as for any Roster reading.
+    - **Use makes the date a Special service, in four steps** (the operator,
+      2026-11-16, of the Use window: "a better overall and cleaner design,
+      more concise (not single piece of piece into that one page, put it in
+      sub-pages (buttons)). Instead of limiting the liturgy to apply for a
+      certain service just because the roster assigns that date's service as
+      either traditional or contemporary, I think this page can decide that
+      as well. If the liturgy is set through here, then the roster will
+      declare this as a 'Special' service ... the user can simply add on all
+      the prayers and liturgical items that are usually used for a typical
+      Traditional service"). The window (`_spUseDraw`) is four steps, one to
+      a page, with a stepper (`SP_USE_STEPS`; `spUseStep`, a step seen can be
+      gone back to): **Service** (`_spUseStep1`: every coming service the
+      Roster has for the occasion, by year, ANY kind -- `_spUseRows` gives the
+      Roster's kind and the order's; the kind restriction and Convert again
+      for the other kind went), **Readings** (`_spUseStep2`: a table of the
+      liturgy's beside the Roster's -- the liturgy's column only when it names
+      any -- and This liturgy's / The Roster's; **Change the Roster's
+      readings** opens the Readings page at the date (`spUseReadings`) with a
+      bar there, `#spUseBack`, that brings the window back at Readings,
+      `spUseReturn` -- "direct them there and back"), **Add to it**
+      (`_spUseStep3`: the Traditional template's parts the liturgy lacks,
+      `_spUseExtras`, pure -- by its old id when it was made on that template,
+      its name, or the one kind only it has; never the readings -- each with
+      the library liturgy it brings, `_spUseBrings`; **Holy Communion: before,
+      during and after** ticks the offering / communion / thanksgiving parts
+      at once, `spUseComm`; and its songs) and **Confirm** (`_spUseStep4`:
+      what happens, once). **Use it** (`spUseGo`): the readings onto the Roster
+      when chosen; the date's `service_type` row to `Special`
+      (`SBQ_READINGS.setServiceType`, logged in `roster_changes` and READ
+      BACK; not written when it is Special already); a Special order made
+      when there is none (`WO.createOrderForIso(key, 'special')`); then the
+      Builder opened on it and `WO.svlUseFromLibrary(row, { songs, extras })`.
+      A step that fails leaves the window up and says which. **In the
+      Builder** (`svlUseFromLibrary` -> `_svlApply(..., { special })`): a
+      Special order's template is its readings alone (`wo-section-0`), and
+      `_woTemplateFor` maps a `wo-section-<n>` id through the ORDER's
+      template, so a Traditional liturgy's `wo-section-0` (its Invocation)
+      would be taken for the readings: `_svlSpecialize` (pure) gives the
+      liturgy's readings section `wo-section-0` and every other numbered
+      section an id of its own (`wo-section-sp<n>`), with its items, songs and
+      cleared notes. The order's type becomes `special` inside the one
+      `_lbdChange` -- the Undo snapshot now carries `type` -- the songs
+      already in it follow their sections (`_svlSongSec`: the same id on the
+      same template, else the same name, else the same kind), and each
+      Traditional part chosen goes after the last of the liturgy's sections
+      that comes before it in a Traditional service (`_svlTradPlace`; at the
+      end when none can be placed), as `wo-section-tr<n>`, with its usual
+      library liturgy (`getAssignedLiturgyForSection('traditional', ...)`,
+      once in the order). Measured in the preview on the 13 Dec order
+      (Contemporary, 17 sections) with the Advent file (Traditional, 30
+      sections): 32 sections, Holy Communion and Post-Communion after
+      Offering with their Pre-Communion and Post-Communion liturgy, the
+      readings section on the Special template's four slots; one Undo put
+      back the Contemporary order. **The Roster** shows a Special date with a
+      third, purple button (`roster-servicetype-btn spec`), drawn only while
+      the date is Special; a PIC can still switch it back. `_spUpcomingFor`
+      reads `Special`. This year's liturgy offers every Liturgy App File, of
+      any kind. **The service page** (2026-11-16: "make the info more concise
+      and remove the sync, add item and share functions. And reduce the top
+      banner space altogether ... Even the 'Liturgy document' and the other
+      badges are to be reduced"): the banner is All Services as a badge and the
+      name (`pl-hero--slim`; the description is the name's title), 75px with
+      tabs of 41px at 480px wide where the two were 261px; the files' tabs are
+      small chips with short names (Liturgies, LCD, Photos & Files, Links),
+      Upload and Google Doc sit beside the Liturgy Library heading, and the
+      description line went (it is the box's title). A converted document's
+      six buttons fit one line at 480px (the year without its folder icon, a
+      4px gap).
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

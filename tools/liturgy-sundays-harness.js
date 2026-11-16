@@ -155,7 +155,7 @@ try {
   console.log('\n5. The service page');
   const mk = fn('_spMakeHtml');
   check('This year\'s liturgy: the coming Sunday with its lectionary year, the ready liturgies for it with Use, and how to make one',
-    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : '', next\.type\)/.test(mk) && /\[next\.day, cyc\]/.test(mk) &&
+    /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(mk) && /\[next\.day, cyc\]/.test(mk) &&
     /data-key="' \+ _lfE\(next\.key\) \+ '" onclick="LiturgyModule\.spUse\(this\.dataset\.id, this\.dataset\.key\)"><i class="fa-solid fa-download" aria-hidden="true"><\/i><span>Use<\/span>/.test(mk) &&
     /How to make this year’s from a past one/.test(mk) && /No Liturgy App File for this Sunday yet\./.test(mk) && /a Year B liturgy from 2023 suits Year B again in 2026/.test(mk));
   const ready = fn('_spReadyHtml');
@@ -371,7 +371,7 @@ try {
   check('after converting: to its set (its year, the file marked), then Use it for the coming Sunday it suits, or Leave it',
     /_sp\.fresh = saved\.id; _sp\.res = 'liturgy'; _sp\.year = String\(saved\.year\);/.test(save11) && /spReady\(\); _spAfterConvert\(saved\.id\);/.test(save11) &&
     /if \(m\) spUseDoc\(m\[1\], \{ fresh: true, fileId: id \}\);/.test(fn('_spAfterConvert')) && /\(u\.fresh \? 'Leave it' : 'Cancel'\)/.test(fn('_spUseDraw')) &&
-    /LiturgyModule\.spUseGo\(\)/.test(fn('_spUseDraw')) && /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(fn('spUseGo')));
+    /LiturgyModule\.spUseGo\(\)/.test(fn('_spUseDraw')) && /WO\.svlUseFromLibrary\(/.test(fn('spUseGo')));
   if (S) {
     const meta = { '2026-11-29': { day: '1st Sunday of Advent', serviceType: 'Contemporary' }, '2026-12-06': { day: '2nd Sunday of Advent', serviceType: 'Traditional' },
       '2026-12-13': { day: '3rd Sunday of Advent', serviceType: 'Contemporary' }, '2026-12-20': { day: '4th Sunday of Advent', serviceType: 'Traditional' },
@@ -380,16 +380,17 @@ try {
     const up = S.upcoming('advent', meta, '2026-11-15', occFor);
     check('the coming services of the kind, in order, each with its kind of service', up.map(u => u.key.slice(5) + u.type[0]).join() === '11-29c,12-06t,12-13c,12-20t', up.map(u => u.key).join());
     const orders = { '2026-12-13': { id: 'o13', type: 'traditional' } };
-    const rows11 = S.useRows(up, 'traditional', k => orders[k] || null);
-    check('Use lists every coming service, each with its kind -- its order\'s when made, else the roster\'s -- and only those of the file\'s kind can be chosen',
-      rows11.map(r => r.key.slice(5) + r.kind[0] + (r.fits ? '+' : '-') + (r.order ? 'o' : '')).join() === '11-29c-,12-06t+,12-13t+o,12-20t+', JSON.stringify(rows11.map(r => [r.key, r.kind, r.fits])));
-    check('the service chosen to begin with: the one asked for if it can be, else the first of its Sundays, else the first that can be; none when none can',
-      S.usePick(rows11, 'advent', ['advent:4'], '') === '2026-12-20' && S.usePick(rows11, 'advent', [], '') === '2026-12-06' &&
-      S.usePick(rows11, 'advent', ['advent:1'], '') === '2026-12-06' && S.usePick(rows11, 'advent', [], '2026-12-13') === '2026-12-13' &&
-      S.usePick(rows11, 'advent', [], '2026-11-29') === '2026-12-06' && S.usePick(S.useRows(up.slice(0, 1), 'traditional'), 'advent', [], '') === '');
+    const rows11 = S.useRows(up, k => orders[k] || null);
+    check('Use lists every coming service, ANY kind (it becomes a Special service), with the Roster\'s kind and its order\'s',
+      rows11.map(r => r.key.slice(5) + r.roster[0] + r.kind[0] + (r.order ? 'o' : '')).join() === '11-29cc,12-06tt,12-13cto,12-20tt', JSON.stringify(rows11.map(r => [r.key, r.roster, r.kind])));
+    check('the service chosen to begin with: the one asked for, else the first of its Sundays this year, else the first',
+      S.usePick(rows11, 'advent', ['advent:4'], '') === '2026-12-20' && S.usePick(rows11, 'advent', [], '') === '2026-11-29' &&
+      S.usePick(rows11, 'advent', ['advent:1'], '') === '2026-11-29' && S.usePick(rows11, 'advent', [], '2026-12-13') === '2026-12-13' &&
+      S.usePick(rows11, 'advent', ['advent:2'], '') === '2026-12-06' && S.usePick([], 'advent', [], '') === '');
+    check('a date the Roster calls Special is one', S.upcoming('advent', { '2026-12-06': { day: '2nd Sunday of Advent', serviceType: 'Special' } }, '2026-11-15', occFor)[0].type === 'special');
     const rows = [{ id: 'trad', year: 2026, order_type: 'traditional', data: {} }, { id: 'cont', year: 2025, order_type: 'contemporary', data: {} }, { id: 'any', year: 2024, order_type: 'special', data: {} }];
-    check('This year\'s liturgy offers only the files of the coming Sunday\'s kind of service', S.forNext(rows, 'advent:1', 'contemporary').map(r => r.id).join() === 'cont,any' &&
-      S.forNext(rows, 'advent:2', 'traditional').map(r => r.id).join() === 'trad,any' && S.forNext(rows, 'advent:2').length === 3);
+    check('This year\'s liturgy offers every Liturgy App File, whatever its kind (any one is used as a Special service)',
+      S.forNext(rows, 'advent:2').length === 3 && /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(fn('_spMakeHtml')));
   }
 
   // ------------------------------------------------------------ 12. Converted, and Use
@@ -418,142 +419,129 @@ try {
   check('every Use on the page opens the one window: This year\'s liturgy on its Sunday, the Builder\'s own liturgies, a converted document',
     /if \(m && getItem\(m\[1\]\)\) spUseDoc\(m\[1\], \{ fileId: id, key: key \}\);\s*else _spUseOpen\(\[r\], id, \{ key: key \}\);/.test(fn('spUse')) &&
     /onclick="LiturgyModule\.spUse\(this\.dataset\.id\)"><i class="fa-solid fa-download"/.test(ready12) && !/orderId \? '<button[^']*spUse/.test(fn('_spMakeHtml') + ready12));
-  check('the window has its own class: .sp-use is an older button\'s nowrap, which ran its lines off the edge',
-    /class="mv-ed__card sp-usewin"/.test(fn('_spUseDraw')) && /\.pl-ed \.mv-ed__card\.sp-usewin \{[^}]*white-space: normal;/.test(SRC) &&
-    /\.sp-usewin__body \{[^}]*overflow-y: auto; overflow-x: hidden;/.test(SRC));
   check('WO makes an order for a date as Home\'s + Order does -- its year in its title, never a second for one date -- and lends it, with each date\'s order',
     /var have = _woOrderInfoForIso\(iso\);\s*if \(have\) return Promise\.resolve\(have\.id\);/.test(fn('_woCreateOrderForIso')) &&
     /var title = 'Service - ' \+ d\.getDate\(\) \+ ' ' \+ MO\[d\.getMonth\(\)\] \+ ' ' \+ d\.getFullYear\(\)/.test(fn('_woCreateOrderForIso')) &&
     /addToSavedOrders\(\{ id: r\.id,/.test(fn('_woCreateOrderForIso')) &&
     /orderInfoForIso: _woOrderInfoForIso, createOrderForIso: _woCreateOrderForIso,/.test(SRC));
+  check('the window has its own class: .sp-use is an older button\'s nowrap', /class="mv-ed__card sp-usewin"/.test(fn('_spUseDraw')) &&
+    /\.pl-ed \.mv-ed__card\.sp-usewin \{[^}]*white-space: normal;/.test(SRC) && /\.sp-usewin__body \{[^}]*overflow-y: auto; overflow-x: hidden;/.test(SRC));
   if (S) {
     try {
-      const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
-        '_spUseState', '_spUseReads', '_spUseDraw', 'spUseDate', 'spUseFile', 'spUseClose', 'spUseLeave', 'spUseReadings', 'spUseGo', 'spUseReconvert', 'spConvMenu', 'spConvAct',
-        '_spFileReadings', '_spRefKey', '_spReadDiff', '_spPutReadings', 'spUseReadsFrom', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName'];
+      const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseExtras', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
+        '_spUseState', '_spUseReads', '_spUseStep1', '_spUseStep2', '_spUseBrings', '_spUseStep3', '_spUseStep4', '_spUseDraw', 'spUseStep', 'spUseDate', 'spUseFile', 'spUseReadsFrom',
+        'spUseExtra', 'spUseSongs', 'spUseComm', 'spUseClose', 'spUseLeave', 'spUseReadings', '_spUseBackBar', 'spUseReturn', '_spPutReadings', 'spUseGo', 'spUseReconvert',
+        'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName'];
       const bodies = names.map(fn);
       if (!bodies.every(Boolean)) throw new Error('missing: ' + names.filter((n, i) => !bodies[i]).join(', '));
-      const log = [], els = {}, roster = {};
+      const log = [], els = {}, roster = {}, types = {};
       const mkEl = () => ({ id: '', className: '', innerHTML: '', attrs: {}, addEventListener() {}, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
         remove() { delete els[this.id]; }, querySelector() { return null; }, contains() { return false; } });
-      const orders = { '2026-12-13': { id: 'o13', type: 'traditional', title: 'Service - 13 Dec 2026' } };
-      let made = null, failMake = false;
+      const orders = { '2026-12-13': { id: 'o13', type: 'contemporary', title: 'Service - 13 Dec 2026' } };
+      const tpl = [{ id: 'wo-section-0', title: 'Invocation', serviceSectionId: 'welcome', liturgySectionId: 'invocation', kind: 'single' },
+        { id: 'wo-section-1', title: 'Kyrie', serviceSectionId: '', liturgySectionId: 'kyrie', kind: 'single' },
+        { id: 'wo-section-2', title: 'Scripture Readings', serviceSectionId: 'scripture', liturgySectionId: 'first-reading', kind: 'group' },
+        { id: 'wo-section-3', title: 'Hymn of Response', serviceSectionId: 'response', liturgySectionId: '', kind: 'songs' },
+        { id: 'wo-section-4', title: 'Offertory', serviceSectionId: 'offering', liturgySectionId: 'offertory', kind: 'single' },
+        { id: 'wo-section-5', title: 'Holy Communion', serviceSectionId: 'communion', liturgySectionId: 'sanctus', kind: 'single' },
+        { id: 'wo-section-6', title: 'Post-Communion', serviceSectionId: 'thanksgiving', liturgySectionId: 'post-communion', kind: 'single' }];
+      let made = 0, failType = false, failMake = false;
       const env = {
         document: { getElementById: id => els[id] || null, createElement: () => mkEl(), body: { appendChild: el => { els[el.id] = el; } }, activeElement: null },
         window: { WO: {
-          orderInfoForIso: k => orders[k] || null,
-          createOrderForIso: (k, kind, day) => { log.push('make ' + k + ' ' + kind + ' ' + day); if (failMake) return Promise.reject(new Error('refused')); made = 'new-' + k; orders[k] = { id: made, type: kind }; return Promise.resolve(made); },
-          lbdServiceLiturgies: (occ, kind, key) => log.push('load ' + occ + ' ' + kind + ' ' + key) } },
-        _sp: { occ: 'advent' },
+          orderInfoForIso: k => orders[k] || null, typeSections: () => tpl,
+          createOrderForIso: (k, kind, day) => { log.push('make ' + k + ' ' + kind); if (failMake) return Promise.reject(new Error('refused')); made++; orders[k] = { id: 'new-' + k, type: kind }; return Promise.resolve('new-' + k); },
+          svlUseFromLibrary: (row, o) => log.push('apply ' + row.id + ' songs=' + o.songs + ' extras=' + o.extras.join('+')) } },
+        LiturgyModule: { getAssignedLiturgyForSection: (t, sec) => sec === 'kyrie' ? [{ id: 'k1', title: 'Kyrie (sung)' }] : sec === 'sanctus' ? [{ id: 's1', title: 'Sanctus' }, { id: 's2', title: 'Words of Institution' }] : [] },
+        _sp: { occ: 'advent' }, _readingRefsByDate: {},
         getItem: id => ({ d1: { id: 'd1', title: 'Advent liturgy' } })[id] || null,
         showToast: (m) => log.push('toast ' + m), _llOpenInBuilder: (id, then) => { log.push('open ' + id); then && then(); },
+        openService: occ => log.push('service ' + occ), _spLoad: () => Promise.resolve(), lfOpenDay: k => log.push('readings ' + k),
         spConvert: (id, o) => log.push('convert ' + id + ' ' + JSON.stringify(o)), spPreviewReady: id => log.push('preview ' + id),
-        spSundays: id => log.push('sundays ' + id), spDeleteReady: id => log.push('delete ' + id), lfOpenDay: k => log.push('readings ' + k),
+        spSundays: id => log.push('sundays ' + id), spDeleteReady: id => log.push('delete ' + id),
         _spFloat: (btn, id, html, forId) => { const m = mkEl(); m.id = id; m.innerHTML = html; m.attrs['data-for'] = forId; els[id] = m; }, _spFloatClose: id => { delete els[id]; },
         _lfShortDate: k => k.slice(5, 10), _lfLongDate: k => 'long ' + k, _lfWhen: v => 'on ' + String(v).slice(0, 10),
-        _readingRefsByDate: {}, setFail: false,
         SBQ_READINGS: { SLOTS: [{ role: 'reading1' }, { role: 'psalm' }, { role: 'reading2' }, { role: 'gospel' }],
           getRange: (a, b) => { log.push('reads ' + a + '..' + b); return Promise.resolve(JSON.parse(JSON.stringify(roster))); },
           setReference: (iso, idx, ref) => { const role = ['reading1', 'psalm', 'reading2', 'gospel'][idx]; log.push('roster ' + iso + ' ' + role + ' ' + ref);
-            if (env.setFail) return Promise.resolve();
-            roster[iso] = Object.assign({}, roster[iso] || {}, { [role]: ref }); return Promise.resolve(ref); } }
+            roster[iso] = Object.assign({}, roster[iso] || {}, { [role]: ref }); return Promise.resolve(ref); },
+          setServiceType: (iso, v) => { log.push('kind ' + iso + ' ' + v); if (failType) return Promise.reject(new Error('the Roster did not keep it')); types[iso] = v; return Promise.resolve(v); } }
       };
-      const up = [{ key: '2026-11-29', day: '1st Sunday of Advent', type: 'contemporary' }, { key: '2026-12-06', day: '2nd Sunday of Advent', type: 'traditional' },
-        { key: '2026-12-13', day: '3rd Sunday of Advent', type: 'contemporary' }, { key: '2027-11-28', day: '1st Sunday of Advent', type: 'traditional' }];
-      const rows = [{ id: 'trad', occasion_id: 'advent', year: 2025, order_type: 'traditional', made_from: 'doc:d1', updated_at: '2026-11-15T14:00:00Z', data: { forDays: ['advent:1'] } },
-        { id: 'svl', occasion_id: 'advent', year: 2024, order_type: 'traditional', made_from: 'order:x', data: {} }];
-      roster['2026-12-06'] = { reading1: 'Isaiah 40:1-11', psalm: 'Psalm 85', reading2: '2 Peter 3:8-15', gospel: 'Mark 1:1-8' };
-      env._spData = { occ: 'advent', rows, upcoming: up };
       env.WO = env.window.WO;
+      const up = [{ key: '2026-11-29', day: '1st Sunday of Advent', type: 'contemporary' }, { key: '2026-12-06', day: '2nd Sunday of Advent', type: 'traditional' },
+        { key: '2026-12-13', day: '3rd Sunday of Advent', type: 'contemporary' }, { key: '2027-11-28', day: '1st Sunday of Advent', type: 'special' }];
+      const rows = [{ id: 'trad', occasion_id: 'advent', year: 2025, order_type: 'traditional', made_from: 'doc:d1', updated_at: '2026-11-15T14:00:00Z',
+        data: { forDays: ['advent:1'], readings: [{ role: 'reading1', ref: 'Isaiah 40:1-11' }, { role: 'gospel', ref: 'Mark 1:1-8' }],
+          sectionLayout: [{ id: 'wo-section-0', title: 'Invocation', serviceSectionId: 'welcome' }, { id: 'wo-section-2', title: 'Scripture Readings', serviceSectionId: 'scripture' }],
+          songs: [{ songId: 'g1', title: 'O Come, O Come' }] } },
+        { id: 'svl', occasion_id: 'advent', year: 2024, order_type: 'traditional', made_from: 'order:x', data: {} }];
+      roster['2026-12-06'] = { reading1: 'Isaiah 40:1-11', psalm: 'Psalm 85', gospel: 'Mark 13:24-37' };
+      env._spData = { occ: 'advent', rows, upcoming: up };
       const keys = Object.keys(env);
-      const consts = (SRC.match(/  var CV_BOOKS = [^\n]*;/) || [''])[0] + '\n' + (SRC.match(/  var CV_ROLES = [^\n]*;/) || [''])[0];
+      const consts = SRC.match(/  var CV_BOOKS = [^\n]*;/)[0] + '\n' + SRC.match(/  var CV_ROLES = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_USE_STEPS = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_COMMUNION = [^\n]*;/)[0];
       const U = new Function('OCCASIONS', 'LL_SUNDAYS', '_llSundayOf', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycle', '_llYearText', 'getOccasionById', '_lfE', ...keys,
-        consts + '\n' + bodies.join('\n') + '\nreturn { filesOf: _spFilesOf, after: _spAfterConvert, doc: spUseDoc, use: spUse, date: spUseDate, file: spUseFile, leave: spUseLeave, go: spUseGo, again: spUseReconvert,' +
-        ' readings: spUseReadings, menu: spConvMenu, act: spConvAct, from: spUseReadsFrom, fileReads: _spFileReadings, diff: _spReadDiff, state: function() { return _spUse; } };')(
+        'var _spUse = null, _spUseBack = null;\n' + consts + '\n' + bodies.join('\n') +
+        '\nreturn { doc: spUseDoc, use: spUse, step: spUseStep, date: spUseDate, extra: spUseExtra, songs: spUseSongs, comm: spUseComm, from: spUseReadsFrom, leave: spUseLeave, go: spUseGo,' +
+        ' readings: spUseReadings, ret: spUseReturn, after: _spAfterConvert, file: spUseFile, menu: spConvMenu, act: spConvAct, state: function() { return _spUse; }, back: function() { return _spUseBack; } };')(
         S.OCCASIONS, S.SUNDAYS, S.sundayOf, S.forSunday, S.toggle, S.html, S.cycle, S.yearText, id => S.OCCASIONS.find(o => o.id === id) || null,
         s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), ...keys.map(k => env[k]));
       const tick = () => new Promise(r => setTimeout(r, 0));
       const html = () => (els.spUse || {}).innerHTML || '';
-      check('a document\'s files are those converted from it, newest first; one saved from the Builder is not', U.filesOf('d1').map(r => r.id).join() === 'trad' && U.filesOf('nope').length === 0);
       U.doc('d1'); await tick();
-      check('Use asks for the service: every coming one, by year, each with its kind, lectionary year and whether its order is made',
-        /1<\/span>Choose the service/.test(html()) && /<p class="sp-usewin__yr">2026<\/p>/.test(html()) && /<p class="sp-usewin__yr">2027<\/p>/.test(html()) &&
-        (html().match(/name="spUseDate"/g) || []).length === 4 && /Traditional · Year B · order made/.test(html()) && /Traditional · Year C · no order yet/.test(html()), html().slice(0, 600));
-      check('a service of the other kind is listed and cannot be chosen, saying why; the document can be converted for it',
-        /value="2026-11-29" disabled/.test(html()) && /A Contemporary service: this liturgy is for Traditional services\./.test(html()) &&
-        /spUseReconvert\(this\.dataset\.type\)">convert the document for Contemporary services/.test(html()));
-      check('the one it begins on can be used: 6 Dec (its Sunday, Advent 1, is a Contemporary service)', U.state().key === '2026-12-06' && /value="2026-12-06" checked/.test(html()));
-      check('...and what goes in is said: this liturgy, and that date\'s readings FROM THE ROSTER, with the way to change them',
-        log.indexOf('reads 2026-11-29..2027-11-28') !== -1 && /What goes into/.test(html()) &&
-        /<span class="sp-usewin__ref">Isaiah 40:1-11<\/span><span class="sp-usewin__ref">Psalm 85<\/span>/.test(html()) && /spUseReadings\(this\.dataset\.key\)">Change them/.test(html()) &&
-        /Readings from the Roster<\/b> \(this liturgy names none\)/.test(html()) && /Converted before readings were kept: convert it again/.test(html()));
-      check('...with no order for 6 Dec: Make the order and use it', /Its order is made first\./.test(html()) && /Make the order and use it for 12-06/.test(html()));
-      U.date('2026-12-13');
-      check('choosing 13 Dec, whose order is made: Use it for 13 Dec, and no readings on the Roster says so', U.state().key === '2026-12-13' && /Use it for 12-13/.test(html()) &&
-        !/Its order is made first/.test(html()) && /<em>none on the Roster yet<\/em>/.test(html()));
-      U.date('2026-11-29');
-      check('a date that cannot be chosen is not taken, and the one chosen stays', U.state().key === '2026-12-13');
-      U.go(); await tick();
-      check('Use opens that service\'s order in the Builder, on the Load window with this liturgy', log.slice(-2).join() === 'open o13,load advent all s:trad' && !els.spUse, log.slice(-3).join(' | '));
-      U.doc('d1'); await tick(); U.date('2027-11-28'); U.go(); await tick(); await tick();
-      check('no order for the date: it is made first (the roster\'s kind and day), then opened with the liturgy', log.indexOf('make 2027-11-28 traditional 1st Sunday of Advent') !== -1 &&
-        log.slice(-3).join() === 'toast Made the order for long 2027-11-28.,open new-2027-11-28,load advent all s:trad', log.slice(-4).join(' | '));
-      failMake = true; U.doc('d1'); await tick(); U.go(); await tick(); await tick();
-      check('an order that could not be made: the window stays, says so, and can be tried again', !!els.spUse && U.state().busy === false && /Could not make the order: refused/.test(log[log.length - 1]), log[log.length - 1]);
-      U.leave();
-      U.use('trad', '2026-12-13'); await tick();
-      check('This year\'s liturgy\'s Use opens the same window on its Sunday', U.state().key === '2026-12-13' && U.state().docId === 'd1' && !!els.spUse);
-      U.readings('2026-12-13');
-      check('Change them goes to the Readings page at that date', log[log.length - 1] === 'readings 2026-12-13' && !els.spUse);
-      U.use('svl'); await tick();
-      check('a liturgy saved from the Builder opens it too, alone', U.state().fileId === 'svl' && !/spUseReconvert/.test(html()) && /2024/.test(html()));
-      U.leave();
+      check('Use is four steps, one to a page: Service, Readings, Add to it, Confirm -- on Service first, the others not yet open',
+        /<span>Service<\/span>/.test(html()) && /<span>Readings<\/span>/.test(html()) && /<span>Add to it<\/span>/.test(html()) && /<span>Confirm<\/span>/.test(html()) &&
+        /spu-step is-on" aria-current="step"><span class="spu-step__in"><b>1<\/b>/.test(html()) && !/spUseStep\(3\)">/.test(html().split('spu-acts')[0]) && /<span>Next<\/span>/.test(html()));
+      check('...every coming service can be chosen, whatever its kind, saying the Roster\'s kind and that it becomes Special',
+        (html().match(/name="spUseDate"/g) || []).length === 4 && !/disabled/.test(html().split('spu-acts')[0]) && /Contemporary on the Roster · no order yet/.test(html()) &&
+        /Whichever you choose becomes a <b>Special<\/b> service/.test(html()) && /<p class="spu-yr">2027<\/p>/.test(html()) && U.state().key === '2026-11-29', html().slice(0, 300));
+      U.date('2026-12-06'); U.step(2); await tick();
+      check('Readings: the liturgy\'s beside the Roster\'s, each slot, the differing one marked; this liturgy\'s chosen; the Readings page there and back',
+        /<th scope="row">Gospel<\/th><td>Mark 1:1-8<\/td><td>Mark 13:24-37<\/td>/.test(html()) && /<tr class="is-diff">/.test(html()) && /Isaiah 40:1-11 <i class="fa-solid fa-check"/.test(html()) &&
+        /value="liturgy" checked/.test(html()) && /spUseReadings\(this\.dataset\.key\)/.test(html()) && /A button there brings you back here/.test(html()), html().slice(html().indexOf('Readings for'), html().indexOf('Readings for') + 500));
+      U.readings('2026-12-06');
+      check('...Change goes to the Readings page at that date, and a bar there comes back', log[log.length - 1] === 'readings 2026-12-06' && !els.spUse && !!els.spUseBack &&
+        /Back to <b>Use this liturgy<\/b> for 12-06/.test(els.spUseBack.innerHTML));
+      U.ret(); await tick(); await tick();
+      check('...back at the readings, the same date', !!els.spUse && U.state().step === 2 && U.state().key === '2026-12-06' && !els.spUseBack);
+      U.step(3);
+      check('Add to it: the Traditional parts it lacks, each with its usual liturgy -- not the readings, not what it has; and its songs',
+        /<b>Kyrie<\/b><small>Kyrie \(sung\)<\/small>/.test(html()) && /<b>Holy Communion<\/b><small>Sanctus, Words of Institution<\/small>/.test(html()) &&
+        /<b>Hymn of Response<\/b><small>A place for its songs<\/small>/.test(html()) && !/<b>Invocation<\/b>/.test(html()) && !/<b>Scripture Readings<\/b>/.test(html()) &&
+        /Its songs \(1\)/.test(html()), html().slice(0, 200));
+      U.comm();
+      check('...Holy Communion before, during and after in one press', U.state().extras[4] && U.state().extras[5] && U.state().extras[6] && /spu-comm is-on/.test(html()));
+      U.extra(1, true); U.step(4);
+      check('Confirm says what happens: the date, becoming Special on the Roster, its order made, the liturgy\'s readings put on the Roster, what is added, its songs',
+        /<b>long 2026-12-06<\/b> · 2nd Sunday of Advent/.test(html()) && /Becomes a <b>Special<\/b> service on the Roster \(it is Traditional now\)/.test(html()) &&
+        /Its order is made, with this liturgy\./.test(html()) && /This liturgy’s readings, <b>put on the Roster<\/b> for 12-06/.test(html()) &&
+        /With Kyrie, Offertory, Holy Communion, Post-Communion/.test(html()) && /Its 1 song/.test(html()) && /Use it for 12-06/.test(html()));
+      const n0 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
+      const ran = log.slice(n0).filter(l => !/^reads /.test(l));
+      check('Use: the readings on the Roster, the date made Special there, a Special order made, then the Builder with the liturgy in -- in that order',
+        ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Opening its order… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6',
+        ran.join(' | '));
+      U.use('trad', '2026-12-13'); await tick(); U.step(4);
+      check('...a Contemporary date with its order made: Special now, its order takes the liturgy (Undo)', /it is Contemporary now/.test(html()) && /Its order takes this liturgy in place of what it has/.test(html()));
+      U.from('roster'); U.songs(false);
+      const n1 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
+      const ran1 = log.slice(n1).filter(l => !/^reads /.test(l) && !/^toast /.test(l));
+      check('...its own order kept, nothing made; the Roster\'s readings kept; without its songs', ran1.join(' | ') === 'kind 2026-12-13 Special | open o13 | apply trad songs=false extras=', ran1.join(' | '));
+      U.use('trad', '2027-11-28'); await tick(); U.step(4);
+      const n2 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
+      check('a date the Roster already calls Special is not written again', /A <b>Special<\/b> service already/.test(html() || '') || !log.slice(n2).some(l => /^kind /.test(l)), log.slice(n2).join(' | '));
+      failType = true;
+      U.use('trad', '2026-11-29'); await tick(); U.step(4);
+      const n3 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
+      check('a step that fails leaves the window up, saying which, and opens nothing', !!els.spUse && U.state().busy === false &&
+        /Could not make it a Special service on the Roster: the Roster did not keep it/.test(log[log.length - 1]) && !log.slice(n3).some(l => /^open /.test(l)), log.slice(n3).join(' | '));
+      failType = false; U.leave();
       U.after('trad'); await tick();
-      check('after converting it opens fresh: says where it went, and Leave it', /Converted\. Use it for a service\?/.test(html()) && /kept in <b>2025<\/b> with its document/.test(html()) && /Leave it<\/button>/.test(html()));
-      U.again('contemporary');
-      check('converting it for the other kind opens Convert on that kind and its Sundays', log[log.length - 1] === 'convert d1 {"type":"contemporary","days":["advent:1"]}' && !els.spUse, log[log.length - 1]);
-      rows.push({ id: 'cont', occasion_id: 'advent', year: 2025, order_type: 'contemporary', made_from: 'doc:d1', updated_at: '2026-11-16T09:00:00Z', data: {} });
-      delete orders['2026-12-13'];
-      U.doc('d1'); await tick();
-      check('two versions of one document: the newest is chosen, the other offered; Contemporary can be used for 29 Nov',
-        U.state().fileId === 'cont' && /name="spUseFile"/.test(html()) && /Traditional services · 2025/.test(html()) && U.state().key === '2026-11-29' && /value="2026-12-06" disabled/.test(html()) &&
-        /choose its Traditional version above/.test(html()));
-      U.file('trad');
-      check('choosing the other version: its own services', U.state().fileId === 'trad' && U.state().key === '2026-12-06');
+      check('after converting it opens fresh, with Leave it', /Converted\. Use it now\?/.test(html()) && /Leave it<\/button>/.test(html()));
       U.leave();
-      failMake = false;
-      // The liturgy's own readings, against the Roster's, for 6 Dec.
-      rows[0].data.readings = [{ role: 'reading1', ref: 'Isaiah 40:1-11' }, { role: 'reading2', ref: '2 Peter 3:8-14a' }, { role: 'gospel', ref: 'Mark 1:1-8' }];
-      U.use('trad', '2026-12-06'); await tick(); await tick();
-      check('a liturgy with readings: they are shown, and where the Roster differs, both, with the liturgy\'s chosen',
-        /This liturgy’s readings<\/b>: <span class="sp-usewin__ref">Isaiah 40:1-11<\/span>/.test(html()) && /The Roster has others for 12-06/.test(html()) &&
-        /<b>2nd Reading<\/b> <s>2 Peter 3:8-15<\/s>/.test(html()) && !/<b>1st Reading<\/b> <s>/.test(html()) && /value="liturgy" checked/.test(html()), html().slice(html().indexOf('What goes into'), html().indexOf('What goes into') + 900));
-      const n14 = log.length;
-      U.go(); await tick(); await tick(); await tick(); await tick();
-      check('Use puts the liturgy\'s on the Roster -- only what differs -- reads them back, then opens the order with it',
-        log.slice(n14).filter(l => l.indexOf('roster ') === 0).join() === 'roster 2026-12-06 reading2 2 Peter 3:8-14a' && roster['2026-12-06'].reading2 === '2 Peter 3:8-14a' &&
-        /load advent all s:trad/.test(log[log.length - 1]), log.slice(n14).join(' | '));
-      U.use('trad', '2026-12-06'); await tick(); await tick();
-      check('...after which the Roster has the same, and says so', /which the Roster has for that date too/.test(html()) && !/sp-usewin__rdiff/.test(html()));
-      U.leave();
-      rows[0].data.readings = [{ role: 'gospel', ref: 'Luke 1:26-38' }];
-      U.use('trad', '2026-12-06'); await tick(); await tick(); U.from('roster');
-      const n15 = log.length; U.go(); await tick(); await tick(); await tick();
-      check('Keep the Roster\'s: nothing is written', !log.slice(n15).some(l => l.indexOf('roster ') === 0) && /load advent all s:trad/.test(log[log.length - 1]), log.slice(n15).join(' | '));
-      env.setFail = true;
-      U.use('trad', '2026-12-06'); await tick(); await tick();
-      const n16 = log.length; U.go(); await tick(); await tick(); await tick(); await tick();
-      check('a write the Roster did not keep: the window stays and says so, and no order is opened',
-        !!els.spUse && U.state().busy === false && /Could not put the readings on the Roster: the Roster did not keep Luke 1:26-38/.test(log[log.length - 1]) &&
-        !log.slice(n16).some(l => l.indexOf('open ') === 0), log.slice(n16).join(' | '));
-      env.setFail = false; U.leave();
-      delete rows[0].data.readings;
       U.menu({}, 'd1');
-      const menu = (els.spConvMenu || {}).innerHTML || '';
-      check('the Converted menu: each file\'s preview, Sundays and delete, named by kind; and Convert again', /Preview the app file \(Contemporary services · 2025\)/.test(menu) &&
-        /Which Sundays \(Traditional services · 2025\)/.test(menu) && /Delete the app file/.test(menu) && /data-act="again"/.test(menu), menu.slice(0, 300));
-      U.act({ getAttribute: k => ({ 'data-act': 'days', 'data-fid': 'cont' })[k] });
-      check('...whose items do what they say', log[log.length - 1] === 'sundays cont' && !els.spConvMenu, log[log.length - 1]);
+      check('the Converted menu still has its file\'s preview, Sundays and delete, and Convert again', /Preview the app file/.test((els.spConvMenu || {}).innerHTML || '') && /data-act="again"/.test((els.spConvMenu || {}).innerHTML || ''));
+      U.act({ getAttribute: k => ({ 'data-act': 'days', 'data-fid': 'trad' })[k] });
+      check('...whose items do what they say', log[log.length - 1] === 'sundays trad' && !els.spConvMenu, log[log.length - 1]);
     } catch (e) { check('the Use window runs', false, e.stack); }
   }
 
@@ -634,6 +622,60 @@ try {
     !/The roster’s reading goes in instead/.test(fn('_cvDraw')));
   check('Use puts them on the Roster one slot at a time and reads them back before going on', /SBQ_READINGS\.setReference\(key, idx, diff\[i\]\.ref\)/.test(fn('_spPutReadings')) &&
     /return SBQ_READINGS\.getRange\(day, day\)/.test(fn('_spPutReadings')) && /throw new Error\('the Roster did not keep '/.test(fn('_spPutReadings')));
+
+  // ------------------------------------------------------------ 15. a Special service
+  // From the operator (2026-11-16): "Instead of limiting the liturgy to apply
+  // for a certain service just because the roster assigns that date's service
+  // as either traditional or contemporary ... If the liturgy is set through
+  // here, then the roster will declare this as a 'Special' service".
+  console.log('\n15. A liturgy used as a Special service');
+  let W = null;
+  try {
+    W = new Function(['_svlSpecialize', '_svlSongSec', '_svlTradPlace', '_spUseExtras'].map(fn).join('\n') +
+      '\nreturn { spec: _svlSpecialize, song: _svlSongSec, place: _svlTradPlace, extras: _spUseExtras };')();
+  } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (W) {
+    const d = { sectionLayout: [{ id: 'wo-section-0', title: 'Invocation', serviceSectionId: 'welcome' }, { id: 'wo-section-6', title: 'Scripture Readings', serviceSectionId: 'scripture' },
+      { id: 'wo-section-doc3', title: 'Lighting the Advent Wreath', serviceSectionId: '' }],
+      items: [{ id: 'a', sectionId: 'wo-section-0' }, { id: 'b', sectionId: 'wo-section-6' }, { id: 'c', sectionId: 'wo-section-doc3' }],
+      songs: [{ songId: 'g', sections: ['wo-section-0'] }], clearedSections: [{ sectionId: 'wo-section-6' }] };
+    const sp = W.spec(d);
+    check('its readings section becomes the Special template\'s (wo-section-0); every other numbered section an id of its own, its items, songs and notes with it',
+      sp.data.sectionLayout.map(x => x.id).join() === 'wo-section-sp0,wo-section-0,wo-section-doc3' && sp.data.items.map(x => x.sectionId).join() === 'wo-section-sp0,wo-section-0,wo-section-doc3' &&
+      sp.data.songs[0].sections[0] === 'wo-section-sp0' && sp.data.clearedSections[0].sectionId === 'wo-section-0' && sp.map['wo-section-6'] === 'wo-section-0' &&
+      d.sectionLayout[0].id === 'wo-section-0', JSON.stringify(sp.data.sectionLayout.map(x => x.id)));
+    const lay = sp.data.sectionLayout;
+    check('a song already in the order follows its section: by id on the same template, else by name, else by kind; nowhere when none',
+      W.song('wo-section-0', { title: 'Invocation' }, true, sp.map, lay) === 'wo-section-sp0' &&
+      W.song('wo-section-3', { title: 'Lighting the Advent wreath' }, false, sp.map, lay) === 'wo-section-doc3' &&
+      W.song('wo-section-5', { title: 'Readings', serviceSectionId: 'scripture' }, false, sp.map, lay) === 'wo-section-0' &&
+      W.song('wo-section-9', { title: 'Sermon', serviceSectionId: 'message' }, false, sp.map, lay) === '');
+    const trad = [{ title: '1. Invocation', serviceSectionId: 'welcome' }, { title: '5. Kyrie' }, { title: '7. Scripture Readings', serviceSectionId: 'scripture' }, { title: '15. Holy Communion', serviceSectionId: 'communion' }];
+    const back = {}; Object.keys(sp.map).forEach(k => { back[sp.map[k]] = k; });
+    check('a Traditional part goes after the last of the liturgy\'s sections that comes before it in a Traditional service',
+      W.place(lay[0], trad, back, 'traditional') === 0 && W.place(lay[1], trad, back, 'traditional') === 6 && W.place(lay[2], trad, back, 'traditional') === -1 &&
+      W.place({ id: 'wo-section-tr3', title: 'Holy Communion' }, trad, {}, 'special') === 3 && W.place({ id: 'x', title: 'Kyrie' }, trad, {}, 'contemporary') === 1);
+    const tplX = [{ title: 'Invocation', serviceSectionId: 'welcome' }, { title: 'Confession', serviceSectionId: 'opening-prayer' }, { title: 'Prayer of the Day', serviceSectionId: 'opening-prayer' },
+      { title: 'Scripture Readings', serviceSectionId: 'scripture' }, { title: 'Holy Communion', serviceSectionId: 'communion', liturgySectionId: 'sanctus' }];
+    const ex = W.extras(tplX, [{ id: 'wo-section-0', title: 'Invocation', serviceSectionId: 'welcome' }, { id: 'wo-section-doc1', title: 'Prayer of the Day', serviceSectionId: 'opening-prayer' }], 'traditional');
+    check('the parts it lacks: not one it has by its id, its name or the one kind only it has; never the readings; a kind two share is asked by name',
+      ex.map(x => x.title).join() === 'Confession,Holy Communion' && ex[1].lit === 'sanctus' && ex[1].i === 4, JSON.stringify(ex));
+  }
+  const ap = fn('_svlApply');
+  check('the Builder: the order made Special inside the one Undo, its kind in the Undo\'s snapshot',
+    /if \(more\.special && currentOrderData\.type !== 'special'\) \{\s*currentOrderData\.type = 'special'; currentOrderType = 'special'; madeSpecial = true;/.test(ap) &&
+    /type: o\.type \|\| '',/.test(fn('_lbdSnapshot')) && /if \(snap\.type\) \{ currentOrderData\.type = snap\.type; currentOrderType = snap\.type; \}/.test(fn('_lbdRestore')));
+  check('...each Traditional part added with its usual library liturgy, once in the order', /LiturgyModule\.getAssignedLiturgyForSection\('traditional', tpl\.liturgySectionId\)/.test(ap) &&
+    /it\.itemType === 'liturgy' && it\.sourceId === lit\.id/.test(ap) && /currentOrderData\.allItems\.push\(_lbdLiturgyItem\(nid, lit\.id, lit\)\)/.test(ap));
+  check('...and Use from the Library goes in through it, whatever kind the liturgy was made for', /var sp = _svlSpecialize\(row\.data\);/.test(fn('svlUseFromLibrary')) &&
+    /_svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\] \}\);/.test(fn('svlUseFromLibrary')) &&
+    /svlUseFromLibrary: svlUseFromLibrary,/.test(SRC));
+  check('the Roster: a date marked Special, logged and read back, and shown as Special in its row', /setServiceType: function\(iso, value\) \{/.test(SRC) &&
+    /role_id: 'service_type', service_date: k\.serviceDate, old_value: oldVal, new_value: v,/.test(SRC) && /throw new Error\('the Roster did not keep it'\)/.test(SRC) &&
+    /\(svcValue === 'Special' \? '<button type="button" class="roster-servicetype-btn spec active" data-value="Special">Special<\/button>' : ''\)/.test(SRC));
+  check('the service page is slim: All Services a badge, the name, no Sync / Share / Add Item; the files\' tabs small; the add buttons beside the heading',
+    /class="pl-hero pl-hero--slim"/.test(fn('renderService')) && !/spSync\(\)|spShare\(\)|spAddMenu\(this\)/.test(fn('renderService')) &&
+    /<div class="sp-res__top"><h2 class="font-cinzel">/.test(fn('_spResHtml')) && !/sp-res__bar/.test(fn('_spResHtml')) && /\.pl \.sp-rtab \{ min-height: 30px;/.test(SRC));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
