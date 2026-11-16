@@ -286,8 +286,8 @@ try {
     /<button id="litAddFAB" class="lit-add-fab" onclick="LiturgyModule\.fabAdd\(\)"/.test(SRC) &&
     /if \(p && p\.style\.display !== 'none' && _sp\.occ\) \{ spUpload\(''\); return; \}/.test(fn('fabAdd')) && /openQuickAddModal\(null, null\);/.test(fn('fabAdd')));
   const use = fn('spUse');
-  check('Use opens the next service in the Builder with its Load on that liturgy', /_llOpenInBuilder\(orderId, function\(\) \{/.test(use) &&
-    /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(use) && /_svlOpen = openKey \|\| '';/.test(fn('lbdServiceLiturgies')));
+  check('Use opens the chosen service in the Builder with its Load on that liturgy', /_llOpenInBuilder\(row\.order\.id, then\)/.test(fn('spUseGo')) &&
+    /WO\.lbdServiceLiturgies\(occ, 'all', 's:' \+ id\)/.test(fn('spUseGo')) && /_svlOpen = openKey \|\| '';/.test(fn('lbdServiceLiturgies')));
   check('the Builder opens, then does what it was asked', /if \(typeof then === 'function'\) setTimeout\(then, 700\);/.test(fn('_llOpenInBuilder')));
   const save = fn('cvSave');
   check('a converted liturgy is kept for the service and its year, from its document, and READ BACK',

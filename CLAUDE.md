@@ -396,7 +396,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
 ### 5. Liturgy Library (the operator's design, 2026-11-14)
 - The Liturgy page opens on a **landing page** (`#liturgyHubPanel`,
   `LiturgyModule.openHub`), "Liturgy Library -- Read. Plan. Remember.":
-  three big cards (Readings, Services, Memories), This Sunday (its day,
+  three cards -- **Readings & Prayers**, **Liturgy of Services** (no line
+  under either) and **Memories** ("Blast from the past: services for future
+  reference"), as the operator named them on 2026-11-16 -- This Sunday (its day,
   colour, readings, Prayer of the Day and the bulletin's theme verse), the
   Church Year (a tile per season, opening Readings at its next service) and
   Recently Added. The nav is Overview, Readings, Services, Memories.
@@ -410,8 +412,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - **Services** (`#liturgyServicesPanel`, `openServices`; nav key still
   `all-services`) is every service as a card with its picture -- the
   church's own photo when one is filed with it, else drawn artwork -- and
-  counts, filtered by Favourites (this device), kind, year and words, as a
-  grid or a list, and Create Service Collection. Gotcha 98.
+  counts, found by words, kind and year, as a grid or a list, a starred
+  service (this device) listed first. The cards come first; the counts and
+  Create New Service / Upload / Share library are one line at the foot
+  (2026-11-16: "The stats are secondary"), and the All Services / Favourites
+  chips went. Gotcha 98.
 - **A service's page** (a Services card, or any way into a service;
   `#liturgyServicePanel`, `openService`) is the operator's green drawings: a
   banner (All Services, Sync, Share, Projection, Add Item), four tabs --
@@ -4562,6 +4567,47 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-sundays-harness.js` checks it, running the Sundays, the
     years, the matching, the Google helper, the year moves and the Use
     window.
+    - **Use asks for the service** (the operator, 2026-11-16, of the window
+      above: "really untidy and unclear. How is the user to choose which
+      service(s) the user wants to use it for? Also what if the readings
+      differ from the lectionary readings ... But for now please clear up on
+      how the 'Use' works. Make sure it prompts the user into using it for a
+      particular year's / date's"). One window (`_spUseDraw`), opened by
+      every Use on the page (`spUse` routes This year's liturgy and the
+      Builder's own liturgies to it, on the date asked) and by Convert when
+      it is done. **1. Choose the service**: every coming service of the
+      occasion the roster has (`_spData.upcoming`), by year, each with its
+      kind, lectionary year and whether its order is made (`_spUseRows`,
+      pure: the kind is the ORDER's when it is made -- `WO.orderInfoForIso` --
+      else the roster's). One of the other kind is listed, cannot be chosen,
+      and says why; under the list, "convert the document for Contemporary
+      services" (or "choose its Contemporary version above" when there is
+      one). The first chosen (`_spUsePick`, pure): the date asked for; else
+      the first of the file's Sundays IN THE SAME YEAR as the first usable
+      date -- a file tagged Advent 1 jumped to next year's Advent 1 past this
+      year's usable Advent 2; else the first usable date. **2. What goes
+      in**: this liturgy, and **that date's readings from the Roster** (read
+      once per window, `SBQ_READINGS.getRange`), shown, saying a Liturgy App
+      File keeps none, with Change them (the Readings page at that date).
+      The readings the liturgy itself names are not kept by Convert -- the
+      operator's "the liturgy set should be the one dictating the readings"
+      is a later piece. **Use it for <date>** opens that order in the
+      Builder on the Load window (`spUseGo`); a date with no order is made
+      first (**Make the order and use it**, `WO.createOrderForIso`: Home's
+      "+ Order" payload, its year in its title, never a second order for one
+      date), a failure leaving the window up to try again. The old Sundays
+      ticks, `_spUseTarget`, `_spSaveDays` and `spUseFor` went; a file's
+      Sundays are changed from Converted's menu. The window is `.sp-usewin`:
+      `.sp-use` was already an older button's `white-space: nowrap`, which is
+      what ran the first window's lines off its edge.
+    - **The pages as marked up** (2026-11-16). The landing cards are 20px
+      shorter (measured 167 to 147px at 480px wide, 337 to 318px on a desk):
+      the titles 1.2rem with a 40px icon so they stay on one line, the bands
+      level (`min-height` 79px phone / 108px desk). A service's banner is
+      10px shorter (271 to 261px: 2 + 2 off its padding, 6 off its tabs), and
+      the double-tap tip is under the documents. On Services the grid/list
+      toggle sits beside the search and Year / Type share a row, so the first
+      card is 213px down at 480px wide (it was 420).
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
