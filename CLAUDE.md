@@ -444,8 +444,9 @@ than a bash heredoc, which quietly eats a level of backslashes.
     liturgy folded under one bar with every section's words editable there
     and in the Builder alike, the Builder, PDF and Share, another liturgy,
     and Remove, which undoes Use; else the Liturgy App Files for it with
-    **Use**), the Liturgy App Files saved from the
-    Builder (only when there are any), and the tiles. No order of worship or reader: an order is
+    **Use**), and the Liturgy App Files saved from the
+    Builder (only when there are any); the tiles under them went on
+    2026-11-16. No order of worship or reader: an order is
     designed in the Builder. **Lent Sundays, Easter Season and Epiphany
     Sundays** are services beside Advent Sundays. Gotchas 103, 104.
   - **Planning Notes, Special Planning, Checklist** are a plan for one
@@ -4883,6 +4884,52 @@ the anon key -- verify as `postgres`, not as the app.
       first (`_spFocusNext`, taken by `openService`). No document: the app
       file's preview (`spPreviewReady`). Measured on the 29 Nov card: the box
       went from All years to 2025 with the Google Doc lit at the top.
+    - **Sections edited from the page, every change the Builder's, and the
+      original's structure compared** (the operator, 2026-11-16: "For each of
+      the items in the liturgy, allow the user to edit, remove the section and
+      it's content. Allow to rearrange as well. Ensure that the liturgy will
+      be acknowledged as modified. And is granted the option to reset or
+      original or undo to previous or redo"; and the tiles under the card,
+      "not necessary", went). Each section's row (`.spo-sec__row`) carries a
+      pen (rename in place, `spoSecEdit` / `spoSecSave`: Enter saves, Esc
+      cancels) and a bin (`spoSecRemove`, asked first: its parts go, its
+      songs stay in the order without a section, as the Builder's own
+      Remove); **Reorder** in the tools row gives each row arrows instead
+      (`spoSecMove`), Done to finish; **Undo** and **Redo** there are the
+      Builder's own stacks (`WO.libHistory`, `WO.libStep` -> `lbdUndo` /
+      `lbdRedo`), shown while the Builder holds the order here. **Every
+      change on the page goes into the Builder's copy** (`_spEdit`): the
+      words, a part put back, a section renamed, moved or removed, Reset --
+      through `WO.libSection` (`_woLibSection`: one `_lbdChange` each, its
+      save waited on) and `WO.libRestore`; when the Builder does not hold the
+      order on this device, the first change opens it there once
+      (`_llOpenInBuilder`), makes the change and comes back (`llBackToLib`),
+      and after that the Builder holds it, so the rest are instant and
+      undoable. Activating the Builder in the background was rejected:
+      `_lbdSetActive(true)` collapses the app's sidebar and sets the
+      Builder's body classes over the Library page. `openService` keeps Show
+      all and Reorder across that trip for the same service. **Sections are
+      compared too** (`_spCompareSecs`, pure): the original's sections taken
+      out (shown in place, dashed, with Put back, `spoPutSec`, after the
+      section they followed), renamed (with the original name), moved (off
+      the longest run still in the original's order) and added -- never the
+      Use's own Traditional parts (`wo-section-tr<n>`) or the readings' place
+      (`wo-section-0`). Parts moved to another section are marked Moved, and
+      parts in the readings' place are never "added". The line reads
+      "Modified: 1 section taken out · 1 section renamed · 1 section moved"
+      (`_spCmpCounts`) with See and **Reset to original**, which asks first,
+      naming what comes back and what goes, then runs one plan
+      (`_spResetPlan`) through `WO.libRestore` in ONE Undo: the added
+      sections out (their songs kept without them), the original's sections
+      back and named, the original's order (`_woLibReorder`: a section added
+      since stays after the one it followed; a section's notes kept), the
+      words and places of the parts, the parts taken out back, the parts
+      added out (`_lbdNoteCleared`). The readings and the songs stay.
+      Measured in the preview on the 29 Nov order: a rename (through the
+      Builder and back), a section removed, a move, Undo, Redo, and Reset,
+      after which the line read "Same as the original" again. A brief for
+      redesigning this page in ChatGPT, naming every component, state and
+      class, is `docs/design/service-page-chatgpt-brief.md`.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
