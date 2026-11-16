@@ -5034,6 +5034,52 @@ the anon key -- verify as `postgres`, not as the app.
       documents uploaded (PDF, Word, Google Docs, etc.)", with no "2026
       documents" heading over it. Measured at 480px: the card is 238px tall,
       the three buttons in one row inside it.
+    - **Choosing, stopping and blending the liturgy** (the operator,
+      2026-11-16: "I have a few concerns about knowing which liturgy to use
+      or how can the user unuse the currently selected liturgy ... or how can
+      the user use a blend of 2 or more"; of the sketches, the chooser and a
+      blend made section by section). **Change** is on the in-use card -- a
+      phone's on the day's row (`.spi-c__chg`), a desk's under Go to file
+      (`.spi-chg`) -- and the menu's "Change or blend the liturgy" and the
+      desk's Use another (`spoChange`) open the same sheet: **Liturgy for
+      <date>** (`spoPick`, `_spPickDraw`, `#spPick`, the Remove window's
+      look). Its Liturgy App Files are grouped by `_spPickGroups` (pure):
+      those that suit this Sunday -- ticked for it, then every Sunday, the
+      newest year first -- then "Made for other Sundays"; each with its year,
+      Sundays and kind, the one in use marked, Preview (`spPreviewReady`),
+      and Use this for the others (`spoPickUse` -> the four-step Use window
+      on this date). At its foot: **Blend in parts of another** -- only when
+      there is another file to take from, else a line saying to convert
+      another year's document -- and **Stop using a liturgy** (`spoPickStop`
+      -> the Remove window, which says what changes first). **The blend**
+      (`spoBlend`, `_spBlendDraw`, `#spBlend`): every section of the service
+      with a dropdown, "As it is" first, then each Liturgy App File with a
+      section of the same name that has words (`_spBlendModel`, pure; names
+      matched by `_spBlKey`: numbers, case and punctuation aside, & as and;
+      the file in use is listed too, "(in use)", which puts its words back),
+      or "Only this one"; then "Sections only another liturgy has", each
+      ticked in, after the nearest section before it there that the service
+      has (else last), a dropdown when several files have it. A choice
+      changes the state and the button's count ("Blend 2 sections"), never
+      the window (a redraw keeps the scroll). `_spBlendPlan` (pure) makes
+      `WO.libBlend`'s plan, through `_spEdit`: `_woLibBlend`, in the
+      Builder's copy only, one Undo -- a chosen section's liturgy and texts
+      out (noted in `clearedSections`), the other file's in their place, its
+      readings and songs left; a section only another has added after its
+      place; every part copied in as this order's own with a new source id
+      (`lbd_<uid>`: two files' "doc_3" are not one liturgy, and the LCD draws
+      a liturgy once an order, gotcha 37); no reading is ever brought in. The
+      files taken from are noted on `serviceLiturgy.blend` (not the one in
+      use; in the Builder's undo snapshot), and the card says "With parts of
+      Advent liturgy (2023)". Against the original a blended section's parts
+      are taken out and added, and **Reset to original** puts them back and
+      lets go of the note (`spoPutAll` passes `unblend`, `_woLibRestore`
+      clears it). Measured in the preview on the 29 Nov order, which has one
+      Advent app file: the sheet with it in use, Blend offered only as the
+      line to convert another, Stop using opening Remove, the ⋯ menu and the
+      desk's Change opening the sheet, and Confession blended back from its
+      own file through the Builder (a new id, the same words, "Same as the
+      original").
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
