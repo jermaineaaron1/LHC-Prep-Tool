@@ -83026,22 +83026,65 @@ var WO = (function() {
   // out goes back only through the Builder: the caller opens it and asks again.
   function _woLibRestore(orderId, plan) {
     plan = plan || {};
-    var put = plan.put || [], add = plan.add || [];
-    if (!put.length && !add.length) return Promise.resolve({ via: 'none', put: 0, added: 0 });
+    var put = plan.put || [], add = plan.add || [], drop = plan.drop || [], lx = plan.layout || null;
+    var hasLayout = !!(lx && ((lx.add || []).length || Object.keys(lx.titles || {}).length || (lx.order || []).length || (lx.remove || []).length));
+    if (!put.length && !add.length && !drop.length && !hasLayout) return Promise.resolve({ via: 'none', put: 0, added: 0 });
     var held = _woLibHeld(orderId);
     if (held && _woLcdInPage()) return Promise.reject(new Error('this service is open in LCD Projection here: change it there'));
     if (held && _lbdIsActive()) {
-      var n = { put: 0, added: 0 };
+      var n = { put: 0, added: 0, secs: 0, dropped: 0 };
       var ok = _lbdChange(function() {
+        // The sections first: the original's taken out come back after the
+        // section they followed, names go back, the original's are put back
+        // in its order (an added one stays after the one it followed), and
+        // the sections added since go, as Remove takes a section.
+        if (hasLayout) {
+          var L = currentOrderData.sectionLayout || (currentOrderData.sectionLayout = []);
+          var li = function(id) { for (var k = 0; k < L.length; k++) if (L[k] && L[k].id === id) return k; return -1; };
+          (lx.remove || []).forEach(function(id) {
+            var k = li(id);
+            if (k < 0) return;
+            var list0 = _woSectionList();
+            songOrderSections.filter(function(sg) { return _woSongSectionIds(sg, list0).indexOf(id) !== -1; }).forEach(function(sg) { _lbdUnplaceSong(sg, id, list0); });
+            currentOrderData.allItems = (currentOrderData.allItems || []).filter(function(it) { return !(it && it.sectionId === id && it.itemType !== 'song' && it.itemType !== 'blank'); });
+            L.splice(k, 1);
+            n.secs++;
+          });
+          (lx.add || []).forEach(function(a) {
+            if (!a || !a.entry || li(a.entry.id) >= 0) return;
+            var at = a.after ? li(a.after) : -1;
+            L.splice(at + 1, 0, JSON.parse(JSON.stringify(a.entry)));
+            _lbdClearClearedFor(a.entry.id);
+            n.secs++;
+          });
+          Object.keys(lx.titles || {}).forEach(function(id) {
+            var k = li(id), t = String(lx.titles[id] || '').trim();
+            if (k >= 0 && t && _woStripNum(L[k].title) !== t) { L[k].title = t; n.secs++; }
+          });
+          if ((lx.order || []).length) {
+            var re = _woLibReorder(L, lx.order);
+            if (re.changed) { currentOrderData.sectionLayout = L = re.layout; n.secs++; }
+          }
+        }
         var all = currentOrderData.allItems || (currentOrderData.allItems = []);
         var find = function(id) { for (var i = 0; i < all.length; i++) if (all[i] && all[i].id === id) return i; return -1; };
+        var secs = {}; _woSectionList().forEach(function(sx) { secs[sx.id] = true; });
+        drop.forEach(function(id) {
+          var i = find(id);
+          if (i < 0) return;
+          var it = all[i];
+          all.splice(i, 1);
+          if (it.itemType === 'liturgy') _lbdNoteCleared(it.sectionId, it.sourceId);
+          n.dropped++;
+        });
         put.forEach(function(x) {
           var i = find(x.id);
           if (i < 0) return;
-          all[i].slides = _woLibKeepBg(all[i].slides, x.slides);
+          if (x.slides) all[i].slides = _woLibKeepBg(all[i].slides, x.slides);
+          // A part moved to another section goes back to its own.
+          if (x.secId && secs[x.secId] && all[i].sectionId !== x.secId) all[i].sectionId = x.secId;
           n.put++;
         });
-        var secs = {}; _woSectionList().forEach(function(sx) { secs[sx.id] = true; });
         add.forEach(function(a) {
           if (!a || !a.item || !secs[a.secId]) return;
           var cp = JSON.parse(JSON.stringify(a.item));
@@ -83059,13 +83102,14 @@ var WO = (function() {
           }
           n.added++;
         });
-        if (!n.put && !n.added) return false;
+        if (!n.put && !n.added && !n.secs && !n.dropped) return false;
+        if (n.secs) _lbdSortSongsByService();
       });
       if (!ok) return Promise.reject(new Error('nothing there to put back'));
-      return _soSaveSettled(12000).then(function(saved) { return { via: 'builder', put: n.put, added: n.added, saved: saved }; });
+      return _soSaveSettled(12000).then(function(saved) { return { via: 'builder', put: n.put, added: n.added, secs: n.secs, dropped: n.dropped, saved: saved }; });
     }
     if (held) return Promise.reject(new Error('this service is open in Orders here: change it in its Liturgy Builder'));
-    if (add.length) { var e = new Error('a part taken out goes back in the Liturgy Builder'); e.code = 'builder'; return Promise.reject(e); }
+    if (add.length || drop.length || hasLayout || put.some(function(x) { return x.secId; })) { var e = new Error('a part taken out goes back in the Liturgy Builder'); e.code = 'builder'; return Promise.reject(e); }
     var befores = [];
     return put.reduce(function(pr, x) {
       return pr.then(function() {
@@ -83073,6 +83117,69 @@ var WO = (function() {
           .then(function(r) { befores.push({ id: x.id, slides: r.before }); });
       });
     }, Promise.resolve()).then(function() { return { via: 'stored', put: befores.length, added: 0, befores: befores }; });
+  }
+  // The original's sections put back in its order (pure): each section not in
+  // the original stays after the one it followed (or at the top), so a
+  // section added since keeps its neighbour.
+  function _woLibReorder(layout, order) {
+    var L = (layout || []).filter(Boolean), want = {}, k;
+    (order || []).forEach(function(id, i) { want[id] = i; });
+    var head = [], groups = {}, last = null, seen = [];
+    L.forEach(function(sx) {
+      if (Object.prototype.hasOwnProperty.call(want, sx.id)) { last = sx.id; groups[last] = [sx]; seen.push(sx.id); }
+      else if (last) groups[last].push(sx);
+      else head.push(sx);
+    });
+    var sorted = seen.slice().sort(function(a, b) { return want[a] - want[b]; });
+    var out = head.slice();
+    sorted.forEach(function(id) { out = out.concat(groups[id]); });
+    var changed = false;
+    for (k = 0; k < out.length; k++) if (out[k] !== L[k]) { changed = true; break; }
+    return { layout: out, changed: changed };
+  }
+  // The Library page's changes to an order's sections (gotcha 104): its name,
+  // its place, or the section with what is in it (as the Builder's Remove:
+  // its songs stay in the order, without a section). In the Builder's copy
+  // only -- one Undo each, the save waited on.
+  function _woLibSection(orderId, op, secId, arg) {
+    if (!_woLibHeld(orderId) || !_lbdIsActive() || _woLcdInPage()) { var e = new Error('the order is not open in the Liturgy Builder here'); e.code = 'builder'; return Promise.reject(e); }
+    var lay = currentOrderData.sectionLayout || [], i = _lbdSecIndex(secId), ok;
+    if (i < 0) return Promise.reject(new Error('that section is not in the order any more'));
+    if (op === 'rename') {
+      var t = String(arg || '').replace(/\s+/g, ' ').trim();
+      if (!t) return Promise.reject(new Error('a section needs a name'));
+      if (t === _woStripNum(lay[i].title)) return Promise.resolve({ same: true });
+      ok = _lbdChange(function() { currentOrderData.sectionLayout[i].title = t; });
+    } else if (op === 'move') {
+      var j = i + (arg < 0 ? -1 : 1);
+      if (j < 0 || j >= lay.length) return Promise.resolve({ same: true });
+      ok = _lbdChange(function() { var L = currentOrderData.sectionLayout, x = L.splice(i, 1)[0]; L.splice(j, 0, x); _lbdSortSongsByService(); });
+    } else if (op === 'remove') {
+      var list = _woSectionList(), items = _woSectionItems(secId);
+      var songs = songOrderSections.filter(function(sg) { return _woSongSectionIds(sg, list).indexOf(secId) !== -1; });
+      ok = _lbdChange(function() {
+        currentOrderData.sectionLayout.splice(_lbdSecIndex(secId), 1);
+        items.forEach(function(it) { _woUserClearedTypes[it.itemType] = true; });
+        currentOrderData.allItems = currentOrderData.allItems.filter(function(it) {
+          return !(it && it.sectionId === secId && it.itemType !== 'song' && it.itemType !== 'blank');
+        });
+        songs.forEach(function(sg) { _lbdUnplaceSong(sg, secId, list); });
+      });
+    } else return Promise.reject(new Error('that change is not known'));
+    if (!ok) return Promise.reject(new Error('the order could not be changed'));
+    return _soSaveSettled(12000).then(function(saved) { return { saved: saved }; });
+  }
+  // The Builder's own Undo and Redo, offered on the Library page while the
+  // Builder holds the order here.
+  function _woLibHistory(orderId) {
+    if (!_woLibHeld(orderId) || !_lbdIsActive() || _woLcdInPage()) return null;
+    return { undo: _lbdUndoStack.length, redo: _lbdRedoStack.length };
+  }
+  function _woLibStep(orderId, back) {
+    var h = _woLibHistory(orderId);
+    if (!h || !(back ? h.undo : h.redo)) return Promise.resolve(false);
+    if (back) lbdUndo(); else lbdRedo();
+    return _soSaveSettled(12000).then(function(saved) { return { saved: saved }; });
   }
   // raw: slides to put back exactly (an Undo), in place of texts -- or a
   // function of the slides as they are, answering the slides to write.
@@ -99485,7 +99592,7 @@ var WO = (function() {
     lbdFillReadings: lbdFillReadings,
     svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
     orderForIso: _woOrderForIso, orderInfoForIso: _woOrderInfoForIso, createOrderForIso: _woCreateOrderForIso, svlUseFromLibrary: svlUseFromLibrary, exportDoc: _woExportDoc,
-    libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
+    libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
     docxParas: _lbdDocxParas, splitSlides: _lbdSplitSlides, normTitle: _lbdNormTitle, typeSections: _woTypeSections,
     docLiturgy: _woDocLiturgy, svlItemTexts: _svlItemTexts, svlItemHtml: _svlItemHtml, snapshotOfOrder: _lldSnapshotFromOrder,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
@@ -105280,7 +105387,8 @@ var LiturgyModule = (function() {
     if (!occ) { openServices(); return; }
     // Liturgy Documents is the files' first tab (the operator, 2026-11-14).
     _sp = { occ: occId, res: _sp.occ === occId ? _sp.res : 'liturgy', year: '', from: from || 'services', tab: tab || 'order', fresh: '',
-            open: _sp.occ === occId ? (_sp.open || {}) : {}, edit: null, allSecs: false, olOpen: _spOlPref(), change: false, orig: {} };
+            open: _sp.occ === occId ? (_sp.open || {}) : {}, edit: null, allSecs: _sp.occ === occId ? !!_sp.allSecs : false, olOpen: _spOlPref(), change: false, orig: {},
+            secEdit: null, reorder: _sp.occ === occId ? !!_sp.reorder : false };
     var oldPanel = document.getElementById('liturgyOccasionPanel');
     if (oldPanel) oldPanel.classList.remove('lit-occ--guide');
     _currentOccasion = occId;
@@ -105417,23 +105525,11 @@ var LiturgyModule = (function() {
   // in the Liturgy Builder, and a ready liturgy is read in its preview).
   function _spOrderTab(occ, d) {
     var orderId = d && d.order ? d.order.id : '';
-    var mine = liturgyItems.filter(function(i) { return i && i.occasionId === occ.id; });
-    var count = { lcd: 0, liturgy: 0, files: 0, links: 0 };
-    mine.forEach(function(i) { count[_spKind(i)]++; });
-    var tile = function(key, icon, title, sub, n) {
-      return '<button type="button" class="pl-tile" onclick="LiturgyModule.' + (key === 'ready' ? 'spReady()' : 'spResTab(\'' + key + '\')') + '">' +
-        '<span class="pl-tile__ic"><i class="fa-solid ' + icon + '" aria-hidden="true"></i></span><span class="pl-tile__t"><b>' + title + '</b><small>' + sub + '</small></span>' +
-        '<span class="pl-tile__n">' + n + '</span><i class="fa-solid fa-chevron-right pl-tile__go" aria-hidden="true"></i></button>';
-    };
-    var tiles = '<aside class="pl-tiles">' +
-      tile('ready', 'fa-book-open', 'Liturgy App Files', 'Converted for the Builder and LCD', d ? d.rows.length : '–') +
-      tile('liturgy', 'fa-file-word', 'Liturgy Documents', 'Word, PDF and Excel liturgies', count.liturgy) +
-      tile('lcd', 'fa-display', 'LCD Materials', 'Liturgy texts and slide decks', count.lcd) +
-      tile('files', 'fa-folder-open', SP_FILES_LABEL, 'Pictures, videos, scores', count.files) +
-      tile('links', 'fa-link', 'Reference Links', 'Helpful pages and videos', count.links) +
-    '</aside>';
+    // The tiles that sat under This year's liturgy went (2026-11-16, the
+    // operator: "Remove those hyperlinks below, they're not necessary") --
+    // each was a way to a tab of the library box beside them.
     return '<div class="sp-lib"><div class="sp-lib__main">' + _spResHtml(occ) + '</div>' +
-      '<div class="sp-lib__side">' + _spMakeHtml(d, orderId) + _spReadyHtml(d, orderId) + tiles + '</div></div>';
+      '<div class="sp-lib__side">' + _spMakeHtml(d, orderId) + _spReadyHtml(d, orderId) + '</div></div>';
   }
   // This year's liturgy: the coming Sunday, the ready liturgies made for it,
   // and how to make one from a past year's (the operator, 2026-11-15: "I'm
@@ -105481,7 +105577,8 @@ var LiturgyModule = (function() {
     var label = { liturgy: 'Liturgy', reading: 'Reading', song: 'Song', text: 'Text' }[p.kind] || 'Part';
     var ed = _sp.edit && _sp.edit.id === p.id;
     var c = p.cmp || null, ch = !!(c && c.st === 'changed');
-    var tag = ch ? '<span class="spo-tag spo-tag--ch">Changed</span>' : (c && c.st === 'added' ? '<span class="spo-tag">Not in the original</span>' : '');
+    var tag = (ch ? '<span class="spo-tag spo-tag--ch">Changed</span>' : (c && c.st === 'added' ? '<span class="spo-tag">Not in the original</span>' : '')) +
+      (c && (c.st === 'moved' || c.moved) ? '<span class="spo-tag spo-tag--ch">Moved</span>' : '');
     var hd = '<div class="spo-part__hd"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><b>' + _lfE(p.title || label) + '</b>' + tag +
       (p.edit && !ed ? '<button type="button" class="spo-pen" data-id="' + _lfE(p.id) + '" onclick="LiturgyModule.spoEdit(this.dataset.id)"><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit</span></button>' : '') + '</div>';
     if (ed) {
@@ -105502,15 +105599,21 @@ var LiturgyModule = (function() {
         '<button type="button" class="spo-mini" aria-expanded="' + !!open + '" data-id="' + _lfE(p.id) + '" onclick="LiturgyModule.spoOrig(this.dataset.id)"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>' + (open ? 'Hide the original' : 'See the original') + '</span></button>' +
         '<button type="button" class="spo-mini spo-mini--back" data-id="' + _lfE(p.id) + '" onclick="LiturgyModule.spoPutBack(this.dataset.id)"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Put back the original</span></button></div>' +
       (open ? '<div class="spo-orig"><small>The original</small>' + (c.orig.length ? c.orig.map(function(t) { return '<p>' + _lfE(t).replace(/\n/g, '<br>') + '</p>'; }).join('') : '<p><em>No words</em></p>') + '</div>' : '');
-    return '<div class="spo-part spo-part--' + p.kind + (ch ? ' spo-part--changed' : '') + '">' + hd + words + chg + '</div>';
+    var mv = !ch && c && c.st === 'moved' ? '<div class="spo-chg"><button type="button" class="spo-mini spo-mini--back" data-id="' + _lfE(p.id) + '" onclick="LiturgyModule.spoPutBack(this.dataset.id)"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Put back in its own section</span></button></div>' : '';
+    return '<div class="spo-part spo-part--' + p.kind + (ch || mv ? ' spo-part--changed' : '') + '">' + hd + words + chg + mv + '</div>';
   }
   function _spOutlineHtml(ol, cmp) {
-    var shown = _sp.allSecs ? ol.secs : ol.secs.slice(0, 8);
-    var n = _spOlCounts(ol);
+    var d = _spData, oid = d && d.order && d.order.id, reorder = !!_sp.reorder;
+    var shown = (_sp.allSecs || reorder) ? ol.secs : ol.secs.slice(0, 8);
+    var n = _spOlCounts(ol), sc = (cmp && cmp.secs) || null;
+    var hist = (oid && window.WO && WO.libHistory) ? WO.libHistory(oid) : null;
     var plural = function(k, one, many) { return k + ' ' + (k === 1 ? one : many); };
-    // The original's parts taken out of the service, in their sections.
+    var goneSec = {}; ((sc && sc.gone) || []).forEach(function(g) { goneSec[g.id] = true; });
+    // The original's parts taken out, in their sections (those of a section
+    // taken out come back with it).
     var gone = {}, lost = [];
     ((cmp && cmp.missing) || []).forEach(function(m) {
+      if (goneSec[m.secId]) return;
       var g = { kind: 'gone', title: m.title, key: m.key, canPut: m.secOk };
       if (m.secOk) (gone[m.secId] = gone[m.secId] || []).push(g); else lost.push(g);
     });
@@ -105518,22 +105621,61 @@ var LiturgyModule = (function() {
       var ps = x.parts.map(function(q) { return (cmp && cmp.byItem) ? Object.assign({}, q, { cmp: cmp.byItem[q.id] || null }) : q; });
       return ps.concat(gone[x.id] || []);
     };
-    return '<div class="spo">' +
+    // The original's sections taken out, each after the section it followed.
+    var ghostAfter = {}, ghostTop = [];
+    ((sc && sc.gone) || []).forEach(function(g) { if (g.after) (ghostAfter[g.after] = ghostAfter[g.after] || []).push(g); else ghostTop.push(g); });
+    var ghost = function(g) {
+      return '<li class="spo-sec spo-sec--gone"><div class="spo-sec__row"><span class="spo-sec__hd is-gone"><b>–</b><span><span class="spo-sec__ttl"><span class="spo-sec__name">' + _lfE(g.title) + '</span>' +
+          '<span class="spo-tag spo-tag--gone">Taken out</span></span><small>A section of the original</small></span></span>' +
+        '<span class="spo-sec__tools"><button type="button" class="spo-mini spo-mini--back" data-id="' + _lfE(g.id) + '" onclick="LiturgyModule.spoPutSec(this.dataset.id)"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Put back</span></button></span></div></li>';
+    };
+    var row = function(x, i) {
+      var open = !reorder && !!(_sp.open && _sp.open[x.id]), ps = partsOf(x);
+      var ed = _sp.secEdit && _sp.secEdit.id === x.id ? _sp.secEdit : null;
+      var marked = ps.some(function(q) { return q.kind === 'gone' || (q.cmp && (q.cmp.st === 'changed' || q.cmp.st === 'moved')); });
+      var sum = ps.filter(function(q) { return q.kind !== 'gone'; }).map(function(q) { return q.title || q.kind; }).filter(Boolean).slice(0, 2).join(' · ') + (ps.length > 2 ? ' …' : '');
+      var tags = !sc || !x.id ? '' :
+        (sc.renamed[x.id] != null ? '<span class="spo-tag spo-tag--ch" title="' + _lfE('In the original: ' + sc.renamed[x.id]) + '">Renamed</span>' : '') +
+        (sc.moved[x.id] ? '<span class="spo-tag spo-tag--ch">Moved</span>' : '') +
+        (sc.added[x.id] ? '<span class="spo-tag">Added</span>' : '');
+      var last = i === ol.secs.filter(function(y) { return y.id; }).length - 1;
+      var tools = !x.id ? '' : reorder
+        ? '<button type="button" class="spo-ic" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSecMove(this.dataset.id, -1)" aria-label="Move ' + _lfE(x.title) + ' up" title="Move up"' + (i === 0 ? ' disabled' : '') + '><i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>' +
+          '<button type="button" class="spo-ic" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSecMove(this.dataset.id, 1)" aria-label="Move ' + _lfE(x.title) + ' down" title="Move down"' + (last ? ' disabled' : '') + '><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>'
+        : '<button type="button" class="spo-ic" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSecEdit(this.dataset.id)" aria-label="Rename ' + _lfE(x.title) + '" title="Rename"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>' +
+          '<button type="button" class="spo-ic spo-ic--rm" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSecRemove(this.dataset.id)" aria-label="Remove ' + _lfE(x.title) + '" title="Remove the section and what is in it"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>';
+      var head = ed
+        ? '<div class="spo-sec__edit"><b class="spo-sec__num">' + (i + 1) + '</b>' +
+            '<input id="spoSecName" class="spo-secname" type="text" maxlength="80" value="' + _lfE(ed.title) + '" aria-label="Section name" oninput="LiturgyModule.spoSecName(this.value)"' +
+              ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();LiturgyModule.spoSecSave();}else if(event.key===\'Escape\'){event.preventDefault();LiturgyModule.spoSecCancel();}">' +
+            '<button type="button" class="lf-btn sp-btn-sm" onclick="LiturgyModule.spoSecCancel()"' + (ed.busy ? ' disabled' : '') + '>Cancel</button>' +
+            '<button type="button" class="lf-btn sp-btn-sm pl-btn-green" onclick="LiturgyModule.spoSecSave()"' + (ed.busy ? ' disabled' : '') + '>' + (ed.busy ? '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>' : 'Save') + '</button></div>'
+        : '<div class="spo-sec__row"><button type="button" class="spo-sec__hd" aria-expanded="' + open + '" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoToggle(this.dataset.id)"' + (reorder ? ' disabled' : '') + '>' +
+            '<b>' + (x.id ? (i + 1) : '–') + '</b><span><span class="spo-sec__ttl"><span class="spo-sec__name">' + _lfE(x.title) + '</span>' + tags + '</span>' + (sum && !reorder ? '<small>' + _lfE(sum) + '</small>' : '') + '</span>' +
+            (marked ? '<i class="spo-sec__dot" title="Changed from the original" aria-label="Changed from the original"></i>' : '') +
+            (reorder ? '' : '<i class="fa-solid fa-chevron-' + (open ? 'up' : 'down') + '" aria-hidden="true"></i>') + '</button>' +
+            (tools ? '<span class="spo-sec__tools">' + tools + '</span>' : '') + '</div>';
+      return '<li class="spo-sec' + (open ? ' is-open' : '') + (ed ? ' is-editing' : '') + '">' + head +
+        (open ? '<div class="spo-parts">' + (ps.length ? ps.map(function(q) { return _spoPartHtml(q); }).join('') : '<p class="spo-note">Nothing in it yet.</p>') + '</div>' : '') + '</li>';
+    };
+    var rows = ghostTop.map(ghost);
+    shown.forEach(function(x, i) {
+      rows.push(row(x, i));
+      (ghostAfter[x.id] || []).forEach(function(g) { rows.push(ghost(g)); });
+    });
+    return '<div class="spo' + (reorder ? ' is-reorder' : '') + '">' +
       '<div class="spo-tools"><small><b>' + plural(n.secs, 'section', 'sections') + '</b> · ' + plural(n.lit, 'liturgy part', 'liturgy parts') + ' · ' +
           plural(n.read, 'reading', 'readings') + ' · ' + plural(n.song, 'song', 'songs') + '</small>' +
-        '<span><button type="button" onclick="LiturgyModule.spoOpenAll(true)"><i class="fa-solid fa-angles-down" aria-hidden="true"></i>Expand all</button>' +
-        '<button type="button" onclick="LiturgyModule.spoOpenAll(false)"><i class="fa-solid fa-angles-up" aria-hidden="true"></i>Collapse all</button></span></div>' +
-      '<p class="spo-hint2">Tap a section to read it. <b>Edit</b> changes its words here and in the Liturgy Builder.</p>' +
-      '<ol class="spo-secs">' + shown.map(function(x, i) {
-        var open = !!(_sp.open && _sp.open[x.id]), ps = partsOf(x);
-        var marked = ps.some(function(q) { return q.kind === 'gone' || (q.cmp && q.cmp.st === 'changed'); });
-        var sum = ps.filter(function(q) { return q.kind !== 'gone'; }).map(function(q) { return q.title || q.kind; }).filter(Boolean).slice(0, 2).join(' · ') + (ps.length > 2 ? ' …' : '');
-        return '<li class="spo-sec' + (open ? ' is-open' : '') + '"><button type="button" class="spo-sec__hd" aria-expanded="' + open + '" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoToggle(this.dataset.id)">' +
-            '<b>' + (x.id ? (i + 1) : '–') + '</b><span>' + _lfE(x.title) + (sum ? '<small>' + _lfE(sum) + '</small>' : '') + '</span>' +
-            (marked ? '<i class="spo-sec__dot" title="Changed from the original" aria-label="Changed from the original"></i>' : '') +
-            '<i class="fa-solid fa-chevron-' + (open ? 'up' : 'down') + '" aria-hidden="true"></i></button>' +
-          (open ? '<div class="spo-parts">' + (ps.length ? ps.map(function(q) { return _spoPartHtml(q); }).join('') : '<p class="spo-note">Nothing in it yet.</p>') + '</div>' : '') + '</li>';
-      }).join('') + '</ol>' +
+        '<span>' + (reorder ? '' :
+          '<button type="button" onclick="LiturgyModule.spoOpenAll(true)"><i class="fa-solid fa-angles-down" aria-hidden="true"></i>Expand all</button>' +
+          '<button type="button" onclick="LiturgyModule.spoOpenAll(false)"><i class="fa-solid fa-angles-up" aria-hidden="true"></i>Collapse all</button>') +
+          '<button type="button" class="' + (reorder ? 'is-on' : '') + '" aria-pressed="' + reorder + '" onclick="LiturgyModule.spoReorder()"><i class="fa-solid fa-arrows-up-down" aria-hidden="true"></i>' + (reorder ? 'Done' : 'Reorder') + '</button>' +
+          (hist ? '<button type="button" onclick="LiturgyModule.spoUndo()" title="Undo the last change"' + (hist.undo ? '' : ' disabled') + '><i class="fa-solid fa-rotate-left" aria-hidden="true"></i>Undo</button>' +
+                  '<button type="button" onclick="LiturgyModule.spoRedo()" title="Redo"' + (hist.redo ? '' : ' disabled') + '><i class="fa-solid fa-rotate-right" aria-hidden="true"></i>Redo</button>' : '') +
+        '</span></div>' +
+      '<p class="spo-hint2">' + (reorder ? 'Move a section with its arrows. Press <b>Done</b> when they are in order.'
+        : 'Tap a section to read it. The pen renames it, the bin removes it with what is in it, and a part’s <b>Edit</b> changes its words. Every change reaches the Liturgy Builder too.') + '</p>' +
+      '<ol class="spo-secs">' + rows.join('') + '</ol>' +
       (ol.secs.length > shown.length ? '<button type="button" class="spo-more" onclick="LiturgyModule.spoAll()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i><span>Show all ' + ol.secs.length + ' sections</span></button>' : '') +
       (lost.length ? '<div class="spo-lost"><small>Taken out, with the section they were in</small>' + lost.map(function(g) { return _spoPartHtml(g); }).join('') + '</div>' : '') +
     '</div>';
@@ -105630,7 +105772,7 @@ var LiturgyModule = (function() {
     var c = _spCmpCur();
     if (!c.cmp) return;
     _sp.olOpen = true; _sp.allSecs = true; _sp.open = {};
-    c.ol.secs.forEach(function(x) { if (x.parts.some(function(q) { return (c.cmp.byItem[q.id] || {}).st === 'changed'; })) _sp.open[x.id] = true; });
+    c.ol.secs.forEach(function(x) { if (x.parts.some(function(q) { var st = (c.cmp.byItem[q.id] || {}).st; return st === 'changed' || st === 'moved'; })) _sp.open[x.id] = true; });
     c.cmp.missing.forEach(function(m) { if (m.secOk) _sp.open[m.secId] = true; });
     renderService();
     setTimeout(function() {
@@ -105641,65 +105783,135 @@ var LiturgyModule = (function() {
   // One part's words back as the original has them, with Undo.
   function spoPutBack(id) {
     var c = _spCmpCur(), e = c.cmp && c.cmp.byItem[id];
-    if (!e || e.st !== 'changed' || !(window.WO && WO.libSetSlides && WO.libKeepBg)) return;
-    var oid = c.d.order.id, occ = _sp.occ, orig = e.src.slides || [];
-    var after = function(res) {
-      if (_sp.orig) delete _sp.orig[id];
-      if (res.via === 'builder') renderService(); else _spLoad(occ);
-      if (res.saved === false) { showToast('Put back in the Liturgy Builder, but it did not save. It says Not saved there.', 'warning', { duration: 9000 }); return; }
-      showToast('“' + (e.src.title || 'That part') + '” is back as the original has it.', 'success', { action: 'Undo', duration: 8000, onAction: function() {
-        WO.libSetSlides(oid, id, null, res.before).then(function(r2) { if (r2.via === 'builder') renderService(); else _spLoad(occ); },
-          function(err) { showToast('Could not undo it: ' + ((err && err.message) || err), 'error'); });
-      } });
-    };
-    WO.libSetSlides(oid, id, null, function(cur) { return WO.libKeepBg(cur, orig); }).then(after, function(err) {
-      showToast('Could not put it back: ' + ((err && err.message) || err), 'error');
-    });
+    if (!e || (e.st !== 'changed' && e.st !== 'moved') || !(window.WO && WO.libRestore)) return;
+    var x = { id: id, slides: e.st === 'moved' ? null : ((e.src && e.src.slides) || []), secId: (e.st === 'moved' || e.moved) ? e.secId : '' };
+    _spEdit(function(oid) { return WO.libRestore(oid, { put: [x] }); }, '“' + ((e.src && e.src.title) || 'That part') + '” is back as the original has it.',
+      function() { if (_sp.orig) delete _sp.orig[id]; });
   }
   // A part taken out, back in its section.
   function spoPutGone(key) {
     var c = _spCmpCur();
     var m = c.cmp && c.cmp.missing.filter(function(x) { return x.key === key; })[0];
-    if (!m || !m.secOk) return;
-    _spRestore({ put: [], add: [{ item: m.src, secId: m.secId, after: m.after }] }, '“' + (m.title || 'That part') + '” is back in its place.');
+    if (!m || !m.secOk || !(window.WO && WO.libRestore)) return;
+    _spEdit(function(oid) { return WO.libRestore(oid, { add: [{ item: m.src, secId: m.secId, after: m.after }] }); }, '“' + (m.title || 'That part') + '” is back in its place.');
+  }
+  // A section of the original taken out, back after the one it followed,
+  // with its parts.
+  function spoPutSec(id) {
+    var c = _spCmpCur(), sc = c.cmp && c.cmp.secs;
+    var g = sc && sc.gone.filter(function(x) { return x.id === id; })[0];
+    if (!g || !(window.WO && WO.libRestore)) return;
+    var add = c.cmp.missing.filter(function(m) { return m.secId === id; }).map(function(m) { return { item: m.src, secId: m.secId, after: m.after }; });
+    _spEdit(function(oid) { return WO.libRestore(oid, { add: add, layout: { add: [{ entry: g.entry, after: g.after }] } }); }, '“' + g.title + '” is back in its place.');
   }
   // Every part back as the original has it: the changed ones' words, and the
   // ones taken out back in their sections. Parts added since stay.
   function spoPutAll() {
     var c = _spCmpCur();
-    if (!c.cmp) return;
-    var put = [], add = [];
-    Object.keys(c.cmp.byItem).forEach(function(id) { var e = c.cmp.byItem[id]; if (e.st === 'changed') put.push({ id: id, slides: e.src.slides || [] }); });
-    c.cmp.missing.forEach(function(m) { if (m.secOk) add.push({ item: m.src, secId: m.secId, after: m.after }); });
-    if (!put.length && !add.length) return;
+    if (!c.cmp || !(window.WO && WO.libRestore)) return;
+    var n = _spCmpCounts(c.cmp);
+    if (!n.any) return;
+    var plan = _spResetPlan(c.cmp);
+    var k = function(x, one, many) { return x + ' ' + (x === 1 ? one : many); };
+    var lines = [];
+    if (n.changed || n.moved) lines.push((n.changed ? k(n.changed, 'part gets', 'parts get') + ' the original’s words back' : '') + (n.changed && n.moved ? ', and ' : '') + (n.moved ? k(n.moved, 'part goes', 'parts go') + ' back to its section' : ''));
+    var one = function(a, b) { return a + b === 1; };
+    if (n.gone || n.secGone) lines.push([n.secGone ? k(n.secGone, 'section', 'sections') : '', n.gone ? k(n.gone, 'part', 'parts') : ''].filter(Boolean).join(' and ') + ' taken out come' + (one(n.gone, n.secGone) ? 's' : '') + ' back');
+    if (n.renamed || n.secMoved) lines.push([n.renamed ? k(n.renamed, 'section gets its name', 'sections get their names') + ' back' : '', n.secMoved ? 'the sections go back in the original’s order' : ''].filter(Boolean).join(', and '));
+    if (n.added || n.secAdded) lines.push([n.secAdded ? k(n.secAdded, 'section', 'sections') : '', n.added ? k(n.added, 'part', 'parts') : ''].filter(Boolean).join(' and ') + ' added since ' + (one(n.added, n.secAdded) ? 'is' : 'are') + ' taken out');
     var svl = (c.d.orderTpl && c.d.orderTpl.serviceLiturgy) || {};
-    var msg = [put.length ? put.length + ' changed part' + (put.length === 1 ? '' : 's') + ' get' + (put.length === 1 ? 's' : '') + ' the original’s words back' : '',
-               add.length ? add.length + ' part' + (add.length === 1 ? '' : 's') + ' taken out come' + (add.length === 1 ? 's' : '') + ' back' : ''].filter(Boolean).join(', and ') +
-      '.' + (put.length ? ' What was changed in ' + (put.length === 1 ? 'it' : 'them') + ' is lost.' : '') + ' Parts added since, the readings and the songs stay as they are.';
-    var ask = window.lhcAskDelete ? window.lhcAskDelete({ icon: 'fa-rotate-left', title: 'Put back the original?', detail: svl.title || 'Its Liturgy App File', detailIcon: 'fa-book-bookmark',
-      message: msg, cancelLabel: 'Keep my changes', okLabel: 'Put back', okIcon: 'fa-rotate-left' }) : Promise.resolve(true);
+    var msg = lines.join('; ') + '. The readings and the songs stay. Undo brings back what was here.';
+    var ask = window.lhcAskDelete ? window.lhcAskDelete({ icon: 'fa-rotate-left', title: 'Reset to the original?', detail: svl.title || 'Its Liturgy App File', detailIcon: 'fa-book-bookmark',
+      message: msg.charAt(0).toUpperCase() + msg.slice(1), cancelLabel: 'Keep my changes', okLabel: 'Reset', okIcon: 'fa-rotate-left' }) : Promise.resolve(true);
     ask.then(function(ok) {
       if (!ok) return;
-      _spRestore({ put: put, add: add }, 'Back as the original has it' + (put.length + add.length > 1 ? ': ' + (put.length + add.length) + ' parts.' : '.'));
+      _spEdit(function(oid) { return WO.libRestore(oid, plan); }, 'Back as the original has it.', function() { _sp.orig = {}; });
     });
   }
   // Through the Builder's copy here, the stored rows, or -- for a part that
   // has to be put back in its place -- the Builder opened, and back here.
-  function _spRestore(plan, said) {
-    var d = _spData, oid = d && d.order && d.order.id, occ = _sp.occ;
-    if (!oid || !(window.WO && WO.libRestore)) return;
-    var done = function(res, via) {
-      if (_sp.orig) _sp.orig = {};
-      if (res && res.saved === false) showToast('Put back in the Liturgy Builder, but it did not save. It says Not saved there.', 'warning', { duration: 9000 });
-      else showToast(said, 'success');
-      if (via === 'away') llBackToLib(); else if (res && res.via === 'builder') renderService(); else _spLoad(occ);
+  // Every change made on this page goes into the Builder's copy of the order
+  // (gotcha 104): one Undo each, and the Builder's own Undo and Redo offered
+  // here. The first, while the Builder does not hold the order on this
+  // device, opens it there once and comes back.
+  function _spEdit(run, said, after) {
+    var d = _spData, oid = d && d.order && d.order.id;
+    if (!oid || !(window.WO && WO.libOutlineOf)) return Promise.resolve(false);
+    var report = function(res) {
+      if (typeof after === 'function') after(true);
+      if (!res || res.same || res === false) return;
+      if (res.saved === false) showToast('Changed in the Liturgy Builder, but it did not save. It says Not saved there and saves again with the next change.', 'warning', { duration: 9000 });
+      else if (said) showToast(said, 'success', { action: 'Undo', duration: 7000, onAction: spoUndo });
     };
-    var fail = function(err) { showToast('Could not put it back: ' + ((err && err.message) || err), 'error', { duration: 9000 }); };
-    WO.libRestore(oid, plan).then(function(res) { done(res); }, function(err) {
-      if (!err || err.code !== 'builder') { fail(err); return; }
-      showToast('Opening its order to put the parts back…', 'info');
-      _llOpenInBuilder(oid, function() { WO.libRestore(oid, plan).then(function(res) { done(res, 'away'); }, fail); });
+    var fail = function(err) {
+      if (typeof after === 'function') after(false);
+      showToast('Could not make the change: ' + ((err && err.message) || err), 'error', { duration: 9000 });
+    };
+    if (WO.libOutlineOf(oid)) {
+      return Promise.resolve().then(function() { return run(oid); })
+        .then(function(res) { report(res); renderService(); return true; }, function(err) { fail(err); renderService(); return false; });
+    }
+    showToast('Opening its order to make the change…', 'info');
+    return new Promise(function(resolve) {
+      _llOpenInBuilder(oid, function() {
+        Promise.resolve().then(function() { return run(oid); })
+          .then(function(res) { report(res); llBackToLib(); resolve(true); }, function(err) { fail(err); llBackToLib(); resolve(false); });
+      });
     });
+  }
+  // A section renamed, moved or removed from the outline.
+  function _spSecOf(id) {
+    var ol = _spData && _spData.order ? _spOrderOutline(_spData) : null;
+    return ol ? ol.secs.filter(function(x) { return x.id === id; })[0] || null : null;
+  }
+  function spoSecEdit(id) {
+    var x = _spSecOf(id);
+    if (!x) return;
+    _sp.secEdit = { id: id, title: x.title, busy: false };
+    _sp.open = _sp.open || {}; _sp.open[id] = true;
+    renderService();
+    setTimeout(function() { var el = document.getElementById('spoSecName'); if (el) { el.focus(); try { el.select(); } catch (e) {} } }, 30);
+  }
+  function spoSecName(v) { if (_sp.secEdit) _sp.secEdit.title = v; }
+  function spoSecCancel() { _sp.secEdit = null; renderService(); }
+  function spoSecSave() {
+    var e = _sp.secEdit;
+    if (!e || e.busy || !(window.WO && WO.libSection)) return;
+    var t = String(e.title || '').replace(/\s+/g, ' ').trim();
+    if (!t) { showToast('A section needs a name.', 'info'); return; }
+    e.busy = true; renderService();
+    _spEdit(function(oid) { return WO.libSection(oid, 'rename', e.id, t); }, 'Renamed “' + t + '”.',
+      function(ok) { if (ok) { if (_sp.secEdit === e) _sp.secEdit = null; } else e.busy = false; });
+  }
+  function spoSecRemove(id) {
+    var x = _spSecOf(id);
+    if (!x || !(window.WO && WO.libSection)) return;
+    var k = function(n, one, many) { return n + ' ' + (n === 1 ? one : many); };
+    var nl = x.parts.filter(function(q) { return q.kind === 'liturgy' || q.kind === 'text'; }).length;
+    var nr = x.parts.filter(function(q) { return q.kind === 'reading'; }).length, ns = x.parts.filter(function(q) { return q.kind === 'song'; }).length;
+    var goes = [nl ? k(nl, 'liturgy part', 'liturgy parts') : '', nr ? k(nr, 'reading', 'readings') : ''].filter(Boolean).join(' and ');
+    var msg = (goes ? 'Its ' + goes + ' go' + (nl + nr === 1 ? 'es' : '') + ' with it. ' : '') + (ns ? 'Its ' + k(ns, 'song stays', 'songs stay') + ' in the order, without a section. ' : '') +
+      'Undo brings it back, and so does Reset to original.';
+    var ask = window.lhcAskDelete ? window.lhcAskDelete({ title: 'Remove “' + x.title + '”?', detail: x.title, detailIcon: 'fa-list-ol', message: msg, cancelLabel: 'Keep it', okLabel: 'Remove' }) : Promise.resolve(true);
+    ask.then(function(ok) {
+      if (!ok) return;
+      _spEdit(function(oid) { return WO.libSection(oid, 'remove', id); }, '“' + x.title + '” removed.', function() { if (_sp.open) delete _sp.open[id]; });
+    });
+  }
+  function spoSecMove(id, dir) {
+    if (!(window.WO && WO.libSection)) return;
+    _spEdit(function(oid) { return WO.libSection(oid, 'move', id, dir < 0 ? -1 : 1); }, '');
+  }
+  function spoReorder() { _sp.reorder = !_sp.reorder; if (_sp.reorder) { _sp.secEdit = null; _sp.edit = null; } renderService(); }
+  function spoUndo() {
+    var d = _spData, oid = d && d.order && d.order.id;
+    if (!oid || !(window.WO && WO.libStep)) return;
+    WO.libStep(oid, true).then(function() { renderService(); });
+  }
+  function spoRedo() {
+    var d = _spData, oid = d && d.order && d.order.id;
+    if (!oid || !(window.WO && WO.libStep)) return;
+    WO.libStep(oid, false).then(function() { renderService(); });
   }
   // The liturgy as the Builder's PDF: downloaded, or handed to the phone's
   // share sheet (WhatsApp, email...). Made from what this page has, in the
@@ -105881,27 +106093,11 @@ var LiturgyModule = (function() {
     return out.length ? out : [''];
   }
   function spoSave() {
-    var e = _sp.edit, d = _spData, oid = d && d.order && d.order.id;
-    if (!e || e.busy || !oid || !(window.WO && WO.libSetSlides)) return;
+    var e = _sp.edit;
+    if (!e || e.busy || !(window.WO && WO.libSetSlides)) return;
     e.busy = true; renderService();
-    var occ = _sp.occ;
-    var after = function(res) {
-      // Through the Builder the save is its autosave's: said as it went.
-      if (res.saved === false) { showToast('Changed in the Liturgy Builder, but it did not save. It says Not saved there and saves again with the next change.', 'warning', { duration: 9000 }); return; }
-      showToast(res.saved === null ? 'Changed in the Liturgy Builder; still saving.' : 'Saved. The Liturgy Builder has it too.', 'success', { action: 'Undo', duration: 8000, onAction: function() {
-        WO.libSetSlides(oid, e.id, null, res.before).then(function(r2) {
-          if (r2.via === 'builder') renderService(); else _spLoad(occ);
-        }, function(err) { showToast('Could not undo it: ' + ((err && err.message) || err), 'error'); });
-      } });
-    };
-    WO.libSetSlides(oid, e.id, _spoSlidesOf(e.text)).then(function(res) {
-      if (_sp.edit === e) _sp.edit = null;
-      if (res.via === 'builder') { renderService(); after(res); }
-      else Promise.resolve(_spLoad(occ)).then(function() { after(res); });
-    }, function(err) {
-      e.busy = false; renderService();
-      showToast('Could not save it: ' + ((err && err.message) || err), 'error');
-    });
+    _spEdit(function(oid) { return WO.libSetSlides(oid, e.id, _spoSlidesOf(e.text)); }, 'Saved. The Liturgy Builder has it too.',
+      function(ok) { if (ok) { if (_sp.edit === e) _sp.edit = null; } else e.busy = false; });
   }
   function _spMakeHtml(d, orderId) {
     var next = d && d.next, occ = _sp.occ;
@@ -106021,7 +106217,9 @@ var LiturgyModule = (function() {
     var key = function(it) { return words(it).map(norm).filter(Boolean).join('\n---\n'); };
     var tk = function(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
     var lit = function(it) { return !!(it && it.itemType === 'liturgy'); };
-    var file = (fileItems || []).filter(lit), ord = (orderItems || []).filter(lit);
+    // The Traditional parts chosen at Use (wo-section-tr<n>) are the Use's
+    // own, not changes.
+    var file = (fileItems || []).filter(lit), ord = (orderItems || []).filter(function(x) { return lit(x) && !/^wo-section-tr\d+$/.test(String(x.sectionId || '')); });
     var has = {}; (secIds || []).forEach(function(id) { has[id] = true; });
     var to = function(id) { return (secMap && Object.prototype.hasOwnProperty.call(secMap, id)) ? secMap[id] : id; };
     var used = {}, match = [];
@@ -106035,7 +106233,7 @@ var LiturgyModule = (function() {
       var o = ord.filter(function(x) { return !used[x.id] && tk(x.title) === tk(f.title); })[0];
       if (o) { used[o.id] = true; match[i] = o; }
     });
-    var out = { byItem: {}, missing: [], changed: 0, added: 0 };
+    var out = { byItem: {}, missing: [], changed: 0, added: 0, movedParts: 0 };
     file.forEach(function(f, i) {
       var o = match[i];
       if (!o) {
@@ -106044,10 +106242,49 @@ var LiturgyModule = (function() {
         out.missing.push({ key: String(f.sourceId || f.id || ('#' + i)), src: f, title: f.title || 'Liturgy', secId: sec, secOk: !!has[sec], after: after });
         return;
       }
-      if (key(o) !== key(f)) { out.byItem[o.id] = { st: 'changed', orig: words(f), src: f }; out.changed++; }
+      // A part in another section than the original's was moved.
+      var home = to(f.sectionId), mv = !!o.sectionId && !!home && o.sectionId !== home;
+      if (key(o) !== key(f)) { out.byItem[o.id] = { st: 'changed', orig: words(f), src: f, moved: mv, secId: home }; out.changed++; }
+      else if (mv) { out.byItem[o.id] = { st: 'moved', src: f, secId: home }; out.movedParts++; }
       else out.byItem[o.id] = { st: 'same' };
     });
-    ord.forEach(function(o) { if (!used[o.id]) { out.byItem[o.id] = { st: 'added' }; out.added++; } });
+    // A part in the readings' place is the readings' business, not an addition.
+    ord.forEach(function(o) { if (!used[o.id] && o.sectionId !== 'wo-section-0') { out.byItem[o.id] = { st: 'added', secId: o.sectionId || '' }; out.added++; } });
+    return out;
+  }
+  // The sections against the original (pure): the original's taken out (each
+  // after the section of the original it followed), renamed, moved (off the
+  // longest run still in the original's order), and the sections added since
+  // -- not the Use's own Traditional parts (wo-section-tr<n>) or the readings'
+  // place (wo-section-0).
+  function _spCompareSecs(fileLayout, orderSecs, secMap) {
+    var to = function(id) { return (secMap && Object.prototype.hasOwnProperty.call(secMap, id)) ? secMap[id] : id; };
+    var name = function(t) { return String(t || '').replace(/^\s*\d+\.\s*/, '').replace(/\s+/g, ' ').trim(); };
+    var file = (fileLayout || []).filter(function(x) { return x && x.id; }).map(function(x) {
+      var e = JSON.parse(JSON.stringify(x)); e.id = to(String(x.id)); e.title = name(x.title) || 'Section'; return e;
+    });
+    var ord = (orderSecs || []).filter(function(x) { return x && x.id; });
+    var inOrd = {}, inFile = {}, pos = {};
+    ord.forEach(function(x) { inOrd[x.id] = x; });
+    file.forEach(function(f, i) { inFile[f.id] = f; pos[f.id] = i; });
+    var out = { gone: [], renamed: {}, moved: {}, added: {}, order: file.map(function(f) { return f.id; }) };
+    var prev = null;
+    file.forEach(function(f) {
+      if (!inOrd[f.id]) { out.gone.push({ id: f.id, title: f.title, after: prev, entry: f }); return; }
+      if (name(inOrd[f.id].title).toLowerCase() !== f.title.toLowerCase()) out.renamed[f.id] = f.title;
+      prev = f.id;
+    });
+    ord.forEach(function(x) { if (!inFile[x.id] && !/^wo-section-tr\d+$/.test(x.id) && x.id !== 'wo-section-0') out.added[x.id] = true; });
+    var seq = ord.filter(function(x) { return inFile[x.id]; }).map(function(x) { return x.id; });
+    var len = [], back = [], i, j, best = -1;
+    for (i = 0; i < seq.length; i++) {
+      len[i] = 1; back[i] = -1;
+      for (j = 0; j < i; j++) if (pos[seq[j]] < pos[seq[i]] && len[j] + 1 > len[i]) { len[i] = len[j] + 1; back[i] = j; }
+      if (best < 0 || len[i] > len[best]) best = i;
+    }
+    var keep = {};
+    for (i = best; i >= 0; i = back[i]) keep[seq[i]] = true;
+    seq.forEach(function(id) { if (!keep[id]) out.moved[id] = true; });
     return out;
   }
   // The Liturgy App File a service's liturgy came from: this page's, else
@@ -106076,7 +106313,38 @@ var LiturgyModule = (function() {
     if (row.failed) return null;
     if (row.gone) return { gone: true };
     var map = (window.WO && WO.svlSecMap) ? WO.svlSecMap(row.data || {}, ol.type, row.order_type) : {};
-    return _spCompare((row.data || {}).items || [], ol.items || [], map, ol.secs.map(function(x) { return x.id; }).filter(Boolean));
+    var c = _spCompare((row.data || {}).items || [], ol.items || [], map, ol.secs.map(function(x) { return x.id; }).filter(Boolean));
+    c.secs = _spCompareSecs((row.data || {}).sectionLayout || [], ol.secs, map);
+    return c;
+  }
+  // Everything back as the original has it (pure over a comparison): its
+  // sections (back, named, in order; the ones added since taken out), its
+  // parts' words and places, the parts taken out back, the ones added taken
+  // out. The readings, the songs and the Use's Traditional parts stay.
+  function _spResetPlan(cmp) {
+    var sc = cmp.secs || { gone: [], renamed: {}, moved: {}, added: {}, order: [] };
+    var put = [], add = [], drop = [], goneIds = {};
+    sc.gone.forEach(function(g) { goneIds[g.id] = true; });
+    Object.keys(cmp.byItem || {}).forEach(function(id) {
+      var e = cmp.byItem[id];
+      if (e.st === 'changed' || e.st === 'moved') put.push({ id: id, slides: e.st === 'moved' ? null : ((e.src && e.src.slides) || []), secId: (e.st === 'moved' || e.moved) ? e.secId : '' });
+      else if (e.st === 'added' && !sc.added[e.secId]) drop.push(id);
+    });
+    (cmp.missing || []).forEach(function(m) { if (m.secOk || goneIds[m.secId]) add.push({ item: m.src, secId: m.secId, after: m.after }); });
+    return { put: put, add: add, drop: drop,
+      layout: { add: sc.gone.map(function(g) { return { entry: g.entry, after: g.after }; }), titles: sc.renamed, order: sc.order, remove: Object.keys(sc.added) } };
+  }
+  // What the comparison counts, for the line under the blocks and the
+  // question Reset asks (pure).
+  function _spCmpCounts(cmp) {
+    var sc = cmp.secs || { gone: [], renamed: {}, moved: {}, added: {} }, goneIds = {};
+    sc.gone.forEach(function(g) { goneIds[g.id] = true; });
+    var n = { changed: cmp.changed || 0, moved: cmp.movedParts || 0, gone: 0, added: 0,
+              secGone: sc.gone.length, renamed: Object.keys(sc.renamed).length, secMoved: Object.keys(sc.moved).length, secAdded: Object.keys(sc.added).length };
+    (cmp.missing || []).forEach(function(m) { if (!goneIds[m.secId]) n.gone++; });
+    Object.keys(cmp.byItem || {}).forEach(function(id) { var e = cmp.byItem[id]; if (e.st === 'added' && !sc.added[e.secId]) n.added++; });
+    n.any = n.changed + n.moved + n.gone + n.added + n.secGone + n.renamed + n.secMoved + n.secAdded;
+    return n;
   }
   // The line under the two blocks: the same as the original, or what changed,
   // with See and Put all back.
@@ -106084,12 +106352,15 @@ var LiturgyModule = (function() {
     if (!cmp) return '';
     if (cmp.reading) return '<p class="spi-cmp"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>Comparing with the original…</span></p>';
     if (cmp.gone) return '<p class="spi-cmp"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>Its Liturgy App File has been deleted, so there is no original to compare with.</span></p>';
-    var nc = cmp.changed, nm = (cmp.missing || []).length;
-    if (!nc && !nm) return '<p class="spi-cmp spi-cmp--same"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Same as the original</span></p>';
-    var bits = [nc ? nc + ' part' + (nc === 1 ? '' : 's') + ' changed' : '', nm ? nm + ' taken out' : ''].filter(Boolean).join(' · ');
-    return '<div class="spi-cmp spi-cmp--diff"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span><b>' + _lfE(bits) + '</b> from the original</span>' +
+    var n = _spCmpCounts(cmp);
+    if (!n.any) return '<p class="spi-cmp spi-cmp--same"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Same as the original</span></p>';
+    var c = function(k, one, many) { return k ? k + ' ' + (k === 1 ? one : many) : ''; };
+    var bits = [c(n.changed, 'part changed', 'parts changed'), c(n.moved, 'part moved', 'parts moved'), c(n.gone, 'part taken out', 'parts taken out'), c(n.added, 'part added', 'parts added'),
+                c(n.secGone, 'section taken out', 'sections taken out'), c(n.renamed, 'section renamed', 'sections renamed'), c(n.secMoved, 'section moved', 'sections moved'),
+                c(n.secAdded, 'section added', 'sections added')].filter(Boolean).join(' · ');
+    return '<div class="spi-cmp spi-cmp--diff"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span><b>Modified:</b> ' + _lfE(bits) + '</span>' +
       '<span class="spi-cmp__acts"><button type="button" class="spi-cmp__see" onclick="LiturgyModule.spoShowChanged()">See</button>' +
-      '<button type="button" class="spi-cmp__back" onclick="LiturgyModule.spoPutAll()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Put all back</span></button></span></div>';
+      '<button type="button" class="spi-cmp__back" onclick="LiturgyModule.spoPutAll()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Reset to original</span></button></span></div>';
   }
   // What an outline holds (pure).
   function _spOlCounts(ol) {
@@ -115431,7 +115702,8 @@ var LiturgyModule = (function() {
     spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spUseReadsFrom: spUseReadsFrom,
     spUseStep: spUseStep, spUseExtra: spUseExtra, spUseSongs: spUseSongs, spUseComm: spUseComm, spUseReturn: spUseReturn,
     spoToggle: spoToggle, spoReadings: spoReadings, spoShow: spoShow, spoOpenAll: spoOpenAll, spoChange: spoChange, spoPdf: spoPdf, spoGoOrig: spoGoOrig, spoOrig: spoOrig, spoShowChanged: spoShowChanged,
-    spoPutBack: spoPutBack, spoPutGone: spoPutGone, spoPutAll: spoPutAll,
+    spoPutBack: spoPutBack, spoPutGone: spoPutGone, spoPutAll: spoPutAll, spoPutSec: spoPutSec, spoSecEdit: spoSecEdit, spoSecName: spoSecName,
+    spoSecCancel: spoSecCancel, spoSecSave: spoSecSave, spoSecRemove: spoSecRemove, spoSecMove: spoSecMove, spoReorder: spoReorder, spoUndo: spoUndo, spoRedo: spoRedo,
     spoRemove: spoRemove, spoRemoveClose: spoRemoveClose, spoRemoveGo: spoRemoveGo, spoAll: spoAll, spoEdit: spoEdit, spoInput: spoInput, spoCancel: spoCancel, spoSave: spoSave, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
@@ -124450,6 +124722,28 @@ function filterLiturgyItems() {
   .spo-part--gone { background: #fff; border: 1px dashed #e3c3c0; }
   .spo-part--gone .spo-part__hd > b { color: #8a7a62; text-decoration: line-through; }
   .spo-sec__dot { width: 8px; height: 8px; border-radius: 50%; background: #e0a526; flex-shrink: 0; }
+  /* A section's own tools: rename and remove, or its arrows while reordering. */
+  .spo-sec__row { display: flex; align-items: stretch; }
+  .spo-sec__row > .spo-sec__hd { flex: 1; min-width: 0; }
+  .spo-sec__hd:disabled { cursor: default; color: inherit; }
+  .spo-sec__ttl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  .spo-sec__tools { display: flex; align-items: center; gap: 2px; padding: 0 6px 0 0; flex-shrink: 0; }
+  .spo-ic { display: inline-grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 8px; background: none; color: #5c4a2c; cursor: pointer; }
+  .spo-ic:hover { background: #f4efe4; }
+  .spo-ic--rm { color: #b42318; }
+  .spo-ic--rm:hover { background: #fde2e1; }
+  .spo-ic:disabled { opacity: 0.3; cursor: default; background: none; }
+  .spo-sec__edit { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+  .spo-sec__num { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 6px; background: #1f4d36; color: #fff; font: 700 0.72rem 'Poppins', sans-serif; flex-shrink: 0; }
+  .spo-secname { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid #c9b89a; border-radius: 8px; font: 600 0.86rem 'Poppins', sans-serif; color: #1d1a14; }
+  .spo-sec.is-editing { border-color: #1f4d36; box-shadow: 0 0 0 2px rgba(31, 77, 54, 0.15); }
+  .spo-sec--gone { border-style: dashed; border-color: #e3c3c0; background: #fffafa; }
+  .spo-sec__hd.is-gone { cursor: default; }
+  .spo-sec--gone .spo-sec__name { color: #8a7a62; text-decoration: line-through; }
+  .spo.is-reorder .spo-sec { background: #fbf8f2; }
+  .spo-tools > span { flex-wrap: wrap; }
+  .spo-tools button.is-on { background: #1f4d36; border-color: #1f4d36; color: #fff; }
+  .spo-tools button:disabled { opacity: 0.4; cursor: default; }
   .spo-chg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
   .spo-mini { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid #d8c9a8; border-radius: 999px; background: #fff; font: 600 0.72rem 'Poppins', sans-serif; color: #5c4a2c; cursor: pointer; }
   .spo-mini--back { border-color: #e0a526; color: #7a4d00; }
