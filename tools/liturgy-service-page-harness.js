@@ -214,8 +214,8 @@ try {
   // the ready ones and the tiles. The order of worship and its reader went.
   const ot = fn('_spOrderTab');
   check('the Liturgy Order tab is the service\'s library, its documents first; no order of worship, no reader',
-    /'<div class="sp-lib"><div class="sp-lib__main">' \+ _spResHtml\(occ\) \+ '<\/div>'/.test(ot) &&
-    /_spMakeHtml\(d, orderId\) \+ _spReadyHtml\(d, orderId\) \+ '<\/div><\/div>'/.test(ot) &&
+    /return '<div class="sp-lib">' \+ _spResHtml\(occ, d, orderId\) \+ '<\/div>';/.test(ot) &&
+    /_spMakeHtml\(d, orderId\)/.test(fn('_spResHtml')) && /_spReadyHtml\(d, orderId, sel\)/.test(fn('_spResHtml')) &&
     !fn('_spParts') && !fn('_spSource') && !fn('spFull') && !/pl-ow|pl-text|_spTexts/.test(ot) && !/contenteditable/.test(ren));
   check('this year\'s liturgy is a way into the Liturgy Builder', /onclick="LiturgyModule\.spEdit\(\)"/.test(fn('_spMakeHtml')) && /_llOpenInBuilder\(id\)/.test(fn('spEdit')));
   // "Double clicking or tapping on the document will preview it."

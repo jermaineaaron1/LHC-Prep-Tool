@@ -398,7 +398,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
   `LiturgyModule.openHub`), "Liturgy Library -- Read. Plan. Remember.":
   three cards -- **Readings & Prayers**, **Liturgy of Services** (no line
   under either) and **Memories** ("Blast from the past: services for future
-  reference"), as the operator named them on 2026-11-16 -- This Sunday (its day,
+  reference"), as the operator named them on 2026-11-16, each 50px shorter
+  than they were (117px on a phone, 288px at 1400px) -- This Sunday (its day,
   colour, readings, Prayer of the Day and the bulletin's theme verse), the
   Church Year (a tile per season, opening Readings at its next service) and
   Recently Added. The nav is Overview, Readings, Services, Memories.
@@ -438,15 +439,18 @@ than a bash heredoc, which quietly eats a level of backslashes.
     it becomes a **Special** service), the readings, the usual Traditional
     parts to add (Holy Communion before, during and after...), and Confirm. Each document says
     when it was added and its year's lectionary letter ("2024 · Year B"),
-    and is renamed in place; the preview goes full screen. Beside it: This
-    year's liturgy (the coming Sunday and, once its order is made, the
-    in-use card: the past year's liturgy over the day it is used for, the
-    liturgy folded under one bar with every section's words editable there
-    and in the Builder alike, the Builder, PDF and Share, another liturgy,
-    and Remove, which undoes Use; else the Liturgy App Files for it with
-    **Use**), and the Liturgy App Files saved from the
-    Builder (only when there are any); the tiles under them went on
-    2026-11-16. No order of worship or reader: an order is
+    and is renamed in place; the preview goes full screen. The year chips
+    are the box's tabs: **This Year · 2026** first and open at first (the
+    coming service's year), holding this year's liturgy beside that year's
+    documents -- the coming Sunday and, once its order is made, the in-use
+    card: the past year's liturgy over the day it is used for, the liturgy
+    folded under one bar, its sections and parts dragged into order, added
+    (a section, or a named subsection), renamed and removed, its words
+    edited there and in the Builder alike, the Builder, PDF and Share,
+    another liturgy, and Remove, which undoes Use; else the Liturgy App
+    Files for it with **Use** -- then the past years, each its own
+    documents and Liturgy App Files saved from the Builder, then All
+    years. No order of worship or reader: an order is
     designed in the Builder. **Lent Sundays, Easter Season and Epiphany
     Sundays** are services beside Advent Sundays. Gotchas 103, 104.
   - **Planning Notes, Special Planning, Checklist** are a plan for one
@@ -4948,6 +4952,60 @@ the anon key -- verify as `postgres`, not as the app.
       out. Measured in the preview on the 29 Nov order: two slides into
       Gather through the Builder and back, "Modified: 1 part added", and
       Undo put back "Same as the original".
+    - **This Year is a tab; sections and parts are dragged, added and named**
+      (the operator, 2026-11-16, four marked-up screenshots: the landing
+      cards "Make 30px smaller" -- asked, each card; "I want the 'This Year'
+      liturgy to have its own tab and not spread all over the liturgy page
+      ... 2026 is 'This Year - 2026' ... the priority because it's the
+      latest" -- asked, the year chip is the tab; "drag and drop to reorder
+      the liturgy parts. Also allow to add sections and even subsections.
+      Make sure all this additions is reflected in the Liturgy builder, LCD,
+      PDF" -- asked, a subsection is a named part). **The landing cards**
+      are 30px shorter each: 147 to 117px at 480px wide (bands 62px, buttons
+      40px, the band's lines at 1.25 / 1.35 so Memories' tagline fits), 318
+      to 288px at 1400px. **This Year** (`_spThisYear(d)`: the coming
+      service's year, else the calendar's) is the first year chip, starred,
+      open at first (`_sp.year = 'this'`; a year typed that is this year is
+      'this', and a year with nothing in it falls back to it), then the past
+      years newest first, then All years and + Year. The side column went
+      (`.sp-lib` is one column): in the Liturgies tab This Year shows
+      `_spMakeHtml` (this year's liturgy) beside that year's documents and
+      Liturgy App Files (`.sp-thisyr`, two columns from 1180px); any other
+      year shows only its own (`_spReadyHtml(d, orderId, year)` filtered by
+      year). An upload opens on the file's year. **Drag**: a grip
+      (`.spo-grip`, `touch-action: none`) on every section row and on every
+      liturgy or text part (a reading is the Roster's, a song the
+      Songbook's). Pointer events from the panel (`_spDragBind`,
+      `_spDragDown/Move/Up`): a section moves among the rows, the sections'
+      parts hidden while it does (`.spo.is-sorting`, the held row kept under
+      the finger); a part moves within an open section, into another open
+      one, or onto a closed one's row (`is-drop`), where it goes last. The
+      page scrolls at the screen's top and foot (`_spDragEdge`), Escape and
+      a cancelled pointer put it back, and `renderService` does nothing
+      while one is held. The drop is one Builder change through `_spEdit`:
+      `WO.libSection(oid, 'moveTo', id, { before })` (the Builder's
+      `_lbdMoveSectionTo`; last of the sections shown, with more not shown,
+      goes before the first of those) or `WO.libPart(oid, id, 'move', {
+      secId, before })` (`_woLibPart`: the Builder's own rules from
+      `lbdMoveItemToSection` -- a liturgy once in a section, its id naming
+      its section, the section left noted in `clearedSections`, the new one
+      let go -- placed before a part, or last); a drop where it started
+      changes nothing. **+ Section** (the tools row) opens a form above the
+      list: a name and where it goes (at the top, or after any section,
+      the open one first), `WO.libSection(oid, 'add', after, { title })`,
+      an id as the Builder's own Add section gives, the new section opened.
+      **Add subsection** (under a section's parts; an empty section's box
+      still says Add words, named for the section) takes a name and words
+      (`_sp.add.title`). A liturgy part's **Edit** names it as well
+      (`WO.libSetSlides(..., title)`, the same step) and its bin takes it out
+      (`WO.libPart(oid, id, 'remove')`, asked first). Every one of these is
+      the Builder's copy, so the LCD draws it and the PDF prints it; against
+      the original they are moved, added or taken out, and Reset puts them
+      back. Measured in the preview on the 29 Nov order: a section dragged
+      above Gather, the Invocation part dragged into Confession and Confession
+      onto Kyrie's closed row (renamed `..._liturgy_doc_2_wo-section-sp4`), a
+      section added after Gather with its words, an Absolution subsection
+      added, renamed and removed, and Reset back to "Same as the original".
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
