@@ -5131,6 +5131,44 @@ the anon key -- verify as `postgres`, not as the app.
       "Modified: 1 section moved"), a double tap on Kyrie's badge opening the
       file's preview at Kyrie with its words, and Use run through to the
       service's page with This Year chosen.
+    - **The blend is A and B** (the operator, 2026-11-16, on the window above:
+      "I'm not very clear how the blend works. The layout is a bit confusing.
+      I'm not sure what I'm blending with"; of two sketches they chose "pick
+      the other liturgy first, then A, B or Off for each section"). The window
+      (`_spBlendDraw`, the same `spoBlend` from the chooser) says first which
+      is which: **A** is this year's liturgy as it is now, named by its date
+      ("29 Nov, as it is now") -- not by the file it first came from, which
+      changes and blends may have left behind -- and **B** is the one to blend
+      with, a dropdown when there are several (`spoBlendWith`, which starts
+      the rows again): every Liturgy App File, those for this Sunday first,
+      the one in use too, last, marked "· its original" (`_spBlendOthers`).
+      Then ONE list (`_spBlendRows`, pure): A's sections in order, each with
+      B's section of the same name (`_spBlKey`) when that has words; B's own
+      sections after the row their neighbour before them went to, those before
+      B's first match before that match, with no match at all last; a B
+      section with no words makes no row. Each row: a grip, its number (– when
+      Off), its name -- tapped, A's words beside B's (`spoBlendOpen`, B's with
+      Preview it there, `spoBlendPeek` -> `_spOpenSvlAt`) -- and **A / B /
+      Off** (`spoBlendSet`), each greyed where it cannot be had. What a row
+      keeps is `_spBlendPick` (pure): its choice where it can be had, else A
+      where A has it, else Off; a section holding the readings is never Off.
+      So A keeps everything and B's own sections start Off. The foot counts
+      "6 sections · 5 from A · 1 from B". `_spBlendPlan` (pure, `rows, choice,
+      order, bRow`): A Off goes in `drop`; A as B in `replace` with B's words;
+      B's own kept in `add` (`key` `b_<B's section id>`, its token
+      `x:b_<id>`); `order` when the kept rows are not A's own order; `map` and
+      `from` as before. `_woLibBlend` takes `drop` first: the section out with
+      its liturgy and texts (`_woUserClearedTypes`), its songs left in the
+      order without a section (`_lbdUnplaceSong`), as the Builder's own
+      Remove, and its `blendMap` entry let go -- all one Undo. Blend (n
+      changes) counts drops too (`_spBlendChanges`); with nothing chosen it
+      says "Choose B or Off for a section, or drag them into a new order
+      first." The first blend's dropdown per section, ticks for the extra
+      sections and source badges (`_spBlendModel`, `spoBlendPick`,
+      `spoBlendAdd`, `spoBlendSrc`) are gone. Measured in the preview on the
+      29 Nov order at 480px: B the original, 20 rows, B's own sections Off,
+      Invocation set to B showing "This year's has no such section" beside
+      B's words, "6 sections · 5 from A · 1 from B", Blend (1 change).
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

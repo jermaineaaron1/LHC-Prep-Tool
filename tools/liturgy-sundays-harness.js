@@ -1368,29 +1368,6 @@ try {
   check('...Blend only when there is another liturgy to take from; else how to have one',
     /rows\.some\(function\(r\) \{ return r\.id !== usedId; \}\)/.test(pick24) && /LiturgyModule\.spoBlend\(\)/.test(pick24) && /To blend, convert another year’s liturgy document first/.test(pick24));
   try {
-    const K = new Function(fn('_spBlKey') + '\nreturn _spBlKey;')();
-    const M = new Function('_spBlKey', fn('_spBlendModel') + '\nreturn _spBlendModel;')(K);
-    const P = new Function(fn('_spBlendPlan') + '\nreturn _spBlendPlan;')();
-    const lit = (id, sec, t) => ({ id, itemType: 'liturgy', sectionId: sec, sourceId: 'doc_' + id, title: t, slides: [{ content: t + ' words' }] });
-    const secs = [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }, { id: 's3', title: 'Kyrie' }, { id: '', title: 'Not in a section' }];
-    const rows = [
-      { id: 'A', title: 'No Communion', year: '2025', data: { sectionLayout: [{ id: 'a1', title: 'Confession' }, { id: 'a2', title: 'Kyrie' }], items: [lit('1', 'a1', 'Confession'), lit('2', 'a2', 'Kyrie')] } },
-      { id: 'B', title: 'Advent liturgy', year: '2023', data: { sectionLayout: [{ id: 'b1', title: '2. CONFESSION & Absolution' }, { id: 'b0', title: '3. Confession' }, { id: 'b2', title: 'Advent Wreath' }, { id: 'b3', title: 'Kyrie' }, { id: 'b4', title: 'Readings' }],
-        items: [lit('3', 'b0', 'Confession B'), lit('4', 'b2', 'Wreath'), { id: 'r', itemType: 'scripture', sectionId: 'b4', title: 'Isaiah 64' }, { id: 'sg', itemType: 'song', sectionId: 'b3' }] } }];
-    const m = M(secs, rows, 'A');
-    const conf = m.secs.find(c => c.id === 's2'), ky = m.secs.find(c => c.id === 's3'), ga = m.secs.find(c => c.id === 's1');
-    check('the blend: a section\'s choices are the files with a section of the same name that has words (numbers, case and punctuation aside); a file\'s own section of no words, readings or songs alone, is none',
-      K('3. Confession') === 'confession' && K('CONFESSION & Absolution') === 'confession and absolution' &&
-      conf.opts.map(o => o.row + ':' + o.sec + (o.inUse ? '*' : '')).join() === 'A:a1*,B:b0' && ky.opts.map(o => o.row).join() === 'A' && !ga.opts.length && m.secs.length === 3,
-      JSON.stringify(m.secs.map(c => [c.id, c.opts.map(o => o.row + ':' + o.sec)])));
-    check('...the sections only another has, after the nearest section before them that this service has',
-      m.extra.length === 1 && m.extra[0].title === 'Advent Wreath' && m.extra[0].opts[0].after === 's2' && m.extra[0].opts[0].row === 'B', JSON.stringify(m.extra));
-    const plan = P(m, { s2: 'B|b0', s3: 'A|a2' }, { 'advent wreath': 'B|b2' });
-    check('...the plan: each section chosen (its words from that file), each extra section ticked (after its place), and the files taken from -- not the one in use',
-      plan.replace.length === 2 && plan.replace[0].secId === 's2' && plan.replace[0].items[0].title === 'Confession B' && plan.add.length === 1 && plan.add[0].after === 's2' &&
-      plan.add[0].title === 'Advent Wreath' && plan.from.map(f => f.id).join() === 'B' && P(m, {}, {}).replace.length === 0, JSON.stringify(plan));
-  } catch (e) { check('the blend\'s model runs', false, e.stack); }
-  try {
     const log = [];
     const order = { id: 'o', template: { serviceLiturgy: { id: 'A', title: 'No Communion', use: { made: true } } },
       sectionLayout: [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }, { id: 's3', title: 'Kyrie' }],
@@ -1428,10 +1405,6 @@ try {
   check('Reset to original lets go of the blend\'s note; the in-use card says what it was blended with',
     /WO\.libRestore\(oid, Object\.assign\(\{ unblend: true \}, plan\)\)/.test(fn('spoPutAll')) && /if \(plan\.unblend && svlR && \(Array\.isArray\(svlR\.blend\) \|\| svlR\.blendMap\)\)/.test(fn('_woLibRestore')) &&
     /delete tplR\.serviceLiturgy\.blend; delete tplR\.serviceLiturgy\.blendMap;/.test(fn('_woLibRestore')) && /libBlend: _woLibBlend/.test(SRC) && /spoBlendGo: spoBlendGo/.test(SRC));
-  check('the blend window: a dropdown per section ("As it is" first), "Only this one" where there is no other, the extra sections ticked in, a choice never redrawing the window, Blend n sections',
-    /'<option value="">As it is<\/option>'/.test(fn('_spBlendDraw')) && /Only this one/.test(fn('_spBlendDraw')) && /Sections only another liturgy has/.test(fn('_spBlendDraw')) &&
-    /if \(bodyNow && scrollWas\) bodyNow\.scrollTop = scrollWas;/.test(fn('_spBlendDraw')) && /WO\.libBlend\(oid, plan\)/.test(fn('spoBlendGo')) &&
-    /Choose another liturgy for a section, tick a section to add, or drag them into a new order first/.test(fn('spoBlendGo')));
 
   // ------------------------------------------------------------ 25. Use comes back; the parts to add; sources; the blend's sources and order
   // From the operator (2026-11-16): "when using a liturgy, it will direct the
@@ -1472,24 +1445,6 @@ try {
     /if \(r\) \{ _spSvlRowIn\(r\); lfOpen\(id, true\); return; \}/.test(fn('spoSrc')) && !/spoGoOrig/.test(fn('spoSrc')) &&
     /Open its document<\/span>/.test(fn('lfOpen')));
   try {
-    const K = new Function(fn('_spBlKey') + '\nreturn _spBlKey;')();
-    const M = new Function('_spBlKey', fn('_spBlendModel') + '\nreturn _spBlendModel;')(K);
-    const P = new Function(fn('_spBlendPlan') + '\nreturn _spBlendPlan;')();
-    const lit = (id, sec, t) => ({ id, itemType: 'liturgy', sectionId: sec, sourceId: 'doc_' + id, title: t, slides: [{ content: t }] });
-    const secs = [{ id: 's1', title: 'Gather', parts: [] }, { id: 's2', title: 'Confession', parts: [{ id: 'p', kind: 'liturgy', title: 'Confession', slides: ['We confess'] }, { id: 'r', kind: 'reading', title: 'Ps 51' }] }, { id: 's3', title: 'Kyrie', parts: [] }];
-    const rows = [{ id: 'A', title: 'No Communion', year: '2025', data: { sectionLayout: [{ id: 'a1', title: 'Confession' }, { id: 'a2', title: 'Kyrie' }], items: [lit('1', 'a1', 'Confession'), lit('2', 'a2', 'Kyrie')] } },
-                  { id: 'B', title: 'Advent', year: '2023', data: { sectionLayout: [{ id: 'b1', title: 'Kyrie' }, { id: 'b2', title: 'Wreath' }], items: [lit('3', 'b1', 'Kyrie B'), lit('4', 'b2', 'Wreath')] } }];
-    const m = M(secs, rows, 'A', { s3: { row: 'B', title: 'Advent', year: '2023', secTitle: 'Kyrie' } });
-    const by = id => m.secs.find(c => c.id === id);
-    check('the blend\'s source badges: a blended section its file, a section the file in use has that file (starred), one only this service has none; the words as it is, readings left out',
-      by('s3').src.row === 'B' && by('s3').src.secTitle === 'Kyrie' && by('s2').src.row === 'A' && by('s2').src.orig === true && by('s1').src === null &&
-      by('s2').parts.length === 1 && by('s2').parts[0].kind === 'liturgy' && by('s2').opts[0].secTitle === 'Confession', JSON.stringify(m.secs.map(c => [c.id, c.src])));
-    const plan = P(m, { s3: 'B|b1' }, { wreath: 'B|b2' }, ['s3', 's2', 'x:wreath', 's1']);
-    const same = P(m, {}, {}, ['s1', 's2', 's3']);
-    check('...the draft\'s order goes with the plan (a new section by "x:<name>") only when it differs, and where each section\'s words came from',
-      plan.order.join() === 's3,s2,x:wreath,s1' && !same.order && plan.add[0].key === 'wreath' && plan.map.s3.row === 'B' && plan.replace[0].secId === 's3' && plan.map['x:wreath'].secTitle === 'Wreath', JSON.stringify(plan));
-  } catch (e) { check('the blend\'s sources and order run', false, e.stack); }
-  try {
     const log = [];
     const order = { id: 'o', template: { serviceLiturgy: { id: 'A', title: 'No Communion', blendMap: { s9: { row: 'Z' } } } },
       sectionLayout: [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }, { id: 's3', title: 'Kyrie' }], allItems: [] };
@@ -1513,16 +1468,105 @@ try {
     const only = await W.blend('o', { order: ['s1', 's2'] });
     check('...a new order alone is a blend too', only.n === 1 && order.sectionLayout.map(x => x.title).join() === 'Gather,Confession,Kyrie,Wreath', JSON.stringify(order.sectionLayout));
   } catch (e) { check('the draft runs', false, e.stack); }
-  const bd25 = fn('_spBlendDraw');
-  check('the blend window: each row its grip, its number, a heading that opens its words, its source badge and its choice; a section only another has, ticked, joins the list as New with a way out',
-    /class="spo-grip spb-grip" data-tok="/.test(bd25) && /LiturgyModule\.spoBlendOpen\(this\.dataset\.tok\)/.test(bd25) && /'<div class="spb-words">' \+ words \+ '<\/div>'/.test(bd25) &&
-    /onclick="LiturgyModule\.spoBlendSrc\(this\)" title="Double-tap to preview it, at this section"/.test(bd25) && /<em class="spb-new">New<\/em>/.test(bd25) &&
-    /LiturgyModule\.spoBlendAdd\(this\.dataset\.key, false\)/.test(bd25) && /b\.order\.splice\(aft === -1 \? b\.order\.length : aft \+ 1, 0, tk\)/.test(fn('spoBlendAdd')) && /_spBlDragBind\(el\);/.test(bd25));
-  check('...a double tap on a badge opens that liturgy\'s preview at the section, lit and its words open; a drag reorders the draft; Blend counts every change',
-    /again = _spBlTap\.el === btn && now - _spBlTap\.at < 450/.test(fn('spoBlendSrc')) && /_spOpenSvlAt\(btn\.getAttribute\('data-row'\), btn\.getAttribute\('data-sec'\)\)/.test(fn('spoBlendSrc')) &&
-    /li\.classList\.add\('is-hit'\);/.test(fn('_spOpenSvlAt')) && /if \(first\) first\.click\(\);/.test(fn('_spOpenSvlAt')) &&
-    /if \(!cancel && _spBl && toks\.join\('\|'\) !== _spBl\.order\.join\('\|'\)\) \{ _spBl\.order = toks; _spBl\.moved = true; \}/.test(fn('_spBlDragBind')) &&
-    /return p\.replace\.length \+ p\.add\.length \+ \(p\.order && b\.moved \? 1 : 0\);/.test(fn('_spBlendCount')) && /This is the new draft of this year’s liturgy/.test(fn('spoBlendGo')));
+  // ------------------------------------------------------------ 26. The blend, A and B
+  // From the operator (2026-11-16), on the blend window: "I'm not very clear
+  // how the blend works. The layout is a bit confusing. I'm not sure what I'm
+  // blending with." They chose this: pick the other liturgy first (B), this
+  // year's is A, and each section is A, B or Off.
+  console.log('\n26. The blend, A and B');
+  const lit26 = (id, sec, t) => ({ id, itemType: 'liturgy', sectionId: sec, sourceId: 'doc_' + id, title: t, slides: [{ content: t + ' words' }] });
+  const aSecs26 = [
+    { id: 's1', title: 'Gather', parts: [{ id: 'p1', kind: 'liturgy', title: 'Gather', slides: ['Welcome'] }] },
+    { id: 's2', title: '2. Confession', parts: [{ id: 'p2', kind: 'liturgy', title: 'Confession', slides: ['We confess'] }, { id: 'sg', kind: 'song', title: 'Hymn' }] },
+    { id: 's3', title: 'Readings', parts: [{ id: 'r1', kind: 'reading', title: 'Isaiah 64' }] },
+    { id: 's4', title: 'Kyrie', parts: [] },
+    { id: '', title: 'Not in a section', parts: [] }];
+  const bRow26 = { id: 'B', title: 'Advent liturgy', year: '2023', data: {
+    sectionLayout: [{ id: 'b0', title: 'Invocation' }, { id: 'b1', title: 'CONFESSION' }, { id: 'b2', title: 'Advent Wreath' }, { id: 'b3', title: 'Kyrie' }, { id: 'b4', title: 'Empty' }, { id: 'b5', title: 'Blessing' }],
+    items: [lit26('0', 'b0', 'Invocation'), lit26('1', 'b1', 'Confession B'), lit26('2', 'b2', 'Wreath'), { id: 'r', itemType: 'scripture', sectionId: 'b4', title: 'Psalm' },
+            lit26('5', 'b5', 'Blessing'), { id: 'sgb', itemType: 'song', sectionId: 'b3' }] } };
+  try {
+    const K = new Function(fn('_spBlKey') + '\nreturn _spBlKey;')();
+    const R = new Function('_spBlKey', fn('_spBlendRows') + '\nreturn _spBlendRows;')(K);
+    const Pk = new Function(fn('_spBlendPick') + '\nreturn _spBlendPick;')();
+    const P = new Function(fn('_spBlendPick') + '\n' + fn('_spBlendPlan') + '\nreturn _spBlendPlan;')();
+    const rows = R(aSecs26, bRow26), by = t => rows.find(r => r.tok === t);
+    check('the rows: this year\'s sections (A) in order, each with the other\'s (B) section of the same name when it has words; B\'s own sections after their neighbour, those before its first match before that match',
+      rows.map(r => r.tok).join() === 's1,x:b_b0,s2,x:b_b2,s3,s4,x:b_b5' && by('s2').b.sec === 'b1' && by('s2').b.items[0].title === 'Confession B' &&
+      by('s4').b === null && by('x:b_b0').a === null && by('x:b_b2').title === 'Advent Wreath', JSON.stringify(rows.map(r => [r.tok, r.b && r.b.sec])));
+    check('...A\'s words are its liturgy and text parts (not its songs), and a section holding a reading says so; a section of B with no words, or no id on A, makes no row',
+      by('s2').a.parts.map(q => q.id).join() === 'p2' && by('s3').a.reads === true && by('s1').a.reads === false && !rows.some(r => /b4/.test(r.tok)) && !rows.some(r => r.tok === ''));
+    const lone = R([{ id: 's1', title: 'Gather', parts: [] }], { id: 'Z', data: { sectionLayout: [{ id: 'z', title: 'Wreath' }], items: [lit26('9', 'z', 'Wreath')] } });
+    check('...with no name in common, B\'s sections go last; with no B, A\'s alone', lone.map(r => r.tok).join() === 's1,x:b_z' && R(aSecs26, null).map(r => r.tok).join() === 's1,s2,s3,s4');
+    check('a row keeps its choice where it can be had, else A where A has it, else Off; a section holding the readings is never Off',
+      Pk(by('s2'), {}) === 'A' && Pk(by('s2'), { s2: 'B' }) === 'B' && Pk(by('s4'), { s4: 'B' }) === 'A' && Pk(by('s3'), { s3: 'off' }) === 'A' &&
+      Pk(by('s1'), { s1: 'off' }) === 'off' && Pk(by('x:b_b0'), {}) === 'off' && Pk(by('x:b_b0'), { 'x:b_b0': 'B' }) === 'B' && Pk(by('x:b_b0'), { 'x:b_b0': 'A' }) === 'off');
+    const order0 = rows.map(r => r.tok);
+    const none = P(rows, {}, order0, bRow26);
+    check('the plan: all A in A\'s own order is nothing to do',
+      !none.replace.length && !none.add.length && !none.drop.length && !none.from.length && !none.order, JSON.stringify(none));
+    const plan = P(rows, { s1: 'off', s2: 'B', 'x:b_b2': 'B' }, order0, bRow26);
+    check('...A Off is taken out, A as B has B\'s words in its place, B\'s own kept comes in (where the list has it), noted where each came from and which liturgy was taken from',
+      plan.drop.join() === 's1' && plan.replace.length === 1 && plan.replace[0].secId === 's2' && plan.replace[0].items[0].title === 'Confession B' &&
+      plan.add.length === 1 && plan.add[0].key === 'b_b2' && plan.add[0].title === 'Advent Wreath' && plan.order.join() === 's2,x:b_b2,s3,s4' &&
+      plan.map.s2.row === 'B' && plan.map.s2.secTitle === 'CONFESSION' && plan.map['x:b_b2'].secTitle === 'Advent Wreath' && plan.from.map(f => f.id).join() === 'B', JSON.stringify(plan));
+    const moved = P(rows, {}, ['s3', 's1', 's2', 'x:b_b0', 's4'], bRow26), dropOnly = P(rows, { s4: 'off' }, order0, bRow26);
+    check('...a new order goes with the plan (B\'s sections left Off out of it); a section taken out alone moves nothing',
+      moved.order.join() === 's3,s1,s2,s4' && !moved.from.length && dropOnly.drop.join() === 's4' && !dropOnly.order, JSON.stringify([moved, dropOnly]));
+  } catch (e) { check('the blend\'s rows and plan run', false, e.stack); }
+  try {
+    const sunny = { id: 'sun', title: 'For this Sunday' }, used = { id: 'used', title: 'In use' }, other = { id: 'oth', title: 'Other Sundays' };
+    const O = new Function('_llSundayOf', '_sp', '_spPickGroups', fn('_spBlendOthers') + '\nreturn _spBlendOthers;')(
+      () => ({ occ: 'advent', key: 'advent:1' }), { occ: 'advent' }, (rs, k) => ({ suit: k === 'advent:1' ? [used, sunny] : [], other: [other] }));
+    check('B is chosen from every Liturgy App File, those for this Sunday first; the one in use too, last -- this year\'s may have left some of it behind',
+      O({ next: { day: '1st Sunday of Advent' }, rows: [] }, 'used').map(r => r.id).join() === 'sun,oth,used');
+  } catch (e) { check('the files to blend with run', false, e.stack); }
+  try {
+    const log = [], cleared = {};
+    const order = { id: 'o', template: { serviceLiturgy: { id: 'A', title: 'No Communion', blendMap: { s1: { row: 'B' }, s2: { row: 'B' } } } },
+      sectionLayout: [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }, { id: 's3', title: 'Kyrie' }],
+      allItems: [{ id: 'g1', itemType: 'liturgy', sectionId: 's1', sourceId: 'doc_1' }, { id: 'g2', itemType: 'content', sectionId: 's1' }, { id: 'rd', itemType: 'scripture', sectionId: 's1' },
+                 { id: 'k1', itemType: 'liturgy', sectionId: 's3', sourceId: 'doc_3' }] };
+    const songs = [{ id: 'song1', sec: 's1' }, { id: 'song2', sec: 's3' }];
+    const lid = id => { for (let k = 0; k < order.sectionLayout.length; k++) if (order.sectionLayout[k].id === id) return k; return -1; };
+    const env = { _lbdIsActive: () => true, _woLcdInPage: () => false, _lbdPfx: () => 'o__', _lbdUid: () => 'u1',
+      _woSectionList: () => order.sectionLayout.map(x => ({ id: x.id, title: x.title })), _lbdSecIndex: lid,
+      _soSaveSettled: () => Promise.resolve(true), _lbdChange: f => { log.push('change'); return f() !== false; },
+      _lbdClearClearedFor: () => {}, _lbdNoteCleared: () => {}, _lbdSortSongsByService: () => {},
+      songOrderSections: songs, _woSongSectionIds: sg => sg.sec ? [sg.sec] : [], _lbdUnplaceSong: (sg, id) => { log.push('unplace ' + sg.id + ' ' + id); sg.sec = ''; },
+      _woUserClearedTypes: cleared };
+    const keys = Object.keys(env);
+    const W = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibBlend'].map(fn).join('\n') +
+      '\nreturn { blend: _woLibBlend, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    W.hold(order);
+    const res = await W.blend('o', { replace: [], add: [], drop: ['s1', 'gone'], from: [], map: {} });
+    check('a section left Off comes out of the order with what is in it; its songs stay, without a section; one Undo; its note of where it came from let go',
+      order.sectionLayout.map(x => x.title).join() === 'Confession,Kyrie' && order.allItems.map(x => x.id).join() === 'k1' &&
+      log.join() === 'change,unplace song1 s1' && songs[1].sec === 's3' && cleared.liturgy === true && cleared.content === true && res.n === 1 &&
+      !order.template.serviceLiturgy.blendMap.s1 && order.template.serviceLiturgy.blendMap.s2.row === 'B', JSON.stringify([order, log, res]));
+  } catch (e) { check('the blend\'s Off runs', false, e.stack); }
+  const bd26 = fn('_spBlendDraw');
+  check('the window says first which is which: A this year\'s liturgy (by its date, as it is now), B the one to blend with -- a choice when there are several, the original marked',
+    /<span class="spb2-pill is-a">A<\/span><span class="spb2-kt"><small>This year’s<\/small>/.test(bd26) && /<span class="spb2-pill is-b">B<\/span><span class="spb2-kt"><small>Blend with<\/small>/.test(bd26) &&
+    /onchange="LiturgyModule\.spoBlendWith\(this\.value\)"/.test(bd26) && /r\.id === b\.aId \? ' · its original' : ''/.test(bd26) &&
+    /aName: 'This year’s liturgy', aYear: d\.next \? _lfShortDate\(d\.next\.key\) \+ ', as it is now'/.test(fn('spoBlend')) &&
+    /b\.bId = id; _spBlendReset\(\); _spBlendDraw\(\);/.test(fn('spoBlendWith')) && /b\.choice = \{\}; b\.order = b\.rows\.map/.test(fn('_spBlendReset')));
+  check('...every row its grip, its number (– when Off), a name that opens A and B side by side, and A / B / Off -- each greyed where it cannot be had, Off never for the readings',
+    /class="spo-grip spb-grip" data-tok="/.test(bd26) && /\(off \? '–' : num\)/.test(bd26) && /LiturgyModule\.spoBlendOpen\(this\.dataset\.tok\)/.test(bd26) &&
+    /'<div class="spb2-cmp">' \+ col\('A', r\) \+ col\('B', r\)/.test(bd26) && /opt\('A', 'A', !!r\.a, /.test(bd26) && /opt\('B', 'B', !!r\.b, /.test(bd26) &&
+    /opt\('off', 'Off', !\(r\.a && r\.a\.reads\), 'It holds the readings'\)/.test(bd26) && /class="spb2-o spb2-na"/.test(bd26) &&
+    /onclick="LiturgyModule\.spoBlendSet\(this\.dataset\.tok, this\.dataset\.c\)"/.test(bd26));
+  check('...B\'s words open in its own preview at the section; the foot counts the sections kept and from where; a redraw keeps the place; drag reorders',
+    /var peek = has && side === 'B';/.test(bd26) && /if \(side === 'B' && r\.b\) _spOpenSvlAt\(b\.bId, r\.b\.title\);/.test(fn('spoBlendPeek')) &&
+    /li\.classList\.add\('is-hit'\);/.test(fn('_spOpenSvlAt')) && /' sections · ' \+ t\.A \+ ' from A · ' \+ t\.B \+ ' from B<\/span>'/.test(bd26) &&
+    /if \(bodyNow && scrollWas\) bodyNow\.scrollTop = scrollWas;/.test(bd26) && /_spBlDragBind\(el\);/.test(bd26) &&
+    /if \(!cancel && _spBl && toks\.join\('\|'\) !== _spBl\.order\.join\('\|'\)\) \{ _spBl\.order = toks; _spBl\.moved = true; \}/.test(fn('_spBlDragBind')));
+  check('Blend counts every change (Off too) and is the Builder\'s; nothing chosen says what to do',
+    /plan\.replace\.length \+ plan\.add\.length \+ plan\.drop\.length \+ \(plan\.order && b\.moved \? 1 : 0\)/.test(fn('_spBlendChanges')) &&
+    /WO\.libBlend\(oid, c\.plan\)/.test(fn('spoBlendGo')) && /Choose B or Off for a section, or drag them into a new order first\./.test(fn('spoBlendGo')) &&
+    /This is the new draft of this year’s liturgy/.test(fn('spoBlendGo')) &&
+    /spoBlendWith: spoBlendWith, spoBlendSet: spoBlendSet, spoBlendOpen: spoBlendOpen, spoBlendPeek: spoBlendPeek/.test(SRC) &&
+    !/spoBlendPick|spoBlendAdd|spoBlendSrc|_spBlendModel/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
