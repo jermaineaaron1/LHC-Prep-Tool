@@ -5080,6 +5080,57 @@ the anon key -- verify as `postgres`, not as the app.
       desk's Change opening the sheet, and Confession blended back from its
       own file through the Builder (a new id, the same words, "Same as the
       original").
+    - **Use comes back; the parts to add open; Sources; the blend as a
+      draft** (the operator, 2026-11-16, four marked-up screenshots). **Use**
+      still puts the liturgy in through the Builder (`_llOpenInBuilder`,
+      `WO.svlUseFromLibrary`), then goes straight back to This Year on the
+      service's page (`llBackToLib`) once its readings are in:
+      `svlUseFromLibrary` answers `_svlApply`'s promise, which `_svlApply`
+      now returns (the readings' fill, or at once), with a 15s fallback.
+      Confirm says so ("Then you are back here, on This Year..."). **Add to
+      it** is one list in a Traditional service's order (it was a grid read
+      across), each row opening in place (`spUseOpen`, no redraw) to the
+      words its library liturgy brings (`_spUseLits`, `_spUseWordsHtml`,
+      slide by slide; a place for songs or slides says nothing comes with
+      it); a tick keeps the window's scroll (`_spUseDraw` keeps it within a
+      step). **Sources** on the in-use card -- a phone's in place of "From
+      ...", a desk's in the "The liturgy of" block -- is a count and a badge
+      each (`_spSourcesHtml`): the file the liturgy came from, starred
+      Original, then those it was blended with; a badge opens its document's
+      preview straight away (`spoSrc`: the PDF, Word or Google Doc it was
+      converted from, else the app file -- never the folder; Go to file is in
+      the ⋯ menu). An app file's preview has **Open its document**
+      (`lfOpen`'s svl branch, the file's `made_from` read from the page's own
+      rows when the library's copy lacks it). **The blend** is a list in the
+      draft's order (`b.order`, tokens: a section's id, `x:<name>` for one
+      only another liturgy has): each row a grip, its number, a heading that
+      opens its words (as it is, or as the chosen liturgy has them,
+      `_spBlWordsHtml`), a source badge and its choice. The badge says where
+      the section's words come from now (`_spBlendModel`'s `src`: the
+      blend's note `serviceLiturgy.blendMap[secId]`, else the file in use
+      when it has the section, starred, else "This service"); a double tap
+      or double-click (`spoBlendSrc`, two taps within 450ms) opens that
+      file's preview at the section (`_spOpenSvlAt`: the outline's section
+      lit, `is-hit`, scrolled to, its first part's words open). A PDF, Word
+      or Google Doc is drawn by the browser's or Google's own viewer, which
+      the app cannot scroll into, so the section is found in the app file's
+      own words, the document a press away there. Rows are dragged into order
+      (`_spBlDragBind`: pointer events on the window, the body scrolling at
+      its edges); a section only another has, ticked, joins the list as New
+      after its place, with an x to leave it out. **Blend** applies the draft:
+      `_spBlendPlan` carries `order` when it differs and `map` (where each
+      section's words came from); `_woLibBlend` puts the new sections in,
+      orders the layout by the tokens (a new one by `x:<name>`), and notes
+      `blendMap` by the section's id here -- a new order alone is a blend
+      too. The window says "Blend (n changes)", and after it the liturgy is
+      shown open as the new draft; Reset to original drops `blend` and
+      `blendMap`. Measured in the preview on the 29 Nov order: Sources 1
+      opening the Google Doc, the blend's badges (two sections "This
+      service", the rest the starred file), Confession's words opened in
+      place, Confession dragged above Gather and blended (the layout changed,
+      "Modified: 1 section moved"), a double tap on Kyrie's badge opening the
+      file's preview at Kyrie with its words, and Use run through to the
+      service's page with This Year chosen.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
