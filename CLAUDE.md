@@ -4816,6 +4816,53 @@ the anon key -- verify as `postgres`, not as the app.
       to Special in the two minutes before the order was made says Use made
       it, from what (Contemporary); otherwise the window says it cannot be
       taken off and offers nothing. To have it back, Use it again.
+    - **The date tile, Show liturgy, and the original put back** (the
+      operator, 2026-11-16, on a sketch of the card: "Number" on the left of
+      "Used for" -- asked, the day as a date tile -- and "shift here": Show
+      liturgy as a button in that block, the bar under it struck out; and
+      "what if the user has modified the content within the ready to use
+      liturgy ... and want to revert back to original?" -- asked, per part
+      plus all at once). "Used for" is a row: a calendar tile (`_spDateTile`,
+      the day over the month), the words, and **Show liturgy** / Hide liturgy
+      (`spoShow`); the counts went into the open liturgy's top line. **The
+      original** is the Liturgy App File the liturgy came from
+      (`svl.id`: this page's row, else read once, `_spOrigRow`); a past
+      service (`fromOrder`) is compared with nothing. `_spCompare` (pure)
+      matches each LITURGY part of the file to the order's by its source id --
+      a part keeps the file's `sourceId` when it goes in (a converted
+      document's `doc_1`, `doc_2`...; the live 29 Nov order's 15 parts all
+      carry theirs) -- else by its title; readings (the Roster's) and songs
+      (the Songbook's) are never compared. Words are compared as the WALL
+      shows them: parentheticals out (gotcha 90), indents and runs of spaces
+      ignored -- measured, the live 29 Nov order's Confession had lost its
+      indented lines and its Advent Wreath part "(SUO GAN)" on the way in,
+      with nobody editing, and showed as two changes until then. A file part
+      with no match was TAKEN OUT; it goes back into its section -- the
+      file's, renamed as a Special order names it (`WO.svlSecMap`, the map
+      `_svlSpecialize` makes) -- after the part it followed. An order part
+      with no match is "Not in the original" (a Traditional part added at
+      Use, one added since) and is left alone. Under the two blocks a line
+      says "Same as the original", or "2 parts changed · 1 taken out from
+      the original" with **See** (`spoShowChanged`: the liturgy open at
+      those sections, a dot on each) and **Put all back**. A changed part is
+      marked Changed with **See the original** (`spoOrig`, its words under
+      it) and **Put back the original** (`spoPutBack`: `WO.libSetSlides` with
+      a function of the slides there, `WO.libKeepBg` -- the original's words
+      and formatting, each slide keeping the background the service gave its
+      place -- with Undo); a part taken out is shown in its section, struck
+      through, with Put back (`spoPutGone`). **Put all back** (`spoPutAll`)
+      asks first (`lhcAskDelete`: what comes back, that what was changed in
+      them is lost, that parts added since, the readings and the songs stay)
+      and goes through `WO.libRestore` (`_woLibRestore`): in the Builder's
+      copy when this device holds it -- one `_lbdChange`, so one Undo, its
+      save waited on, and a part put back in a section clears that section's
+      `clearedSections` record (`_lbdClearClearedFor`, the Builder's own rule
+      for content placed in a section) -- else the changed parts' rows one at
+      a time, read back; a part taken out can only go back through the
+      Builder, so the page opens it, puts the parts back and returns
+      (`llBackToLib`). Measured in the preview on the 29 Nov order: an edit
+      made in the Builder and a part taken out there were both found, put
+      back, and the line read "Same as the original" again.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
