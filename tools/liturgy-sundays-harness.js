@@ -429,10 +429,11 @@ try {
   if (S) {
     try {
       const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
-        '_spUseState', '_spUseReads', '_spUseDraw', 'spUseDate', 'spUseFile', 'spUseClose', 'spUseLeave', 'spUseReadings', 'spUseGo', 'spUseReconvert', 'spConvMenu', 'spConvAct'];
+        '_spUseState', '_spUseReads', '_spUseDraw', 'spUseDate', 'spUseFile', 'spUseClose', 'spUseLeave', 'spUseReadings', 'spUseGo', 'spUseReconvert', 'spConvMenu', 'spConvAct',
+        '_spFileReadings', '_spRefKey', '_spReadDiff', '_spPutReadings', 'spUseReadsFrom', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName'];
       const bodies = names.map(fn);
       if (!bodies.every(Boolean)) throw new Error('missing: ' + names.filter((n, i) => !bodies[i]).join(', '));
-      const log = [], els = {};
+      const log = [], els = {}, roster = {};
       const mkEl = () => ({ id: '', className: '', innerHTML: '', attrs: {}, addEventListener() {}, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
         remove() { delete els[this.id]; }, querySelector() { return null; }, contains() { return false; } });
       const orders = { '2026-12-13': { id: 'o13', type: 'traditional', title: 'Service - 13 Dec 2026' } };
@@ -450,19 +451,25 @@ try {
         spSundays: id => log.push('sundays ' + id), spDeleteReady: id => log.push('delete ' + id), lfOpenDay: k => log.push('readings ' + k),
         _spFloat: (btn, id, html, forId) => { const m = mkEl(); m.id = id; m.innerHTML = html; m.attrs['data-for'] = forId; els[id] = m; }, _spFloatClose: id => { delete els[id]; },
         _lfShortDate: k => k.slice(5, 10), _lfLongDate: k => 'long ' + k, _lfWhen: v => 'on ' + String(v).slice(0, 10),
+        _readingRefsByDate: {}, setFail: false,
         SBQ_READINGS: { SLOTS: [{ role: 'reading1' }, { role: 'psalm' }, { role: 'reading2' }, { role: 'gospel' }],
-          getRange: (a, b) => { log.push('reads ' + a + '..' + b); return Promise.resolve({ '2026-12-06': { reading1: 'Isaiah 40:1-11', psalm: 'Psalm 85', reading2: '2 Peter 3:8-15', gospel: 'Mark 1:1-8' } }); } }
+          getRange: (a, b) => { log.push('reads ' + a + '..' + b); return Promise.resolve(JSON.parse(JSON.stringify(roster))); },
+          setReference: (iso, idx, ref) => { const role = ['reading1', 'psalm', 'reading2', 'gospel'][idx]; log.push('roster ' + iso + ' ' + role + ' ' + ref);
+            if (env.setFail) return Promise.resolve();
+            roster[iso] = Object.assign({}, roster[iso] || {}, { [role]: ref }); return Promise.resolve(ref); } }
       };
       const up = [{ key: '2026-11-29', day: '1st Sunday of Advent', type: 'contemporary' }, { key: '2026-12-06', day: '2nd Sunday of Advent', type: 'traditional' },
         { key: '2026-12-13', day: '3rd Sunday of Advent', type: 'contemporary' }, { key: '2027-11-28', day: '1st Sunday of Advent', type: 'traditional' }];
       const rows = [{ id: 'trad', occasion_id: 'advent', year: 2025, order_type: 'traditional', made_from: 'doc:d1', updated_at: '2026-11-15T14:00:00Z', data: { forDays: ['advent:1'] } },
         { id: 'svl', occasion_id: 'advent', year: 2024, order_type: 'traditional', made_from: 'order:x', data: {} }];
+      roster['2026-12-06'] = { reading1: 'Isaiah 40:1-11', psalm: 'Psalm 85', reading2: '2 Peter 3:8-15', gospel: 'Mark 1:1-8' };
       env._spData = { occ: 'advent', rows, upcoming: up };
       env.WO = env.window.WO;
       const keys = Object.keys(env);
+      const consts = (SRC.match(/  var CV_BOOKS = [^\n]*;/) || [''])[0] + '\n' + (SRC.match(/  var CV_ROLES = [^\n]*;/) || [''])[0];
       const U = new Function('OCCASIONS', 'LL_SUNDAYS', '_llSundayOf', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycle', '_llYearText', 'getOccasionById', '_lfE', ...keys,
-        bodies.join('\n') + '\nreturn { filesOf: _spFilesOf, after: _spAfterConvert, doc: spUseDoc, use: spUse, date: spUseDate, file: spUseFile, leave: spUseLeave, go: spUseGo, again: spUseReconvert,' +
-        ' readings: spUseReadings, menu: spConvMenu, act: spConvAct, state: function() { return _spUse; } };')(
+        consts + '\n' + bodies.join('\n') + '\nreturn { filesOf: _spFilesOf, after: _spAfterConvert, doc: spUseDoc, use: spUse, date: spUseDate, file: spUseFile, leave: spUseLeave, go: spUseGo, again: spUseReconvert,' +
+        ' readings: spUseReadings, menu: spConvMenu, act: spConvAct, from: spUseReadsFrom, fileReads: _spFileReadings, diff: _spReadDiff, state: function() { return _spUse; } };')(
         S.OCCASIONS, S.SUNDAYS, S.sundayOf, S.forSunday, S.toggle, S.html, S.cycle, S.yearText, id => S.OCCASIONS.find(o => o.id === id) || null,
         s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), ...keys.map(k => env[k]));
       const tick = () => new Promise(r => setTimeout(r, 0));
@@ -477,8 +484,9 @@ try {
         /spUseReconvert\(this\.dataset\.type\)">convert the document for Contemporary services/.test(html()));
       check('the one it begins on can be used: 6 Dec (its Sunday, Advent 1, is a Contemporary service)', U.state().key === '2026-12-06' && /value="2026-12-06" checked/.test(html()));
       check('...and what goes in is said: this liturgy, and that date\'s readings FROM THE ROSTER, with the way to change them',
-        log.indexOf('reads 2026-11-29..2027-11-28') !== -1 && /What goes into/.test(html()) && /Readings from the Roster<\/b> \(a Liturgy App File keeps none\)/.test(html()) &&
-        /<span class="sp-usewin__ref">Isaiah 40:1-11<\/span><span class="sp-usewin__ref">Psalm 85<\/span>/.test(html()) && /spUseReadings\(this\.dataset\.key\)">Change them/.test(html()));
+        log.indexOf('reads 2026-11-29..2027-11-28') !== -1 && /What goes into/.test(html()) &&
+        /<span class="sp-usewin__ref">Isaiah 40:1-11<\/span><span class="sp-usewin__ref">Psalm 85<\/span>/.test(html()) && /spUseReadings\(this\.dataset\.key\)">Change them/.test(html()) &&
+        /Readings from the Roster<\/b> \(this liturgy names none\)/.test(html()) && /Converted before readings were kept: convert it again/.test(html()));
       check('...with no order for 6 Dec: Make the order and use it', /Its order is made first\./.test(html()) && /Make the order and use it for 12-06/.test(html()));
       U.date('2026-12-13');
       check('choosing 13 Dec, whose order is made: Use it for 13 Dec, and no readings on the Roster says so', U.state().key === '2026-12-13' && /Use it for 12-13/.test(html()) &&
@@ -513,6 +521,33 @@ try {
       U.file('trad');
       check('choosing the other version: its own services', U.state().fileId === 'trad' && U.state().key === '2026-12-06');
       U.leave();
+      failMake = false;
+      // The liturgy's own readings, against the Roster's, for 6 Dec.
+      rows[0].data.readings = [{ role: 'reading1', ref: 'Isaiah 40:1-11' }, { role: 'reading2', ref: '2 Peter 3:8-14a' }, { role: 'gospel', ref: 'Mark 1:1-8' }];
+      U.use('trad', '2026-12-06'); await tick(); await tick();
+      check('a liturgy with readings: they are shown, and where the Roster differs, both, with the liturgy\'s chosen',
+        /This liturgy’s readings<\/b>: <span class="sp-usewin__ref">Isaiah 40:1-11<\/span>/.test(html()) && /The Roster has others for 12-06/.test(html()) &&
+        /<b>2nd Reading<\/b> <s>2 Peter 3:8-15<\/s>/.test(html()) && !/<b>1st Reading<\/b> <s>/.test(html()) && /value="liturgy" checked/.test(html()), html().slice(html().indexOf('What goes into'), html().indexOf('What goes into') + 900));
+      const n14 = log.length;
+      U.go(); await tick(); await tick(); await tick(); await tick();
+      check('Use puts the liturgy\'s on the Roster -- only what differs -- reads them back, then opens the order with it',
+        log.slice(n14).filter(l => l.indexOf('roster ') === 0).join() === 'roster 2026-12-06 reading2 2 Peter 3:8-14a' && roster['2026-12-06'].reading2 === '2 Peter 3:8-14a' &&
+        /load advent all s:trad/.test(log[log.length - 1]), log.slice(n14).join(' | '));
+      U.use('trad', '2026-12-06'); await tick(); await tick();
+      check('...after which the Roster has the same, and says so', /which the Roster has for that date too/.test(html()) && !/sp-usewin__rdiff/.test(html()));
+      U.leave();
+      rows[0].data.readings = [{ role: 'gospel', ref: 'Luke 1:26-38' }];
+      U.use('trad', '2026-12-06'); await tick(); await tick(); U.from('roster');
+      const n15 = log.length; U.go(); await tick(); await tick(); await tick();
+      check('Keep the Roster\'s: nothing is written', !log.slice(n15).some(l => l.indexOf('roster ') === 0) && /load advent all s:trad/.test(log[log.length - 1]), log.slice(n15).join(' | '));
+      env.setFail = true;
+      U.use('trad', '2026-12-06'); await tick(); await tick();
+      const n16 = log.length; U.go(); await tick(); await tick(); await tick(); await tick();
+      check('a write the Roster did not keep: the window stays and says so, and no order is opened',
+        !!els.spUse && U.state().busy === false && /Could not put the readings on the Roster: the Roster did not keep Luke 1:26-38/.test(log[log.length - 1]) &&
+        !log.slice(n16).some(l => l.indexOf('open ') === 0), log.slice(n16).join(' | '));
+      env.setFail = false; U.leave();
+      delete rows[0].data.readings;
       U.menu({}, 'd1');
       const menu = (els.spConvMenu || {}).innerHTML || '';
       check('the Converted menu: each file\'s preview, Sundays and delete, named by kind; and Convert again', /Preview the app file \(Contemporary services · 2025\)/.test(menu) &&
@@ -545,6 +580,60 @@ try {
   check('a service\'s banner 10px shorter: 2 + 2 off its padding, 6 off its tabs; the documents come before the tip',
     /margin: -6px -6px 0; padding: 16px 22px 18px;/.test(SRC) && /\.pl-tab \{[^}]*min-height: 48px;/.test(SRC) && /\.pl-hero \{ margin: 0 -16px; padding: 12px 16px 14px;/.test(SRC) &&
     /'<\/ul>' \+ tip : '<p class="lf-muted">'/.test(res12) && /\.sp-docs \+ \.sp-tip \{ margin: 10px 0 0; \}/.test(SRC));
+
+  // ------------------------------------------------------------ 14. the liturgy's readings
+  // From the operator (2026-11-16): "what if the readings differ from the
+  // lectionary readings that are already mentioned in the Readings page and
+  // Roster? The liturgy set should be the one dictating the readings."
+  console.log('\n14. The liturgy dictates the readings');
+  let R = null;
+  try {
+    const consts = SRC.match(/  var CV_BOOKS = [^\n]*;/)[0] + '\n' + SRC.match(/  var CV_ROLES = [^\n]*;/)[0];
+    R = new Function(consts + '\n' + ['_cvBook', '_cvRefOf', '_cvReadingRole', '_cvReadings', '_cvRoleName', '_spFileReadings', '_spRefKey', '_spReadDiff'].map(fn).join('\n') +
+      '\nreturn { ref: _cvRefOf, role: _cvReadingRole, reads: _cvReadings, file: _spFileReadings, key: _spRefKey, diff: _spReadDiff };')();
+  } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (R) {
+    const refs = [['Isaiah 64:1-9', 'Isaiah 64:1-9'], ['First Reading: Isaiah 61:1-4, 8-11', 'Isaiah 61:1-4, 8-11'], ['Ps 85', 'Psalm 85'], ['1 Cor 1:3\u20139', '1 Corinthians 1:3-9'],
+      ['II Peter 3:8-15a', '2 Peter 3:8-15a'], ['Mark 13:24-37.', 'Mark 13:24-37'], ['The Holy Gospel according to St. John 1:6-8, 19-28', 'John 1:6-8, 19-28'], ['Isaiah 64.1-9', 'Isaiah 64:1-9'],
+      ['Matt 3:1-12', 'Matthew 3:1-12'], ['John 18:1-19:42', 'John 18:1-19:42'], ['Hymn 217', ''], ['Advent 1', ''], ['Service 2026', ''], ['Phil 4:4-7', 'Philippians 4:4-7']];
+    const bad = refs.filter(([t, want]) => R.ref(t) !== want);
+    check('a Bible reference is found in a document\'s line and written as the Roster writes one; a hymn number, "Advent 1" or a year is not one',
+      !bad.length, bad.map(([t, w]) => t + ' -> ' + R.ref(t) + ' (want ' + w + ')').join('; '));
+    check('its slot: what the document calls it when that names one slot, else its book',
+      R.role('First Reading', 'Isaiah 64:1-9') === 'reading1' && R.role('The Epistle', 'Romans 13:11-14') === 'reading2' && R.role('Holy Gospel', 'Mark 13:24-37') === 'gospel' &&
+      R.role('Psalm of the Day', 'Psalm 80:1-7') === 'psalm' && R.role('', 'Isaiah 2:1-5') === 'reading1' && R.role('', 'Psalm 122') === 'psalm' && R.role('', 'Romans 13:11-14') === 'reading2' &&
+      R.role('', 'Matthew 24:36-44') === 'gospel' && R.role('The Readings and Psalm', 'Isaiah 2:1-5') === 'reading1' && R.role('The Readings and Psalm', 'Matthew 24:36-44') === 'gospel' &&
+      R.role('Second Reading', 'Isaiah 2:1-5') === 'reading2' && R.role('First Word', 'Luke 23:34') === 'gospel' && R.role('The Second Word', 'Luke 23:43') === 'gospel' &&
+      R.role('First Lesson', 'Isaiah 52:13-53:12') === 'reading1');
+    const secs = [{ include: true, parts: [{ kind: 'reading', use: true, ref: 'Isaiah 64:1-9', role: 'reading1' }, { kind: 'liturgy', use: true }] },
+      { include: false, parts: [{ kind: 'reading', use: true, ref: 'Psalm 1', role: 'psalm' }] },
+      { include: true, parts: [{ kind: 'reading', use: true, ref: 'Mark 13:24-37', role: 'gospel' }, { kind: 'reading', use: true, ref: 'Isaiah 9:2', role: 'reading1' },
+        { kind: 'reading', use: false, ref: 'Psalm 80', role: 'psalm' }, { kind: 'reading', use: true, ref: '1 Corinthians 1:3-9', role: 'reading2' }] }];
+    check('a conversion keeps the first of each slot, from the sections and readings left ticked, in the Roster\'s order',
+      JSON.stringify(R.reads(secs)) === JSON.stringify([{ role: 'reading1', ref: 'Isaiah 64:1-9' }, { role: 'reading2', ref: '1 Corinthians 1:3-9' }, { role: 'gospel', ref: 'Mark 13:24-37' }]));
+    check('a file\'s readings: a converted one\'s kept list; one saved from the Builder, its scripture parts by their labels',
+      R.file({ data: { readings: [{ role: 'gospel', ref: 'Mark 1:1-8' }] } }).length === 1 &&
+      JSON.stringify(R.file({ data: { items: [{ itemType: 'liturgy', title: 'Kyrie' }, { itemType: 'scripture', title: 'Isaiah 40:1-11', content: { subLabel: '1st Reading' } },
+        { itemType: 'scripture', title: 'Mark 1:1-8', content: { subLabel: 'Gospel' } }] } })) === JSON.stringify([{ role: 'reading1', ref: 'Isaiah 40:1-11' }, { role: 'gospel', ref: 'Mark 1:1-8' }]) &&
+      R.file({ data: {} }).length === 0);
+    check('the same passage is the same however it is written; only the liturgy\'s that the Roster lacks differ',
+      R.key('Psalms 85') === R.key('psalm 85') && R.key('Isaiah 61:1\u20134') === R.key('Isaiah 61:1-4') &&
+      JSON.stringify(R.diff([{ role: 'reading1', ref: 'Isaiah 64:1-9' }, { role: 'gospel', ref: 'Mark 13:24-37' }], { reading1: 'Isaiah 64:1-9', gospel: 'Mark 1:1-8', psalm: 'Psalm 80' })) ===
+        JSON.stringify([{ role: 'gospel', ref: 'Mark 13:24-37', was: 'Mark 1:1-8' }]));
+  }
+  const rd14 = fn('_cvRead'), sec14 = fn('_cvSectionOf'), save14 = fn('cvSave');
+  check('Convert reads each reading\'s reference -- in its title, or on the line under its heading -- and its slot, and ticks it when found',
+    /var ref = p\.kind === 'reading' \? \(_cvRefOf\(p\.title\) \|\| _cvRefOf\(\(p\.slides \|\| \[\]\)\.slice\(0, 2\)\.join\(' '\)\)\) : '';/.test(rd14) &&
+    /\(p\.kind === 'reading' && !!role\)/.test(rd14) && /title: after \|\| _cvRefOf\(words\.slice\(0, 2\)\.join\(' '\)\) \|\| before\.trim\(\)/.test(sec14));
+  check('...keeps them with the liturgy, READ BACK; and a document\'s second conversion of a kind writes over its first',
+    /var reads = _cvReadings\(cv\.secs\);\s*if \(reads\.length\) data\.readings = reads;/.test(save14) &&
+    /throw new Error\('the database did not keep its readings'\)/.test(save14) &&
+    /\(same \? sb\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', same\.id\)\.select\(\) : sb\.from\('service_liturgies'\)\.insert\(row\)\.select\(\)\)/.test(save14) &&
+    /This replaces its ' \+ _lfE\(_spTypeName\(cv\.type\)\)/.test(fn('_cvDraw')));
+  check('the review says what each reading is kept as', /'Kept as the ' \+ _cvRoleName\(p\.role\)/.test(fn('_cvDraw')) && /'No Bible reference found: left out'/.test(fn('_cvDraw')) &&
+    !/The roster’s reading goes in instead/.test(fn('_cvDraw')));
+  check('Use puts them on the Roster one slot at a time and reads them back before going on', /SBQ_READINGS\.setReference\(key, idx, diff\[i\]\.ref\)/.test(fn('_spPutReadings')) &&
+    /return SBQ_READINGS\.getRange\(day, day\)/.test(fn('_spPutReadings')) && /throw new Error\('the Roster did not keep '/.test(fn('_spPutReadings')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {

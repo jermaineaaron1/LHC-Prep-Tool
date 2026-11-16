@@ -4586,12 +4586,9 @@ the anon key -- verify as `postgres`, not as the app.
       the first of the file's Sundays IN THE SAME YEAR as the first usable
       date -- a file tagged Advent 1 jumped to next year's Advent 1 past this
       year's usable Advent 2; else the first usable date. **2. What goes
-      in**: this liturgy, and **that date's readings from the Roster** (read
-      once per window, `SBQ_READINGS.getRange`), shown, saying a Liturgy App
-      File keeps none, with Change them (the Readings page at that date).
-      The readings the liturgy itself names are not kept by Convert -- the
-      operator's "the liturgy set should be the one dictating the readings"
-      is a later piece. **Use it for <date>** opens that order in the
+      in**: this liturgy, and its readings -- see **The liturgy dictates
+      the readings** below -- with Change them (the Readings page at that
+      date). **Use it for <date>** opens that order in the
       Builder on the Load window (`spUseGo`); a date with no order is made
       first (**Make the order and use it**, `WO.createOrderForIso`: Home's
       "+ Order" payload, its year in its title, never a second order for one
@@ -4608,6 +4605,44 @@ the anon key -- verify as `postgres`, not as the app.
       the double-tap tip is under the documents. On Services the grid/list
       toggle sits beside the search and Year / Type share a row, so the first
       card is 213px down at 480px wide (it was 420).
+    - **The liturgy dictates the readings** (the operator, 2026-11-16: "what
+      if the readings differ from the lectionary readings that are already
+      mentioned in the Readings page and Roster? The liturgy set should be
+      the one dictating the readings"). Convert KEEPS the readings a document
+      names, by reference and slot, never by text: `data.readings = [{ role,
+      ref }]`, the first of each of reading1 / psalm / reading2 / gospel
+      (`_cvReadings`), read back with the file. The reference is found in the
+      reading's title or the line under its heading (`_cvRefOf`, pure: the 66
+      books, "Psalm", shortenings of three letters or more -- "Isa", "Matt",
+      "1 Cor", "II Peter" -- '.' or ':' between chapter and verse, every
+      piece of "61:1-4, 8-11"; a hymn number, "Advent 1" or a year is not
+      one), written as the Roster writes it. Its slot (`_cvReadingRole`,
+      pure) is what the document calls it when that names ONE slot ("First
+      Reading", "Epistle", "Gospel", "Psalm"; "first" / "second" count only
+      beside "reading" or "lesson", so a Good Friday's "First Word" from the
+      cross is no First Reading; a heading over several -- "Readings",
+      "Lessons", "Scripture" -- names none), else its book (Psalms; the four
+      Gospels; Old Testament; the rest). The review says what each is kept
+      as, "Another Gospel: only the first is kept", or "No Bible reference
+      found: left out", and a reading can be unticked. A document's second
+      conversion of a kind WRITES OVER its first (same id; the review says
+      "This replaces its Traditional app file, converted ..."), so a file
+      from before readings were kept is mended by converting it again --
+      the Use window says so for one. Measured on the church's documents:
+      Ash Wednesday 2026 gives John 10:1-18 (Gospel) and Psalm 23; Easter
+      2026, Psalm 118:21-29; Good Friday 2024 numbers eight "Reading and
+      Reflection" sections and keeps three. **Use** shows the file's readings
+      (`_spFileReadings`: `data.readings`, or a Builder-saved liturgy's
+      scripture parts by their labels) beside the Roster's for the date;
+      where they differ (`_spReadDiff`, the same passage however written,
+      `_spRefKey`), each slot's change, and **Use this liturgy's** (the
+      default) or **Keep the Roster's**. Use then puts the liturgy's on the
+      Roster first (`_spPutReadings`: `SBQ_READINGS.setReference` slot by
+      slot, which logs `roster_changes`, then READ BACK -- a write the Roster
+      did not keep stops Use with the window up), and the Builder fills the
+      order from the Roster as ever (`_svlApply` -> `_lbdFillReadings`), so
+      the Readings page, the bulletin, the Builder and LCD Projection agree.
+      The text is fetched for the reference, as for any Roster reading.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
