@@ -451,7 +451,8 @@ try {
         window: { WO: {
           orderInfoForIso: k => orders[k] || null, typeSections: () => tpl,
           createOrderForIso: (k, kind, day) => { log.push('make ' + k + ' ' + kind); if (failMake) return Promise.reject(new Error('refused')); made++; orders[k] = { id: 'new-' + k, type: kind }; return Promise.resolve('new-' + k); },
-          svlUseFromLibrary: (row, o) => log.push('apply ' + row.id + ' songs=' + o.songs + ' extras=' + o.extras.join('+')) } },
+          svlUseFromLibrary: (row, o) => log.push('apply ' + row.id + ' songs=' + o.songs + ' extras=' + o.extras.join('+') +
+            (o.use ? ' made=' + o.use.made + ' roster=' + o.use.roster + ' reads=' + o.use.readings.map(r => r.role + ':' + r.was + '>' + r.ref).join(',') : '')) } },
         LiturgyModule: { getAssignedLiturgyForSection: (t, sec) => sec === 'kyrie' ? [{ id: 'k1', title: 'Kyrie (sung)' }] : sec === 'sanctus' ? [{ id: 's1', title: 'Sanctus' }, { id: 's2', title: 'Words of Institution' }] : [] },
         _sp: { occ: 'advent' }, _readingRefsByDate: {},
         getItem: id => ({ d1: { id: 'd1', title: 'Advent liturgy' } })[id] || null,
@@ -465,6 +466,7 @@ try {
           getRange: (a, b) => { log.push('reads ' + a + '..' + b); return Promise.resolve(JSON.parse(JSON.stringify(roster))); },
           setReference: (iso, idx, ref) => { const role = ['reading1', 'psalm', 'reading2', 'gospel'][idx]; log.push('roster ' + iso + ' ' + role + ' ' + ref);
             roster[iso] = Object.assign({}, roster[iso] || {}, { [role]: ref }); return Promise.resolve(ref); },
+          serviceTypeAt: iso => Promise.resolve(types[iso] != null ? types[iso] : ({ '2026-11-29': 'Contemporary', '2026-12-06': 'Traditional', '2026-12-13': 'Contemporary' })[iso] || ''),
           setServiceType: (iso, v) => { log.push('kind ' + iso + ' ' + v); if (failType) return Promise.reject(new Error('the Roster did not keep it')); types[iso] = v; return Promise.resolve(v); } }
       };
       env.WO = env.window.WO;
@@ -518,14 +520,14 @@ try {
       const n0 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       const ran = log.slice(n0).filter(l => !/^reads /.test(l));
       check('Use: the readings on the Roster, the date made Special there, a Special order made, then the Builder with the liturgy in -- in that order',
-        ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Opening its order… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6',
+        ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Opening its order… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6 made=true roster=Traditional reads=gospel:Mark 13:24-37>Mark 1:1-8',
         ran.join(' | '));
       U.use('trad', '2026-12-13'); await tick(); U.step(4);
       check('...a Contemporary date with its order made: Special now, its order takes the liturgy (Undo)', /it is Contemporary now/.test(html()) && /Its order takes this liturgy in place of what it has/.test(html()));
       U.from('roster'); U.songs(false);
       const n1 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       const ran1 = log.slice(n1).filter(l => !/^reads /.test(l) && !/^toast /.test(l));
-      check('...its own order kept, nothing made; the Roster\'s readings kept; without its songs', ran1.join(' | ') === 'kind 2026-12-13 Special | open o13 | apply trad songs=false extras=', ran1.join(' | '));
+      check('...its own order kept, nothing made; the Roster\'s readings kept; without its songs -- and noted so, for Remove', ran1.join(' | ') === 'kind 2026-12-13 Special | open o13 | apply trad songs=false extras= made=false roster=Contemporary reads=', ran1.join(' | '));
       U.use('trad', '2027-11-28'); await tick(); U.step(4);
       const n2 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
       check('a date the Roster already calls Special is not written again', /A <b>Special<\/b> service already/.test(html() || '') || !log.slice(n2).some(l => /^kind /.test(l)), log.slice(n2).join(' | '));
@@ -668,7 +670,7 @@ try {
   check('...each Traditional part added with its usual library liturgy, once in the order', /LiturgyModule\.getAssignedLiturgyForSection\('traditional', tpl\.liturgySectionId\)/.test(ap) &&
     /it\.itemType === 'liturgy' && it\.sourceId === lit\.id/.test(ap) && /currentOrderData\.allItems\.push\(_lbdLiturgyItem\(nid, lit\.id, lit\)\)/.test(ap));
   check('...and Use from the Library goes in through it, whatever kind the liturgy was made for', /var sp = _svlSpecialize\(row\.data\);/.test(fn('svlUseFromLibrary')) &&
-    /_svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\] \}\);/.test(fn('svlUseFromLibrary')) &&
+    /_svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\], use: opts\.use \|\| null \}\);/.test(fn('svlUseFromLibrary')) &&
     /svlUseFromLibrary: svlUseFromLibrary,/.test(SRC));
   check('the Roster: a date marked Special, logged and read back, and shown as Special in its row', /setServiceType: function\(iso, value\) \{/.test(SRC) &&
     /role_id: 'service_type', service_date: k\.serviceDate, old_value: oldVal, new_value: v,/.test(SRC) && /throw new Error\('the Roster did not keep it'\)/.test(SRC) &&
@@ -759,10 +761,11 @@ try {
     await L.set('o1', 'it1', ['x']).catch(e => { err = e; });
     check('...open here but not in the Builder: refused rather than written behind the copy here', !!err && /Liturgy Builder/.test(err.message));
   } catch (e) { check('the part\'s save runs', false, e.stack); }
-  const mk16 = fn('_spMakeHtml');
-  check('This year\'s liturgy: with its order made, ITS liturgy -- where it came from, the outline, and another file folded under it; else the files to use',
-    /var ol = \(d && d\.order\) \? _spOrderOutline\(d\) : null;/.test(mk16) && /'Its liturgy: <b>' \+ _lfE\(svl\.title\) \+ '<\/b>'/.test(mk16) &&
-    /state \+ \(ol \? _spOutlineHtml\(ol\)/.test(mk16) && /<summary>Use another Liturgy App File for it<\/summary>/.test(mk16) && /: list\) \+/.test(mk16));
+  const mk16 = fn('_spMakeHtml'), use16 = fn('_spInUseHtml');
+  check('This year\'s liturgy: with its order made, the in-use card; else the files to use, as before',
+    /if \(d && d\.order && next\) return _spInUseHtml\(d, next, cyc, kind, list, head\);/.test(mk16) && /How to make this year’s from a past one/.test(mk16) &&
+    /'<div class="spi-node spi-node--from"><small>' \+ \(used \? 'The liturgy of' : 'Its liturgy'\)/.test(use16) &&
+    /'<div class="spi-node spi-node--to"><small>' \+ \(used \? 'Used for' : 'For'\)/.test(use16) && /In use<\/span>/.test(use16));
   check('...read from the Builder\'s own copy when it holds the order here, else from the stored order (kept by _spLoad)',
     /var mem = \(window\.WO && WO\.libOutlineOf\) \? WO\.libOutlineOf\(d\.order\.id\) : null;/.test(fn('_spOrderOutline')) &&
     /d\.orderItems = got\.items \|\| \[\];/.test(fn('_spLoad')) && /if \(!_woLibHeld\(orderId\) \|\| !_lbdIsActive\(\) \|\| _woLcdInPage\(\)\) return null;/.test(fn('_woLibOutlineOf')));
@@ -776,13 +779,108 @@ try {
     /_soState = state \|\| '';/.test(fn('_soSetSaveStatus')));
   check('the outline closes its own box', /: ''\) \+\s+'<\/div>';/.test(fn('_spOutlineHtml')));
   check('an order with no readings offers this date\'s from the Roster: the Builder opens on it and fills them',
-    /\(n\.read \? '' : '<button type="button" class="spo-fill" onclick="LiturgyModule\.spoReadings\(\)"/.test(fn('_spOutlineHtml')) &&
+    /\(n\.read \? '' : '<button type="button" class="spo-fill" onclick="LiturgyModule\.spoReadings\(\)"/.test(use16) &&
     /_llOpenInBuilder\(d\.order\.id, function\(\) \{ WO\.lbdFillReadings\(\); \}\)/.test(fn('spoReadings')) && /lbdFillReadings: lbdFillReadings/.test(SRC));
   check('the Builder opened from a service\'s page carries a bar back to it, in the Orders view only, gone when another order is opened; Back saves first',
     /if \(_llShown\('liturgyServicePanel'\) && _sp\.occ\) \{/.test(fn('_llOpenInBuilder')) && /_llBackBar\(\);/.test(fn('_llOpenInBuilder')) &&
     /view\.appendChild\(b\)/.test(fn('_llBackBar')) && /cur !== _llBack\.orderId/.test(fn('_llBackBar')) &&
     /WO\.saveImmediately\(\)/.test(fn('llBackToLib')) && /openService\(b\.occ, b\.from \|\| 'services', 'order'\)/.test(fn('llBackToLib')) &&
-    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, currentOrderId:/.test(SRC));
+    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, currentOrderId:/.test(SRC));
+
+  // ------------------------------------------------------------ 17. in use: concise, a PDF, Remove
+  // From the operator (2026-11-16), on a screenshot of the box: "a better
+  // overall design to show that the liturgy which was used based on a
+  // previous year is being used for this particular day's service ... more
+  // concise and also shareable in PDF format", "Able to delete the liturgy
+  // set / And collapse / Expand", and "enable to delete the created liturgy
+  // and revert back from Use".
+  console.log('\n17. In use: where it came from, folded, a PDF, and Remove');
+  check('the liturgy is folded under one bar, with its counts; open or shut kept on this device; Expand all / Collapse all inside',
+    /'<button type="button" class="spi-ol__hd" aria-expanded="' \+ open \+ '" onclick="LiturgyModule\.spoShow\(\)">'/.test(use16) &&
+    /\(open \? _spOutlineHtml\(ol\) : ''\)/.test(use16) && /var SP_OL_KEY = 'lhc_sp_liturgy_open';/.test(SRC) &&
+    /localStorage\.setItem\(SP_OL_KEY, _sp\.olOpen \? '1' : '0'\)/.test(fn('spoShow')) && /olOpen: _spOlPref\(\), change: false/.test(fn('openService')) &&
+    /LiturgyModule\.spoOpenAll\(true\)">.*Expand all/.test(fn('_spOutlineHtml')) && /LiturgyModule\.spoOpenAll\(false\)">.*Collapse all/.test(fn('_spOutlineHtml')));
+  check('...the Builder, PDF and Share, then another liturgy and Remove (Remove only for a liturgy put in)',
+    /spi-act--main" onclick="LiturgyModule\.spEdit\(\)"/.test(use16) && /onclick="LiturgyModule\.spoPdf\(false\)"/.test(use16) && /onclick="LiturgyModule\.spoPdf\(true\)"/.test(use16) &&
+    /onclick="LiturgyModule\.spoChange\(\)"/.test(use16) && /\(used \? '<button type="button" class="spi-link spi-link--rm" onclick="LiturgyModule\.spoRemove\(\)">/.test(use16) &&
+    /q\('\.sp-make > \.lf-btn\.pl-btn-green'\) \|\| q\('\.sp-make \.spi-act--main'\)/.test(fn('_spTourSteps')));
+  let R17 = null;
+  try {
+    R17 = new Function('_spRefKey', [ 'SP_READ_ROLES' ].map(() => SRC.match(/  var SP_READ_ROLES = [^\n]*;/)[0]).join('\n') + '\n' + ['_spUseRecord', '_spUnusePlan', '_spOlCounts'].map(fn).join('\n') +
+      '\nreturn { rec: _spUseRecord, plan: _spUnusePlan, counts: _spOlCounts };')(v => String(v || '').toLowerCase().replace(/[^a-z0-9:]/g, ''));
+  } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (R) {
+    const recMade = R17.rec({ serviceLiturgy: { id: 'f', use: { at: 't1', made: true, roster: 'Contemporary', readings: [{ role: 'gospel', was: 'Mark 13:24-37', ref: 'Mark 1:1-8' }], songs: ['s1'] } } }, {}, []);
+    check('the record Use left: an order it made is deleted, and the Roster\'s kind and readings go back',
+      recMade.made === true && recMade.back === false && recMade.roster === 'Contemporary' && recMade.readings.length === 1 && recMade.songs === 1);
+    const recBack = R17.rec({ serviceLiturgy: { id: 'f', use: { at: 't2', made: false, roster: null, readings: [] } }, useBefore: { at: 't2', snap: { v: 1 } } }, {}, []);
+    const recLost = R17.rec({ serviceLiturgy: { id: 'f', use: { at: 't2', made: false } }, useBefore: { at: 't0', snap: { v: 1 } } }, {}, []);
+    check('...an order that was there goes back to what it kept; a restore point from another time is not used', recBack.made === false && recBack.back === true && recLost.none === true);
+    const legacy = R17.rec({ serviceLiturgy: { id: 'f' } }, { type: 'special', createdDate: '2026-11-16T03:43:46.901+00:00' }, [
+      { role_id: 'service_type', old_value: 'Traditional', new_value: 'Contemporary', changed_at: '2026-10-18T13:37:55.95+00:00' },
+      { role_id: 'service_type', old_value: 'Contemporary', new_value: 'Special', changed_at: '2026-11-16T03:43:46.321+00:00' },
+      { role_id: 'gospel', old_value: 'Mark 13:24-37', new_value: 'Mark 1:1-8', changed_at: '2026-11-16T03:43:45.100+00:00' }]);
+    check('...one put in before the record was kept (the live 29 Nov): Special written in the two minutes before the order was made -> Use made it, from Contemporary',
+      legacy.made === true && legacy.legacy === true && legacy.roster === 'Contemporary' && legacy.readings.length === 1 && legacy.readings[0].was === 'Mark 13:24-37', JSON.stringify(legacy));
+    const notMine = R17.rec({ serviceLiturgy: { id: 'f' } }, { type: 'special', createdDate: '2026-11-16T05:00:00Z' }, [
+      { role_id: 'service_type', old_value: 'Contemporary', new_value: 'Special', changed_at: '2026-11-16T03:43:46.321+00:00' }]);
+    check('...an order made at another time, or no liturgy put in at all, is not taken for one Use made', notMine.none === true && R17.rec({}, {}, []) === null &&
+      R17.rec({ serviceLiturgy: { id: 'f' } }, { type: 'contemporary', createdDate: '2026-11-16T03:43:46.901Z' }, [{ role_id: 'service_type', new_value: 'Special', changed_at: '2026-11-16T03:43:46.321Z' }]).none === true);
+    const pl = R17.plan(recMade, 'Special', { gospel: 'Mark 1:1-8' });
+    const pl2 = R17.plan(recMade, 'Traditional', { gospel: 'John 1:1-5' });
+    check('the plan: the Roster put back only where nobody changed it since -- its kind while it still says Special, a reading while it is still the liturgy\'s',
+      pl.roster === 'Contemporary' && pl.reads.length === 1 && pl.kept.length === 0 && pl2.roster === null && pl2.reads.length === 0 && pl2.kept.length === 1 && R17.plan({ none: true }).none === true);
+    const n = R17.counts({ secs: [{ id: 'a', parts: [{ kind: 'liturgy' }, { kind: 'reading' }] }, { id: '', parts: [{ kind: 'song' }, { kind: 'text' }] }] });
+    check('...the counts: a part in no section is not a section', n.secs === 1 && n.lit === 2 && n.read === 1 && n.song === 1, JSON.stringify(n));
+  }
+  // Use keeps the record, and the restore point beside it
+  const ap17 = fn('_svlApply');
+  check('Use keeps how it came in on the order: whether it made it, the Roster before, the songs it brought; and what the order was, unless Use made it',
+    /var useRec = more\.use \|\| \{ made: false \}, usePre = useRec\.made \? null : _svlUseSnap\(\);/.test(ap17) && /addedIds\.push\(entry\.id\);/.test(ap17) &&
+    /currentOrderData\.template\.serviceLiturgy\.use = \{ at: useAt, made: !!useRec\.made,/.test(ap17) &&
+    /if \(usePre\) currentOrderData\.template\.useBefore = \{ at: useAt, snap: usePre \};/.test(ap17) &&
+    /ub: \(o\.template && o\.template\.useBefore\) \|\| null,/.test(fn('_lbdSnapshot')) && /if \('ub' in snap\)/.test(fn('_lbdRestore')));
+  let W17 = null;
+  try { W17 = new Function(['_svlUnuse'].map(fn).join('\n') + '\nreturn { unuse: _svlUnuse };')(); } catch (e) { console.log('  (could not build: ' + e.message + ')'); }
+  if (W) {
+    const o = { type: 'special', sectionLayout: [{ id: 'wo-section-0' }, { id: 'wo-section-sp3' }],
+      allItems: [{ id: 'a', itemType: 'song' }, { id: 'b', itemType: 'song' }, { id: 'n', itemType: 'song' }, { id: 'svl1', itemType: 'liturgy' }],
+      template: { serviceLiturgy: { id: 'f', use: { at: 't' } }, useBefore: { at: 't' }, medleys: [{ id: 'm' }], serviceNotes: 'new' } };
+    const songs = [{ id: 'a', serviceSections: ['wo-section-sp3'], sectionId: 'wo-section-sp3' }, { id: 'b' }, { id: 'n', serviceSections: ['x'], sectionId: 'x' }];
+    const snap = { type: 'contemporary', layout: [{ id: 'wo-section-0' }, { id: 'wo-section-4' }], items: [{ id: 'old', itemType: 'liturgy' }], cleared: ['c'], svcNotes: 'was', medleys: [],
+      svl: null, prevBefore: null, songs: [{ id: 'a', ss: ['wo-section-4'], sid: 'wo-section-4' }] };
+    const kept = W17.unuse(o, songs, snap, ['b']);
+    check('Remove puts the order back: its kind, sections, parts, notes; the songs it had in their sections; the songs Use brought gone; one added since kept',
+      o.type === 'contemporary' && o.sectionLayout.length === 2 && o.allItems.map(x => x.id).join() === 'a,n,old' && o.clearedSections.join() === 'c' &&
+      o.template.serviceNotes === 'was' && !('serviceLiturgy' in o.template) && !('useBefore' in o.template) &&
+      kept.map(x => x.id).join() === 'a,n' && kept[0].sectionId === 'wo-section-4' && kept[1].sectionId === 'x', JSON.stringify(o));
+    const o2 = { type: 'special', allItems: [], template: {} };
+    W17.unuse(o2, [], { type: 'special', layout: [], items: [], svl: { id: 'earlier', use: { at: 'e' } }, prevBefore: { at: 'e', snap: {} }, songs: [] }, []);
+    check('...and the liturgy it had before, with that one\'s own restore point, comes back too (two Uses taken off one at a time)',
+      o2.template.serviceLiturgy.id === 'earlier' && o2.template.useBefore.at === 'e');
+  }
+  check('Remove: the order first -- deleted when Use made it, put back by the Builder otherwise (here at once, or opened and then back here) -- then the Roster',
+    /if \(pl\.made\) \{ say\('Deleting its order…'\); orderP = WO\.libDelete\(id\); \}/.test(fn('spoRemoveGo')) &&
+    /else if \(WO\.libOutlineOf && WO\.libOutlineOf\(id\)\) \{ say\('Putting its order back…'\); orderP = WO\.libUnuse\(id\); \}/.test(fn('spoRemoveGo')) &&
+    /_llOpenInBuilder\(id, function\(\) \{ WO\.libUnuse\(id\)\.then\(res, rej\); \}\)/.test(fn('spoRemoveGo')) &&
+    /SBQ_READINGS\.setServiceType\(key, pl\.roster\)/.test(fn('spoRemoveGo')) && /if \(viaBuilder\) llBackToLib\(\); else _spLoad\(occ\);/.test(fn('spoRemoveGo')));
+  check('...a made order is let go of here first, never while LCD Projection has it; a put-back is one Undo, its save waited on',
+    /if \(_woLcdInPage\(\)\) return Promise\.reject\(new Error\('it is open in LCD Projection here: close that first'\)\);/.test(fn('_woLibDelete')) &&
+    /_forgetDeletedOrder\(orderId\)/.test(fn('_woLibDelete')) && /_lbdChange\(function\(\) \{\s+songOrderSections = _svlUnuse\(/.test(fn('_woLibUnuse')) &&
+    /return _soSaveSettled\(12000\)/.test(fn('_woLibUnuse')));
+  check('...it asks first, saying exactly what happens, and nothing for a liturgy it has no record of',
+    /Take this liturgy off ' \+ _lfE\(when\) \+ '\?/.test(fn('_spRmDraw')) && /The order made for it is deleted/.test(fn('_spRmDraw')) &&
+    /goes back to how it was before this liturgy came in/.test(fn('_spRmDraw')) && /cannot be taken off here/.test(fn('_spRmDraw')) && /To have this one back, Use it again\./.test(fn('_spRmDraw')));
+  check('Use notes the Roster\'s kind before it writes Special, for Remove', /SBQ_READINGS\.serviceTypeAt\(row\.key\)/.test(fn('spUseGo')) &&
+    /use: \{ made: !row\.order, roster: rosterWas,/.test(fn('spUseGo')) && /serviceTypeAt: function\(iso\) \{/.test(SRC));
+  // the PDF
+  const pdf17 = fn('_woLibPdf'), model17 = fn('_woLibExportModel');
+  check('the PDF is the Builder\'s own export: its model when the Builder holds the order here, the same model from the stored rows otherwise',
+    /if \(_woLibHeld\(orderId\) && _lbdIsActive\(\) && !_woLcdInPage\(\)\) return _lbdExportModel\(\);/.test(model17) &&
+    /paras: _lbdExportParas\(\[words\], \{ song: true \}\)/.test(model17) && /var doc = _lbdExportPdf\(m\);/.test(pdf17));
+  check('...Share hands the file to the phone\'s share sheet (WhatsApp, email), in the click; a desk downloads it', /navigator\.canShare\(\{ files: \[file\] \}\)/.test(pdf17) &&
+    /navigator\.share\(\{ title: base, text: \(meta && meta\.text\) \|\| base, files: \[file\] \}\)/.test(pdf17) && /_lbdDownload\(blob, name\);/.test(pdf17) &&
+    /WO\.libPdf\(d\.order\.id, d\.orderFull, d\.orderItems, meta, !!share\)/.test(fn('spoPdf')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {

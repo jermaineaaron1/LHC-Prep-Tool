@@ -340,7 +340,7 @@ console.log('\nA silent autosave that did not land says so');
 check('there is a "failed" state at all', has(/if \(state === 'failed'\)/));
 check('neither silent failure path blanks the indicator any more',
   !/if \(silent\) \{\s*\r?\n\s*_soSetSaveStatus\(''\);/.test(SRC) &&
-  !/Backend save failed:', err\);[^]*?_soSetSaveStatus\(''\);/.test(SRC));
+  !/Backend save failed:', err\);[^]{0,600}?_soSetSaveStatus\(''\);/.test(SRC));   // the failure path itself, not anything later in the file
 // REVERSED on 2026-11-13, and the reason matters. A failed save used to call
 // LHC_Net.mark(false) -- "a save that threw is almost always the uplink".
 // Once the reconnect below began retrying the save, the two made a loop:
