@@ -573,7 +573,7 @@ try {
   })());
   check('a service\'s banner 10px shorter: 2 + 2 off its padding, 6 off its tabs; the documents come before the tip',
     /margin: -6px -6px 0; padding: 16px 22px 18px;/.test(SRC) && /\.pl-tab \{[^}]*min-height: 48px;/.test(SRC) && /\.pl-hero \{ margin: 0 -16px; padding: 12px 16px 14px;/.test(SRC) &&
-    /'<\/ul>' \+ tip : '<p class="lf-muted">'/.test(res12) && /\.sp-docs \+ \.sp-tip \{ margin: 10px 0 0; \}/.test(SRC));
+    /'<\/ul>' \+ tip : '<p class="lf-muted sp-none">'/.test(res12) && /\.sp-docs \+ \.sp-tip \{ margin: 10px 0 0; \}/.test(SRC));
 
   // ------------------------------------------------------------ 14. the liturgy's readings
   // From the operator (2026-11-16): "what if the readings differ from the
@@ -965,7 +965,7 @@ try {
     /Same as the original/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoShowChanged\(\)/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoPutAll\(\)/.test(fn('_spDiffHtml')) &&
     /<b>Modified:<\/b>/.test(fn('_spDiffHtml')) && /Reset to original/.test(fn('_spDiffHtml')) &&
     /title: 'Reset to the original\?'/.test(fn('spoPutAll')) && /The readings and the songs stay\. Undo brings back what was here\./.test(fn('spoPutAll')) &&
-    /_spCmpNow\(d, ol\)/.test(use16) && /flow \+ _spDiffHtml\(cmp\) \+ olBox/.test(use16));
+    /_spCmpNow\(d, ol\)/.test(use16) && /flow \+ ctop \+ _spDiffHtml\(cmp\) \+ cacts \+ olBox/.test(use16));
   check('...one part put back, or everything, through WO.libRestore in the Builder\'s copy; every change on the page through _spEdit, which opens the Builder once when it does not hold the order and comes back',
     /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, \{ put: \[x\] \}\); \}/.test(fn('spoPutBack')) &&
     /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, plan\); \}/.test(fn('spoPutAll')) &&
@@ -1301,6 +1301,46 @@ try {
   check('...a closed section takes a part dropped on its row, last; the section held is kept under the finger while the rows close up',
     /hit\.classList\.add\('is-drop'\); D\.target = hit\.getAttribute\('data-sec'\);/.test(fn('_spDragPlace')) && /root\.classList\.add\('is-sorting'\);/.test(fn('_spDragDown')) &&
     /\.spo\.is-sorting \.spo-parts \{ display: none; \}/.test(SRC) && /libPart: _woLibPart/.test(SRC) && /spoPartRemove: spoPartRemove/.test(SRC) && /spoSecAddSave: spoSecAddSave/.test(SRC));
+
+  // ------------------------------------------------------------ 23. a phone's layout A
+  // From the operator (2026-11-16), on a phone screenshot: "this layout looks
+  // really busy especially for the mobile version"; of three sketches they
+  // chose A, "fewer boxes", and: "Remove the most bottom section text. Just
+  // say no documents uploaded (PDF, Word, Google Docs, etc.)".
+  console.log('\n23. A phone\'s layout A: fewer boxes');
+  const res23 = fn('_spResHtml'), use23 = fn('_spInUseHtml');
+  check('one Add on a phone (Upload a liturgy, a Google Doc, a year folder), the desk\'s two buttons beside it hidden there',
+    /class="lf-btn sp-btn-sm sp-addm" onclick="LiturgyModule\.spAddDocs\(this\)"/.test(res23) && (SRC.match(/^  function spAddDocs\(/gm) || []).length === 1 &&
+    /'up', 'fa-solid fa-file-arrow-up', 'Upload a liturgy \(PDF, Word, Excel\)'/.test(fn('spAddDocs')) && /'gdoc', 'fa-brands fa-google-drive', 'Add a Google Doc'/.test(fn('spAddDocs')) &&
+    /if \(act === 'up'\) spUpload\('liturgy'\); else if \(act === 'gdoc'\) spAddGdoc\(\); else if \(act === 'year'\) spNewYear\(\);/.test(fn('spAddDocsAct')) &&
+    /#liturgyServicePanel \.sp-res__adds, #liturgyServicePanel \.sp-rtabs \{ display: none; \}/.test(SRC) && /\.sp-addm, \.sp-rsel, \.spi-c, \.spi-c__acts \{ display: none; \}/.test(SRC));
+  check('...the kind of file a dropdown at the head of the year chips (and alone for LCD), with each kind\'s count; the year chips one scrolling line',
+    /<select class="sp-rsel" aria-label="Which files" onchange="LiturgyModule\.spResTab\(this\.value\)">/.test(res23) && /\(t\[0\] === tab \? ' selected' : ''\)/.test(res23) &&
+    /' \(' \+ groups\[t\[0\]\]\.length \+ '\)<\/option>'/.test(res23) && /var chips = '<div class="sp-years">' \+ rsel \+/.test(res23) &&
+    /body = '<div class="sp-years sp-years--sel">' \+ rsel \+ '<\/div>' \+ \(list\.length/.test(res23) &&
+    /#liturgyServicePanel \.sp-years \{ flex-wrap: nowrap; overflow-x: auto;/.test(SRC));
+  check('...the library box itself no box on a phone; this year\'s liturgy one card: the day on its tile, where it came from on one line (Original goes to the file), Show liturgy, the Builder and a menu',
+    /#liturgyServicePanel \.sp-res\.ll-box \{ background: transparent; border: 0; box-shadow: none; padding: 0;/.test(SRC) &&
+    /'<div class="spi-c__day">' \+ _spDateTile\(next\.key\)/.test(use23) && /'From <b>' \+ _lfE\(fromName\) \+ '<\/b>'/.test(use23) && /LiturgyModule\.spoGoOrig\(\)" title="Go to the original file">Original/.test(use23) &&
+    /class="lf-btn pl-btn-green spi-c__show"/.test(use23) && /LiturgyModule\.spEdit\(\)" title="Open in the Liturgy Builder"/.test(use23) && /LiturgyModule\.spoMore\(this\)/.test(use23) &&
+    /#liturgyServicePanel \.sp-make--use \.pl-card__hd, #liturgyServicePanel \.sp-make--use \.spi-flow,\s*#liturgyServicePanel \.sp-make--use \.spi-acts, #liturgyServicePanel \.sp-make--use \.spi-more \{ display: none; \}/.test(SRC) &&
+    /flow \+ ctop \+ _spDiffHtml\(cmp\) \+ cacts \+ olBox \+ acts \+ change/.test(use23) && /#liturgyServicePanel \.spi-c__acts \.lf-btn \{ width: auto;/.test(SRC));
+  try {
+    let html = '';
+    const doc = { getElementById: () => null };
+    const M = new Function('document', '_spData', '_spOrderOutline', '_spFloat', '_spFloatClose', '_lfE', fn('spoMore') + '\nreturn spoMore;');
+    const mk = (tpl, hasOl) => { html = ''; M(doc, { order: { id: 'o' }, orderTpl: tpl }, () => hasOl ? { secs: [] } : null, (b, id, h) => { html = h; }, () => {}, t => t)({}); return html; };
+    const a = mk({ serviceLiturgy: { id: 'f1', title: 'Advent' } }, true), b = mk({ serviceLiturgy: { fromOrder: 'x' } }, true), c = mk({}, false);
+    check('...its menu: the PDF and sharing it, the original file, another liturgy, and Remove (in red) -- each only where it applies',
+      /data-act="pdf"/.test(a) && /data-act="share"/.test(a) && /data-act="orig"/.test(a) && /Use another liturgy/.test(a) && /class="is-danger" data-act="rm"/.test(a) &&
+      !/data-act="orig"/.test(b) && /data-act="rm"/.test(b) && !/data-act="pdf"|data-act="rm"/.test(c) && /Use a Liturgy App File/.test(c));
+    check('...and each does what the desk\'s button does',
+      /if \(act === 'pdf'\) spoPdf\(false\); else if \(act === 'share'\) spoPdf\(true\);\s*else if \(act === 'orig'\) spoGoOrig\(\); else if \(act === 'change'\) spoChange\(\); else if \(act === 'rm'\) spoRemove\(\);/.test(fn('spoMoreAct')) &&
+      /spoMore: spoMore, spoMoreAct: spoMoreAct/.test(SRC));
+  } catch (e) { check('the menu draws', false, e.stack); }
+  check('a year with nothing uploaded says only "No documents uploaded (PDF, Word, Google Docs, etc.)", with no heading over it',
+    /: 'No documents uploaded \(PDF, Word, Google Docs, etc\.\)'\) \+ '<\/p>'/.test(res23) && !/Past years’ are under their years above/.test(res23) &&
+    /'<div class="sp-thisyr__docs">' \+ \(shown\.length \? '<h3 class="sp-thisyr__h">/.test(res23));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
