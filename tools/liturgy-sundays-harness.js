@@ -170,7 +170,7 @@ try {
     /var added = it\.created \? 'Added ' \+ _lfWhen\(it\.created\) : '';/.test(res) && /y \? _llYearText\(occ\.id, y\) : ''/.test(res) &&
     /onclick="LiturgyModule\.spRename\(this\.dataset\.id\)" aria-label="Rename"/.test(res) && /updateItem\(id, \{ title: name \}\);/.test(fn('spRename')) &&
     /renderService\(\);/.test(fn('spRename')));
-  check('a year chip carries its letter', /var cy = y && y !== '—' \? _llCycleFor\(occ\.id, y\) : '';/.test(res));
+  check('a year chip carries its letter (This Year\'s too)', /var cy = y !== '—' \? _llCycleFor\(occ\.id, y\) : '';/.test(res) && /var cyT = _llCycleFor\(occ\.id, thisY\);/.test(res));
   check('a Google Doc can be added as a liturgy, filed in its year, and made ready', /onclick="LiturgyModule\.spAddGdoc\(\)"/.test(res) &&
     /tags: \['link', 'liturgy-doc'\]/.test(fn('spAddGdocSave')) && /ensureOccYearFolder\(occ, year\)/.test(fn('spAddGdocSave')) &&
     /spConvert\(item\.id\)/.test(fn('spAddGdocSave')) && /\|\| !!_spGdocId\(it\.fileUrl\)\)/.test(res));
@@ -555,11 +555,15 @@ try {
     /title: 'Readings &amp; Prayers', tag: ''/.test(hub13) && /title: 'Liturgy of Services', tag: ''/.test(hub13) &&
     /title: 'Memories', tag: 'Blast from the past: services for future reference'/.test(hub13) && /\(c\.tag \? '<p>' \+ _lfE\(c\.tag\) \+ '<\/p>' : ''\)/.test(hub13) &&
     !/What the church is hearing'|How we worship'|What we have done together'/.test(hub13));
-  check('...each 20px shorter (measured: 167 to 147px at 480px wide, 337 to 318px on a desk), the titles on one line, the bands level',
-    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 16px 22px 20px; min-height: 108px;/.test(SRC) && /\.ll-card__go \{ align-self: center; margin: 8px 0 12px;/.test(SRC) &&
-    /\.ll-card__icon \{ font-size: 2rem; opacity: 0\.95; width: 40px; flex-shrink: 0;/.test(SRC) && /\.ll-card__top h2 \{ margin: 0; font-size: 1\.2rem;/.test(SRC) &&
-    /\.ll-card__top \{ padding: 10px 16px 16px; min-height: 0; \}/.test(SRC) && /\.ll-card__top \{ padding-bottom: 10px; min-height: 79px; \}/.test(SRC) &&
-    /\.ll-card__top h2 \{ font-size: 1\.2rem; \}\s*\.ll-card__top p \{ font-size: 0\.86rem; \}/.test(SRC) && /\.ll-card__go \{ margin: 8px 16px 12px;/.test(SRC));
+  // 20px shorter on 2026-11-16, then 30px more the same day (the operator,
+  // circling the three: "Make 30px smaller"; asked, each card).
+  check('...each 20px shorter, then 30px more (measured: 147 to 117px at 480px wide, 318 to 288px at 1400px), the titles on one line, the bands level',
+    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 12px 22px 16px; min-height: 92px;/.test(SRC) && /\.ll-card__go \{ align-self: center; margin: 6px 0 8px; display: inline-flex; align-items: center; gap: 10px; min-height: 44px;/.test(SRC) &&
+    /\.ll-card__body \{ display: flex; gap: 14px; padding: 6px 22px 4px;/.test(SRC) &&
+    /\.ll-card__icon \{ font-size: 2rem; opacity: 0\.95; width: 40px; flex-shrink: 0;/.test(SRC) && /\.ll-card__top h2 \{ margin: 0; font-size: 1\.2rem; font-weight: 700; letter-spacing: 0\.04em; line-height: 1\.25;/.test(SRC) &&
+    /\.ll-card__top p \{ margin: 2px 0 0;[^}]*line-height: 1\.35;/.test(SRC) &&
+    /\.ll-card__top \{ padding: 10px 16px 16px; min-height: 0; \}/.test(SRC) && /\.ll-card__top \{ padding-top: 8px; padding-bottom: 8px; min-height: 62px; \}/.test(SRC) &&
+    /\.ll-card__top h2 \{ font-size: 1\.2rem; \}\s*\.ll-card__top p \{ font-size: 0\.86rem; \}/.test(SRC) && /\.ll-card__go \{ margin: 6px 16px 7px; min-height: 40px;/.test(SRC));
   const svc13 = fn('renderServices'), grid13 = fn('_lsGridHtml');
   check('Services: the cards first, the counts and the library\'s buttons at the foot in one line; no All Services / Favourites chips',
     /_lsGridHtml\(\) \+[\s\S]*foot \+\s*'<\/div>';/.test(svc13) && svc13.indexOf("'<div class=\"ls-bar ls-bar--foot\">'") !== -1 &&
@@ -772,7 +776,7 @@ try {
   check('...a liturgy part has Edit; the words open in a box, saved through WO.libSetSlides in the Builder\'s copy (_spEdit); readings and songs say where they change',
     /p\.edit && !ed \? '<button type="button" class="spo-pen"/.test(fn('_spoPartHtml')) && /id="spoText"/.test(fn('_spoPartHtml')) &&
     /From the Roster: change it on the Readings page\./.test(fn('_spoPartHtml')) && /its words are in the Songbook/.test(fn('_spoPartHtml')) &&
-    /_spEdit\(function\(oid\) \{ return WO\.libSetSlides\(oid, e\.id, _spoSlidesOf\(e\.text\)\); \}/.test(fn('spoSave')) &&
+    /_spEdit\(function\(oid\) \{ return WO\.libSetSlides\(oid, e\.id, _spoSlidesOf\(e\.text\), null, nt && nt !== e\.was \? nt : null\); \}/.test(fn('spoSave')) &&
     /if \(res\.saved === false\) showToast\('Changed in the Liturgy Builder, but it did not save/.test(fn('_spEdit')));
   check('...a save waited on watches the indicator: saved, failed, or not known in time',
     /_soSetSaveStatus\('saving'\);\s+saveImmediately\(\);/.test(fn('_soSaveSettled')) && /if \(_soState === 'failed' \|\| _soState === ''\) return res\(false\);/.test(fn('_soSaveSettled')) &&
@@ -1005,8 +1009,8 @@ try {
   // modified. And is granted the option to reset or original or undo to
   // previous or redo", and the tiles under the card "not necessary".
   console.log('\n20. Sections: rename, remove, reorder; marked; Undo, Redo, Reset');
-  check('the tiles under This year\'s liturgy went', !/pl-tiles|pl-tile/.test(fn('_spOrderTab')) &&
-    /'<div class="sp-lib__side">' \+ _spMakeHtml\(d, orderId\) \+ _spReadyHtml\(d, orderId\) \+ '<\/div><\/div>'/.test(fn('_spOrderTab')));
+  check('the tiles under This year\'s liturgy went', !/pl-tiles|pl-tile/.test(fn('_spOrderTab')) && !/pl-tiles|pl-tile/.test(fn('_spResHtml')) &&
+    /return '<div class="sp-lib">' \+ _spResHtml\(occ, d, orderId\) \+ '<\/div>';/.test(fn('_spOrderTab')));
   let S20 = null;
   try { S20 = new Function(['_spCompareSecs', '_spCompare', '_spResetPlan', '_spCmpCounts'].map(fn).join('\n') + '\nreturn { secs: _spCompareSecs, parts: _spCompare, plan: _spResetPlan, counts: _spCmpCounts };')(); }
   catch (e) { console.log('  (could not build: ' + e.message + ')'); }
@@ -1178,9 +1182,125 @@ try {
   check('every section in the outline offers it (not the parts in no section)',
     /\(x\.id \? _spoAddHtml\(x, !ps\.some\(function\(q\) \{ return q\.kind !== 'gone'; \}\)\) : /.test(out21));
   check('Save goes through the Builder like every change on the page, with Undo on its toast; empty words are refused; the words typed survive a failed trip to the Builder',
-    /_spEdit\(function\(oid\) \{ return WO\.libAddPart\(oid, a\.secId, slides, a\.title\); \}/.test(fn('spoAddSave')) && /Type some words first/.test(fn('spoAddSave')) &&
+    /_spEdit\(function\(oid\) \{ return WO\.libAddPart\(oid, a\.secId, slides, name\); \}/.test(fn('spoAddSave')) && /Type some words first/.test(fn('spoAddSave')) &&
     /add: _sp\.occ === occId && _sp\.add \? Object\.assign\(\{\}, _sp\.add, \{ busy: false \}\) : null/.test(fn('openService')) &&
     /libAddPart: _woLibAddPart/.test(SRC) && /spoAddSave: spoAddSave/.test(SRC));
+
+  // ------------------------------------------------------------ 22. This Year; drag; sections and subsections added
+  // From the operator (2026-11-16): "I want the 'This Year' liturgy to have
+  // its own tab ... 2026 is 'This Year - 2026'" (asked: the year chip is the
+  // tab); "Allow the user to drag and drop to reorder the liturgy parts.
+  // Also allow to add sections and even subsections" (asked: a subsection is
+  // a named part); and each landing card 30px shorter.
+  console.log('\n22. This Year; drag to reorder; sections and subsections added');
+  try {
+    const TY = new Function(fn('_spThisYear') + '\nreturn _spThisYear;')();
+    const cal = String(new Date().getFullYear());
+    check('This Year is the coming service\'s year, else the calendar\'s',
+      TY({ next: { key: '2026-11-29' } }) === '2026' && TY({ next: { key: '2027-01-06|pm' } }) === '2027' && TY({ next: null }) === cal && TY(null) === cal && TY({ next: { key: 'Nov 29' } }) === cal);
+  } catch (e) { check('_spThisYear runs', false, e.stack); }
+  const res22 = fn('_spResHtml'), tab22 = fn('_spOrderTab');
+  check('the year chips are the tabs: This Year first (its year, its letter, a star), open at first; the past years newest first; All years; + Year',
+    /'<button type="button" class="sp-year sp-year--this' \+ \(_sp\.year === 'this' \? ' is-on' : ''\) \+ '" data-y="' \+ _lfE\(thisY\) \+ '" onclick="LiturgyModule\.spYear\(\\'this\\'\)"' \+ drop/.test(res22) &&
+    /This Year · ' \+ _lfE\(thisY\)/.test(res22) && /filter\(function\(y\) \{ return y !== '—' && y !== thisY; \}\)\.sort\(\)\.reverse\(\)/.test(res22) &&
+    res22.indexOf('sp-year--this') < res22.indexOf('ys.map(') && res22.indexOf('ys.map(') < res22.indexOf('All years</button>') && res22.indexOf('All years</button>') < res22.indexOf('sp-year--add') &&
+    /year: 'this', from: from \|\| 'services'/.test(fn('openService')) && /_sp\.res = t; _sp\.year = 'this';/.test(fn('spResTab')));
+  check('...a year typed as this year is This Year; a year with nothing in it falls back to it',
+    /if \(_sp\.year === thisY\) _sp\.year = 'this';/.test(res22) && /if \(_sp\.year && _sp\.year !== 'this' && !years\[_sp\.year\]\) _sp\.year = 'this';/.test(res22) &&
+    /var sel = _sp\.year === 'this' \? thisY : _sp\.year;/.test(res22) && /return !sel \|\| \(_spYearOf\(it, occ\.id\) \|\| '—'\) === sel;/.test(res22));
+  check('...This Year holds this year\'s liturgy beside that year\'s documents and app files; the other years only their own; no side column',
+    /if \(tab === 'liturgy' && _sp\.year === 'this'\) \{\s*body = '<div class="sp-thisyr"><div class="sp-thisyr__main">' \+ _spMakeHtml\(d, orderId\) \+ '<\/div>'/.test(res22) &&
+    /if \(tab === 'liturgy'\) body \+= _spReadyHtml\(d, orderId, sel\);/.test(res22) && /return !year \|\| String\(r\.year \|\| '—'\) === year;/.test(fn('_spReadyHtml')) &&
+    !/sp-lib__side|sp-lib__main/.test(tab22) && /\.sp-lib \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(SRC) &&
+    /@media \(min-width: 1180px\) \{ \.sp-thisyr \{ grid-template-columns: minmax\(0, 1\.2fr\) minmax\(320px, 1fr\); \} \}/.test(SRC));
+  // The WO side, run against stand-ins.
+  try {
+    const log = [];
+    const order = { id: 'o', sectionLayout: [{ id: 'a', title: 'Gather' }, { id: 'b', title: 'Confession' }, { id: 'c', title: 'Kyrie' }],
+      allItems: [{ id: 'p_liturgy_l1_a', itemType: 'liturgy', sectionId: 'a', sourceId: 'l1', title: 'Gather' }, { id: 'x2', itemType: 'liturgy', sectionId: 'b', sourceId: 'l2', title: 'Confession' },
+                 { id: 's1', itemType: 'song', sectionId: 'b' }, { id: 'r1', itemType: 'scripture', sectionId: 'c', title: 'Psalm 23' }, { id: 'x3', itemType: 'liturgy', sectionId: 'c', sourceId: 'l3', title: 'Kyrie' }] };
+    let held = false;
+    const lid = id => { for (let k = 0; k < order.sectionLayout.length; k++) if (order.sectionLayout[k].id === id) return k; return -1; };
+    const env = { _lbdIsActive: () => held, _woLcdInPage: () => false, _lbdPfx: () => 'p_', _lbdUid: () => 'u1', _woStripNum: t => String(t).replace(/^\d+\.\s*/, ''),
+      _woSectionList: () => order.sectionLayout.map(x => ({ id: x.id, title: x.title })), _lbdSecIndex: lid,
+      _woSectionItems: id => order.allItems.filter(x => x.sectionId === id && x.itemType !== 'song'), _lbdReadingTaken: (id, t) => order.allItems.some(x => x.sectionId === id && x.itemType === 'scripture' && x.title === t),
+      _soSaveSettled: () => Promise.resolve(true), _lbdChange: f => { log.push('change'); return f() !== false; },
+      _lbdMoveSectionTo: (id, tgt, after) => { const L = order.sectionLayout, f = lid(id), m = L.splice(f, 1)[0], t = lid(tgt); L.splice(after ? t + 1 : t, 0, m); log.push('moveTo ' + id + (after ? ' after ' : ' before ') + tgt); return true; },
+      _lbdClearClearedFor: id => log.push('uncleared ' + id), _lbdNoteCleared: (sec, src) => log.push('cleared ' + sec + ' ' + src), _lbdSortSongsByService: () => {},
+      _lbdUnplaceSong: () => {}, songOrderSections: [], _woSongSectionIds: () => [], _woUserClearedTypes: {} };
+    const keys = Object.keys(env);
+    const W = new Function(...keys, 'var currentOrderData = null;' + ['_woLibHeld', '_woLibSection', '_woLibPart', '_woLibSlides', '_woLibSetSlides'].map(fn).join('\n') +
+      '\nreturn { sec: _woLibSection, part: _woLibPart, set: _woLibSetSlides, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    W.hold(order);
+    let refused = null;
+    await W.part('o', 'x2', 'move', { secId: 'c' }).catch(e => { refused = e; });
+    check('every one of them only in the Builder\'s copy (code builder, so the page opens it first)', !!refused && refused.code === 'builder');
+    held = true;
+    const add = await W.sec('o', 'add', 'a', { title: '  Lighting  of the Wreath ' });
+    const top = await W.sec('o', 'add', '', { title: 'Prelude' });
+    let noName = null; await W.sec('o', 'add', 'a', { title: ' ' }).catch(e => { noName = e; });
+    check('a new section goes after the one asked (or at the top), named as typed, a new id, one Undo each; a section needs a name',
+      order.sectionLayout.map(x => x.title).join('|') === 'Prelude|Gather|Lighting of the Wreath|Confession|Kyrie' && /^wo-section-\d+$/.test(add.id) && /^wo-section-\d+$/.test(top.id) && !!noName,
+      JSON.stringify(order.sectionLayout));
+    const mv = await W.sec('o', 'moveTo', 'c', { before: 'a' }), last = await W.sec('o', 'moveTo', 'a', { before: '' });
+    check('a section dragged to a place: before another, or last (after the last one)',
+      log.indexOf('moveTo c before a') >= 0 && log.indexOf('moveTo a after b') >= 0 && order.sectionLayout.map(x => x.id).pop() === 'a' && mv.saved && last.saved, log.join(', '));
+    log.length = 0;
+    const p1 = await W.part('o', 'x3', 'move', { secId: 'c', before: 'r1' });
+    check('a part moved within its section, before another part', order.allItems.filter(x => x.sectionId === 'c').map(x => x.id).join() === 'x3,r1' && p1.saved);
+    const p2 = await W.part('o', 'x2', 'move', { secId: 'c', before: '' });
+    const moved = order.allItems.find(x => x.sourceId === 'l2');
+    check('...into another section, last there: its id names its new section, the section it left is noted, the new one let go (the Builder\'s own rules)',
+      moved.sectionId === 'c' && moved.id === 'p_liturgy_l2_c' && p2.id === 'p_liturgy_l2_c' && order.allItems.filter(x => x.sectionId === 'c').map(x => x.sourceId || x.id).join() === 'l3,r1,l2' &&
+      log.indexOf('cleared b l2') >= 0 && log.indexOf('uncleared c') >= 0, JSON.stringify(order.allItems) + ' ' + log.join(', '));
+    const same = await W.part('o', 'r1', 'move', { secId: 'c', before: 'p_liturgy_l2_c' });
+    let twice = null; order.allItems.push({ id: 'y9', itemType: 'liturgy', sectionId: 'a', sourceId: 'l2', title: 'Confession' });
+    await W.part('o', 'y9', 'move', { secId: 'c' }).catch(e => { twice = e; });
+    check('...where it already is, nothing; a liturgy the section already has, refused', !!(same && same.same) && !!twice && /already has/.test(twice.message));
+    log.length = 0;
+    await W.part('o', 'y9', 'remove');
+    check('a part taken out: gone, its section noted as emptied of it, one Undo', !order.allItems.some(x => x.id === 'y9') && log.join() === 'change,cleared a l2');
+    order.allItems.find(x => x.id === 'x3').slides = [{ content: 'Lord have mercy', background: 'bg' }];
+    await W.set('o', 'x3', ['Lord have mercy', 'Christ have mercy'], null, '  Kyrie  Eleison ');
+    const k3 = order.allItems.find(x => x.id === 'x3');
+    check('a part\'s name changes with its words, in the same step', k3.title === 'Kyrie Eleison' && k3.slides.length === 2 && k3.slides[0].background === 'bg');
+  } catch (e) { check('the WO side runs', false, e.stack); }
+  // The page side.
+  try {
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const P = new Function('_sp', '_lfE', fn('_spoPartHtml') + '\nreturn _spoPartHtml;');
+    const lit = P({}, esc)({ id: 'i1', kind: 'liturgy', title: 'Absolution', slides: ['x'], edit: true });
+    const rd = P({}, esc)({ id: 'r1', kind: 'reading', title: 'Psalm 23', slides: [], edit: false });
+    const sg = P({}, esc)({ id: 's1', kind: 'song', title: 'O Come', slides: [], edit: false });
+    const ed = P({ edit: { id: 'i1', title: 'Absolution', text: 'x', busy: false } }, esc)({ id: 'i1', kind: 'liturgy', title: 'Absolution', slides: ['x'], edit: true });
+    const so = P({ reorder: true }, esc)({ id: 'i1', kind: 'liturgy', title: 'Absolution', slides: ['x'], edit: true });
+    check('a liturgy part has a grip and a bin; a reading or a song neither; each part says what it is for the drop',
+      /class="spo-grip" data-drag="part" data-id="i1"/.test(lit) && /LiturgyModule\.spoPartRemove\(this\.dataset\.id\)/.test(lit) && / data-part="i1" data-kind="liturgy"/.test(lit) &&
+      !/spo-grip|spoPartRemove/.test(rd) && !/spo-grip|spoPartRemove/.test(sg) && / data-kind="song"/.test(sg) && !/spo-grip/.test(so));
+    check('...its Edit names it too', /id="spoName"[^>]*value="Absolution"/.test(ed) && /LiturgyModule\.spoName\(this\.value\)/.test(ed) && !/spo-grip/.test(ed));
+    const A = new Function('_sp', '_lfE', fn('_spoAddHtml') + '\nreturn _spoAddHtml;');
+    const sub = A({ add: { secId: 'k', title: '', empty: false, text: '' } }, esc)({ id: 'k', title: 'Kyrie' }, false);
+    check('a section with parts takes a subsection: a name of its own, then its words',
+      /New subsection/.test(sub) && /id="spoAddName"/.test(sub) && /e\.g\. Absolution/.test(sub) && /LiturgyModule\.spoAddName\(this\.value\)/.test(sub) &&
+      /Add subsection<\/span>/.test(A({}, esc)({ id: 'k', title: 'Kyrie' }, false)) && /Add words<\/b>/.test(A({}, esc)({ id: 'k', title: 'Kyrie' }, true)));
+    const S = new Function('_sp', '_lfE', fn('_spoSecAddHtml') + '\nreturn _spoSecAddHtml;');
+    const form = S({ secAdd: { title: '', after: 'b', busy: false } }, esc)({ secs: [{ id: 'a', title: 'Gather' }, { id: 'b', title: 'Confession' }, { id: '', title: 'Not in a section' }] });
+    check('a new section: its name, and where it goes -- at the top or after any section, the one chosen kept',
+      /id="spoSecAddName"/.test(form) && /<option value="">At the top<\/option>/.test(form) && /<option value="b" selected>After 2\. Confession<\/option>/.test(form) &&
+      !/Not in a section/.test(form) && /LiturgyModule\.spoSecAddSave\(\)/.test(form) && S({}, esc)({ secs: [] }) === '');
+  } catch (e) { check('the page side draws', false, e.stack); }
+  const out22 = fn('_spOutlineHtml');
+  check('the outline: a grip on every section, the sections marked for the drop, + Section in the tools, the form above the list',
+    /class="spo-grip" data-drag="sec"/.test(out22) && /' data-sec="' \+ _lfE\(x\.id\) \+ '"'/.test(out22) && /LiturgyModule\.spoSecAdd\(\)/.test(out22) && /\(reorder \? '' : _spoSecAddHtml\(ol\)\)/.test(out22));
+  check('drag: a finger on a grip drags and never scrolls; nothing redraws the page under it; a drop is a change in the Builder\'s copy, a drop where it started none',
+    /\.spo-grip \{[^}]*touch-action: none;/.test(SRC) && /if \(_spDrag\) return;/.test(fn('renderService')) && /_spDragBind\(p\);/.test(fn('renderService')) &&
+    /if \(ids\.join\('\|'\) === D\.ids\.join\('\|'\)\) \{ renderService\(\); return; \}/.test(fn('_spDragUp')) &&
+    /WO\.libSection\(oid, 'moveTo', D\.id, \{ before: before \}\)/.test(fn('_spDragUp')) && /WO\.libPart\(oid, D\.id, 'move', \{ secId: secId, before: bef \}\)/.test(fn('_spDragUp')) &&
+    /if \(D\.el\.parentNode === D\.parent && D\.el\.nextSibling === D\.next\) \{ renderService\(\); return; \}/.test(fn('_spDragUp')) &&
+    /e\.key === 'Escape'/.test(fn('_spDragKey')) && /window\.scrollBy\(0, step\)/.test(fn('_spDragEdge')));
+  check('...a closed section takes a part dropped on its row, last; the section held is kept under the finger while the rows close up',
+    /hit\.classList\.add\('is-drop'\); D\.target = hit\.getAttribute\('data-sec'\);/.test(fn('_spDragPlace')) && /root\.classList\.add\('is-sorting'\);/.test(fn('_spDragDown')) &&
+    /\.spo\.is-sorting \.spo-parts \{ display: none; \}/.test(SRC) && /libPart: _woLibPart/.test(SRC) && /spoPartRemove: spoPartRemove/.test(SRC) && /spoSecAddSave: spoSecAddSave/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
