@@ -788,8 +788,8 @@ try {
   check('the Builder opened from a service\'s page carries a bar back to it, in the Orders view only, gone when another order is opened; Back saves first',
     /if \(_llShown\('liturgyServicePanel'\) && _sp\.occ\) \{/.test(fn('_llOpenInBuilder')) && /_llBackBar\(\);/.test(fn('_llOpenInBuilder')) &&
     /view\.appendChild\(b\)/.test(fn('_llBackBar')) && /cur !== _llBack\.orderId/.test(fn('_llBackBar')) &&
-    /WO\.saveImmediately\(\)/.test(fn('llBackToLib')) && /openService\(b\.occ, b\.from \|\| 'services', 'order'\)/.test(fn('llBackToLib')) &&
-    /libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore,/.test(SRC));
+    /saved = WO\.libSaveNow\(12000\);\s*else if \(window\.WO && WO\.saveImmediately\) WO\.saveImmediately\(\);/.test(fn('llBackToLib')) && /openService\(b\.occ, b\.from \|\| 'services', 'order'\)/.test(fn('llBackToLib')) &&
+    /libOutlineOf: _woLibOutlineOf, libTplOf: _woLibTplOf, libSaveNow: function\(ms\) \{ return _soSaveSettled\(ms\); \}, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore,/.test(SRC));
 
   // ------------------------------------------------------------ 17. in use: concise, a PDF, Remove
   // From the operator (2026-11-16), on a screenshot of the box: "a better
@@ -967,8 +967,8 @@ try {
     /title: 'Reset to the original\?'/.test(fn('spoPutAll')) && /The readings and the songs stay\. Undo brings back what was here\./.test(fn('spoPutAll')) &&
     /_spCmpNow\(d, ol\)/.test(use16) && /flow \+ ctop \+ _spDiffHtml\(cmp\) \+ cacts \+ olBox/.test(use16));
   check('...one part put back, or everything, through WO.libRestore in the Builder\'s copy; every change on the page through _spEdit, which opens the Builder once when it does not hold the order and comes back',
-    /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, \{ put: \[x\] \}\); \}/.test(fn('spoPutBack')) &&
-    /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, Object\.assign\(\{ unblend: true \}, plan\)\); \}/.test(fn('spoPutAll')) &&
+    /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, \{ put: \[x\], origId: c\.cmp\.origId \}\); \}/.test(fn('spoPutBack')) &&
+    /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, Object\.assign\(\{ unblend: true, origId: c\.cmp\.origId \}, plan\)\); \}/.test(fn('spoPutAll')) &&
     /if \(WO\.libOutlineOf\(oid\)\) \{/.test(fn('_spEdit')) && /_llOpenInBuilder\(oid, function\(\) \{/.test(fn('_spEdit')) &&
     /report\(res\); llBackToLib\(\); resolve\(true\);/.test(fn('_spEdit')) && !fn('_spRestore'));
   check('...the original is the Liturgy App File it came from (this page\'s, or read once), its sections renamed as a Special order names them',
@@ -1328,7 +1328,7 @@ try {
   try {
     let html = '';
     const doc = { getElementById: () => null };
-    const M = new Function('document', '_spData', '_spOrderOutline', '_spFloat', '_spFloatClose', '_lfE', fn('spoMore') + '\nreturn spoMore;');
+    const M = new Function('document', '_spData', '_spOrderOutline', '_spFloat', '_spFloatClose', '_lfE', 'var window = {};\n' + fn('_spTpl') + '\n' + fn('spoMore') + '\nreturn spoMore;');
     const mk = (tpl, hasOl) => { html = ''; M(doc, { order: { id: 'o' }, orderTpl: tpl }, () => hasOl ? { secs: [] } : null, (b, id, h) => { html = h; }, () => {}, t => t)({}); return html; };
     const a = mk({ serviceLiturgy: { id: 'f1', title: 'Advent' } }, true), b = mk({ serviceLiturgy: { fromOrder: 'x' } }, true), c = mk({}, false);
     check('...its menu: the PDF and sharing it, the original file, another liturgy, and Remove (in red) -- each only where it applies',
@@ -1403,7 +1403,7 @@ try {
       log.filter(l => l === 'change').length === 2 && res.n === 2 && order.template.serviceLiturgy.blend.map(f => f.id).join() === 'B' && order.template.serviceLiturgy.use.made === true && order.template.serviceLiturgy.id === 'A');
   } catch (e) { check('the blend runs', false, e.stack); }
   check('Reset to original lets go of the blend\'s note; the in-use card says what it was blended with',
-    /WO\.libRestore\(oid, Object\.assign\(\{ unblend: true \}, plan\)\)/.test(fn('spoPutAll')) && /if \(plan\.unblend && svlR && \(Array\.isArray\(svlR\.blend\) \|\| svlR\.blendMap\)\)/.test(fn('_woLibRestore')) &&
+    /WO\.libRestore\(oid, Object\.assign\(\{ unblend: true, origId: c\.cmp\.origId \}, plan\)\)/.test(fn('spoPutAll')) && /if \(plan\.unblend && svlR && \(Array\.isArray\(svlR\.blend\) \|\| svlR\.blendMap\)\)/.test(fn('_woLibRestore')) &&
     /delete tplR\.serviceLiturgy\.blend; delete tplR\.serviceLiturgy\.blendMap;/.test(fn('_woLibRestore')) && /libBlend: _woLibBlend/.test(SRC) && /spoBlendGo: spoBlendGo/.test(SRC));
 
   // ------------------------------------------------------------ 25. Use comes back; the parts to add; sources; the blend's sources and order
@@ -1567,6 +1567,103 @@ try {
     /This is the new draft of this year’s liturgy/.test(fn('spoBlendGo')) &&
     /spoBlendWith: spoBlendWith, spoBlendSet: spoBlendSet, spoBlendOpen: spoBlendOpen, spoBlendPeek: spoBlendPeek/.test(SRC) &&
     !/spoBlendPick|spoBlendAdd|spoBlendSrc|_spBlendModel/.test(SRC));
+  // ------------------------------------------------------------ 27. Which liturgy is in use: one copy
+  // Found on 2026-11-16 in the live 29 Nov service: Behold's four sections
+  // under No Communion's name. The page read which liturgy was in use from the
+  // database and the order of service from the Liturgy Builder's copy; back
+  // from a Use whose save had not landed, it compared No Communion's order
+  // with Behold, and Reset to original put Behold back.
+  console.log('\n27. Which liturgy is in use: one copy');
+  try {
+    const tplNow = { serviceLiturgy: { id: 'NC', title: 'No Communion' } };
+    const win = { WO: { libTplOf: id => id === 'o29' ? tplNow : null } };
+    const T = new Function('window', 'WO', fn('_spTpl') + '\nreturn _spTpl;')(win, win.WO);
+    const stale = { order: { id: 'o29' }, orderTpl: { serviceLiturgy: { id: 'BH', title: 'Behold' } } };
+    check('the page reads the template from the Builder\'s copy while it holds the order, else the stored one',
+      T(stale) === tplNow && T({ order: { id: 'other' }, orderTpl: stale.orderTpl }) === stale.orderTpl && T(null) === null && T({ order: null, orderTpl: null }) === null);
+    const sbAsked = [];
+    const O = new Function('window', 'WO', 'SBQ_LITURGY', '_spData', 'renderService', fn('_spTpl') + '\n' + fn('_spOrigRow') + '\nreturn _spOrigRow;')(
+      win, win.WO, { _sb: () => ({ from: () => { sbAsked.push(1); return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }; } }) }, null, () => {});
+    const d = Object.assign({ rows: [{ id: 'BH', title: 'Behold' }, { id: 'NC', title: 'No Communion' }] }, stale);
+    check('...so the original compared with is the liturgy the Builder\'s copy is on (No Communion), not the stored one from before its save (Behold)',
+      O(d).id === 'NC' && !sbAsked.length);
+  } catch (e) { check('the template is read from one copy', false, e.stack); }
+  check('every read of which liturgy is in use goes through _spTpl; the stored template is only written (load, read again) and read there',
+    (SRC.match(/d\.orderTpl/g) || []).length === 3 && !/orderTpl\.serviceLiturgy|orderTpl && /.test(SRC) &&
+    /return mem \|\| d\.orderTpl \|\| null;/.test(fn('_spTpl')) && /tpl = _spTpl\(d\), svl = tpl && tpl\.serviceLiturgy;/.test(fn('_spInUseHtml')) &&
+    /var rec = _spUseRecord\(tpl, /.test(fn('spoRemove')) && /var svl = \(_spTpl\(d\) \|\| \{\}\)\.serviceLiturgy;/.test(fn('_spOrigRow')));
+  check('...the Builder\'s template under the outline\'s own rule; its save can be waited on',
+    /if \(!_woLibHeld\(orderId\) \|\| !_lbdIsActive\(\) \|\| _woLcdInPage\(\)\) return null;\s*return currentOrderData\.template/.test(fn('_woLibTplOf')) &&
+    /libTplOf: _woLibTplOf, libSaveNow: function\(ms\) \{ return _soSaveSettled\(ms\); \}/.test(SRC));
+  check('back from the Builder, the page reads the stored order again once the save has landed',
+    /saved = WO\.libSaveNow\(12000\);/.test(fn('llBackToLib')) && /if \(saved\) saved\.then\(function\(ok\) \{ if \(ok && _sp\.occ === b\.occ\) _spOrderReread\(\); \}\);/.test(fn('llBackToLib')) &&
+    /d\.orderTpl = \(got\.order && got\.order\.template\) \|\| \{\};/.test(fn('_spOrderReread')) && /if \(_spData !== d\) return false;/.test(fn('_spOrderReread')));
+  check('the comparison names the file it was worked out against, and Reset and every Put back carry it',
+    /c\.origId = row\.id;/.test(fn('_spCmpNow')) && /Object\.assign\(\{ unblend: true, origId: c\.cmp\.origId \}, plan\)/.test(fn('spoPutAll')) &&
+    /\{ put: \[x\], origId: c\.cmp\.origId \}/.test(fn('spoPutBack')) && /origId: c\.cmp\.origId \}\); \}, '“' \+ \(m\.title/.test(fn('spoPutGone')) &&
+    /\}, origId: c\.cmp\.origId \}\); \}, '“' \+ g\.title/.test(fn('spoPutSec')) && /if \(err && err\.code === 'changed'\) _spOrderReread\(\);/.test(fn('_spEdit')));
+  try {
+    const log = [];
+    const order = { id: 'o29', template: { serviceLiturgy: { id: 'NC', title: 'No Communion' } },
+      sectionLayout: [{ id: 's1', title: 'Gather' }, { id: 's2', title: 'Confession' }],
+      allItems: [{ id: 'x1', itemType: 'liturgy', sectionId: 's1', sourceId: 'doc_1', slides: [{ content: 'Old' }] }] };
+    let held = true, active = true, stored = { serviceLiturgy: { id: 'NC' } }, readFails = false;
+    const sb = { from: t => ({ select: () => ({ eq: () => ({ maybeSingle: () => { log.push('read ' + t); return readFails ? Promise.reject(new Error('down')) : Promise.resolve({ data: { template: JSON.stringify(stored) } }); } }) }) }) };
+    const env = { _woLibHeld: () => held, _lbdIsActive: () => active, _woLcdInPage: () => false, _lbdPfx: () => 'o29__', _lbdUid: () => 'u1',
+      _woSectionList: () => order.sectionLayout.map(x => ({ id: x.id, title: x.title })), _lbdSecIndex: () => -1,
+      _soSaveSettled: () => Promise.resolve(true), _lbdChange: f => { log.push('change'); return f() !== false; },
+      _lbdClearClearedFor: () => {}, _lbdNoteCleared: () => {}, _lbdSortSongsByService: () => {}, _woLibKeepBg: (a, b) => b, _woLibReorder: L => ({ layout: L, changed: false }),
+      _woStripNum: t => t, songOrderSections: [], _woSongSectionIds: () => [], _lbdUnplaceSong: () => {},
+      _woLibSetSlides: (oid, id) => { log.push('write ' + id); return Promise.resolve({ before: [] }); }, SBQ: { _sb: () => sb } };
+    const keys = Object.keys(env);
+    const R = new Function(...keys, 'var currentOrderData = null;' + fn('_woLibRestore') + '\nreturn { restore: _woLibRestore, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+    R.hold(order);
+    const put = { put: [{ id: 'x1', slides: [{ content: 'Behold words' }] }] };
+    let err = null;
+    await R.restore('o29', Object.assign({ origId: 'BH' }, put)).catch(e => { err = e; });
+    check('Reset planned against Behold, on a service now on No Communion: refused in the Builder\'s copy, nothing changed',
+      err && err.code === 'changed' && /changed since the page was drawn/.test(err.message) && !log.length && order.allItems[0].slides[0].content === 'Old', JSON.stringify(log));
+    const ok = await R.restore('o29', Object.assign({ origId: 'NC' }, put));
+    check('...planned against the liturgy it is on: made, as before', ok.via === 'builder' && ok.put === 1 && order.allItems[0].slides[0].content === 'Behold words' && log.join() === 'change');
+    held = false; active = false; log.length = 0; err = null;
+    stored = { serviceLiturgy: { id: 'NC' } };
+    await R.restore('o29', Object.assign({ origId: 'BH' }, put)).catch(e => { err = e; });
+    check('...on the stored rows: the stored order\'s liturgy read first, and another one refuses before any row is written',
+      err && err.code === 'changed' && log.join() === 'read orders', JSON.stringify(log));
+    log.length = 0;
+    const ok2 = await R.restore('o29', Object.assign({ origId: 'NC' }, put));
+    readFails = true;
+    const ok3 = await R.restore('o29', Object.assign({ origId: 'BH' }, put));
+    check('...the same liturgy writes; a read that fails does not block', ok2.via === 'stored' && ok3.via === 'stored' && log.join() === 'read orders,write x1,read orders,write x1', JSON.stringify(log));
+  } catch (e) { check('Reset\'s check runs', false, e.stack); }
+  try {
+    // A fake clock: the Builder already showing the order (the editor up),
+    // and the reload landing three ticks later.
+    let now = 0, timers = [], nextId = 1;
+    const later = (fn, ms, every) => { const id = nextId++; timers.push({ id, at: now + ms, fn, every }); return id; };
+    const clock = { setTimeout: (fn, ms) => later(fn, ms || 0, 0), setInterval: (fn, ms) => later(fn, ms, ms), clearInterval: id => { timers = timers.filter(t => t.id !== id); } };
+    const run = ms => { const end = now + ms; for (;;) { timers.sort((a, b) => a.at - b.at); const t = timers[0]; if (!t || t.at > end) break; now = t.at; if (t.every) t.at += t.every; else timers.shift(); t.fn(); } now = end; };
+    const log = []; let seq = 4, cur = 'o29';
+    const WOs = { openedSeq: () => seq, loadOrder: id => { log.push('load ' + id); clock.setTimeout(() => { seq++; log.push('opened'); }, 1100); },
+      selectOrder: m => log.push('select ' + m), currentOrderId: () => cur };
+    const doc = { getElementById: () => ({ style: { display: 'block' } }) };
+    const toasts = [];
+    const L = new Function('_llShown', '_sp', 'getOccasionById', 'setActiveView', '_llBackBar', 'WO', 'document', 'setTimeout', 'setInterval', 'clearInterval', 'showToast',
+      'var _llBack = null;\n' + fn('_llOpenInBuilder') + '\nreturn _llOpenInBuilder;')(
+      () => false, { occ: '' }, () => null, () => {}, () => {}, WOs, doc, clock.setTimeout, clock.setInterval, clock.clearInterval, m => toasts.push(m));
+    L('o29', () => log.push('then'));
+    run(1000);
+    const early = log.slice();
+    run(3000);
+    check('opening the Builder from the page waits for THIS load to open the order before choosing the Builder, with the editor already up',
+      early.join() === 'load o29' && log.join() === 'load o29,opened,select liturgy,then', JSON.stringify(log));
+    log.length = 0; seq = 4; timers = [];
+    WOs.loadOrder = id => log.push('load ' + id);
+    L('o29', () => log.push('then'));
+    run(20000);
+    check('...and says so when it never opens, rather than doing nothing', log.join() === 'load o29' && /took too long to open\. Nothing was changed/.test(toasts.join()), JSON.stringify([log, toasts]));
+    check('...the count moves as an order is opened, after the step chooser', /showOrderModeLanding\(\);\s*_woOpenedSeq\+\+;/.test(fn('openOrderInEditor')) && /openedSeq: function\(\) \{ return _woOpenedSeq; \}/.test(SRC));
+  } catch (e) { check('opening the Builder runs', false, e.stack); }
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

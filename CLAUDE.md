@@ -5169,6 +5169,38 @@ the anon key -- verify as `postgres`, not as the app.
       29 Nov order at 480px: B the original, 20 rows, B's own sections Off,
       Invocation set to B showing "This year's has no such section" beside
       B's words, "6 sections · 5 from A · 1 from B", Blend (1 change).
+    - **Which liturgy is in use is read from the same copy as the order**
+      (found 2026-11-16 in the live 29 Nov service: Behold 2023's four
+      sections under No Communion's name). The page read the outline from
+      the Builder's copy while it held the order (`_spOrderOutline`) but which
+      liturgy was in use -- and so "the original", Remove's record, the blend
+      -- from the template read from the database (`d.orderTpl`). Back from a
+      Use (No Communion, 13:45) before its save had landed, the page compared
+      No Communion's order with Behold, the liturgy used before it, and Reset
+      to original rebuilt Behold under No Communion's record. Now every read
+      goes through `_spTpl(d)`: the Builder's template while it holds the
+      order (`WO.libTplOf`, the outline's own rule), else the stored one;
+      `d.orderTpl` is only written (`_spLoad`, `_spOrderReread`) and read
+      there. Back from the Builder (`llBackToLib`) waits on the save
+      (`WO.libSaveNow`, `_soSaveSettled`) and reads the stored order again
+      (`_spOrderReread`). The comparison names the file it was worked out
+      against (`cmp.origId`), Reset and every Put back carry it, and
+      `_woLibRestore` refuses a plan for another liturgy (code `changed`):
+      in the Builder's copy against its template, on the stored rows after
+      reading the order's template (a read that fails does not block); the
+      page then reads the order again. **Opening the Builder from the page**
+      (`_llOpenInBuilder`) waited only for the editor to show, which it
+      already did when the Builder had the order, so it chose the Builder
+      before the reload landed, the reload ended on the step chooser, and
+      Use said "Open the order in the Liturgy Builder to put the liturgy
+      in." It now waits for that load's own open (`WO.openedSeq`, moved by
+      `openOrderInEditor` after `showOrderModeLanding`) and the order being
+      current, and says when it never opens. Reset could not mend the 29 Nov
+      service: the two files' parts share ids (`doc_1`..`doc_4`), so Reset
+      paired Behold's parts with No Communion's. Use mends it: tried in the
+      read-only preview, 30 sections, all 15 parts, "Same as the original"
+      (the Roster's readings go in on the live site; the preview has no
+      `/api`).
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
