@@ -35906,6 +35906,12 @@ var WO = (function() {
   }
 
   var _loadingOrder = false;
+  // How many times an order has been opened in the editor: a caller that
+  // loads an order and then picks its step waits for this to move, because
+  // the open ends on the step chooser (2026-11-16: with the Builder already
+  // showing the order, the Library page's Use picked the Builder before the
+  // reload landed, the reload took it down again, and Use gave up).
+  var _woOpenedSeq = 0;
 
   function loadOrder(idxOrId) {
     // Words held in the Slide Editor are asked about before the order is
@@ -37398,6 +37404,7 @@ var WO = (function() {
 
     // Render the order structure - items are restored when switching to Service Order view
     showOrderModeLanding();
+    _woOpenedSeq++;
     // A reload the sync notice asked for goes back where the operator was,
     // rather than dropping them on a mode-choice screen they never asked to
     // see. One-shot: any other route through here still lands on the landing.
@@ -82924,6 +82931,13 @@ var WO = (function() {
     });
     return { sections: _woSectionList().map(function(x) { return { id: x.id, title: x.title }; }), items: items.concat(songs), type: currentOrderData.type || '' };
   }
+  // The order's template as the Builder holds it here -- which liturgy is in
+  // use, its Use record, its blend -- under the same rule as the outline, so
+  // the Library page never reads the two from different copies (2026-11-16).
+  function _woLibTplOf(orderId) {
+    if (!_woLibHeld(orderId) || !_lbdIsActive() || _woLcdInPage()) return null;
+    return currentOrderData.template || (currentOrderData.template = {});
+  }
   // A part's slides from its words (pure): a slide left as it was keeps its
   // formatting and background; a changed one becomes plain words with the
   // background of the slide in its place, as the Builder's own edit does.
@@ -83029,8 +83043,18 @@ var WO = (function() {
     var put = plan.put || [], add = plan.add || [], drop = plan.drop || [], lx = plan.layout || null;
     var hasLayout = !!(lx && ((lx.add || []).length || Object.keys(lx.titles || {}).length || (lx.order || []).length || (lx.remove || []).length));
     if (!put.length && !add.length && !drop.length && !hasLayout) return Promise.resolve({ via: 'none', put: 0, added: 0 });
+    // plan.origId: the Liturgy App File the plan was worked out against. A
+    // service whose liturgy is another one now is left alone: on 2026-11-16 a
+    // Reset planned against the liturgy used before put that one back over
+    // the one used since (29 Nov: Behold's sections under No Communion's name).
+    var other = function(t) { var v = t && t.serviceLiturgy; return !!plan.origId && !(v && v.id === plan.origId); };
+    var refused = function() {
+      var e = new Error('this service’s liturgy has changed since the page was drawn, so nothing was changed. Look at it again');
+      e.code = 'changed'; return Promise.reject(e);
+    };
     var held = _woLibHeld(orderId);
     if (held && _woLcdInPage()) return Promise.reject(new Error('this service is open in LCD Projection here: change it there'));
+    if (held && _lbdIsActive() && other(currentOrderData.template)) return refused();
     if (held && _lbdIsActive()) {
       var n = { put: 0, added: 0, secs: 0, dropped: 0 };
       var ok = _lbdChange(function() {
@@ -83113,13 +83137,22 @@ var WO = (function() {
     }
     if (held) return Promise.reject(new Error('this service is open in Orders here: change it in its Liturgy Builder'));
     if (add.length || drop.length || hasLayout || put.some(function(x) { return x.secId; })) { var e = new Error('a part taken out goes back in the Liturgy Builder'); e.code = 'builder'; return Promise.reject(e); }
-    var befores = [];
-    return put.reduce(function(pr, x) {
-      return pr.then(function() {
-        return _woLibSetSlides(orderId, x.id, null, function(cur) { return _woLibKeepBg(cur, x.slides); })
-          .then(function(r) { befores.push({ id: x.id, slides: r.before }); });
-      });
-    }, Promise.resolve()).then(function() { return { via: 'stored', put: befores.length, added: 0, befores: befores }; });
+    var befores = [], sbO = plan.origId ? SBQ._sb() : null;
+    // The stored order's liturgy, read first; a read that fails does not block.
+    var chk = sbO ? Promise.resolve(sbO.from('orders').select('template').eq('id', orderId).maybeSingle()).then(function(r) {
+      var t = r && !r.error && r.data ? r.data.template : null;
+      if (typeof t === 'string') { try { t = JSON.parse(t); } catch (x) { t = null; } }
+      return t && typeof t === 'object' ? t : null;
+    }, function() { return null; }) : Promise.resolve(null);
+    return chk.then(function(t) {
+      if (t && other(t)) return refused();
+      return put.reduce(function(pr, x) {
+        return pr.then(function() {
+          return _woLibSetSlides(orderId, x.id, null, function(cur) { return _woLibKeepBg(cur, x.slides); })
+            .then(function(r) { befores.push({ id: x.id, slides: r.before }); });
+        });
+      }, Promise.resolve()).then(function() { return { via: 'stored', put: befores.length, added: 0, befores: befores }; });
+    });
   }
   // The original's sections put back in its order (pure): each section not in
   // the original stays after the one it followed (or at the top), so a
@@ -99608,6 +99641,7 @@ var WO = (function() {
     getOrders: getOrders,
     addToSavedOrders: addToSavedOrders,
     loadOrder: loadOrder,
+    openedSeq: function() { return _woOpenedSeq; },
     syncOrdersFromBackend: syncOrdersFromBackend,
     backToMainMenu: backToMainMenu,
     saveCurrentOrder: saveCurrentOrder,
@@ -99787,7 +99821,7 @@ var WO = (function() {
     lbdFillReadings: lbdFillReadings,
     svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
     orderForIso: _woOrderForIso, orderInfoForIso: _woOrderInfoForIso, createOrderForIso: _woCreateOrderForIso, svlUseFromLibrary: svlUseFromLibrary, exportDoc: _woExportDoc,
-    libOutlineOf: _woLibOutlineOf, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libAddPart: _woLibAddPart, libPart: _woLibPart, libBlend: _woLibBlend, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
+    libOutlineOf: _woLibOutlineOf, libTplOf: _woLibTplOf, libSaveNow: function(ms) { return _soSaveSettled(ms); }, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libAddPart: _woLibAddPart, libPart: _woLibPart, libBlend: _woLibBlend, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
     docxParas: _lbdDocxParas, splitSlides: _lbdSplitSlides, normTitle: _lbdNormTitle, typeSections: _woTypeSections,
     docLiturgy: _woDocLiturgy, svlItemTexts: _svlItemTexts, svlItemHtml: _svlItemHtml, snapshotOfOrder: _lldSnapshotFromOrder,
     lbdServiceLiturgies: lbdServiceLiturgies, lbdSvlToggle: lbdSvlToggle, lbdSvlFilter: lbdSvlFilter, lbdSvlFind: lbdSvlFind, lbdSvlAsk: lbdSvlAsk, lbdSvlUse: lbdSvlUse,
@@ -105451,11 +105485,17 @@ var LiturgyModule = (function() {
     var b = _llBack;
     _llBack = null; _llBackBar();
     if (drop || !b) return;
-    // What the Builder holds goes to the database first; the page reads the
-    // Builder's own copy anyway while it holds the order.
-    try { if (window.WO && WO.saveImmediately) WO.saveImmediately(); } catch (e) {}
+    // What the Builder holds goes to the database; the page reads the
+    // Builder's own copy while it holds the order, and reads the stored one
+    // again once the save has landed (2026-11-16).
+    var saved = null;
+    try {
+      if (window.WO && WO.libSaveNow) saved = WO.libSaveNow(12000);
+      else if (window.WO && WO.saveImmediately) WO.saveImmediately();
+    } catch (e) {}
     setActiveView('liturgyView');
     openService(b.occ, b.from || 'services', 'order');
+    if (saved) saved.then(function(ok) { if (ok && _sp.occ === b.occ) _spOrderReread(); });
   }
   function _llOpenInBuilder(id, then) {
     if (_llShown('liturgyServicePanel') && _sp.occ) {
@@ -105465,11 +105505,20 @@ var LiturgyModule = (function() {
     setActiveView('worshipOrderView');
     _llBackBar();
     setTimeout(function() {
+      // The Builder is chosen once THIS load has opened the order: with the
+      // order already showing, the editor is up before the reload lands, and
+      // the reload ends on the step chooser.
+      var seq0 = WO.openedSeq ? WO.openedSeq() : -1;
       WO.loadOrder(id);
       var tries = 0, t = setInterval(function() {
         var ed = document.getElementById('woEditor');
-        if (++tries > 20) { clearInterval(t); return; }
-        if (ed && ed.style.display !== 'none' && WO.selectOrder) {
+        if (++tries > 40) {
+          clearInterval(t);
+          showToast('The order took too long to open. Nothing was changed: try again.', 'error', { duration: 9000 });
+          return;
+        }
+        var opened = seq0 < 0 || WO.openedSeq() > seq0;
+        if (opened && ed && ed.style.display !== 'none' && WO.selectOrder && (!WO.currentOrderId || WO.currentOrderId() === id)) {
           clearInterval(t);
           WO.selectOrder('liturgy');
           if (typeof then === 'function') setTimeout(then, 700);
@@ -105766,6 +105815,31 @@ var LiturgyModule = (function() {
   }
   // The outline from the Builder's own copy when it holds the order here,
   // else from the stored order.
+  // The order's template as this page reads it: the Builder's own copy while
+  // it holds the order here -- the copy the outline is read from -- else the
+  // one read from the database. (2026-11-16: which liturgy was in use came
+  // from the database while the outline came from the Builder. Back from a
+  // Use before its save had landed, the page compared the new liturgy with
+  // the one before, and Reset to original put that one back.)
+  function _spTpl(d) {
+    if (!d) return null;
+    var mem = d.order && window.WO && WO.libTplOf ? WO.libTplOf(d.order.id) : null;
+    return mem || d.orderTpl || null;
+  }
+  // The stored order read again (after a save, or a refusal), for when the
+  // Builder lets go of it.
+  function _spOrderReread() {
+    var d = _spData;
+    if (!d || !d.order || typeof SBQ === 'undefined' || !SBQ.loadOrder) return Promise.resolve(false);
+    return SBQ.loadOrder(d.order.id).then(function(got) {
+      if (_spData !== d) return false;
+      d.orderTpl = (got.order && got.order.template) || {};
+      d.orderFull = got.order || null;
+      d.orderItems = got.items || [];
+      renderService();
+      return true;
+    }, function() { return false; });
+  }
   function _spOrderOutline(d) {
     if (!d || !d.order) return null;
     var mem = (window.WO && WO.libOutlineOf) ? WO.libOutlineOf(d.order.id) : null;
@@ -106001,7 +106075,7 @@ var LiturgyModule = (function() {
   // and in sight -- on this service's page, or the page of the service it is
   // filed under. Without a document, the app file opens in the preview.
   function spoGoOrig() {
-    var d = _spData, svl = d && d.orderTpl && d.orderTpl.serviceLiturgy;
+    var d = _spData, svl = (_spTpl(d) || {}).serviceLiturgy;
     if (!svl || !svl.id) return;
     var row = _spOrigRow(d);
     if (row === undefined) { showToast('Still finding the original. Try again in a moment.', 'info'); return; }
@@ -106053,7 +106127,7 @@ var LiturgyModule = (function() {
     var c = _spCmpCur(), e = c.cmp && c.cmp.byItem[id];
     if (!e || (e.st !== 'changed' && e.st !== 'moved') || !(window.WO && WO.libRestore)) return;
     var x = { id: id, slides: e.st === 'moved' ? null : ((e.src && e.src.slides) || []), secId: (e.st === 'moved' || e.moved) ? e.secId : '' };
-    _spEdit(function(oid) { return WO.libRestore(oid, { put: [x] }); }, '“' + ((e.src && e.src.title) || 'That part') + '” is back as the original has it.',
+    _spEdit(function(oid) { return WO.libRestore(oid, { put: [x], origId: c.cmp.origId }); }, '“' + ((e.src && e.src.title) || 'That part') + '” is back as the original has it.',
       function() { if (_sp.orig) delete _sp.orig[id]; });
   }
   // A part taken out, back in its section.
@@ -106061,7 +106135,7 @@ var LiturgyModule = (function() {
     var c = _spCmpCur();
     var m = c.cmp && c.cmp.missing.filter(function(x) { return x.key === key; })[0];
     if (!m || !m.secOk || !(window.WO && WO.libRestore)) return;
-    _spEdit(function(oid) { return WO.libRestore(oid, { add: [{ item: m.src, secId: m.secId, after: m.after }] }); }, '“' + (m.title || 'That part') + '” is back in its place.');
+    _spEdit(function(oid) { return WO.libRestore(oid, { add: [{ item: m.src, secId: m.secId, after: m.after }], origId: c.cmp.origId }); }, '“' + (m.title || 'That part') + '” is back in its place.');
   }
   // A section of the original taken out, back after the one it followed,
   // with its parts.
@@ -106070,7 +106144,7 @@ var LiturgyModule = (function() {
     var g = sc && sc.gone.filter(function(x) { return x.id === id; })[0];
     if (!g || !(window.WO && WO.libRestore)) return;
     var add = c.cmp.missing.filter(function(m) { return m.secId === id; }).map(function(m) { return { item: m.src, secId: m.secId, after: m.after }; });
-    _spEdit(function(oid) { return WO.libRestore(oid, { add: add, layout: { add: [{ entry: g.entry, after: g.after }] } }); }, '“' + g.title + '” is back in its place.');
+    _spEdit(function(oid) { return WO.libRestore(oid, { add: add, layout: { add: [{ entry: g.entry, after: g.after }] }, origId: c.cmp.origId }); }, '“' + g.title + '” is back in its place.');
   }
   // Every part back as the original has it: the changed ones' words, and the
   // ones taken out back in their sections. Parts added since stay.
@@ -106087,13 +106161,13 @@ var LiturgyModule = (function() {
     if (n.gone || n.secGone) lines.push([n.secGone ? k(n.secGone, 'section', 'sections') : '', n.gone ? k(n.gone, 'part', 'parts') : ''].filter(Boolean).join(' and ') + ' taken out come' + (one(n.gone, n.secGone) ? 's' : '') + ' back');
     if (n.renamed || n.secMoved) lines.push([n.renamed ? k(n.renamed, 'section gets its name', 'sections get their names') + ' back' : '', n.secMoved ? 'the sections go back in the original’s order' : ''].filter(Boolean).join(', and '));
     if (n.added || n.secAdded) lines.push([n.secAdded ? k(n.secAdded, 'section', 'sections') : '', n.added ? k(n.added, 'part', 'parts') : ''].filter(Boolean).join(' and ') + ' added since ' + (one(n.added, n.secAdded) ? 'is' : 'are') + ' taken out');
-    var svl = (c.d.orderTpl && c.d.orderTpl.serviceLiturgy) || {};
+    var svl = (_spTpl(c.d) || {}).serviceLiturgy || {};
     var msg = lines.join('; ') + '. The readings and the songs stay. Undo brings back what was here.';
     var ask = window.lhcAskDelete ? window.lhcAskDelete({ icon: 'fa-rotate-left', title: 'Reset to the original?', detail: svl.title || 'Its Liturgy App File', detailIcon: 'fa-book-bookmark',
       message: msg.charAt(0).toUpperCase() + msg.slice(1), cancelLabel: 'Keep my changes', okLabel: 'Reset', okIcon: 'fa-rotate-left' }) : Promise.resolve(true);
     ask.then(function(ok) {
       if (!ok) return;
-      _spEdit(function(oid) { return WO.libRestore(oid, Object.assign({ unblend: true }, plan)); }, 'Back as the original has it.', function() { _sp.orig = {}; });
+      _spEdit(function(oid) { return WO.libRestore(oid, Object.assign({ unblend: true, origId: c.cmp.origId }, plan)); }, 'Back as the original has it.', function() { _sp.orig = {}; });
     });
   }
   // Through the Builder's copy here, the stored rows, or -- for a part that
@@ -106114,6 +106188,7 @@ var LiturgyModule = (function() {
     var fail = function(err) {
       if (typeof after === 'function') after(false);
       showToast('Could not make the change: ' + ((err && err.message) || err), 'error', { duration: 9000 });
+      if (err && err.code === 'changed') _spOrderReread();
     };
     if (WO.libOutlineOf(oid)) {
       return Promise.resolve().then(function() { return run(oid); })
@@ -106426,9 +106501,9 @@ var LiturgyModule = (function() {
   }
   var _spRm = null;
   function spoRemove() {
-    var d = _spData, next = d && d.next;
-    if (!d || !d.order || !next || !d.orderTpl) return;
-    var svl = d.orderTpl.serviceLiturgy, sb = SBQ_LITURGY._sb(), k = SBQ_READINGS.isoToRoster(next.key);
+    var d = _spData, next = d && d.next, tpl = _spTpl(d);
+    if (!d || !d.order || !next || !tpl) return;
+    var svl = tpl.serviceLiturgy, sb = SBQ_LITURGY._sb(), k = SBQ_READINGS.isoToRoster(next.key);
     _spRm = { key: next.key, orderId: d.order.id, busy: false, plan: null };
     _spRmDraw();
     var chP = (svl && !svl.use && sb && k)
@@ -106440,7 +106515,7 @@ var LiturgyModule = (function() {
                  SBQ_READINGS.getRange(day, day).catch(function() { return {}; })]).then(function(res) {
       var r = _spRm;
       if (!r || r.key !== next.key) return;
-      var rec = _spUseRecord(d.orderTpl, d.orderFull || d.order, res[0]);
+      var rec = _spUseRecord(tpl, d.orderFull || d.order, res[0]);
       r.plan = _spUnusePlan(rec, res[1], (res[2] || {})[next.key] || (res[2] || {})[day] || {});
       _spRmDraw();
     });
@@ -106456,7 +106531,7 @@ var LiturgyModule = (function() {
       el.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); spoRemoveClose(); } });
       document.body.appendChild(el);
     }
-    var svl = (d.orderTpl && d.orderTpl.serviceLiturgy) || {}, occ = _sp.occ, pl = r.plan, li = [];
+    var svl = (_spTpl(d) || {}).serviceLiturgy || {}, occ = _sp.occ, pl = r.plan, li = [];
     var when = _lfLongDate(r.key), ol = _spOrderOutline(d), n = ol ? _spOlCounts(ol) : null;
     var nm = function(role) { var x = CV_ROLES.filter(function(c) { return c[0] === role; })[0]; return x ? x[1] : role; };
     var tn = function(v) { return String(v || '').trim() ? String(v).trim().replace(/^./, function(c) { return c.toUpperCase(); }) + ' service' : 'no service kind (blank)'; };
@@ -106526,7 +106601,7 @@ var LiturgyModule = (function() {
       el.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); spoPickClose(); } });
       document.body.appendChild(el);
     }
-    var occ = _sp.occ, next = d.next, svl = d.orderTpl && d.orderTpl.serviceLiturgy;
+    var occ = _sp.occ, next = d.next, svl = (_spTpl(d) || {}).serviceLiturgy;
     var usedId = svl && svl.id, used = !!(svl && (svl.id || svl.fromOrder));
     var sun = _llSundayOf(next.day), sunKey = sun && sun.occ === occ ? sun.key : '';
     var g = _spPickGroups(d.rows || [], sunKey), rows = d.rows || [];
@@ -106654,7 +106729,7 @@ var LiturgyModule = (function() {
   function spoBlend() {
     var d = _spData, ol = d && d.order ? _spOrderOutline(d) : null;
     if (!ol) { showToast('Still reading its order. Try again in a moment.', 'info'); return; }
-    var svl = d.orderTpl && d.orderTpl.serviceLiturgy, usedId = (svl && svl.id) || '';
+    var svl = (_spTpl(d) || {}).serviceLiturgy, usedId = (svl && svl.id) || '';
     var others = _spBlendOthers(d, usedId);
     spoPickClose();
     // A is the liturgy as it is now -- named by its date, not by the file it
@@ -107005,7 +107080,7 @@ var LiturgyModule = (function() {
   // the day it is for, side by side; the liturgy folded under one bar; then
   // the Builder, the PDF, Share, another liturgy, and Remove.
   function _spInUseHtml(d, next, cyc, kind, list, head) {
-    var occ = _sp.occ, tpl = d.orderTpl, svl = tpl && tpl.serviceLiturgy;
+    var occ = _sp.occ, tpl = _spTpl(d), svl = tpl && tpl.serviceLiturgy;
     var used = !!(svl && (svl.id || svl.fromOrder));
     var ol = _spOrderOutline(d), n = ol ? _spOlCounts(ol) : null, open = !!_sp.olOpen;
     // Compared with its Liturgy App File, part by part (2026-11-16, the
@@ -107096,7 +107171,7 @@ var LiturgyModule = (function() {
     var d = _spData;
     if (!d || !id) return;
     var r = (d.rows || []).filter(function(x) { return x.id === id; })[0] || null;
-    var svl = d.orderTpl && d.orderTpl.serviceLiturgy;
+    var svl = (_spTpl(d) || {}).serviceLiturgy;
     if (!r && svl && svl.id === id) { var o = _spOrigRow(d); if (o && !o.gone && !o.failed && o.id) r = o; }
     var m = /^doc:(.+)$/.exec(String((r && r.made_from) || '')), doc = m ? getItem(m[1]) : null;
     if (doc) { lfOpen(doc.id); return; }
@@ -107214,7 +107289,7 @@ var LiturgyModule = (function() {
   // The Liturgy App File a service's liturgy came from: this page's, else
   // read once. undefined while it is read; null when there is none to read.
   function _spOrigRow(d) {
-    var svl = d && d.orderTpl && d.orderTpl.serviceLiturgy;
+    var svl = (_spTpl(d) || {}).serviceLiturgy;
     if (!svl || !svl.id) return null;
     var r = ((d.rows) || []).filter(function(x) { return x.id === svl.id; })[0];
     if (r) return r;
@@ -107239,6 +107314,8 @@ var LiturgyModule = (function() {
     var map = (window.WO && WO.svlSecMap) ? WO.svlSecMap(row.data || {}, ol.type, row.order_type) : {};
     var c = _spCompare((row.data || {}).items || [], ol.items || [], map, ol.secs.map(function(x) { return x.id; }).filter(Boolean));
     c.secs = _spCompareSecs((row.data || {}).sectionLayout || [], ol.secs, map);
+    // Which file this was worked out against, for the Builder to check.
+    c.origId = row.id;
     return c;
   }
   // Everything back as the original has it (pure over a comparison): its
@@ -107525,7 +107602,7 @@ var LiturgyModule = (function() {
 
   function _spReadyHtml(d, orderId, year) {
     var occId = _sp.occ;
-    var used = d && d.orderTpl && d.orderTpl.serviceLiturgy && d.orderTpl.serviceLiturgy.id;
+    var tplU = _spTpl(d), used = tplU && tplU.serviceLiturgy && tplU.serviceLiturgy.id;
     // A file converted from a document is shown with its document (Converted,
     // Use); here are the rest: saved from the Liturgy Builder, or from a
     // document since removed -- of the year chosen, when one is.
@@ -108776,7 +108853,7 @@ var LiturgyModule = (function() {
   // another liturgy and Remove -- the desk's buttons, in one menu.
   function spoMore(btn) {
     if (document.getElementById('spoMoreMenu')) { _spFloatClose('spoMoreMenu'); return; }
-    var d = _spData, svl = d && d.orderTpl && d.orderTpl.serviceLiturgy, used = !!(svl && (svl.id || svl.fromOrder));
+    var d = _spData, svl = (_spTpl(d) || {}).serviceLiturgy, used = !!(svl && (svl.id || svl.fromOrder));
     var ol = d && d.order ? _spOrderOutline(d) : null;
     var item = function(act, icon, label, rm) { return '<button type="button" role="menuitem"' + (rm ? ' class="is-danger"' : '') + ' data-act="' + act + '" onclick="LiturgyModule.spoMoreAct(this)"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</button>'; };
     _spFloat(btn, 'spoMoreMenu',
