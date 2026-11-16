@@ -79654,6 +79654,30 @@ var WO = (function() {
     return [];
   }
 
+  // A section of its own for each reading (pure; 2026-11-16, the operator,
+  // of the 29 Nov service: all four readings sat under "1st Reading" while
+  // its Psalm, 2nd Reading and Gospel Reading stood empty). Among the
+  // sections of the readings' kind, one named for ONE reading -- "1st
+  // Reading", "Psalm", "Second Reading", "Epistle", "Gospel Reading" -- takes
+  // that reading. A name that is not one reading's ("Scripture Readings",
+  // "Gospel Acclamation") takes none, and a reading two sections are named
+  // for goes to neither: the readings' own section has it, as before.
+  // role -> section id.
+  function _woReadingSecs(list) {
+    var out = {}, two = {};
+    (list || []).forEach(function(sx) {
+      if (!sx || !sx.id || sx.serviceSectionId !== 'scripture') return;
+      var t = String(sx.title || '').toLowerCase().replace(/^\s*\d+[.)]\s*/, '');
+      if (/acclamation|alleluia|response\b|responsory|verse|hymn|song|sermon|reflection|readings|lessons/.test(t)) return;
+      var role = /psalm/.test(t) ? 'psalm' : /gospel/.test(t) ? 'gospel'
+        : /\b(second|2nd)\b|epistle|new testament/.test(t) ? 'reading2' : /\b(first|1st)\b|old testament/.test(t) ? 'reading1' : '';
+      if (!role) return;
+      if (out[role]) two[role] = true; else out[role] = sx.id;
+    });
+    Object.keys(two).forEach(function(r) { delete out[r]; });
+    return out;
+  }
+
   function _lbdSlotForRole(secId, role) {
     var slots = _lbdSlotLabels(secId);
     for (var i = 0; i < slots.length; i++) { if (_roleForSlotLabel(slots[i]) === role) return slots[i]; }
@@ -79704,14 +79728,16 @@ var WO = (function() {
       // Put in by itself, a reading goes only where the order has a place
       // for readings, and never where one was taken out (_woReadingsTodo).
       if (opts.auto && !secId) return 0;
+      // A reading already in the order, in any section, is had: with a
+      // section of its own for each (_woReadingSecs) they are not all in one.
       var have = {};
-      if (secId) {
-        _woSectionItems(secId).forEach(function(it) {
+      _woSectionList().forEach(function(sx) {
+        _woSectionItems(sx.id).forEach(function(it) {
           if (it.itemType !== 'scripture') return;
           var role = _roleForSlotLabel((it.content && it.content.subLabel) || '');
           if (role) have[role] = true;
         });
-      }
+      });
       var todo = opts.auto ? _woReadingsTodo(wanted, byRole, have, _woReadingsNoted(order))
                            : wanted.filter(function(w) { return !have[w.role]; });
       if (opts.auto) _woNoteReadings(order, wanted.filter(function(w) { return have[w.role]; }), byRole);
@@ -79744,10 +79770,13 @@ var WO = (function() {
         _lbdChange(function() {
           var sid = _lbdScriptureSection(!opts.auto);
           if (!sid) return false;
+          // Each reading in the section named for it, where the order has one.
+          var own = _woReadingSecs(_woSectionList());
           got.forEach(function(g) {
-            var label = _lbdSlotForRole(sid, g.role);
-            if (_lbdReadingTaken(sid, g.title)) return;
-            currentOrderData.allItems.push(_lbdReadingItem(sid, {
+            var at = own[g.role] || sid;
+            var label = _lbdSlotForRole(at, g.role);
+            if (_lbdReadingTaken(at, g.title)) return;
+            currentOrderData.allItems.push(_lbdReadingItem(at, {
               title: g.title, subLabel: label, text: g.text,
               singAlleluia: g.role === 'gospel' && getOrderType() === 'traditional'
             }));
