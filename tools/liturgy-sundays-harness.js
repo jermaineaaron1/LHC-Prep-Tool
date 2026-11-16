@@ -1664,6 +1664,60 @@ try {
     check('...and says so when it never opens, rather than doing nothing', log.join() === 'load o29' && /took too long to open\. Nothing was changed/.test(toasts.join()), JSON.stringify([log, toasts]));
     check('...the count moves as an order is opened, after the step chooser', /showOrderModeLanding\(\);\s*_woOpenedSeq\+\+;/.test(fn('openOrderInEditor')) && /openedSeq: function\(\) \{ return _woOpenedSeq; \}/.test(SRC));
   } catch (e) { check('opening the Builder runs', false, e.stack); }
+  // ------------------------------------------------------------ 28. A section of its own for each reading
+  // From the operator (2026-11-16), after the 29 Nov service was put back on
+  // No Communion: all four readings sat under "1st Reading" while its Psalm,
+  // 2nd Reading and Gospel Reading stood empty.
+  console.log('\n28. A section of its own for each reading');
+  const nc28 = [{ id: 'doc10', title: 'Word', serviceSectionId: '' }, { id: 'wo-section-0', title: '1st Reading', serviceSectionId: 'scripture' },
+    { id: 'doc12', title: 'Psalm', serviceSectionId: 'scripture' }, { id: 'doc13', title: '2nd Reading', serviceSectionId: 'scripture' },
+    { id: 'doc14', title: 'Gospel Acclamation', serviceSectionId: 'scripture' }, { id: 'doc15', title: 'Gospel Reading', serviceSectionId: 'scripture' }];
+  try {
+    const RS = new Function(fn('_woReadingSecs') + '\nreturn _woReadingSecs;')();
+    const sc = (t, k) => ({ id: t, title: t, serviceSectionId: k === undefined ? 'scripture' : k });
+    check('each reading has the section of the readings\' kind named for it; "Gospel Acclamation" and "Scripture Readings" name none',
+      JSON.stringify(RS(nc28)) === JSON.stringify({ reading1: 'wo-section-0', psalm: 'doc12', reading2: 'doc13', gospel: 'doc15' }) &&
+      JSON.stringify(RS([sc('Scripture Readings')])) === '{}', JSON.stringify(RS(nc28)));
+    check('...by what the name says ("4. Epistle", "Old Testament Lesson", "The Holy Gospel"), never a section of another kind, and a reading two sections are named for goes to neither',
+      JSON.stringify(RS([sc('4. Epistle'), sc('Old Testament Lesson'), sc('The Holy Gospel'), sc('Gospel Verse')])) === JSON.stringify({ reading2: '4. Epistle', reading1: 'Old Testament Lesson', gospel: 'The Holy Gospel' }) &&
+      JSON.stringify(RS([sc('Psalm', ''), sc('Psalm of the Day', 'confession')])) === '{}' &&
+      JSON.stringify(RS([sc('Psalm'), sc('Psalm 80'), sc('Gospel')])) === JSON.stringify({ gospel: 'Gospel' }) && JSON.stringify(RS(null)) === '{}');
+  } catch (e) { check('the readings\' sections run', false, e.stack); }
+  try {
+    const mk = (layout, items) => {
+      const order = { id: 'o', serviceDate: 'Nov 29', sectionLayout: layout, allItems: items || [] };
+      const env = { showToast: () => {}, _lbdNormDate: x => x, _yearForOrder: () => 2026, _monthFromDateStr: () => 10,
+        LiturgyModule: { fetchPassage: ref => Promise.resolve({ reference: ref, text: 'words of ' + ref }) },
+        _lbdRosterReadings: () => Promise.resolve({ reading1: 'Isaiah 64:1-9', psalm: 'Psalm 80:1-7', reading2: '1 Corinthians 1:3-9', gospel: 'Mark 13:24-37' }),
+        _woSectionList: () => order.sectionLayout.map(x => ({ id: x.id, title: x.title, serviceSectionId: x.serviceSectionId || '' })),
+        _woSectionItems: id => order.allItems.filter(it => it.sectionId === id), _woEnsureLayout: () => order.sectionLayout,
+        _lbdSlotLabels: id => id === 'wo-section-0' ? ['First Reading', 'Psalm', 'Second Reading', 'Gospel'] : [],
+        _woReadingsTodo: (w, b, h) => w.filter(x => !h[x.role]), _woReadingsNoted: () => ({}), _woNoteReadings: () => {}, _woLcdInPage: () => false,
+        _lbdChange: f => f() !== false, getOrderType: () => 'special', _woUndoOpts: () => ({}),
+        _lbdReadingItem: (sid, r) => ({ id: 'r' + order.allItems.length, itemType: 'scripture', sectionId: sid, title: r.title, content: { subLabel: r.subLabel } }),
+        setTimeout: f => f() };
+      const keys = Object.keys(env);
+      const F = new Function(...keys, 'var currentOrderData = null; var READING_ROLES = [{ role: "reading1", label: "First Reading" }, { role: "psalm", label: "Psalm" }, { role: "reading2", label: "Second Reading" }, { role: "gospel", label: "Gospel Reading" }];\n' +
+        ['_roleForSlotLabel', '_woReadingSecs', '_lbdScriptureSection', '_lbdSlotForRole', '_lbdReadingTaken', '_lbdFillReadings'].map(fn).join('\n') +
+        '\nreturn { fill: _lbdFillReadings, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
+      F.hold(order);
+      return { order, fill: F.fill };
+    };
+    const a = mk(JSON.parse(JSON.stringify(nc28)));
+    const n1 = await a.fill({ quiet: true });
+    const n2 = await a.fill({ quiet: true });
+    const where = o => o.allItems.map(it => it.content.subLabel + '@' + it.sectionId).join(', ');
+    check('the Roster\'s readings go each into its own section where the order has one -- the psalm under Psalm, the gospel under Gospel Reading, not Gospel Acclamation',
+      n1 === 4 && where(a.order) === 'First Reading@wo-section-0, Psalm@doc12, Second Reading@doc13, Gospel Reading@doc15', where(a.order));
+    check('...and a reading in any section is had: asked again, nothing comes twice', n2 === 0 && a.order.allItems.length === 4);
+    const b = mk(JSON.parse(JSON.stringify(nc28)), [{ id: 'p', itemType: 'scripture', sectionId: 'doc12', title: 'Psalm 80:1-7', content: { subLabel: 'Psalm' } }]);
+    const n3 = await b.fill({ quiet: true });
+    const c = mk([{ id: 'wo-section-6', title: 'Scripture Readings', serviceSectionId: 'scripture' }, { id: 'wo-section-7', title: 'Sermon', serviceSectionId: 'message' }]);
+    await c.fill({ quiet: true });
+    check('...a psalm already under Psalm stays the one; an order with one Scripture Readings section has all four there, as before',
+      n3 === 3 && b.order.allItems.filter(it => it.content.subLabel === 'Psalm').length === 1 &&
+      c.order.allItems.length === 4 && c.order.allItems.every(it => it.sectionId === 'wo-section-6'), where(b.order) + ' | ' + where(c.order));
+  } catch (e) { check('the fill runs', false, e.stack); }
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

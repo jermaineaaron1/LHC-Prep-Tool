@@ -5201,6 +5201,32 @@ the anon key -- verify as `postgres`, not as the app.
       read-only preview, 30 sections, all 15 parts, "Same as the original"
       (the Roster's readings go in on the live site; the preview has no
       `/api`).
+    - **Each reading in a section of its own, where the order has one** (the
+      operator, 2026-11-16, of the mended 29 Nov service: all four readings
+      under "1st Reading", its Psalm, 2nd Reading and Gospel Reading empty).
+      A converted liturgy can mark several sections as the readings' kind
+      (No Communion: 1st Reading, Psalm, 2nd Reading, Gospel Acclamation,
+      Gospel Reading), but `_lbdFillReadings` put every reading in the first
+      (`_lbdScriptureSection`). `_woReadingSecs(list)` (pure) finds, among
+      sections of the readings' kind (`serviceSectionId === 'scripture'`),
+      the one named for ONE reading -- "1st Reading", "Psalm", "Second
+      Reading", "Epistle", "Old Testament Lesson", "Gospel Reading" -- and
+      gives it that reading; a name that is not one reading's ("Scripture
+      Readings", "Gospel Acclamation", "Gospel Verse") takes none, a section
+      of another kind is never used, and a reading two sections are named for
+      goes to neither, so it lands in the readings' section as before. The
+      fill puts each reading there (else the readings' section), labelled by
+      `_lbdSlotForRole` (READING_ROLES' label outside a template slot, so the
+      psalm is still set L:/C:), and counts a reading as had in ANY section,
+      or the ribbon's Roster readings would add a second. A Traditional or
+      Contemporary order, whose one Scripture Readings section names no
+      single reading, is as it was. LCD Projection draws a reading in any
+      section; its own fill (`fillReadingsFromRoster`, its slots) is
+      unchanged and skips the readings an order has noted. Measured in the
+      preview (passages stubbed: no `/api`): Use No Communion on 29 Nov put
+      Isaiah under 1st Reading, the psalm under Psalm, 1 Corinthians under
+      2nd Reading and Mark under Gospel Reading, "Same as the original", and
+      LCD Projection drew each in its section.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
