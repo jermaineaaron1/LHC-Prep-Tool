@@ -2130,7 +2130,7 @@ try {
     /@media \(max-width: 420px\) \{\s*#lectionaryHomeView \.ll-band__clab \{ display: none; \}/.test(SRC));
   check('...each reading, the Prayer of the Day and the buttons under them tighter',
     /#lectionaryHomeView \.ll-rcard__ico \{ width: 32px; height: 32px;/.test(SRC) &&
-    /#lectionaryHomeView \.ll-prayer\.lit-day-prayer \{ padding: 10px 14px; gap: 12px; margin-top: 10px; \}/.test(SRC) &&
+    /#lectionaryHomeView \.ll-prayer\.lit-day-prayer \{ margin-top: 10px; \}/.test(SRC) &&
     /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 34px; \}/.test(SRC) && /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 30px; \}/.test(SRC));
   // ------------------------------------------------------------ 37. A reading's card, concise
   // From the operator (2026-11-17), circling Open / Copy / Use in plan under a
@@ -2159,6 +2159,31 @@ try {
     /@container llslots \(max-width: 1189px\) \{ \.ll--readings \.lit-reading-slots-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/.test(SRC) &&
     /@container llslots \(max-width: 599px\) \{ \.ll--readings \.lit-reading-slots-grid \{ grid-template-columns: minmax\(0, 1fr\); \} \}/.test(SRC));
   check('...the old 38px / 46px rules for the bar are gone', !/#lectionaryHomeView \.ll-rcard__acts button \{ min-height/.test(SRC));
+  // ------------------------------------------------------------ 38. The Prayer of the Day's card, concise
+  // From the operator (2026-11-17): "make the prayer of the day card more
+  // concise", after the readings' cards were.
+  console.log('\n38. The Prayer of the Day\'s card, concise');
+  const pcard = fn('_dayPrayerCard');
+  check('its title and four icons are one row, then the prayer, then where it came from',
+    /'<div class="ll-prayer__hd">' \+/.test(pcard) && /'<div class="ll-prayer__acts">' \+ acts \+ '<\/div>' \+/.test(pcard) &&
+    pcard.indexOf('ll-prayer__hd') < pcard.indexOf("body +") && /\(src \? '<div class="ll-prayer__meta">' \+ src \+ '<\/div>' : ''\)/.test(pcard));
+  check('...Copy, Use in plan, Share and Edit (Type the prayer when there is none) are icons that say what they do',
+    /class="ll-prayer__ib" title="' \+ title \+ '" aria-label="' \+ label \+ '"/.test(pcard) &&
+    /btn\('fa-regular fa-copy', 'Copy', 'Copy the prayer',[^\n]*llCopyPrayer/.test(pcard) &&
+    /btn\('fa-regular fa-square-plus', 'Use in plan', 'Use in the service plan',[^\n]*llUseInPlan/.test(pcard) &&
+    /btn\('fa-solid fa-share-nodes'[^\n]*lfShareDay/.test(pcard) &&
+    /btn\('fa-solid fa-pen', 'Edit the prayer'/.test(pcard) && /btn\('fa-solid fa-plus', 'Type the prayer'/.test(pcard) &&
+    !/lit-day-prayer__btn/.test(pcard));
+  check('...the "Goes into this date\'s order" line is the prayer\'s title, not a line of its own',
+    !/lit-day-prayer__where/.test(pcard) && /<p class="lit-day-prayer__text" title="Goes into this date/.test(pcard));
+  check('...one column on every screen: a 32px icon, the old icon column and divider gone',
+    /\.ll-prayer\.lit-day-prayer \{ display: flex; flex-direction: column; gap: 6px;/.test(SRC) &&
+    /\.ll-prayer__icon \{ width: 32px; height: 32px;/.test(SRC) && !/\.ll-prayer__main/.test(SRC) &&
+    !/#lectionaryHomeView \.ll-prayer__icon \{ width: 44px/.test(SRC));
+  check('...32px icons, 36px on a touch screen, the praying hands left out on a narrow card',
+    /\.ll-prayer__ib \{ display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;/.test(SRC) &&
+    /@media \(pointer: coarse\) \{ \.ll-prayer__ib \{ width: 36px; height: 36px;/.test(SRC) &&
+    /@container \(max-width: 359px\) \{ \.ll-prayer__icon \{ display: none; \} \}/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

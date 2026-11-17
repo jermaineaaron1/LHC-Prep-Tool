@@ -5524,6 +5524,19 @@ the anon key -- verify as `postgres`, not as the app.
       Measured: a card 140 to 110px on a phone (480px), 149 to 106px on a
       desk; at 1600px four a row of 295px, at 1400px with the sidebar open two
       of 499px. Harness section 37.
+    - **The Prayer of the Day's card, concise** (the operator, 2026-11-17,
+      next: "make the prayer of the day card more concise"). One column on
+      every screen (`_dayPrayerCard`): a top row of the praying hands (32px,
+      left out under 360px), the title (an evening service's badge beside
+      it) and four icons -- Copy, Use in plan, Share, and Edit, or Type the
+      prayer when there is none (`.ll-prayer__ib`, each with its `title` and
+      `aria-label`; 32px, 36px on a touch screen) -- then the prayer, then
+      where it came from (`.ll-prayer__meta`: the document, or typed here).
+      The 54px icon column, the divider, the column of labelled buttons and
+      the "Goes into this date's order (Liturgy Builder and LCD) and the
+      bulletin" line went; that sentence is the prayer's `title`. Measured:
+      no prayer 201 to 106px on a phone (480px); a 70-word prayer about 358
+      to 268px there, 168px on a desk. Harness section 38.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
