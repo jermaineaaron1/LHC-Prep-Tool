@@ -576,9 +576,10 @@ try {
   // circling the three: "Make 30px smaller"; asked, each card).
   // 20px shorter, then 30px more, on 2026-11-16; on 2026-11-17 each card
   // became its header alone, 20px shorter again (section 29).
-  check('...each card its header alone, 20px shorter than the header was (measured: 62 to 42px at 480px wide, 92 to 72px on a desk)',
-    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 72px; color: #fff; \}/.test(SRC) &&
-    /\.ll-card__top \{ padding: 3px 10px 3px 12px; min-height: 42px; gap: 10px; \}/.test(SRC) && !/\.ll-card__go \{/.test(SRC) && !/\.ll-card__body \{/.test(SRC));
+  // ...and 5px taller again the same day (section 31): 47px and 77px.
+  check('...each card its header alone (measured: 62 to 42px at 480px wide, 92 to 72px on a desk; then 47 and 77)',
+    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 77px; color: #fff; \}/.test(SRC) &&
+    /\.ll-card__top \{ padding: 3px 10px 3px 12px; min-height: 47px; gap: 10px; \}/.test(SRC) && !/\.ll-card__go \{/.test(SRC) && !/\.ll-card__body \{/.test(SRC));
   const svc13 = fn('renderServices'), grid13 = fn('_lsGridHtml');
   check('Services: the cards first, the counts and the library\'s buttons at the foot in one line; no All Services / Favourites chips',
     /_lsGridHtml\(\) \+[\s\S]*foot \+\s*'<\/div>';/.test(svc13) && svc13.indexOf("'<div class=\"ls-bar ls-bar--foot\">'") !== -1 &&
@@ -1448,12 +1449,14 @@ try {
       /<b>Pre-Communion<\/b>/.test(hc) && (hc.match(/<p>/g) || []).length === 2 && /And also with you/.test(hc) && !/Contemporary only/.test(hc) && /A place for its songs: nothing comes with it\./.test(so), hc);
   } catch (e) { check('the parts\' words draw', false, e.stack); }
   try {
-    const SH = new Function('_lfE', '_llYearText', fn('_spSourcesHtml') + '\nreturn _spSourcesHtml;')(t => String(t), (o, y) => y + ' · Year A');
+    // Each source named as its document is (section 31): a stand-in lookup here.
+    const SH = new Function('_lfE', '_llYearText', '_spSrcLook', '_lfBadge', fn('_spSourcesHtml') + '\nreturn _spSourcesHtml;')(t => String(t), (o, y) => y + ' · Year A',
+      x => ({ name: x.title, kind: null, year: String(x.year || ''), occ: x.occ }), k => '<span class="lf-badge">' + k.badge + '</span>');
     const one = SH({ id: 'f1', title: 'No Communion', year: 2025, occasion: 'advent' }, 'advent');
     const two = SH({ id: 'f1', title: 'No Communion', year: 2025, blend: [{ id: 'f2', title: 'Advent liturgy', year: 2023 }, { title: 'no id' }] }, 'advent');
     const past = SH({ fromOrder: 'o9', title: 'Service 1 Dec 2025' }, 'advent');
     check('Sources on the card: how many, the original starred, each a badge opening its preview; a past service a badge to read',
-      /Sources <b>1<\/b>/.test(one) && /class="spi-srcb is-orig" data-id="f1" onclick="LiturgyModule\.spoSrc\(this\.dataset\.id\)"/.test(one) && /<em>Original<\/em>/.test(one) &&
+      /Sources <b>1<\/b>/.test(one) && /class="spi-srcb is-orig"><button type="button" class="spi-srcb__main" data-id="f1" onclick="LiturgyModule\.spoSrc\(this\.dataset\.id\)"/.test(one) && /<em>Original<\/em>/.test(one) &&
       /Sources <b>2<\/b>/.test(two) && /data-id="f2"/.test(two) && !/no id/.test(two) && /class="spi-srcb is-orig is-past"/.test(past) && SH(null, 'a') === '', two);
   } catch (e) { check('the sources draw', false, e.stack); }
   check('...a badge opens the document the file came from (PDF, Word, Google Doc), else the app file; never the folder',
@@ -1882,6 +1885,44 @@ try {
     /Uses this liturgy now/.test(fn('_spUseStep1')));
   check('no Liturgy App Files section; the library box has no tooltip over everything in it',
     !fn('_spReadyHtml') && !/class="ll-box sp-res" title=/.test(fn('_spResHtml')) && !/sp-readybox/.test(fn('_spResHtml')));
+  // ------------------------------------------------------------ 31. The sizes, and a source named as its document
+  // From the operator (2026-11-17), on three marked-up screenshots: the
+  // landing's cards "Increase height by 5px each", the Church Year "Reduce
+  // overall by 4px", the Services cards "make all cards 5px smaller"; and of
+  // the in-use card's source, "name it the exact file name and also show if
+  // that is a word doc, pdf, google doc, etc. The year should be a badge
+  // hyperlink that directs them to where the file is stored in the app".
+  console.log('\n31. The sizes, and a source named as its document');
+  check('the sizes: the landing\'s cards 5px taller (47px on a phone, 77px on a desk), the Church Year\'s tiles 2px shorter a row (86px, 108px), every service card 5px shorter',
+    /\.ll-season \{ min-height: 86px; font-size: 0\.82rem; \}/.test(SRC) && /\.ll-season \{ display: flex;[^}]*min-height: 108px;/.test(SRC) &&
+    /\.ls-card__main \{[^}]*min-height: 111px; \}/.test(SRC) && /\.ls-card__text \{[^}]*padding: 10px 42px 10px 14px; \}/.test(SRC));
+  try {
+    const items = { d1: { id: 'd1', title: '1st Sunday Advent (Communion)', fileName: 'ignored.docx', fileUrl: 'https://docs.google.com/document/d/x/edit', occasionId: 'advent' } };
+    const rows = { NC: { id: 'NC', title: 'No Communion Liturgy Framework - Advent', year: 2025, made_from: 'doc:d1', occasion_id: 'advent' },
+                   BH: { id: 'BH', title: 'Saved from the Builder', year: 2023, made_from: 'order:o1', occasion_id: 'advent' } };
+    const L = new Function('_spSrcRow', 'getItem', '_spYearOf', '_lfKind', fn('_spOrigTarget') + '\n' + fn('_spSrcLook') + '\nreturn _spSrcLook;')(
+      id => rows[id] || null, id => items[id] || null, () => '2025', it => ({ label: /google/.test(it.fileUrl) ? 'Google Doc' : 'Word', badge: 'G' }));
+    const doc = L({ id: 'NC', title: 'No Communion Liturgy Framework - Advent', year: 2025, occ: 'advent' });
+    const app = L({ id: 'BH', title: 'Saved', year: 2023, occ: 'advent' }), gone = L({ id: 'zz', title: 'Gone one', year: 2022, occ: 'advent' });
+    check('a source is named as its document\'s row is, with its kind, in its document\'s year; one with no document as its app file',
+      doc.name === '1st Sunday Advent (Communion)' && doc.kind.label === 'Google Doc' && doc.year === '2025' && doc.occ === 'advent' &&
+      app.name === 'Saved' && app.kind === null && app.year === '2023' && gone.name === 'Gone one' && gone.year === '2022', JSON.stringify([doc, app, gone]));
+    const log = [], sp = { occ: 'advent', from: 'services' };
+    const G = new Function('_spSrcRow', 'getItem', '_spYearOf', '_sp', '_spFocusOn', 'openService', 'showToast', 'var _spFocusNext = null;\n' + fn('_spOrigTarget') + '\n' + fn('spoSrcGo') +
+      '\nreturn { go: spoSrcGo, next: function() { return _spFocusNext; } };')(
+      id => rows[id] || null, id => items[id] || null, () => '2025', sp, f => log.push('focus ' + JSON.stringify(f)), (o) => log.push('open ' + o), m => log.push('toast ' + m));
+    G.go('NC'); G.go('BH'); G.go('zz');
+    items.d1.occasionId = 'lent'; G.go('NC');
+    check('its year badge goes to the file where it is kept: its document in that year\'s folder, lit; an app file of its own, its row; another service\'s, that page first',
+      log[0] === 'focus {"fresh":"NC","year":"2025","name":"1st Sunday Advent (Communion)","label":"Here it is"}' &&
+      log[1] === 'focus {"fresh":"BH","year":"2023","name":"Saved from the Builder","label":"Here it is"}' && /^toast That liturgy could not be found/.test(log[2]) &&
+      log[3] === 'open lent' && G.next().fresh === 'NC', JSON.stringify(log));
+  } catch (e) { check('the sources\' names and links run', false, e.stack); }
+  const srcH31 = fn('_spSourcesHtml');
+  check('...drawn as one badge: the kind\'s logo, the name and the kind\'s name (a press previews it), Original, then the year (a press goes there)',
+    /var logo = lk\.kind \? _lfBadge\(lk\.kind\) :/.test(srcH31) && /'<span class="spi-srcb__t"><b>' \+ _lfE\(lk\.name\) \+ '<\/b><small>' \+ _lfE\(lk\.kind \? lk\.kind\.label :/.test(srcH31) &&
+    /onclick="LiturgyModule\.spoSrcGo\(this\.dataset\.id\)" title="' \+ _lfE\('Go to it in the ' \+ lk\.year \+ ' folder'\)/.test(srcH31) &&
+    /spoSrcGo: spoSrcGo/.test(SRC) && /\(f\.label \|\| 'The original'\) \+ ': '/.test(fn('_spFocusOn')) && /var r = _spSrcRow\(id\);/.test(fn('spoSrc')));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

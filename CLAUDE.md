@@ -399,8 +399,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
   three cards -- **Readings & Prayers**, **Liturgy of Services** (no line
   under either) and **Memories** ("Blast from the past: services for future
   reference"), as the operator named them on 2026-11-16 -- each card its
-  coloured header alone, one button with an arrow badge (42px on a phone,
-  72px on a desk, 2026-11-17) -- then the Church Year (a tile per season,
+  coloured header alone, one button with an arrow badge (47px on a phone,
+  77px on a desk, 2026-11-17) -- then the Church Year (a tile per season,
   opening Readings at its next service) and Recently Added. This Sunday went
   on 2026-11-17. The nav is Overview, Readings, Services, Memories.
 - **Readings** is the date's four readings as cards -- the reference opens
@@ -5318,6 +5318,26 @@ the anon key -- verify as `postgres`, not as the app.
       Share, Delete). This Year is this year's liturgy in use, then -- beside
       it on a desk -- its documents. The library box lost its `title`, which
       laid "Every year's liturgy for this service" over everything in it.
+    - **A source is named as its document, and its year goes there** (the
+      operator, 2026-11-17, on three marked-up screenshots). Sizes: the
+      landing's cards 5px taller (47px on a phone, 77px on a desk), the Church
+      Year 4px shorter (its tiles 86px on a phone, two rows; 108px on a desk),
+      every Services card 5px shorter (`.ls-card__main` 111px, its text 2px
+      less padding top and bottom: 118 to 113px at 480px wide). **Sources**
+      on the in-use card ("name it the exact file name and also show if that
+      is a word doc, pdf, google doc ... The year should be a badge hyperlink
+      that directs them to where the file is stored in the app"): each source
+      is named as its DOCUMENT's row is (`_spSrcLook`: the document through
+      `_spOrigTarget`, its title else its file name, its kind by `_lfKind` --
+      the row's own badge, small, and the kind's name under the name), else as
+      its app file; a press on that previews it as before (`spoSrc`, now over
+      `_spSrcRow`). Its year ("2025 · Year A") is a second button in the badge
+      (`.spi-srcb__yr` -> `spoSrcGo`): the document's year folder with its row
+      lit and in sight (`_spFocusOn`, whose toast now takes a `label`: "Here it
+      is"), on this service's page or the page of the service it is filed
+      under (`_spFocusNext`); an app file with no document, its own row in its
+      year. The desk's "The liturgy of" heading keeps the app file's name: it
+      names the liturgy, the sources name the documents.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
