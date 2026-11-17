@@ -106177,7 +106177,7 @@ var LiturgyModule = (function() {
       if (el && el.scrollIntoView) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
       if (++tries < 15) setTimeout(find, 200);
     })();
-    showToast('The original: ' + f.name + (f.year ? ', in ' + f.year : '') + '. Double-tap it to preview it.', 'success', { duration: 6000 });
+    showToast((f.label || 'The original') + ': ' + f.name + (f.year ? ', in ' + f.year : '') + '. Double-tap it to preview it.', 'success', { duration: 6000 });
   }
   // What the page compares now: the outline and the comparison with the original.
   function _spCmpCur() {
@@ -107230,26 +107230,65 @@ var LiturgyModule = (function() {
   // into the folder"): the Liturgy App File the liturgy came from (the
   // original, starred) and those it was blended with, each a badge that
   // opens its document's preview.
+  // Each source is named as its DOCUMENT is (2026-11-17, the operator: "name
+  // it the exact file name and also show if that is a word doc, pdf, google
+  // doc, etc. The year should be a badge hyperlink that directs them to
+  // where the file is stored in the app"): the name its row in the library
+  // shows, its kind's badge and name, then its year -- a link to the file
+  // in that year's folder, lit (spoSrcGo). One with no document (saved from
+  // the Builder) is named as its app file. A source's own target (pure but
+  // for its lookups): { name, kind, year, occ } -- kind null for an app file.
+  function _spSrcLook(x) {
+    var r = x.id ? _spSrcRow(x.id) : null;
+    var t = r ? _spOrigTarget(r, x.id, getItem, _spYearOf) : null;
+    var doc = t && t.kind === 'doc' ? getItem(t.id) : null;
+    if (doc) return { name: doc.title || doc.fileName || 'its document', kind: _lfKind(doc), year: t.year || '', occ: t.occ || x.occ };
+    return { name: x.title, kind: null, year: String((r && r.year) || x.year || ''), occ: (r && r.occasion_id) || x.occ };
+  }
   function _spSourcesHtml(svl, occ) {
     if (!svl || !(svl.id || svl.fromOrder)) return '';
     var list = [{ id: svl.id || '', title: svl.title || (svl.fromOrder ? 'A past service' : 'A Liturgy App File'), year: svl.year, occ: svl.occasion || occ, orig: true }]
       .concat((Array.isArray(svl.blend) ? svl.blend : []).filter(function(f) { return f && f.id; }).map(function(f) { return { id: f.id, title: f.title || 'A Liturgy App File', year: f.year, occ: occ }; }));
     return '<div class="spi-src"><p class="spi-src__h"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>Sources <b>' + list.length + '</b></p><div class="spi-src__list">' + list.map(function(x) {
-      var cy = x.year ? _llYearText(x.occ, x.year) : '';
-      var inner = '<i class="fa-' + (x.orig ? 'solid fa-star' : 'regular fa-file-lines') + '" aria-hidden="true"></i><span class="spi-srcb__t">' + _lfE(x.title) + '</span>' +
-        (cy ? '<small>' + _lfE(cy) + '</small>' : '') + (x.orig ? '<em>Original</em>' : '');
-      return x.id ? '<button type="button" class="spi-srcb' + (x.orig ? ' is-orig' : '') + '" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrc(this.dataset.id)" title="Preview it">' + inner + '</button>'
-                  : '<span class="spi-srcb is-orig is-past">' + inner + '</span>';
+      var lk = _spSrcLook(x), cy = lk.year ? _llYearText(lk.occ, lk.year) : '';
+      var logo = lk.kind ? _lfBadge(lk.kind) : '<span class="lf-badge spi-srcb__app" aria-hidden="true"><i class="fa-solid fa-book-bookmark"></i></span>';
+      var main = logo + '<span class="spi-srcb__t"><b>' + _lfE(lk.name) + '</b><small>' + _lfE(lk.kind ? lk.kind.label : (x.id ? 'Liturgy App File' : 'A past service')) + '</small></span>' +
+        (x.orig ? '<em>Original</em>' : '');
+      if (!x.id) return '<span class="spi-srcb is-orig is-past"><span class="spi-srcb__main">' + main + '</span></span>';
+      return '<span class="spi-srcb' + (x.orig ? ' is-orig' : '') + '">' +
+        '<button type="button" class="spi-srcb__main" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrc(this.dataset.id)" title="Preview it" aria-label="' + _lfE('Preview ' + lk.name) + '">' + main + '</button>' +
+        (cy ? '<button type="button" class="spi-srcb__yr" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrcGo(this.dataset.id)" title="' + _lfE('Go to it in the ' + lk.year + ' folder') + '">' +
+            _lfE(cy) + '<i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>' : '') + '</span>';
     }).join('') + '</div></div>';
+  }
+  // A source's Liturgy App File, from this page's rows, else the original's
+  // own read.
+  function _spSrcRow(id) {
+    var d = _spData;
+    if (!d || !id) return null;
+    var r = (d.rows || []).filter(function(x) { return x.id === id; })[0] || null;
+    var svl = (_spTpl(d) || {}).serviceLiturgy;
+    if (!r && svl && svl.id === id) { var o = _spOrigRow(d); if (o && !o.gone && !o.failed && o.id) r = o; }
+    return r;
+  }
+  // A source's year badge: the file where it is kept -- its document in its
+  // year's folder, lit and in sight (on this service's page, or the page of
+  // the service it is filed under); one with no document, its own row.
+  function spoSrcGo(id) {
+    var r = _spSrcRow(id);
+    if (!r) { showToast('That liturgy could not be found any more.', 'info'); return; }
+    var t = _spOrigTarget(r, id, getItem, _spYearOf);
+    var focus = t.kind === 'doc' ? { fresh: t.file, year: t.year, name: t.name, label: 'Here it is' }
+      : { fresh: r.id, year: String(r.year || ''), name: r.title || 'its Liturgy App File', label: 'Here it is' };
+    var occ = t.kind === 'doc' ? t.occ : (r.occasion_id || '');
+    if (occ && occ !== _sp.occ) { _spFocusNext = focus; openService(occ, _sp.from, 'order'); return; }
+    _spFocusOn(focus);
   }
   // A source's preview: the document it was converted from (PDF, Word or
   // Google Doc), else the app file itself.
   function spoSrc(id) {
-    var d = _spData;
-    if (!d || !id) return;
-    var r = (d.rows || []).filter(function(x) { return x.id === id; })[0] || null;
-    var svl = (_spTpl(d) || {}).serviceLiturgy;
-    if (!r && svl && svl.id === id) { var o = _spOrigRow(d); if (o && !o.gone && !o.failed && o.id) r = o; }
+    if (!_spData || !id) return;
+    var r = _spSrcRow(id);
     var m = /^doc:(.+)$/.exec(String((r && r.made_from) || '')), doc = m ? getItem(m[1]) : null;
     if (doc) { lfOpen(doc.id); return; }
     if (r) { _spSvlRowIn(r); lfOpen(id, true); return; }
@@ -117353,7 +117392,7 @@ var LiturgyModule = (function() {
     spoSecCancel: spoSecCancel, spoSecSave: spoSecSave, spoSecRemove: spoSecRemove, spoSecMove: spoSecMove, spoReorder: spoReorder, spoUndo: spoUndo, spoRedo: spoRedo,
     spoRemove: spoRemove, spoRemoveClose: spoRemoveClose, spoRemoveGo: spoRemoveGo, spoAll: spoAll, spoEdit: spoEdit, spoInput: spoInput, spoName: spoName, spoCancel: spoCancel, spoSave: spoSave, spoAdd: spoAdd, spoAddInput: spoAddInput, spoAddName: spoAddName, spoAddCancel: spoAddCancel, spoAddSave: spoAddSave,
     spAddDocs: spAddDocs, spAddDocsAct: spAddDocsAct, spoPick: spoPick, spoPickClose: spoPickClose, spoPickUse: spoPickUse, spoPickStop: spoPickStop,
-    spoBlend: spoBlend, spoBlendClose: spoBlendClose, spoBlendWith: spoBlendWith, spoBlendSet: spoBlendSet, spoBlendOpen: spoBlendOpen, spoBlendPeek: spoBlendPeek, spoSrc: spoSrc, spUseOpen: spUseOpen, spoBlendGo: spoBlendGo, spGoUse: spGoUse, spUseAnother: spUseAnother, spDocMenu: spDocMenu, spDocAct: spDocAct, spUseAll: spUseAll, spUseSupp: spUseSupp, spUseSuppSec: spUseSuppSec, spUseCompare: spUseCompare, spUseCmpHl: spUseCmpHl, spUseCmpClose: spUseCmpClose, spoMore: spoMore, spoMoreAct: spoMoreAct, spoSecAdd: spoSecAdd, spoSecAddName: spoSecAddName, spoSecAddAfter: spoSecAddAfter, spoSecAddCancel: spoSecAddCancel, spoSecAddSave: spoSecAddSave, spoPartRemove: spoPartRemove, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
+    spoBlend: spoBlend, spoBlendClose: spoBlendClose, spoBlendWith: spoBlendWith, spoBlendSet: spoBlendSet, spoBlendOpen: spoBlendOpen, spoBlendPeek: spoBlendPeek, spoSrc: spoSrc, spUseOpen: spUseOpen, spoBlendGo: spoBlendGo, spoSrcGo: spoSrcGo, spGoUse: spGoUse, spUseAnother: spUseAnother, spDocMenu: spDocMenu, spDocAct: spDocAct, spUseAll: spUseAll, spUseSupp: spUseSupp, spUseSuppSec: spUseSuppSec, spUseCompare: spUseCompare, spUseCmpHl: spUseCmpHl, spUseCmpClose: spUseCmpClose, spoMore: spoMore, spoMoreAct: spoMoreAct, spoSecAdd: spoSecAdd, spoSecAddName: spoSecAddName, spoSecAddAfter: spoSecAddAfter, spoSecAddCancel: spoSecAddCancel, spoSecAddSave: spoSecAddSave, spoPartRemove: spoPartRemove, llBackToLib: llBackToLib, spConvMenu: spConvMenu, spConvAct: spConvAct,
     spAddLink: spAddLink, spGuide: spGuide, plDate: plDate, plCopyFrom: plCopyFrom, plSet: plSet, plNotesFor: plNotesFor, plToggle: plToggle,
     plAddTask: plAddTask, plFromUsual: plFromUsual, plShareChecklist: plShareChecklist, plEdClose: plEdClose, plEdAddLink: plEdAddLink,
     plEdDropLink: plEdDropLink, plEditNote: plEditNote, plSaveNote: plSaveNote, plEditSpecial: plEditSpecial, plEdFile: plEdFile,
@@ -125391,7 +125430,7 @@ function filterLiturgyItems() {
   .ll-card { display: block; width: 100%; padding: 0; margin: 0; border: 0; border-radius: 18px; overflow: hidden; text-align: left; cursor: pointer;
     font: inherit; color: #fff; box-shadow: 0 2px 6px rgba(60, 40, 10, 0.12); -webkit-appearance: none; appearance: none; }
   .ll-card:hover { filter: brightness(1.06); }
-  .ll-card__top { display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 72px; color: #fff; }
+  .ll-card__top { display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 77px; color: #fff; }
   .ll-card--readings .ll-card__top { background: linear-gradient(135deg, #234a2d, #4d7c4c); }
   .ll-card--services .ll-card__top { background: linear-gradient(135deg, #6b2422, #b4523f); }
   .ll-card--memories .ll-card__top { background: linear-gradient(135deg, #1a3a5c, #33679a); }
@@ -125427,7 +125466,7 @@ function filterLiturgyItems() {
   .ll-sun__verse cite { display: block; margin-top: 8px; font-style: normal; font-size: 0.85rem; color: #6b5a44; }
   .ll-sun__acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .ll-seasons { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
-  .ll-season { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 112px; padding: 10px 4px;
+  .ll-season { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 108px; padding: 10px 4px;
     border: 0; border-radius: 12px; background: var(--ll-bg); color: #2a2118; font-family: 'Playfair Display', Georgia, serif;
     font-size: 0.92rem; font-weight: 700; text-align: center; cursor: pointer; line-height: 1.15; position: relative; }
   .ll-season > i { color: var(--ll-sink); font-size: 1.7rem; }
@@ -125494,11 +125533,11 @@ function filterLiturgyItems() {
   .ls-grid--list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .ls-card { position: relative; background: #fff; border: 1px solid var(--ll-line); border-radius: 16px; overflow: hidden;
     box-shadow: 0 2px 5px rgba(60, 40, 10, 0.06); min-width: 0; }
-  .ls-card__main { width: 100%; display: flex; align-items: stretch; gap: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; min-height: 116px; }
+  .ls-card__main { width: 100%; display: flex; align-items: stretch; gap: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; min-height: 111px; }
   .ls-card__main:hover { background: #fdf9f2; }
   .ls-card__art { width: 108px; flex-shrink: 0; }
   .ls-card__art i { font-size: 2rem; }
-  .ls-card__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 42px 12px 14px; }
+  .ls-card__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 42px 10px 14px; }
   .ls-card__text b { font-family: 'Playfair Display', Georgia, serif; font-size: 1.08rem; font-weight: 700; color: var(--ll-ink); }
   .ls-card__text small { font-size: 0.82rem; color: #6b5a44; line-height: 1.4; }
   .ls-card__meta { margin-top: auto; display: flex; gap: 14px; flex-wrap: wrap; font-family: 'Poppins', sans-serif; font-size: 0.76rem; color: #5c4d3c; }
@@ -125624,14 +125663,14 @@ function filterLiturgyItems() {
     .ll-head__art { display: none; }
     /* a phone's card: its header alone, 42px (it was 62) */
     .ll-card { border-radius: 14px; }
-    .ll-card__top { padding: 3px 10px 3px 12px; min-height: 42px; gap: 10px; }
+    .ll-card__top { padding: 3px 10px 3px 12px; min-height: 47px; gap: 10px; }
     .ll-card__icon { font-size: 1.25rem; width: 26px; }
     .ll-card__h { font-size: 1.02rem; line-height: 1.2; }
     .ll-card__tag { margin-top: 1px; font-size: 0.74rem; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ll-card__arrow { width: 28px; height: 28px; font-size: 0.8rem; }
     .ll-cards { gap: 10px; }
     .ll-sun__body { grid-template-columns: minmax(0, 1fr); }
-    .ll-season { min-height: 88px; font-size: 0.82rem; }
+    .ll-season { min-height: 86px; font-size: 0.82rem; }
     .ll-files { grid-template-columns: minmax(0, 1fr); }
     .ls-bar__main { border-right: 0; padding-right: 0; flex-basis: 100%; }
     .ls-bar__acts { margin-left: 0; width: 100%; }
@@ -126632,14 +126671,20 @@ function filterLiturgyItems() {
   .spi-src__h { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font: 700 0.7rem 'Poppins', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; color: #8a6a24; }
   .spi-src__h b { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #8a6a24; color: #fff; font-size: 0.66rem; letter-spacing: 0; }
   .spi-src__list { display: flex; flex-wrap: wrap; gap: 6px; }
-  .spi-srcb { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 10px; border: 1px solid #d8c9a8; border-radius: 999px; background: #fff; font: 600 0.76rem 'Poppins', sans-serif; color: #1d1a14; text-align: left; cursor: pointer; }
-  .spi-srcb:hover { border-color: #1f4d36; background: #f4faf6; }
-  .spi-srcb i { color: #8a6a24; }
+  .spi-srcb { display: inline-flex; align-items: stretch; max-width: 100%; border: 1px solid #d8c9a8; border-radius: 12px; background: #fff; overflow: hidden; font: 600 0.76rem 'Poppins', sans-serif; color: #1d1a14; }
   .spi-srcb.is-orig { border-color: #e0c27a; background: #fff8e6; }
-  .spi-srcb.is-orig i { color: #b7892c; }
-  .spi-srcb__t { min-width: 0; overflow-wrap: anywhere; }
-  .spi-srcb small { font-weight: 400; color: #6b5f50; white-space: nowrap; }
-  .spi-srcb em { font-style: normal; font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase; color: #8a6a24; }
+  .spi-srcb__main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; padding: 5px 10px 5px 6px; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.spi-srcb__main:hover { background: rgba(31, 77, 54, 0.06); }
+  .spi-srcb .lf-badge { width: 26px; height: 26px; border-radius: 7px; font-size: 0.5rem; }
+  .spi-srcb__app { color: #1f4d36; background: #e3f4ea; font-size: 0.72rem !important; }
+  .spi-srcb__t { display: flex; flex-direction: column; min-width: 0; }
+  .spi-srcb__t b { font-weight: 700; overflow-wrap: anywhere; line-height: 1.25; }
+  .spi-srcb__t small { font-weight: 500; font-size: 0.66rem; color: #6b5f50; }
+  .spi-srcb em { flex: 0 0 auto; font-style: normal; font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase; color: #8a6a24; }
+  .spi-srcb__yr { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 0; border-left: 1px solid #e3d2a6; background: #fdf1d3; color: #7a5a1c; font: 700 0.68rem 'Poppins', sans-serif; white-space: nowrap; cursor: pointer; }
+  .spi-srcb__yr:hover { background: #f8e4b4; }
+  .spi-srcb__yr i { font-size: 0.6rem; }
+  .spi-srcb__main:focus-visible, .spi-srcb__yr:focus-visible { outline: 2px solid #1f4d36; outline-offset: -2px; }
   .spi-srcb.is-past { cursor: default; }
   .spb-list--main .spb-row { display: block; padding: 0; }
   .spb-line { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
