@@ -2115,6 +2115,24 @@ try {
   check('...the box names its year with its letter and counts its files; on a narrow phone Preview is its eye alone',
     /var label = sel === '' \? 'All years' : sel === '—' \? 'No year' : \(_sp\.year === 'this' \? 'This Year · ' : ''\) \+ sel \+ \(letter\(sel\) \? ' ' \+ letter\(sel\) : ''\);/.test(res35) &&
     /@media \(max-width: 460px\) \{\s*\.svp-open \{ width: 42px; padding: 0; justify-content: center; \}\s*\.svp-open span \{ display: none; \}/.test(SRC));
+  // ------------------------------------------------------------ 36. The Readings page, shorter
+  // From the operator (2026-11-17), on a phone screenshot of the Readings
+  // page: "make all the elements 30px smaller so that each section can fit
+  // properly".
+  console.log('\n36. The Readings page, shorter');
+  check('the heading smaller (48px icon and 1.85rem on a desk, 36px and 1.3rem on a phone), the date card and its Day / Week / Month tighter',
+    /#lectionaryHomeView \.ll-head \{ min-height: 0; padding: 8px 6px 10px; \}/.test(SRC) && /#lectionaryHomeView \.ll-head h1 \{ font-size: 1\.85rem; \}/.test(SRC) &&
+    /#lectionaryHomeView \.ll-head h1 \{ font-size: 1\.3rem; \}/.test(SRC) && /#lectionaryHomeView \.ll-head__icon \{ width: 36px; height: 36px;/.test(SRC) &&
+    /#lectionaryHomeView \.ll-datenav \.lit-datenav-modes button \{ min-height: 30px; \}/.test(SRC) && /#lectionaryHomeView \.ll-lect, #lectionaryHomeView \.ll-today \{ min-height: 38px; \}/.test(SRC));
+  check('...the season: its colour beside it and its words under them on a phone, the colour\'s name alone on a narrow one',
+    /#lectionaryHomeView \.ll-band__desc \{ flex-basis: 100%; order: 3;/.test(SRC) && /#lectionaryHomeView \.ll-band__colour \{ margin-left: auto; \}/.test(SRC) &&
+    /'<span class="ll-band__clab">Liturgical colour: <\/span>' \+ _lfE\(m\.color\)/.test(SRC) &&
+    /@media \(max-width: 420px\) \{\s*#lectionaryHomeView \.ll-band__clab \{ display: none; \}/.test(SRC));
+  check('...each reading, the Prayer of the Day and the buttons under them tighter; a narrow card\'s icon-over-word buttons 46px',
+    /#lectionaryHomeView \.ll-rcard__ico \{ width: 32px; height: 32px;/.test(SRC) && /#lectionaryHomeView \.ll-rcard__acts button \{ min-height: 38px; \}/.test(SRC) &&
+    /@container \(max-width: 300px\) \{ #lectionaryHomeView \.ll-rcard__acts button \{ min-height: 46px; \} \}/.test(SRC) &&
+    /#lectionaryHomeView \.ll-prayer\.lit-day-prayer \{ padding: 10px 14px; gap: 12px; margin-top: 10px; \}/.test(SRC) &&
+    /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 34px; \}/.test(SRC) && /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 30px; \}/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

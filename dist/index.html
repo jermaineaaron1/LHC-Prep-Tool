@@ -111241,7 +111241,7 @@ var LiturgyModule = (function() {
     el.style.display = '';
     el.innerHTML = (s ? '<span class="ll-band__season" style="--ll-sink:' + s.ink + '"><i class="fa-solid ' + s.icon + '" aria-hidden="true"></i>Season: ' + _lfE(s.label) + '</span>' +
         '<span class="ll-band__desc">' + _lfE(s.desc) + '</span>' : '<span class="ll-band__desc"></span>') +
-      (m && m.color ? '<span class="ll-band__colour">' + _altarDot(m.color) + 'Liturgical colour: ' + _lfE(m.color) + '</span>' : '');
+      (m && m.color ? '<span class="ll-band__colour">' + _altarDot(m.color) + '<span class="ll-band__clab">Liturgical colour: </span>' + _lfE(m.color) + '</span>' : '');
   }
 
   // The actions for a whole date, under its readings (Day view only).
@@ -126101,6 +126101,56 @@ function filterLiturgyItems() {
   .ll-prayer__acts .lit-day-prayer__btn { justify-content: flex-start; min-height: 40px; }
   .ll-ractions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .ll-ractions:empty { display: none; }
+  /* The Readings page, every part about 30px shorter so each fits (the
+     operator, 2026-11-17: "make all the elements 30px smaller so that each
+     section can fit properly"). Measured at 480px wide: the heading 74 to
+     44, the date card 116 to 83, the season 134 to 100, a reading 171 to
+     140, the Prayer of the Day 235 to 203, the buttons under them 98 to 68;
+     on a desk the heading 104 to 74 and a reading 180 to 148. */
+  #lectionaryHomeView .ll-head { min-height: 0; padding: 8px 6px 10px; }
+  #lectionaryHomeView .ll-head__icon { width: 48px; height: 48px; font-size: 1.35rem; border-radius: 12px; }
+  #lectionaryHomeView .ll-head h1 { font-size: 1.85rem; }
+  #lectionaryHomeView .ll-head p { margin-top: 2px; font-size: 1rem; line-height: 1.25; }
+  #lectionaryHomeView .ll-head__art { transform: translateY(-50%) scale(0.7); transform-origin: right center; }
+  #lectionaryHomeView .ll-rbar { gap: 8px; margin-bottom: 8px; }
+  #lectionaryHomeView .ll-lect, #lectionaryHomeView .ll-today { min-height: 38px; }
+  #lectionaryHomeView .ll-datenav.lit-reading-datenav { padding: 2px 4px; gap: 2px 6px; }
+  #lectionaryHomeView .ll-datenav .lit-datenav-arrow { width: 32px; height: 32px; min-height: 32px; }
+  #lectionaryHomeView .ll-datenav .lit-datenav-title { font-size: 0.92rem; line-height: 1.25; gap: 2px 6px; }
+  #lectionaryHomeView .ll-datenav .lit-datenav-modes button { min-height: 30px; }
+  #lectionaryHomeView .ll-band { padding: 8px 14px; gap: 8px 16px; margin-bottom: 10px; }
+  #lectionaryHomeView .ll-band__season { font-size: 1rem; }
+  #lectionaryHomeView .ll-band__colour { padding: 4px 12px; font-size: 0.8rem; }
+  #lectionaryHomeView .ll--readings .lit-reading-slots-grid { gap: 10px; }
+  #lectionaryHomeView .ll-rcard.lit-reading-slot { gap: 6px; }
+  #lectionaryHomeView .ll-rcard__hd { padding: 8px 10px 0 12px; gap: 10px; }
+  #lectionaryHomeView .ll-rcard__ico { width: 32px; height: 32px; border-radius: 9px; font-size: 0.95rem; }
+  #lectionaryHomeView .ll-rcard .lit-reading-slot-edit { width: 34px; height: 34px; }
+  #lectionaryHomeView .ll-rcard__acts button { min-height: 38px; }
+  @container (max-width: 300px) { #lectionaryHomeView .ll-rcard__acts button { min-height: 46px; } }
+  #lectionaryHomeView .ll-prayer.lit-day-prayer { padding: 10px 14px; gap: 12px; margin-top: 10px; }
+  #lectionaryHomeView .ll-prayer__icon { width: 44px; height: 44px; font-size: 1.1rem; border-radius: 12px; }
+  #lectionaryHomeView .ll-prayer__acts .lit-day-prayer__btn { min-height: 32px; }
+  #lectionaryHomeView .ll-ractions { gap: 8px; margin-top: 10px; }
+  #lectionaryHomeView .ll-ractions .lf-btn { min-height: 34px; }
+  #lectionaryHomeView .lect-source-foot { margin-top: 8px; padding-top: 6px; }
+  @media (max-width: 768px) {
+    #lectionaryHomeView .ll-head { padding: 0 2px 4px; }
+    #lectionaryHomeView .ll-head__id { gap: 12px; }
+    #lectionaryHomeView .ll-head__icon { width: 36px; height: 36px; font-size: 1.05rem; border-radius: 10px; }
+    #lectionaryHomeView .ll-head h1 { font-size: 1.3rem; }
+    #lectionaryHomeView .ll-head p { margin-top: 1px; font-size: 0.82rem; line-height: 1.2; }
+    #lectionaryHomeView .ll-rbar { gap: 6px; }
+    #lectionaryHomeView .ll-band { padding: 12px 14px; gap: 8px 10px; }
+    #lectionaryHomeView .ll-band__desc { flex-basis: 100%; order: 3; font-size: 0.84rem; line-height: 1.4; }
+    #lectionaryHomeView .ll-band__colour { margin-left: auto; }
+    #lectionaryHomeView .ll-prayer.lit-day-prayer { padding: 14px 16px; }
+    #lectionaryHomeView .ll-ractions .lf-btn { min-height: 30px; }
+  }
+  /* a narrow phone keeps the colour beside the season: its word alone */
+  @media (max-width: 420px) {
+    #lectionaryHomeView .ll-band__clab { display: none; }
+  }
   .ll-menu { position: absolute; z-index: 10050; min-width: 240px; background: #fff; border: 1px solid #e5dccd; border-radius: 14px; padding: 6px;
     box-shadow: 0 14px 40px rgba(40, 25, 5, 0.18); display: flex; flex-direction: column; }
   .ll-menu button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent;

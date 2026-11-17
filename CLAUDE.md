@@ -5490,6 +5490,21 @@ the anon key -- verify as `postgres`, not as the app.
       (1.45rem on a phone) and the play button a square. The walk through
       finds the new parts (`.svp-lib`, `.svp-add`, `.svp-files`,
       `.svp-act .svp-builder`). Harness section 35.
+    - **The Readings page, every part about 30px shorter** (the operator,
+      2026-11-17, on a phone screenshot: "make all the elements 30px smaller
+      so that each section can fit properly"). Scoped `#lectionaryHomeView`,
+      CSS only: the heading (48px icon and 1.85rem on a desk, 36px and 1.3rem
+      on a phone), the lectionary / Today chips and the date card with its
+      Day / Week / Month, the season band (on a phone its colour beside the
+      season and its words on a line under them; under 420px the colour's
+      word alone, `.ll-band__clab` hiding "Liturgical colour:"), each
+      reading's card (32px icon, 38px buttons -- 46px where a narrow card sets
+      them icon over word, `@container (max-width: 300px)`), the Prayer of
+      the Day and the buttons under them. Measured at 480px wide: heading 74
+      to 44px, date card 116 to 83, season 134 to 100, a reading 171 to 140,
+      the Prayer of the Day 235 to 201, the buttons 98 to 68; at 1400px:
+      heading 104 to 73, season 59 to 46, a reading 180 to 148, the Prayer of
+      the Day 120 to 92. Harness section 36.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
