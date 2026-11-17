@@ -158,17 +158,19 @@ try {
     /_spForNext\(\(d && d\.rows\) \|\| \[\], sun && sun\.occ === occ \? sun\.key : ''\)/.test(mk) && /\[next\.day, cyc, kind\]/.test(mk) &&
     /data-key="' \+ _lfE\(next\.key\) \+ '" onclick="LiturgyModule\.spUse\(this\.dataset\.id, this\.dataset\.key\)"><i class="fa-solid fa-download" aria-hidden="true"><\/i><span>Use<\/span>/.test(mk) &&
     /How to make this year’s from a past one/.test(mk) && /No Liturgy App File for this Sunday yet\./.test(mk) && /a Year B liturgy from 2023 suits Year B again in 2026/.test(mk));
-  const ready = fn('_spReadyHtml');
-  check('a ready liturgy shows its Sundays and its year with its letter, and its Sundays can be changed',
-    /_llSundaysText\(occId, \(r\.data \|\| \{\}\)\.forDays\)/.test(ready) && /_llCycleFor\(occId, r\.year\)/.test(ready) && /LiturgyModule\.spSundays\(this\.dataset\.id\)/.test(ready));
+  const ready = fn('_spAppRow') + fn('spDocAct') + fn('spConvAct');
+  // Since 2026-11-17 a file is a row (its document's, or its own): its year
+  // with its letter there, its Sundays from its menu.
+  check('a ready liturgy shows its year with its letter, and its Sundays are changed from its menu',
+    /_llCycleFor\(occId, r\.year\)/.test(ready) && /else if \(act === 'days'\) spSundays\(id\);/.test(ready) && /else if \(act === 'days'\) spSundays\(fid\);/.test(ready));
   const ss = fn('spSundaysSave');
   check('...saved into its own data, with its year, and read back before it is reported', /select\('data'\)\.eq\('id', ed\.id\)/.test(ss) && /delete data\.forDays/.test(ss) &&
     /update\(\{ data: data, year: \+year, updated_at: new Date\(\)\.toISOString\(\) \}\)\.eq\('id', ed\.id\)\.select\('id,data,year'\)/.test(ss) &&
     /if \(String\(w\.data\[0\]\.year\) !== year \|\| \(ed\.hasDays && JSON\.stringify\(back\) !== JSON\.stringify\(ed\.days\)\)\) throw/.test(ss));
-  const res = fn('_spResHtml');
+  const res = fn('_spResHtml') + fn('_spDocRow');
   check('each document says when it was added and its year\'s letter, and can be renamed where it is',
-    /var added = it\.created \? 'Added ' \+ _lfWhen\(it\.created\) : '';/.test(res) && /y \? _llYearText\(occ\.id, y\) : ''/.test(res) &&
-    /onclick="LiturgyModule\.spRename\(this\.dataset\.id\)" aria-label="Rename"/.test(res) && /updateItem\(id, \{ title: name \}\);/.test(fn('spRename')) &&
+    /var added = it\.created \? 'Added ' \+ _lfWhen\(it\.created\) : '';/.test(res) && /var yc = y \? _llCycleFor\(occId, y\) : '';/.test(res) &&
+    /else if \(act === 'rename'\) spRename\(id\);/.test(fn('spDocAct')) && /updateItem\(id, \{ title: name \}\);/.test(fn('spRename')) &&
     /renderService\(\);/.test(fn('spRename')));
   check('a year chip carries its letter (This Year\'s too)', /var cy = y !== '—' \? _llCycleFor\(occ\.id, y\) : '';/.test(res) && /var cyT = _llCycleFor\(occ\.id, thisY\);/.test(res));
   check('a Google Doc can be added as a liturgy, filed in its year, and made ready', /onclick="LiturgyModule\.spAddGdoc\(\)"/.test(res) &&
@@ -289,7 +291,7 @@ try {
     check('a row dragged onto a year chip moves there ("No year" takes it out); a file from the desktop is not taken for a row',
       other === 0 && prevented === 1 && items.d1.occasionFolderId === null && set['application/x-lhc-item'] === 'd1');
   } catch (e) { check('the year folder pieces run', false, e.message); }
-  const res8 = fn('_spResHtml');
+  const res8 = fn('_spResHtml') + fn('_spDocRow');
   check('the chips show every year folder, empty ones too, then + Year; each takes a row dropped on it',
     /_spYearFolders\(occ\.id\)\.forEach\(function\(f\) \{ years\[f\.name\] = true; \}\);/.test(res8) && /onclick="LiturgyModule\.spNewYear\(\)" title="Make a year folder"/.test(res8) &&
     /ondrop="LiturgyModule\.spYearDrop\(event, this\)"/.test(res8) && /draggable="true" ondragstart="LiturgyModule\.spDragStart\(event, this\.dataset\.id\)"/.test(res8) &&
@@ -304,7 +306,7 @@ try {
   // found, a ready liturgy's year was fixed at Make ready, and the folder view
   // repeated the service page.
   console.log('\n9. The year where it is listed; one service, one page');
-  const res9 = fn('_spResHtml');
+  const res9 = fn('_spResHtml') + fn('_spDocRow');
   check('every document row has its year as a button, "No year" when it has none',
     /onclick="LiturgyModule\.spYearMenu\(this, this\.dataset\.id\)" aria-haspopup="menu" title="Change its year"/.test(res9) && /_lfE\(y \|\| 'No year'\)/.test(res9));
   check('...opening its service\'s years, no year folder and a new year, the one it is in ticked',
@@ -315,7 +317,7 @@ try {
   const sun9 = fn('spSundays');
   check('a ready liturgy\'s year can be changed with its Sundays (Year alone where a service has no Sundays to tick)',
     /<input id="spRdYear" type="number"/.test(sun9) && /if \(!r\) return;/.test(sun9) && !/if \(!r \|\| !LL_SUNDAYS\[occ\]\) return;/.test(sun9) &&
-    /\(\/\^doc:\/\.test\(String\(r\.made_from \|\| ''\)\) \? 'Sundays' : 'Sundays & year'\)/.test(fn('_spReadyHtml')) &&
+    /item\('days', 'fa-calendar-check', LL_SUNDAYS\[_sp\.occ\] \? 'Sundays & year' : 'Year'\)/.test(fn('spDocMenu')) &&
     /moved \? ensureOccYearFolder\(ed\.occ, year\)/.test(fn('spSundaysSave')) && /var year = ed\.yearFixed \? _spYearIn\(ed\.year\) : _spYearIn\(_plVal\('spRdYear'\)\);/.test(fn('spSundaysSave')));
   check('one service opens its own page from anywhere that asked for its folder; the folder view keeps the library-wide lists',
     /if \(occId && getOccasionById\(occId\)\) \{/.test(fn('openCollection')) && /openService\(occId, from === 'hub' \? 'hub' : 'services', 'order'\);/.test(fn('openCollection')) &&
@@ -357,9 +359,9 @@ try {
   // year. From there, after the conversion, take the user to the set and
   // provide the option to use it for the upcoming year or leave it".
   console.log('\n11. Convert to a Liturgy App File');
-  const draw11 = fn('_cvDraw'), res11 = fn('_spResHtml'), conv11 = fn('spConvert'), save11 = fn('cvSave');
+  const draw11 = fn('_cvDraw'), res11 = fn('_spResHtml') + fn('_spDocRow'), conv11 = fn('spConvert'), save11 = fn('cvSave');
   check('it is called what it is: Convert, a Liturgy App File', /Convert to Liturgy App File/.test(draw11) && /<h2 id="cvTtl">Convert to a Liturgy App File<\/h2>/.test(draw11) &&
-    /<span>Convert<\/span><\/button>/.test(res11) && /<h2 class="font-cinzel">Liturgy App Files' \+ \(yearName/.test(fn('_spReadyHtml')) && !/Make ready/.test(res11 + draw11 + fn('_spReadyHtml') + fn('_spMakeHtml')) &&
+    /<span>Convert<\/span><\/button>/.test(res11) && /'Liturgy App File'/.test(fn('_spAppRow')) && !/Make ready/.test(res11 + draw11 + fn('_spAppRow') + fn('_spMakeHtml')) &&
     !/Save as a ready liturgy|Keep as a ready liturgy/.test(SRC));
   check('it sits in its document\'s year: fixed when the document has one; a document with none is given that year with it',
     /var docYear = _spYearOf\(it, occId\), y = docYear \|\| String\(new Date\(\)\.getFullYear\(\)\);/.test(conv11) && /yearFixed: !!docYear,/.test(conv11) &&
@@ -401,18 +403,20 @@ try {
   // service(s) the user wants to use it for? ... Make sure it prompts the
   // user into using it for a particular year's / date's".
   console.log('\n12. Converted, with Use: choose the service');
-  const res12 = fn('_spResHtml'), ready12 = fn('_spReadyHtml');
+  const res12 = fn('_spResHtml') + fn('_spDocRow'), ready12 = fn('_spAppRow');
   check('a converted document shows Converted (green, its menu) and Use where Convert was; one not converted keeps Convert',
-    /\(conv\.length\s*\? '<button type="button" class="lf-btn sp-btn-sm sp-convd"/.test(res12) && /LiturgyModule\.spConvMenu\(this, this\.dataset\.id\)/.test(res12) &&
+    /var state = conv\.length\s*\? '<button type="button" class="lf-btn sp-btn-sm sp-convd"/.test(res12) && /LiturgyModule\.spConvMenu\(this, this\.dataset\.id\)/.test(res12) &&
     /<span>Converted<\/span>/.test(res12) && /class="lf-btn sp-btn-sm pl-btn-green sp-usebtn"[\s\S]{0,80}onclick="LiturgyModule\.spUseDoc\(this\.dataset\.id\)"/.test(res12) &&
     /: \(canConvert \? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary"/.test(res12) &&
     /\.lf-btn\.sp-convd \{[^}]*background: #e3f4ea;[^}]*color: #0b5d36;/.test(SRC));
   // 2026-11-17: a year's app files are a section of their own, every one
   // of them (converted or saved), before its documents (section 29).
-  check('the Liturgy App Files section lists every app file of the year, converted or saved, and says when there is none',
-    /var rows = \(d \? d\.rows : \[\]\)\.filter\(function\(r\) \{ return !year \|\| String\(r\.year \|\| '—'\) === year; \}\);/.test(ready12) &&
-    /No Liturgy App Files' \+ \(yearName \? ' for ' \+ _lfE\(yearName\) : ''\) \+ ' yet\. Convert a document below to make one\./.test(ready12) && !/return !m \|\| !getItem\(m\[1\]\);/.test(ready12));
-  check('after converting, its document is marked and scrolled to', /var conv = _spFilesOf\(it\.id\), fresh = _sp\.fresh && conv\.some\(function\(r\) \{ return r\.id === _sp\.fresh; \}\);/.test(res12) && /sp-doc--conv/.test(res12) &&
+  // 2026-11-17, again: no Liturgy App Files section ("Remove the section");
+  // a file is seen through its document, and one with no document is a row.
+  check('no Liturgy App Files section: a file is seen through its document, and one with no document is a row of the list',
+    !fn('_spReadyHtml') && /apps\.map\(function\(r\) \{ return _spAppRow\(r, occ\.id\); \}\)/.test(res12) &&
+    /return \(!m \|\| !getItem\(m\[1\]\)\) && \(!sel \|\| String\(r\.year \|\| '—'\) === sel\);/.test(res12) && !/sp-readybox/.test(res12));
+  check('after converting, its document is marked and scrolled to', /var conv = tab === 'liturgy' \? _spFilesOf\(it\.id\) : \[\], fresh = _sp\.fresh && conv\.some\(function\(r\) \{ return r\.id === _sp\.fresh; \}\);/.test(res12) && /sp-doc--conv/.test(res12) &&
     /document\.querySelector\('#liturgyServicePanel \.sp-doc\.is-new'\)/.test(fn('spReady')));
   check('a service reached any way reads its year folders (they were read only by the landing page and Services, so a service button left every document at No year)',
     /if \(!_lfFoldersAsked\) \{\s*_lfFoldersAsked = true;\s*var keepOcc = _currentOccasion;\s*_currentOccasion = null;\s*loadOccFolders\(\)\.then\(function\(\) \{ if \(_sp\.occ === occId\) renderService\(\); \}\);/.test(fn('openService')));
@@ -421,7 +425,7 @@ try {
     /spConvert\(docId, \{ type: type, days: days \}\);/.test(fn('spUseReconvert')));
   check('every Use on the page opens the one window: This year\'s liturgy on its Sunday, the Builder\'s own liturgies, a converted document',
     /if \(m && getItem\(m\[1\]\)\) spUseDoc\(m\[1\], \{ fileId: id, key: key \}\);\s*else _spUseOpen\(\[r\], id, \{ key: key \}\);/.test(fn('spUse')) &&
-    /onclick="LiturgyModule\.spUse\(this\.dataset\.id\)"><i class="fa-solid fa-download"/.test(ready12) && !/orderId \? '<button[^']*spUse/.test(fn('_spMakeHtml') + ready12));
+    /onclick="LiturgyModule\.spUse\(this\.dataset\.id\)" title="Use it for a coming service"><i class="fa-solid fa-download"/.test(ready12) && !/orderId \? '<button[^']*spUse/.test(fn('_spMakeHtml') + ready12));
   check('WO makes an order for a date as Home\'s + Order does -- its year in its title, never a second for one date -- and lends it, with each date\'s order',
     /var have = _woOrderInfoForIso\(iso\);\s*if \(have\) return Promise\.resolve\(have\.id\);/.test(fn('_woCreateOrderForIso')) &&
     /var title = 'Service - ' \+ d\.getDate\(\) \+ ' ' \+ MO\[d\.getMonth\(\)\] \+ ' ' \+ d\.getFullYear\(\)/.test(fn('_woCreateOrderForIso')) &&
@@ -436,7 +440,7 @@ try {
         'spUseExtra', 'spUseSongs', 'spUseComm', 'spUseClose', 'spUseLeave', 'spUseReadings', '_spUseBackBar', 'spUseReturn', '_spPutReadings', 'spUseGo', 'spUseReconvert',
         'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName',
         '_spBlKey', '_spSimNorm', '_spShingles', '_spShOf', '_spSimOf', '_spNameAlike', '_spSecTexts', '_spLikeOf', '_spUsePieces', '_spUseLikeHtml', '_spUseSuppHtml',
-        'spUseAll', 'spUseSupp', 'spUseSuppSec', '_spCmpRows', '_spCmpLines', 'spUseCompare', 'spUseCmpHl', 'spUseCmpClose'];
+        'spUseAll', 'spUseSupp', 'spUseSuppSec', '_spCmpRows', '_spCmpLines', 'spUseCompare', 'spUseCmpHl', 'spUseCmpClose', '_spUsesFor', '_spUsesOf'];
       const bodies = names.map(fn);
       if (!bodies.every(Boolean)) throw new Error('missing: ' + names.filter((n, i) => !bodies[i]).join(', '));
       const log = [], els = {}, roster = {}, types = {};
@@ -1219,9 +1223,9 @@ try {
   check('...a year typed as this year is This Year; a year with nothing in it falls back to it',
     /if \(_sp\.year === thisY\) _sp\.year = 'this';/.test(res22) && /if \(_sp\.year && _sp\.year !== 'this' && !years\[_sp\.year\]\) _sp\.year = 'this';/.test(res22) &&
     /var sel = _sp\.year === 'this' \? thisY : _sp\.year;/.test(res22) && /return !sel \|\| \(_spYearOf\(it, occ\.id\) \|\| '—'\) === sel;/.test(res22));
-  check('...This Year holds this year\'s liturgy beside that year\'s documents and app files; the other years only their own; no side column',
-    /body = _sp\.year === 'this'\s*\? '<div class="sp-thisyr"><div class="sp-thisyr__main">' \+ _spMakeHtml\(d, orderId\) \+ ready \+ '<\/div><div class="sp-thisyr__docs">' \+ docsBox \+ '<\/div><\/div>'\s*: ready \+ docsBox;/.test(res22) &&
-    /var ready = _spReadyHtml\(d, orderId, sel, sel && sel !== '—' \? sel : ''\);/.test(res22) && /return !year \|\| String\(r\.year \|\| '—'\) === year;/.test(fn('_spReadyHtml')) &&
+  check('...This Year holds this year\'s liturgy beside that year\'s documents; the other years only their own; no side column',
+    /body = _sp\.year === 'this'\s*\? '<div class="sp-thisyr"><div class="sp-thisyr__main">' \+ _spMakeHtml\(d, orderId\) \+ '<\/div><div class="sp-thisyr__docs">' \+ docsBox \+ '<\/div><\/div>'\s*: docsBox;/.test(res22) &&
+    !/_spReadyHtml/.test(res22) &&
     !/sp-lib__side|sp-lib__main/.test(tab22) && /\.sp-lib \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(SRC) &&
     /@media \(min-width: 1180px\) \{ \.sp-thisyr \{ grid-template-columns: minmax\(0, 1\.2fr\) minmax\(320px, 1fr\); \} \}/.test(SRC));
   // The WO side, run against stand-ins.
@@ -1746,8 +1750,9 @@ try {
     /<span class="ll-card__arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"><\/i><\/span>/.test(hub29) && !/ll-card__go|ll-card__body|ll-sun|This Sunday<\/h2>|_llSundayVerseLoad/.test(hub29) &&
     hub29.indexOf('llYearTtl') > 0 && hub29.indexOf('llYearTtl') < hub29.indexOf('llRecentTtl'));
   const res29 = fn('_spResHtml');
-  check('a year: its Liturgy App Files, then its Uploaded documents, a section of their own with a + that uploads into that year, and a drop zone',
-    /body = _sp\.year === 'this'[\s\S]*?: ready \+ docsBox;/.test(res29) && /class="sp-docsbox__add" data-y="' \+ _lfE\(upY\) \+ '" onclick="LiturgyModule\.spUpload\(\\'liturgy\\', this\.dataset\.y\)"/.test(res29) &&
+  // (Its Liturgy App Files went from the year the same day: see section 30.)
+  check('a year: its Uploaded documents, a section of their own with a + that uploads into that year, and a drop zone',
+    /body = _sp\.year === 'this'[\s\S]*?: docsBox;/.test(res29) && /class="sp-docsbox__add" data-y="' \+ _lfE\(upY\) \+ '" onclick="LiturgyModule\.spUpload\(\\'liturgy\\', this\.dataset\.y\)"/.test(res29) &&
     /ondragover="LiturgyModule\.spDocsOver\(event, this\)" ondragleave="LiturgyModule\.spDocsLeave\(event, this\)" ondrop="LiturgyModule\.spDocsDrop\(event, this\)"/.test(res29) &&
     /@media \(hover: hover\) and \(pointer: fine\) \{ \.sp-docsbox__drop \{ display: flex; \} \}/.test(SRC) &&
     /_spUpYear = _spYearIn\(year\);/.test(fn('spUpload')) && /year = ym \? ym\[0\] : \(yearDef \|\| String\(new Date\(\)\.getFullYear\(\)\)\);/.test(fn('_spUploadOne')));
@@ -1829,6 +1834,54 @@ try {
     /var rows = _spCmpRows\(cols\), lines = _spCmpLines\(cols\);/.test(fn('spUseCompare')) && /'<p class="spc-l' \+ \(l\.same \? ' is-same' : ' is-diff'\) \+ '">'/.test(fn('spUseCompare')) &&
     /if \(card\) card\.classList\.toggle\('spc--nohl', !u\.cmpHl\);/.test(fn('spUseCmpHl')) && /\.spc--nohl \.spc-l\.is-same, \.spc--nohl \.spc-l\.is-diff \{ background: transparent; \}/.test(SRC) &&
     /\.spc \{ position: fixed; inset: 0; z-index: 10025;/.test(SRC) && /spUseCmpClose\(\); \}/.test(fn('spUseClose')));
+  // ------------------------------------------------------------ 30. A document: converted, and where it is used
+  // From the operator (2026-11-17), on two screenshots: the Liturgy App
+  // Files section crossed out in a past year and in This Year ("Remove the
+  // section. I want to only see if the uploaded doc has been converted and
+  // used. If used then it will look like the upper section of the 2026
+  // folder. Clicking on the use button will direct the user to where it's
+  // being used. Also allow the user to use the same converted liturgy to more
+  // than one"), and "Make the design more concise".
+  console.log('\n30. A document: converted, and where it is used');
+  try {
+    const U30 = new Function(fn('_spUsesOf') + '\nreturn _spUsesOf;')();
+    const raw = [{ id: 'o29', iso: '2026-11-29', type: 'special', svl: 'NC' }, { id: 'o6', iso: '2026-12-06', type: 'special', svl: 'NC' },
+                 { id: 'oPast', iso: '2025-11-30', type: 'traditional', svl: 'NC2' }, { id: 'oOld', iso: '2024-12-01', type: 'traditional', svl: 'NC' },
+                 { id: 'oX', iso: '2026-12-13', type: 'contemporary', svl: 'other' }, { id: 'oNo', iso: '', type: '', svl: 'NC' }];
+    const u = U30(raw, ['NC', 'NC2'], null, '2026-11-17');
+    check('where a file is used (pure): every service on any of its files, the coming ones soonest first, then the past latest first; one with no date left out',
+      u.map(x => x.orderId + (x.past ? '(past)' : '')).join() === 'o29,o6,oPast(past),oOld(past)', JSON.stringify(u));
+    const live = U30(raw, ['NC'], { orderId: 'o29', svlId: 'Behold' }, '2026-11-17');
+    check('...the coming service read as the page reads it, so a Use not yet saved is seen', live.map(x => x.orderId).join() === 'o6,oOld' &&
+      U30(raw, ['other'], { orderId: 'oX', svlId: 'other' }, '2026-11-17').map(x => x.orderId).join() === 'oX' && !U30(null, ['NC'], null, '2026-11-17').length);
+    const R30 = new Function('_spData', '_spTypeName', '_llCycle', '_lfE', '_spDateTile', '_lfLongDate', fn('_spUseRowHtml') + '\nreturn _spUseRowHtml;')(
+      { upcoming: [{ key: '2026-11-29', day: '1st Sunday of Advent', type: 'special' }] }, t => t === 'special' ? 'Special' : t === 'traditional' ? 'Traditional' : 'Contemporary',
+      k => k.slice(0, 4) === '2026' ? 'Year B' : 'Year A', x => String(x), k => '<div class="spi-date">' + k.slice(8, 10) + '</div>', k => 'long ' + k);
+    const on = R30({ orderId: 'o29', iso: '2026-11-29', type: 'contemporary', past: false }), was = R30({ orderId: 'oOld', iso: '2024-12-01', type: 'traditional', past: true });
+    check('...shown as This Year\'s card is: its date, its day, its kind and lectionary year, In use; a past one Used; a press goes there',
+      /<div class="spi-date">29<\/div><span class="sp-use2__t"><b>1st Sunday of Advent<\/b><small>Special service · Year B<\/small><\/span><span class="sp-use2__go">In use/.test(on) &&
+      /onclick="LiturgyModule\.spGoUse\(this\.dataset\.o, this\.dataset\.k\)"/.test(on) && /class="sp-use2 is-past"/.test(was) && /<b>long 2024-12-01<\/b><small>Traditional service · Year A/.test(was) && />Used</.test(was), on + ' | ' + was);
+  } catch (e) { check('where a file is used runs', false, e.stack); }
+  const row30 = fn('_spDocRow'), go30 = fn('spGoUse');
+  check('a document\'s row, concise: its name; its kind, year (a chip that moves it) and when it was added; ⋯ for preview, rename, year and share',
+    /class="sp-ychip" data-id="' \+ id \+ '" onclick="LiturgyModule\.spYearMenu\(this, this\.dataset\.id\)"/.test(row30) && /class="sp-doc2__more"[^>]*onclick="LiturgyModule\.spDocMenu\(this, this\.dataset\.id\)"/.test(row30) &&
+    /item\('preview', 'fa-eye', 'Preview'\) \+ item\('rename', 'fa-pen', 'Rename'\) \+ item\('year', 'fa-folder', 'Change its year'\) \+ item\('share', 'fa-share-nodes', 'Share'\)/.test(fn('spDocMenu')) &&
+    !/aria-label="Preview" title="Preview"/.test(row30) && !/sp-yearbtn" data-id/.test(row30));
+  check('...Convert, or Converted and Use; once used, where (as This Year\'s card) and Use for another service',
+    /var uses = conv\.length \? _spUsesFor\(conv\.map\(function\(r\) \{ return r\.id; \}\)\) : \[\];/.test(row30) &&
+    /onclick="LiturgyModule\.spUseDoc\(this\.dataset\.id, \{ another: true \}\)"/.test(row30) && /<span>Use for another service<\/span>/.test(row30) &&
+    /uses\.map\(_spUseRowHtml\)\.join\(''\)/.test(row30) && /onclick="LiturgyModule\.spUseAnother\(this\.dataset\.id\)"/.test(fn('_spAppRow')));
+  check('where it is used: the coming service is This Year\'s card, lit; another date opens in the Liturgy Builder, its Back bar coming here',
+    /if \(d && d\.order && d\.order\.id === orderId\) \{\s*_sp\.tab = 'order'; _sp\.res = 'liturgy'; _sp\.year = 'this';/.test(go30) && /el\.classList\.add\('sp-flash'\);/.test(go30) &&
+    /_llOpenInBuilder\(orderId\);/.test(go30));
+  check('every order\'s liturgy read lightly with the page, and again with the order',
+    /select\('id,title,service_date,type,created_date,svl:template->serviceLiturgy'\)\.not\('id', 'like', 'standalone_%'\)/.test(fn('_spUsesLoad')) &&
+    /_spUsesLoad\(_spData\);/.test(fn('_spLoad')) && /_spUsesLoad\(d\);/.test(fn('_spOrderReread')));
+  check('Use for another service starts on a date not using it; a date that does says so',
+    /if \(u\.another && !u\.anotherDone && Object\.keys\(usedKeys\)\.length\) \{/.test(fn('_spUseState')) && /if \(free && usedKeys\[u\.key\]\) u\.key = free\.key;/.test(fn('_spUseState')) &&
+    /Uses this liturgy now/.test(fn('_spUseStep1')));
+  check('no Liturgy App Files section; the library box has no tooltip over everything in it',
+    !fn('_spReadyHtml') && !/class="ll-box sp-res" title=/.test(fn('_spResHtml')) && !/sp-readybox/.test(fn('_spResHtml')));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
