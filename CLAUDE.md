@@ -431,7 +431,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
   2026-11-15 ("it takes up a lot of space"): This year's liturgy names the
   coming Sunday and its lectionary year. **Show me how** plays a five-step
   walk through (gotcha 104).
-  - **Liturgy Order** is the service's **library** (2026-11-15): its files,
+  - **Liturgy Order** is the service's **library** (2026-11-15; since
+    2026-11-17 drawn as the operator's mockup: a Liturgy Library card -- + Add,
+    the year folders, This Year's Active Liturgy -- and a Files Repository
+    card): its files,
     **Liturgy Documents first** by year (then LCD Materials, Photos & Files,
     Reference Links), each document previewed on a double-click or double
     tap, and its **Convert** making it a Liturgy App File the Builder
@@ -5447,6 +5450,46 @@ the anon key -- verify as `postgres`, not as the app.
       every 5.5s; the arrow nudges (`llArrowNudge`); hover lifts 3px and pops
       the icon (`llIcoPop`), a press sinks. `prefers-reduced-motion` stops
       all of it and hides the sheen. Harness section 34.
+    - **A service's page as the operator's mockup draws it** (2026-11-17, with
+      a mockup: "Can you use this mockup to replace the current design of the
+      individual service folders"; asked, the four kinds of file kept as they
+      are, and a liturgy document's Convert, Converted / Use and where it is
+      used kept on its row). The Liturgy Order tab (`_spOrderTab`, `.sp-lib.svp`)
+      is two cards from `_spResHtml`: **Liturgy Library** -- a cream heading
+      with its line ("Manage liturgy folders by year and work with the active
+      liturgy."), a faint church drawn behind it (`SP_ART`, inline SVG) and a
+      green **+ Add** (`spAddDocs`, which now holds every way to add: a
+      liturgy, a Google Doc, photos / videos / files, a link, a liturgy text
+      for the LCD, a year folder) -- then the year folders as chips
+      (`.svp-year`: "This Year · 2026 B" filled green with a gold star, the
+      past years with a folder and their letter, No year, All years, + Year;
+      each still takes a row dropped on it), and on This Year the **Active
+      Liturgy** (`_spMakeHtml` / `_spInUseHtml`, one layout on every screen
+      now -- the desk's gold and green blocks and its rows of buttons went):
+      a green bar ("Active Liturgy" and how it stands, `_spActHd`: Ready for
+      Church Use, Written in the Builder, Not chosen yet, No date yet), the
+      day on its tile with Change, **Source** (`_spSourcesHtml`: "Source", or
+      "Sources" and a count when blended), the line ("Same as the original"
+      or Modified with See and Reset), the readings button when it has none,
+      then **Show Liturgy**, **Builder** and **⋯** (`spoMore`: the PDF,
+      sharing it, the original file, Change or blend, Remove). **Files
+      Repository** -- its heading and line ("Stored documents, videos, and
+      links for this liturgy and year."), the four kinds as chips with their
+      counts (`.svp-kind`; choosing one keeps the year, `spResTab`), and one
+      box (`.svp-box`): the year with its letter and how many files, a round
+      + that adds to that kind (into that year for a liturgy), the rows, the
+      double-tap tip, and on a desk the drop zone (`.svp-drop`, the
+      `spDocsOver` / `spDocsDrop` handlers on the box). A row
+      (`_spDocRow`, `_spAppRow`) is its badge, its name, its kind, size
+      (`fileSize`, `formatFileSize`), year chip, letter and when it was
+      added, then **Preview** -- Open for a Google document or a link, Watch
+      for a video (`_spOpenLook`, `_spOpenBtn`; the eye alone under 460px) --
+      Share (`lfShareItem`) and ⋯, with Convert or Converted and Use, and the
+      services using it, under it as before. A wide desk (1180px) puts the
+      two cards side by side. The banner keeps its parts, its name 1.75rem
+      (1.45rem on a phone) and the play button a square. The walk through
+      finds the new parts (`.svp-lib`, `.svp-add`, `.svp-files`,
+      `.svp-act .svp-builder`). Harness section 35.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
