@@ -215,7 +215,7 @@ try {
   const ot = fn('_spOrderTab');
   check('the Liturgy Order tab is the service\'s library, its documents first; no order of worship, no reader',
     /return '<div class="sp-lib">' \+ _spResHtml\(occ, d, orderId\) \+ '<\/div>';/.test(ot) &&
-    /_spMakeHtml\(d, orderId\)/.test(fn('_spResHtml')) && /_spReadyHtml\(d, orderId, sel\)/.test(fn('_spResHtml')) &&
+    /_spMakeHtml\(d, orderId\)/.test(fn('_spResHtml')) && /_spReadyHtml\(d, orderId, sel, /.test(fn('_spResHtml')) &&
     !fn('_spParts') && !fn('_spSource') && !fn('spFull') && !/pl-ow|pl-text|_spTexts/.test(ot) && !/contenteditable/.test(ren));
   check('this year\'s liturgy is a way into the Liturgy Builder', /onclick="LiturgyModule\.spEdit\(\)"/.test(fn('_spMakeHtml')) && /_llOpenInBuilder\(id\)/.test(fn('spEdit')));
   // "Double clicking or tapping on the document will preview it."
@@ -318,7 +318,7 @@ try {
       k === 'liturgy@f2026 | media@f2015 | documents@f' + new Date().getFullYear() + ' | liturgy+doc@f' + new Date().getFullYear() &&
       added[0].title === 'Maundy Thursday Liturgy 2026' && added.every(x => x.occasionId === 'maundy-thursday' && x.storageProvider === 'supabase'), k);
   } catch (e) { check('an upload is filed in the year its name gives', false, e.message); }
-  const up = fn('spUploadDoc');
+  const up = fn('spUploadDoc') + fn('_spUploadFiles');
   check('several files at once, each read in turn; one liturgy is offered to be made ready, anything else shown where it went',
     /files\.reduce\(function\(chain, file\)/.test(up) && /\{ action: 'Convert it', duration: 9000, onAction: function\(\) \{ spConvert\(last\.id\); \} \}/.test(up) &&
     /action: 'Show'/.test(up) && /if \(mode === 'liturgy'\) \{/.test(up));

@@ -398,11 +398,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   `LiturgyModule.openHub`), "Liturgy Library -- Read. Plan. Remember.":
   three cards -- **Readings & Prayers**, **Liturgy of Services** (no line
   under either) and **Memories** ("Blast from the past: services for future
-  reference"), as the operator named them on 2026-11-16, each 50px shorter
-  than they were (117px on a phone, 288px at 1400px) -- This Sunday (its day,
-  colour, readings, Prayer of the Day and the bulletin's theme verse), the
-  Church Year (a tile per season, opening Readings at its next service) and
-  Recently Added. The nav is Overview, Readings, Services, Memories.
+  reference"), as the operator named them on 2026-11-16 -- each card its
+  coloured header alone, one button with an arrow badge (42px on a phone,
+  72px on a desk, 2026-11-17) -- then the Church Year (a tile per season,
+  opening Readings at its next service) and Recently Added. This Sunday went
+  on 2026-11-17. The nav is Overview, Readings, Services, Memories.
 - **Readings** is the date's four readings as cards -- the reference opens
   the passage, then Open / Copy / Use in plan -- with no summary (the
   operator said leave them out), the Prayer of the Day under them, and for
@@ -5227,6 +5227,67 @@ the anon key -- verify as `postgres`, not as the app.
       Isaiah under 1st Reading, the psalm under Psalm, 1 Corinthians under
       2nd Reading and Mark under Gospel Reading, "Same as the original", and
       LCD Projection drew each in its section.
+    - **The landing's cards, a year's two sections, and what Use adds** (the
+      operator, 2026-11-17, four marked-up screenshots). **The landing**
+      (`renderHub`): each card is one `<button class="ll-card">`, its
+      coloured header with an arrow badge (`.ll-card__arrow`); the open
+      buttons under them (`.ll-card__go`) and the body went, and asked, the
+      header is 20px shorter than it was -- 62 to 42px on a phone, 92 to 72px
+      on a desk. This Sunday went (and `_llSundayVerseLoad` with it): the
+      Church Year (`.ll-row2--one`), then Recently Added. **A year's folder**
+      (the Liturgies tab, `_spResHtml`): its **Liturgy App Files** first --
+      EVERY one of the year, converted or saved (`_spReadyHtml(d, orderId,
+      year, yearName)`; it showed only those with no document, and nothing
+      when none), saying so when there are none -- then **Uploaded
+      documents**, a section of its own (`.sp-docsbox`): a round + that
+      uploads into that year (`spUpload('liturgy', year)`: `_spUpYear`, used
+      by `_spUploadOne` for a file whose name gives no year) and, on a desk, a
+      drop zone (`spDocsOver` / `spDocsLeave` / `spDocsDrop` ->
+      `_spUploadFiles`, which `spUploadDoc` also calls; only a drag carrying
+      `Files`, so a row dragged onto a year chip is not taken for one). This
+      Year: this year's liturgy and its app files, then -- beside them on a
+      desk -- its documents. A converted document keeps Converted and Use.
+      The green + (`#litAddFAB`) is not drawn on a service's page
+      (`#liturgyView[data-ll="service"] .lit-add-fab`). **Use's Add to it**:
+      every Traditional part ticked at first (`u.extras` null until
+      `_spUseState` fills it; another version starts again), **Select all /
+      Select none** (`spUseAll('trad' | a file's id, on)`), and each part
+      marked when it is like something already going in (`_spLikeOf` over
+      `_spUsePieces`: this liturgy's sections, the parts ticked, the other
+      files' sections ticked) -- amber "Like <section> · n% the same words"
+      (runs of three words, `_spShingles` / `_spSimOf`, at least 30%), else
+      blue "Name like <section>" (`_spNameAlike`, half the words of the
+      shorter name, with `SP_SIM_STOP` -- prayer, day, advent, service... --
+      left out, which were all noise). **Add from another liturgy**
+      (`_spUseSuppHtml`, asked: other App Files, not only the Traditional
+      parts): any other Liturgy App File of the service is added beside it
+      (`spUseSupp`), its sections listed to tick (`spUseSuppSec`) -- at first
+      only those with words like nothing going in -- each marked the same
+      way, with its own Select all / none. **Compare side by side**
+      (`spUseCompare`, `#spCmp`, z-index 10025 over the Use window's 10020):
+      a column per liturgy -- this one, each other file added, the
+      Traditional parts -- the rows lined up by name (`_spCmpRows`, pure: a
+      section of no name there after its neighbour), each line lit green when
+      it is in another column (the same words, or 60% of its runs of three)
+      and amber when only here (`_spCmpLines`, pure), "In 2 of 3" on a row,
+      what is not ticked dimmed; **Highlights** takes the colour off and puts
+      it back in place (`spUseCmpHl`, `.spc--nohl`). A phone scrolls the
+      columns sideways. Use carries the ticked sections (`spUseGo` -> `supp`
+      -> `svlUseFromLibrary` -> `_svlApply`'s `more.supp`), and
+      `_svlSuppInto` (pure but for its id makers) puts each after the
+      section it follows in its own file, matched by name in the order (one
+      the order has a section of the same name for, right after that one;
+      before any match, before the first; none, last), its liturgy and text
+      as this order's own (new `lbd_` source ids, gotcha 37), never its
+      readings -- in the same Undo as the liturgy -- and notes them as a blend
+      (`serviceLiturgy.blend` / `blendMap`), so the card's Sources lists them.
+      Measured in the preview on 29 Nov: the landing at 480px (42px cards,
+      no This Sunday), Advent's 2025 folder (App Files, then Uploaded
+      documents with its +), Use of Behold with the parts all ticked, No
+      Communion added (Invocation 100% like Behold's Section, Nicene Creed 90%
+      like Affirmation of Faith, unticked), the window side by side with
+      Highlights off and on, and Use putting 11 of its sections in after
+      Confession with Sources 2; Undo took it back.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
