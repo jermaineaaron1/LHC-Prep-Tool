@@ -112771,6 +112771,10 @@ var LiturgyModule = (function() {
   // A reading as a card: its slot, its reference (which opens it), and Open
   // / Copy / Use in plan. The design's one-line summaries were left out
   // (asked, 2026-11-14): the app keeps the reference and nothing more.
+  // Open, Copy and Use in plan are icons beside the pen in the card's top row
+  // (the operator, 2026-11-17: "make the readings card more concise"); the bar
+  // of three under the reference went, and each says what it does in its
+  // title and aria-label.
   var LL_SLOT_LOOK = [['fa-book-open', '#2f6b3f', '#e6f0e8'], ['fa-music', '#8a5d10', '#f8eedb'],
                       ['fa-scroll', '#5b3f8c', '#ede6f6'], ['fa-cross', '#a33a2b', '#f9e5e1']];
   function _readingSlotCard(iso, idx, ref) {
@@ -112782,13 +112786,13 @@ var LiturgyModule = (function() {
       '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>';
     if (ref) {
       return '<div class="lit-reading-slot filled ll-rcard">' + head +
-          '<button type="button" class="lit-reading-slot-edit" title="Change this reading" aria-label="Change the ' + escapeHtml(label) + '" onclick="' + openPicker + '"><i class="fa-solid fa-pen"></i></button></div>' +
-          '<button type="button" class="lit-reading-slot-ref ll-rcard__ref" title="Read ' + escapeHtml(ref) + '" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')">' + escapeHtml(ref) + '</button>' +
           '<div class="ll-rcard__acts">' +
-            '<button type="button" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')"><i class="fa-regular fa-file-lines" aria-hidden="true"></i>Open</button>' +
-            '<button type="button" onclick="LiturgyModule.llCopyReading(' + q + ',' + idx + ')"><i class="fa-regular fa-copy" aria-hidden="true"></i>Copy</button>' +
-            '<button type="button" onclick="LiturgyModule.llUseInPlan(' + q + ')"><i class="fa-regular fa-square-plus" aria-hidden="true"></i>Use in plan</button>' +
-          '</div>' +
+            '<button type="button" title="Open the passage" aria-label="Open ' + escapeHtml(ref) + '" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')"><i class="fa-regular fa-file-lines" aria-hidden="true"></i></button>' +
+            '<button type="button" title="Copy" aria-label="Copy ' + escapeHtml(ref) + '" onclick="LiturgyModule.llCopyReading(' + q + ',' + idx + ')"><i class="fa-regular fa-copy" aria-hidden="true"></i></button>' +
+            '<button type="button" title="Use in plan" aria-label="Use in the service plan" onclick="LiturgyModule.llUseInPlan(' + q + ')"><i class="fa-regular fa-square-plus" aria-hidden="true"></i></button>' +
+            '<button type="button" class="lit-reading-slot-edit" title="Change this reading" aria-label="Change the ' + escapeHtml(label) + '" onclick="' + openPicker + '"><i class="fa-solid fa-pen"></i></button>' +
+          '</div></div>' +
+          '<button type="button" class="lit-reading-slot-ref ll-rcard__ref" title="Read ' + escapeHtml(ref) + '" onclick="LiturgyModule.openPassage(' + q + ',' + idx + ')">' + escapeHtml(ref) + '</button>' +
         '</div>';
     }
     return '<div class="lit-reading-slot empty ll-rcard ll-rcard--empty">' + head + '</div>' +
@@ -113829,8 +113833,7 @@ var LiturgyModule = (function() {
         ? 'This is what ' + found.src.fileName + ' says'
         : found.src.fileName + ' says ' + was;
       card.classList.add(same ? 'from-source' : 'changed-from-source');
-      var acts = card.querySelector('.ll-rcard__acts');
-      if (acts) card.insertBefore(tag, acts); else card.appendChild(tag);
+      card.appendChild(tag);                               // under the reference
     });
   }
 
@@ -126068,30 +126071,39 @@ function filterLiturgyItems() {
   .ll--readings .lit-reading-slots-grid { gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   @media (max-width: 1100px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: minmax(0, 1fr); } }
-  .ll-rcard.lit-reading-slot { cursor: default; display: flex; flex-direction: column; gap: 10px; padding: 0; border: 1px solid var(--ll-line);
+  /* Four cards a row only when each has room for its top row (about 290px:
+     the label and four icons), two when each does, else one -- by the panel's
+     own width, since the sidebar takes its share of the screen. A browser
+     without container queries keeps the rules by the screen above. */
+  .lit-reading-slots-panel.ll-readings { container: llslots / inline-size; }
+  @container llslots (max-width: 1189px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @container llslots (max-width: 599px) { .ll--readings .lit-reading-slots-grid { grid-template-columns: minmax(0, 1fr); } }
+  .ll-rcard.lit-reading-slot { cursor: default; display: flex; flex-direction: column; gap: 10px; padding: 0 0 14px; border: 1px solid var(--ll-line);
     border-radius: 16px; background: #fff; box-shadow: 0 2px 5px rgba(60, 40, 10, 0.06); overflow: hidden; }
   #liturgyView .ll-rcard.lit-reading-slot { border-left: 1px solid var(--ll-line); }
   .ll-rcard.lit-reading-slot:hover { transform: none; }
   .ll-rcard__hd { display: flex; align-items: center; gap: 12px; padding: 12px 12px 0 14px; }
   .ll-rcard__ico { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
-  .ll-rcard .lit-reading-slot-label { flex: 1; font-family: 'Cinzel', Georgia, serif; font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ll-ink); }
-  .ll-rcard .lit-reading-slot-edit { position: static; opacity: 1; width: 40px; height: 40px; border-radius: 10px; }
+  .ll-rcard .lit-reading-slot-label { flex: 1; min-width: 0; font-family: 'Cinzel', Georgia, serif; font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ll-ink); }
+  .ll-rcard .lit-reading-slot-edit { position: static; opacity: 1; }
   .ll-rcard__ref, .ll-rcard__add { display: block; width: auto; margin: 0 14px; padding: 2px 0; border: 0; background: none; text-align: left; cursor: pointer;
     font-family: 'Poppins', sans-serif; font-size: 1.2rem; font-weight: 600; color: var(--ll-ink); }
   .ll-rcard__ref:hover { color: #23502d; text-decoration: underline; }
-  .ll-rcard__add { font-size: 1rem; color: #23502d; margin-bottom: 14px; }
+  .ll-rcard__add { font-size: 1rem; color: #23502d; }
   .ll-rcard .lit-slot-origin { margin: 0 14px; }
-  .ll-rcard__acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #f0e8da; margin-top: auto; }
-  .ll-rcard__acts button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; border: 0; background: transparent;
-    font-family: 'Poppins', sans-serif; font-size: 0.8rem; color: #3a2f22; cursor: pointer; }
-  .ll-rcard__acts button + button { border-left: 1px solid #f0e8da; }
-  /* a narrow card puts each action's icon over its word, so "Use in plan"
-     stays on one line */
+  /* Open, Copy, Use in plan and the pen: four icons a row at the card's top
+     right (the operator, 2026-11-17: "make the readings card more concise";
+     the bar of three under the reference went). 32px, 36px on a touch
+     screen. */
+  .ll-rcard__acts { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .ll-rcard__acts button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 0; padding: 0;
+    border: 0; border-radius: 9px; background: #f3f4f6; color: #4b5563; font-size: 0.85rem; cursor: pointer; }
+  .ll-rcard__acts button:hover { background: #e7f0e4; color: #23502d; }
+  @media (pointer: coarse) { .ll-rcard__acts button { width: 36px; height: 36px; border-radius: 10px; } }
+  /* a narrow card leaves its slot's icon out, so the label and the four keep
+     one line: the label says which reading it is */
   .ll-rcard.lit-reading-slot { container-type: inline-size; }
-  @container (max-width: 300px) {
-    .ll-rcard__acts button { flex-direction: column; gap: 3px; min-height: 54px; font-size: 0.74rem; }
-  }
-  .ll-rcard__acts button:hover { background: #fbf6ee; }
+  @container (max-width: 329px) { .ll-rcard__ico { display: none; } }
   .ll-prayer.lit-day-prayer { display: flex; align-items: center; gap: 18px; background: #f1f6ee; border: 1px solid #d9e6d2; border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
   .ll-prayer__icon { width: 54px; height: 54px; border-radius: 14px; background: #2f5d3a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0; }
   .ll-prayer__main { flex: 1; min-width: 0; padding-right: 16px; border-right: 1px solid #d9e6d2; }
@@ -126122,12 +126134,9 @@ function filterLiturgyItems() {
   #lectionaryHomeView .ll-band__season { font-size: 1rem; }
   #lectionaryHomeView .ll-band__colour { padding: 4px 12px; font-size: 0.8rem; }
   #lectionaryHomeView .ll--readings .lit-reading-slots-grid { gap: 10px; }
-  #lectionaryHomeView .ll-rcard.lit-reading-slot { gap: 6px; }
+  #lectionaryHomeView .ll-rcard.lit-reading-slot { gap: 6px; padding-bottom: 12px; }
   #lectionaryHomeView .ll-rcard__hd { padding: 8px 10px 0 12px; gap: 10px; }
   #lectionaryHomeView .ll-rcard__ico { width: 32px; height: 32px; border-radius: 9px; font-size: 0.95rem; }
-  #lectionaryHomeView .ll-rcard .lit-reading-slot-edit { width: 34px; height: 34px; }
-  #lectionaryHomeView .ll-rcard__acts button { min-height: 38px; }
-  @container (max-width: 300px) { #lectionaryHomeView .ll-rcard__acts button { min-height: 46px; } }
   #lectionaryHomeView .ll-prayer.lit-day-prayer { padding: 10px 14px; gap: 12px; margin-top: 10px; }
   #lectionaryHomeView .ll-prayer__icon { width: 44px; height: 44px; font-size: 1.1rem; border-radius: 12px; }
   #lectionaryHomeView .ll-prayer__acts .lit-day-prayer__btn { min-height: 32px; }
