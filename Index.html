@@ -113002,20 +113002,29 @@ var LiturgyModule = (function() {
     } else if (!row) {
       body = '<p class="lit-day-prayer__none">No prayer for this date yet. Import your Prayers of the Day document, or type this one.</p>';
     } else {
-      body = '<p class="lit-day-prayer__text">' + escapeHtml(row.prayer) + '</p>' +
-        '<div class="lit-day-prayer__where"><i class="fa-solid fa-circle-check"></i>Goes into this date\u2019s order (Liturgy Builder and LCD) and the bulletin</div>';
+      // Where the prayer goes is said on the words, not under them: the card
+      // keeps the prayer and where it came from (2026-11-17, "make the prayer
+      // of the day card more concise").
+      body = '<p class="lit-day-prayer__text" title="Goes into this date\u2019s order (Liturgy Builder and LCD) and the bulletin">' + escapeHtml(row.prayer) + '</p>';
     }
-    var btn = function(icon, label, attrs) {
-      return '<button type="button" class="lit-day-prayer__btn"' + attrs + '><i class="fa-solid ' + icon + '"></i>' + label + '</button>';
+    // Copy, Use in plan, Share and Edit are icons in the card's top row, as on
+    // a reading's card; each says what it does in its title and aria-label.
+    var btn = function(icon, title, label, attrs) {
+      return '<button type="button" class="ll-prayer__ib" title="' + title + '" aria-label="' + label + '"' + attrs + '><i class="' + icon + '" aria-hidden="true"></i></button>';
     };
-    var acts = (row ? btn('fa-copy', 'Copy', ' data-key="' + k + '" onclick="LiturgyModule.llCopyPrayer(this.dataset.key)"') +
-                      btn('fa-square-plus', 'Use in plan', ' data-key="' + k + '" onclick="LiturgyModule.llUseInPlan(this.dataset.key)"') : '') +
-      btn('fa-share-nodes', 'Share', ' data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)" title="Share this date\u2019s readings and prayer"') +
-      (SBQ_PRAYERS._missing ? '' : btn(row ? 'fa-pen' : 'fa-plus', row ? 'Edit' : 'Type it', ' onclick="LiturgyModule.editDayPrayer(\'' + k + '\')"'));
+    var acts = (row ? btn('fa-regular fa-copy', 'Copy', 'Copy the prayer', ' data-key="' + k + '" onclick="LiturgyModule.llCopyPrayer(this.dataset.key)"') +
+                      btn('fa-regular fa-square-plus', 'Use in plan', 'Use in the service plan', ' data-key="' + k + '" onclick="LiturgyModule.llUseInPlan(this.dataset.key)"') : '') +
+      btn('fa-solid fa-share-nodes', 'Share this date\u2019s readings and prayer', 'Share this date\u2019s readings and prayer', ' data-key="' + k + '" onclick="LiturgyModule.lfShareDay(this.dataset.key)"') +
+      (SBQ_PRAYERS._missing ? '' : (row ? btn('fa-solid fa-pen', 'Edit the prayer', 'Edit the prayer', ' onclick="LiturgyModule.editDayPrayer(\'' + k + '\')"')
+                                        : btn('fa-solid fa-plus', 'Type the prayer', 'Type the prayer', ' onclick="LiturgyModule.editDayPrayer(\'' + k + '\')"')));
     return '<div class="lit-day-prayer ll-prayer">' +
-      '<span class="ll-prayer__icon" aria-hidden="true"><i class="fa-solid fa-hands-praying"></i></span>' +
-      '<div class="ll-prayer__main"><div class="lit-day-prayer__hd"><span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + src + '</div>' + body + '</div>' +
-      '<div class="ll-prayer__acts">' + acts + '</div>' +
+      '<div class="ll-prayer__hd">' +
+        '<span class="ll-prayer__icon" aria-hidden="true"><i class="fa-solid fa-hands-praying"></i></span>' +
+        '<div class="ll-prayer__t"><span class="lit-day-prayer__ttl">Prayer of the Day</span>' + evening + '</div>' +
+        '<div class="ll-prayer__acts">' + acts + '</div>' +
+      '</div>' +
+      body +
+      (src ? '<div class="ll-prayer__meta">' + src + '</div>' : '') +
     '</div>';
   }
 
@@ -126104,13 +126113,26 @@ function filterLiturgyItems() {
      one line: the label says which reading it is */
   .ll-rcard.lit-reading-slot { container-type: inline-size; }
   @container (max-width: 329px) { .ll-rcard__ico { display: none; } }
-  .ll-prayer.lit-day-prayer { display: flex; align-items: center; gap: 18px; background: #f1f6ee; border: 1px solid #d9e6d2; border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
-  .ll-prayer__icon { width: 54px; height: 54px; border-radius: 14px; background: #2f5d3a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0; }
-  .ll-prayer__main { flex: 1; min-width: 0; padding-right: 16px; border-right: 1px solid #d9e6d2; }
+  /* The Prayer of the Day, concise (the operator, 2026-11-17: "make the
+     prayer of the day card more concise"): its title and four icons in one
+     row -- Copy, Use in plan, Share, Edit -- then the prayer, then where it
+     came from. The icons are 32px, 36px on a touch screen; a narrow card
+     leaves the praying hands out. */
+  .ll-prayer.lit-day-prayer { display: flex; flex-direction: column; gap: 6px; background: #f1f6ee; border: 1px solid #d9e6d2; border-radius: 16px;
+    padding: 10px 12px 12px 14px; margin-top: 14px; container-type: inline-size; }
+  .ll-prayer__hd { display: flex; align-items: center; gap: 10px; }
+  .ll-prayer__icon { width: 32px; height: 32px; border-radius: 9px; background: #2f5d3a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; flex-shrink: 0; }
+  .ll-prayer__t { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .ll-prayer .lit-day-prayer__ttl { font-size: 0.95rem; }
-  .ll-prayer .lit-day-prayer__text { margin-top: 6px; }
-  .ll-prayer__acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-  .ll-prayer__acts .lit-day-prayer__btn { justify-content: flex-start; min-height: 40px; }
+  .ll-prayer .lit-day-prayer__text, .ll-prayer .lit-day-prayer__none { margin: 0; }
+  .ll-prayer__acts { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .ll-prayer__ib { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 0; padding: 0; border: 1px solid #d9e6d2;
+    border-radius: 9px; background: #fff; color: #2f5d3a; font-size: 0.85rem; cursor: pointer; }
+  .ll-prayer__ib:hover { background: #e7f0e4; color: #23502d; }
+  .ll-prayer__ib:focus-visible { outline: 2px solid var(--ll-gold); outline-offset: 2px; }
+  @media (pointer: coarse) { .ll-prayer__ib { width: 36px; height: 36px; border-radius: 10px; } }
+  @container (max-width: 359px) { .ll-prayer__icon { display: none; } }
+  .ll-prayer__meta { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
   .ll-ractions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .ll-ractions:empty { display: none; }
   /* The Readings page, every part about 30px shorter so each fits (the
@@ -126137,9 +126159,7 @@ function filterLiturgyItems() {
   #lectionaryHomeView .ll-rcard.lit-reading-slot { gap: 6px; padding-bottom: 12px; }
   #lectionaryHomeView .ll-rcard__hd { padding: 8px 10px 0 12px; gap: 10px; }
   #lectionaryHomeView .ll-rcard__ico { width: 32px; height: 32px; border-radius: 9px; font-size: 0.95rem; }
-  #lectionaryHomeView .ll-prayer.lit-day-prayer { padding: 10px 14px; gap: 12px; margin-top: 10px; }
-  #lectionaryHomeView .ll-prayer__icon { width: 44px; height: 44px; font-size: 1.1rem; border-radius: 12px; }
-  #lectionaryHomeView .ll-prayer__acts .lit-day-prayer__btn { min-height: 32px; }
+  #lectionaryHomeView .ll-prayer.lit-day-prayer { margin-top: 10px; }
   #lectionaryHomeView .ll-ractions { gap: 8px; margin-top: 10px; }
   #lectionaryHomeView .ll-ractions .lf-btn { min-height: 34px; }
   #lectionaryHomeView .lect-source-foot { margin-top: 8px; padding-top: 6px; }
@@ -126153,7 +126173,6 @@ function filterLiturgyItems() {
     #lectionaryHomeView .ll-band { padding: 12px 14px; gap: 8px 10px; }
     #lectionaryHomeView .ll-band__desc { flex-basis: 100%; order: 3; font-size: 0.84rem; line-height: 1.4; }
     #lectionaryHomeView .ll-band__colour { margin-left: auto; }
-    #lectionaryHomeView .ll-prayer.lit-day-prayer { padding: 14px 16px; }
     #lectionaryHomeView .ll-ractions .lf-btn { min-height: 30px; }
   }
   /* a narrow phone keeps the colour beside the season: its word alone */
@@ -126217,9 +126236,6 @@ function filterLiturgyItems() {
     .ll-band { padding: 10px 14px; gap: 6px 12px; }
     .ll-band__desc { font-size: 0.84rem; }
     .ll-band__season { border-right: 0; padding-right: 0; }
-    .ll-prayer.lit-day-prayer { flex-direction: column; align-items: stretch; }
-    .ll-prayer__main { border-right: 0; padding-right: 0; }
-    .ll-prayer__acts { flex-direction: row; flex-wrap: wrap; }
     .ll-ractions .lf-btn { flex: 1 1 auto; }
   }
 
