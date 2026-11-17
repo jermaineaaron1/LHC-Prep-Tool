@@ -359,7 +359,7 @@ try {
   console.log('\n11. Convert to a Liturgy App File');
   const draw11 = fn('_cvDraw'), res11 = fn('_spResHtml'), conv11 = fn('spConvert'), save11 = fn('cvSave');
   check('it is called what it is: Convert, a Liturgy App File', /Convert to Liturgy App File/.test(draw11) && /<h2 id="cvTtl">Convert to a Liturgy App File<\/h2>/.test(draw11) &&
-    /<span>Convert<\/span><\/button>/.test(res11) && /<h2 class="font-cinzel">Liturgy App Files<\/h2>/.test(fn('_spReadyHtml')) && !/Make ready/.test(res11 + draw11 + fn('_spReadyHtml') + fn('_spMakeHtml')) &&
+    /<span>Convert<\/span><\/button>/.test(res11) && /<h2 class="font-cinzel">Liturgy App Files' \+ \(yearName/.test(fn('_spReadyHtml')) && !/Make ready/.test(res11 + draw11 + fn('_spReadyHtml') + fn('_spMakeHtml')) &&
     !/Save as a ready liturgy|Keep as a ready liturgy/.test(SRC));
   check('it sits in its document\'s year: fixed when the document has one; a document with none is given that year with it',
     /var docYear = _spYearOf\(it, occId\), y = docYear \|\| String\(new Date\(\)\.getFullYear\(\)\);/.test(conv11) && /yearFixed: !!docYear,/.test(conv11) &&
@@ -407,8 +407,11 @@ try {
     /<span>Converted<\/span>/.test(res12) && /class="lf-btn sp-btn-sm pl-btn-green sp-usebtn"[\s\S]{0,80}onclick="LiturgyModule\.spUseDoc\(this\.dataset\.id\)"/.test(res12) &&
     /: \(canConvert \? '<button type="button" class="lf-btn sp-btn-sm sp-btn-maroon lf-btn--primary"/.test(res12) &&
     /\.lf-btn\.sp-convd \{[^}]*background: #e3f4ea;[^}]*color: #0b5d36;/.test(SRC));
-  check('the Liturgy App Files box keeps only what has no document beside it, and is not drawn when that is nothing',
-    /return !m \|\| !getItem\(m\[1\]\);/.test(ready12) && /if \(d && !d\.svlGone && !rows\.length\) return '';/.test(ready12));
+  // 2026-11-17: a year's app files are a section of their own, every one
+  // of them (converted or saved), before its documents (section 29).
+  check('the Liturgy App Files section lists every app file of the year, converted or saved, and says when there is none',
+    /var rows = \(d \? d\.rows : \[\]\)\.filter\(function\(r\) \{ return !year \|\| String\(r\.year \|\| '—'\) === year; \}\);/.test(ready12) &&
+    /No Liturgy App Files' \+ \(yearName \? ' for ' \+ _lfE\(yearName\) : ''\) \+ ' yet\. Convert a document below to make one\./.test(ready12) && !/return !m \|\| !getItem\(m\[1\]\);/.test(ready12));
   check('after converting, its document is marked and scrolled to', /var conv = _spFilesOf\(it\.id\), fresh = _sp\.fresh && conv\.some\(function\(r\) \{ return r\.id === _sp\.fresh; \}\);/.test(res12) && /sp-doc--conv/.test(res12) &&
     /document\.querySelector\('#liturgyServicePanel \.sp-doc\.is-new'\)/.test(fn('spReady')));
   check('a service reached any way reads its year folders (they were read only by the landing page and Services, so a service button left every document at No year)',
@@ -431,7 +434,9 @@ try {
       const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseExtras', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
         '_spUseState', '_spUseReads', '_spUseStep1', '_spUseStep2', '_spSlidesOf', '_spUseLits', '_spUseWordsHtml', '_spUseBrings', '_spUseStep3', '_spUseStep4', '_spUseDraw', 'spUseStep', 'spUseDate', 'spUseFile', 'spUseReadsFrom',
         'spUseExtra', 'spUseSongs', 'spUseComm', 'spUseClose', 'spUseLeave', 'spUseReadings', '_spUseBackBar', 'spUseReturn', '_spPutReadings', 'spUseGo', 'spUseReconvert',
-        'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName'];
+        'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName',
+        '_spBlKey', '_spSimNorm', '_spShingles', '_spShOf', '_spSimOf', '_spNameAlike', '_spSecTexts', '_spLikeOf', '_spUsePieces', '_spUseLikeHtml', '_spUseSuppHtml',
+        'spUseAll', 'spUseSupp', 'spUseSuppSec', '_spCmpRows', '_spCmpLines', 'spUseCompare', 'spUseCmpHl', 'spUseCmpClose'];
       const bodies = names.map(fn);
       if (!bodies.every(Boolean)) throw new Error('missing: ' + names.filter((n, i) => !bodies[i]).join(', '));
       const log = [], els = {}, roster = {}, types = {};
@@ -480,11 +485,12 @@ try {
       roster['2026-12-06'] = { reading1: 'Isaiah 40:1-11', psalm: 'Psalm 85', gospel: 'Mark 13:24-37' };
       env._spData = { occ: 'advent', rows, upcoming: up };
       const keys = Object.keys(env);
-      const consts = SRC.match(/  var CV_BOOKS = [^\n]*;/)[0] + '\n' + SRC.match(/  var CV_ROLES = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_USE_STEPS = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_COMMUNION = [^\n]*;/)[0];
+      const consts = SRC.match(/  var CV_BOOKS = [^\n]*;/)[0] + '\n' + SRC.match(/  var CV_ROLES = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_USE_STEPS = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_COMMUNION = [^\n]*;/)[0] + '\n' + SRC.match(/  var SP_SIM_STOP = [^\n]*;/)[0] + '\n' + SRC.match(/  var _spShMemo = [^\n]*;/)[0];
       const U = new Function('OCCASIONS', 'LL_SUNDAYS', '_llSundayOf', '_llForSunday', '_llDaysToggle', '_llDaysHtml', '_llCycle', '_llYearText', 'getOccasionById', '_lfE', ...keys,
         'var _spUse = null, _spUseBack = null;\n' + consts + '\n' + bodies.join('\n') +
         '\nreturn { doc: spUseDoc, use: spUse, step: spUseStep, date: spUseDate, extra: spUseExtra, songs: spUseSongs, comm: spUseComm, from: spUseReadsFrom, leave: spUseLeave, go: spUseGo,' +
-        ' readings: spUseReadings, ret: spUseReturn, after: _spAfterConvert, file: spUseFile, menu: spConvMenu, act: spConvAct, state: function() { return _spUse; }, back: function() { return _spUseBack; } };')(
+        ' readings: spUseReadings, ret: spUseReturn, after: _spAfterConvert, file: spUseFile, menu: spConvMenu, act: spConvAct, all: spUseAll, supp: spUseSupp, suppSec: spUseSuppSec, cmp: spUseCompare, hl: spUseCmpHl,' +
+        ' state: function() { return _spUse; }, back: function() { return _spUseBack; } };')(
         S.OCCASIONS, S.SUNDAYS, S.sundayOf, S.forSunday, S.toggle, S.html, S.cycle, S.yearText, id => S.OCCASIONS.find(o => o.id === id) || null,
         s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), ...keys.map(k => env[k]));
       const tick = () => new Promise(r => setTimeout(r, 0));
@@ -510,6 +516,13 @@ try {
         /<b>Kyrie<\/b><small>Kyrie \(sung\)<\/small>/.test(html()) && /<b>Holy Communion<\/b><small>Sanctus, Words of Institution<\/small>/.test(html()) &&
         /<b>Hymn of Response<\/b><small>A place for its songs<\/small>/.test(html()) && !/<b>Invocation<\/b>/.test(html()) && !/<b>Scripture Readings<\/b>/.test(html()) &&
         /Its songs \(1\)/.test(html()), html().slice(0, 200));
+      // Every part ticked at first (2026-11-17, section 29); Select none, then
+      // the flow as before.
+      const offered29 = (html().match(/ data-i="\d+" onchange="LiturgyModule\.spUseExtra/g) || []).length, ticked29 = Object.keys(U.state().extras).length;
+      const both29 = /Select all<\/button>/.test(html()) && /Select none<\/button>/.test(html());
+      U.all('trad', false);
+      check('...every part ticked at first; Select none takes every tick away', offered29 >= 3 && ticked29 === offered29 && both29 &&
+        !Object.keys(U.state().extras).length && !/spu-comm is-on/.test(html()), offered29 + ' offered, ' + ticked29 + ' ticked');
       U.comm();
       check('...Holy Communion before, during and after in one press', U.state().extras[4] && U.state().extras[5] && U.state().extras[6] && /spu-comm is-on/.test(html()));
       U.extra(1, true); U.step(4);
@@ -522,7 +535,7 @@ try {
       check('Use: the readings on the Roster, the date made Special there, a Special order made, then the Builder with the liturgy in -- in that order',
         ran.join(' | ') === 'roster 2026-12-06 gospel Mark 1:1-8 | kind 2026-12-06 Special | make 2026-12-06 special | toast long 2026-12-06 is a Special service now. Putting the liturgy in… | open new-2026-12-06 | apply trad songs=true extras=1+4+5+6 made=true roster=Traditional reads=gospel:Mark 13:24-37>Mark 1:1-8 | back',
         ran.join(' | '));
-      U.use('trad', '2026-12-13'); await tick(); U.step(4);
+      U.use('trad', '2026-12-13'); await tick(); U.all('trad', false); U.step(4);
       check('...a Contemporary date with its order made: Special now, its order takes the liturgy (Undo)', /it is Contemporary now/.test(html()) && /Its order takes this liturgy in place of what it has/.test(html()));
       U.from('roster'); U.songs(false);
       const n1 = log.length; U.go(); for (let i = 0; i < 8; i++) await tick();
@@ -553,17 +566,15 @@ try {
   const hub13 = fn('renderHub');
   check('the landing cards: Readings & Prayers and Liturgy of Services with no line under them; Memories with the operator\'s own',
     /title: 'Readings &amp; Prayers', tag: ''/.test(hub13) && /title: 'Liturgy of Services', tag: ''/.test(hub13) &&
-    /title: 'Memories', tag: 'Blast from the past: services for future reference'/.test(hub13) && /\(c\.tag \? '<p>' \+ _lfE\(c\.tag\) \+ '<\/p>' : ''\)/.test(hub13) &&
+    /title: 'Memories', tag: 'Blast from the past: services for future reference'/.test(hub13) && /\(c\.tag \? '<span class="ll-card__tag">' \+ _lfE\(c\.tag\) \+ '<\/span>' : ''\)/.test(hub13) &&
     !/What the church is hearing'|How we worship'|What we have done together'/.test(hub13));
   // 20px shorter on 2026-11-16, then 30px more the same day (the operator,
   // circling the three: "Make 30px smaller"; asked, each card).
-  check('...each 20px shorter, then 30px more (measured: 147 to 117px at 480px wide, 318 to 288px at 1400px), the titles on one line, the bands level',
-    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 12px 22px 16px; min-height: 92px;/.test(SRC) && /\.ll-card__go \{ align-self: center; margin: 6px 0 8px; display: inline-flex; align-items: center; gap: 10px; min-height: 44px;/.test(SRC) &&
-    /\.ll-card__body \{ display: flex; gap: 14px; padding: 6px 22px 4px;/.test(SRC) &&
-    /\.ll-card__icon \{ font-size: 2rem; opacity: 0\.95; width: 40px; flex-shrink: 0;/.test(SRC) && /\.ll-card__top h2 \{ margin: 0; font-size: 1\.2rem; font-weight: 700; letter-spacing: 0\.04em; line-height: 1\.25;/.test(SRC) &&
-    /\.ll-card__top p \{ margin: 2px 0 0;[^}]*line-height: 1\.35;/.test(SRC) &&
-    /\.ll-card__top \{ padding: 10px 16px 16px; min-height: 0; \}/.test(SRC) && /\.ll-card__top \{ padding-top: 8px; padding-bottom: 8px; min-height: 62px; \}/.test(SRC) &&
-    /\.ll-card__top h2 \{ font-size: 1\.2rem; \}\s*\.ll-card__top p \{ font-size: 0\.86rem; \}/.test(SRC) && /\.ll-card__go \{ margin: 6px 16px 7px; min-height: 40px;/.test(SRC));
+  // 20px shorter, then 30px more, on 2026-11-16; on 2026-11-17 each card
+  // became its header alone, 20px shorter again (section 29).
+  check('...each card its header alone, 20px shorter than the header was (measured: 62 to 42px at 480px wide, 92 to 72px on a desk)',
+    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 72px; color: #fff; \}/.test(SRC) &&
+    /\.ll-card__top \{ padding: 3px 10px 3px 12px; min-height: 42px; gap: 10px; \}/.test(SRC) && !/\.ll-card__go \{/.test(SRC) && !/\.ll-card__body \{/.test(SRC));
   const svc13 = fn('renderServices'), grid13 = fn('_lsGridHtml');
   check('Services: the cards first, the counts and the library\'s buttons at the foot in one line; no All Services / Favourites chips',
     /_lsGridHtml\(\) \+[\s\S]*foot \+\s*'<\/div>';/.test(svc13) && svc13.indexOf("'<div class=\"ls-bar ls-bar--foot\">'") !== -1 &&
@@ -674,7 +685,7 @@ try {
   check('...each Traditional part added with its usual library liturgy, once in the order', /LiturgyModule\.getAssignedLiturgyForSection\('traditional', tpl\.liturgySectionId\)/.test(ap) &&
     /it\.itemType === 'liturgy' && it\.sourceId === lit\.id/.test(ap) && /currentOrderData\.allItems\.push\(_lbdLiturgyItem\(nid, lit\.id, lit\)\)/.test(ap));
   check('...and Use from the Library goes in through it, whatever kind the liturgy was made for', /var sp = _svlSpecialize\(row\.data\);/.test(fn('svlUseFromLibrary')) &&
-    /return _svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\], use: opts\.use \|\| null \}\) \|\| true;/.test(fn('svlUseFromLibrary')) &&
+    /return _svlApply\(sp\.data, x, !!opts\.songs, false, \{ special: true, map: sp\.map, fromType: row\.order_type \|\| 'traditional', extras: opts\.extras \|\| \[\], supp: opts\.supp \|\| \[\], use: opts\.use \|\| null \}\) \|\| true;/.test(fn('svlUseFromLibrary')) &&
     /svlUseFromLibrary: svlUseFromLibrary,/.test(SRC));
   check('the Roster: a date marked Special, logged and read back, and shown as Special in its row', /setServiceType: function\(iso, value\) \{/.test(SRC) &&
     /role_id: 'service_type', service_date: k\.serviceDate, old_value: oldVal, new_value: v,/.test(SRC) && /throw new Error\('the Roster did not keep it'\)/.test(SRC) &&
@@ -1209,8 +1220,8 @@ try {
     /if \(_sp\.year === thisY\) _sp\.year = 'this';/.test(res22) && /if \(_sp\.year && _sp\.year !== 'this' && !years\[_sp\.year\]\) _sp\.year = 'this';/.test(res22) &&
     /var sel = _sp\.year === 'this' \? thisY : _sp\.year;/.test(res22) && /return !sel \|\| \(_spYearOf\(it, occ\.id\) \|\| '—'\) === sel;/.test(res22));
   check('...This Year holds this year\'s liturgy beside that year\'s documents and app files; the other years only their own; no side column',
-    /if \(tab === 'liturgy' && _sp\.year === 'this'\) \{\s*body = '<div class="sp-thisyr"><div class="sp-thisyr__main">' \+ _spMakeHtml\(d, orderId\) \+ '<\/div>'/.test(res22) &&
-    /if \(tab === 'liturgy'\) body \+= _spReadyHtml\(d, orderId, sel\);/.test(res22) && /return !year \|\| String\(r\.year \|\| '—'\) === year;/.test(fn('_spReadyHtml')) &&
+    /body = _sp\.year === 'this'\s*\? '<div class="sp-thisyr"><div class="sp-thisyr__main">' \+ _spMakeHtml\(d, orderId\) \+ ready \+ '<\/div><div class="sp-thisyr__docs">' \+ docsBox \+ '<\/div><\/div>'\s*: ready \+ docsBox;/.test(res22) &&
+    /var ready = _spReadyHtml\(d, orderId, sel, sel && sel !== '—' \? sel : ''\);/.test(res22) && /return !year \|\| String\(r\.year \|\| '—'\) === year;/.test(fn('_spReadyHtml')) &&
     !/sp-lib__side|sp-lib__main/.test(tab22) && /\.sp-lib \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(SRC) &&
     /@media \(min-width: 1180px\) \{ \.sp-thisyr \{ grid-template-columns: minmax\(0, 1\.2fr\) minmax\(320px, 1fr\); \} \}/.test(SRC));
   // The WO side, run against stand-ins.
@@ -1338,9 +1349,10 @@ try {
       /if \(act === 'pdf'\) spoPdf\(false\); else if \(act === 'share'\) spoPdf\(true\);\s*else if \(act === 'orig'\) spoGoOrig\(\); else if \(act === 'change'\) spoChange\(\); else if \(act === 'rm'\) spoRemove\(\);/.test(fn('spoMoreAct')) &&
       /spoMore: spoMore, spoMoreAct: spoMoreAct/.test(SRC));
   } catch (e) { check('the menu draws', false, e.stack); }
-  check('a year with nothing uploaded says only "No documents uploaded (PDF, Word, Google Docs, etc.)", with no heading over it',
+  // Under the Uploaded documents section's own heading since 2026-11-17.
+  check('a year with nothing uploaded says only "No documents uploaded (PDF, Word, Google Docs, etc.)", in its Uploaded documents section',
     /: 'No documents uploaded \(PDF, Word, Google Docs, etc\.\)'\) \+ '<\/p>'/.test(res23) && !/Past years’ are under their years above/.test(res23) &&
-    /'<div class="sp-thisyr__docs">' \+ \(shown\.length \? '<h3 class="sp-thisyr__h">/.test(res23));
+    /Uploaded documents' \+ \(sel && sel !== '—'/.test(res23) && /docs \+ '<p class="sp-docsbox__drop">/.test(res23));
 
   // ------------------------------------------------------------ 24. the chooser, and a blend section by section
   // From the operator (2026-11-16): "I have a few concerns about knowing
@@ -1718,6 +1730,105 @@ try {
       n3 === 3 && b.order.allItems.filter(it => it.content.subLabel === 'Psalm').length === 1 &&
       c.order.allItems.length === 4 && c.order.allItems.every(it => it.sectionId === 'wo-section-6'), where(b.order) + ' | ' + where(c.order));
   } catch (e) { check('the fill runs', false, e.stack); }
+  // ------------------------------------------------------------ 29. The landing's cards, a year's two sections, and what Use adds
+  // From the operator (2026-11-17), on four marked-up screenshots: the
+  // landing's open buttons out, an arrow badge on each header, each 20px
+  // shorter, Church Year then Recently added, no This Sunday; a year's app
+  // files and its documents in separate sections, the app files first, a +
+  // and a drop zone on the documents, the green + gone; Add to it all ticked
+  // at first with Select all / Select none, what is alike marked, other
+  // liturgies added beside it, and a side-by-side window with highlights
+  // that can be taken off and put back.
+  console.log('\n29. The landing\'s cards, a year\'s two sections, and what Use adds');
+  const hub29 = fn('renderHub');
+  check('the landing: each card one button, its header, with an arrow badge; no open button under it, no This Sunday; Church Year before Recently Added',
+    /'<button type="button" class="ll-card ll-card--' \+ c\.k \+ '" onclick="' \+ c\.fn \+ '" aria-label="' \+ _lfE\(c\.go\) \+ '">'/.test(hub29) &&
+    /<span class="ll-card__arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"><\/i><\/span>/.test(hub29) && !/ll-card__go|ll-card__body|ll-sun|This Sunday<\/h2>|_llSundayVerseLoad/.test(hub29) &&
+    hub29.indexOf('llYearTtl') > 0 && hub29.indexOf('llYearTtl') < hub29.indexOf('llRecentTtl'));
+  const res29 = fn('_spResHtml');
+  check('a year: its Liturgy App Files, then its Uploaded documents, a section of their own with a + that uploads into that year, and a drop zone',
+    /body = _sp\.year === 'this'[\s\S]*?: ready \+ docsBox;/.test(res29) && /class="sp-docsbox__add" data-y="' \+ _lfE\(upY\) \+ '" onclick="LiturgyModule\.spUpload\(\\'liturgy\\', this\.dataset\.y\)"/.test(res29) &&
+    /ondragover="LiturgyModule\.spDocsOver\(event, this\)" ondragleave="LiturgyModule\.spDocsLeave\(event, this\)" ondrop="LiturgyModule\.spDocsDrop\(event, this\)"/.test(res29) &&
+    /@media \(hover: hover\) and \(pointer: fine\) \{ \.sp-docsbox__drop \{ display: flex; \} \}/.test(SRC) &&
+    /_spUpYear = _spYearIn\(year\);/.test(fn('spUpload')) && /year = ym \? ym\[0\] : \(yearDef \|\| String\(new Date\(\)\.getFullYear\(\)\)\);/.test(fn('_spUploadOne')));
+  check('...and the green + is not on a service\'s page', /#liturgyView\[data-ll="service"\] \.lit-add-fab \{ display: none; \}/.test(SRC) && /id === 'liturgyServicePanel' \? 'service'/.test(fn('_llShowOnly')));
+  try {
+    const sent = [];
+    const D = new Function('_spUploadFiles', ['_spDragHasFiles', 'spDocsOver', 'spDocsLeave', 'spDocsDrop'].map(fn).join('\n') + '\nreturn { over: spDocsOver, leave: spDocsLeave, drop: spDocsDrop };')(
+      (files, mode, y) => sent.push(files.map(f => f.name).join('+') + ' ' + mode + ' ' + y));
+    const cls = new Set(), el = { classList: { add: c => cls.add(c), remove: c => cls.delete(c) }, contains: () => false, getAttribute: () => '2025' };
+    let stopped = 0;
+    const ev = (types, files) => ({ dataTransfer: { types, files: files || [], dropEffect: '' }, preventDefault: () => stopped++ });
+    D.over(ev(['application/x-lhc-item', 'text/plain']), el);
+    const rowDrag = stopped === 0 && !cls.has('is-drop');
+    D.over(ev(['Files']), el);
+    const fileDrag = stopped === 1 && cls.has('is-drop');
+    D.drop(ev(['Files'], [{ name: 'Advent 2025.docx' }, { name: 'b.pdf' }]), el);
+    check('files dropped from the desktop upload into that year as liturgies; a row dragged onto a year chip is not taken for them',
+      rowDrag && fileDrag && !cls.has('is-drop') && sent.join() === 'Advent 2025.docx+b.pdf liturgy 2025', JSON.stringify(sent));
+  } catch (e) { check('the drop zone runs', false, e.stack); }
+  try {
+    const K = new Function(fn('_spBlKey') + '\nreturn _spBlKey;')();
+    const L = new Function('_spBlKey', 'var SP_SIM_STOP = ' + SRC.match(/var SP_SIM_STOP = ([^;]+);/)[1] + ';\n' +
+      ['_spSimNorm', '_spShingles', '_spSimOf', '_spNameAlike', '_spSecTexts', '_spLikeOf', '_spCmpRows', '_spCmpLines'].map(fn).join('\n') +
+      '\nreturn { norm: _spSimNorm, sh: _spShingles, sim: _spSimOf, name: _spNameAlike, secs: _spSecTexts, like: _spLikeOf, rows: _spCmpRows, lines: _spCmpLines };')(K);
+    check('words are compared without the speaker\'s mark, punctuation or case; in runs of three',
+      L.norm('L: The Lord be with you.\nC: And also with you!') === 'the lord be with you and also with you' && Object.keys(L.sh('Lord, have mercy')).join() === 'lord have mercy' &&
+      L.sim('Lord have mercy upon us', 'C: Lord, have mercy upon us. Christ have mercy.') === 1 && L.sim('we confess our sins', 'grace and peace to you') === 0 && L.sim('', 'x') === 0);
+    check('names alike by their words, the common ones aside ("Prayer", "Day", "Advent", "Service")',
+      L.name('Holy Communion', 'An Advent Communion Service') && L.name('Confession', '2. Confession & Absolution') && !L.name('Prayer of the Day', 'Prayer after Communion') &&
+      !L.name('Sharing of Peace', 'Sharing the Bread & Cup') && !L.name('Lighting of the Advent Wreath', 'An Advent Communion Service') && !L.name('', 'x'));
+    const data = { sectionLayout: [{ id: 'a', title: '1. Invocation' }, { id: 'b', title: 'Gather' }, { id: 'c', title: 'Readings' }],
+      items: [{ itemType: 'liturgy', sectionId: 'a', slides: [{ content: 'L: In the name of the Father' }, { content: 'C: Amen.' }] }, { itemType: 'content', sectionId: 'b', content: { text: 'Welcome all' } },
+              { itemType: 'scripture', sectionId: 'c', slides: [{ content: 'Isaiah 64' }] }, { itemType: 'song', sectionId: 'b' }] };
+    const secs = L.secs(data);
+    check('a liturgy\'s sections with their words: liturgy and text only, never its readings or songs; a name without its number',
+      secs.map(x => x.title + '=' + x.text.replace(/\n/g, '/')).join(';') === 'Invocation=L: In the name of the Father/C: Amen.;Gather=Welcome all;Readings=' && secs[0].key === 'invocation', JSON.stringify(secs));
+    const lk = L.like({ title: 'Invocation', text: 'In the name of the Father and of the Son' }, [{ title: 'Section', text: 'P: In the name of the Father and of the Son and of the Holy Spirit', from: 'Behold' }, { title: 'Invocation', text: '', from: 'Trad' }]);
+    const none = L.like({ title: 'Peace', text: 'The peace of the Lord be with you always' }, [{ title: 'Kyrie', text: 'Lord have mercy Christ have mercy', from: 'x' }]);
+    check('what a piece is like: the section with most of its words (and how much), and those of a name like it; nothing when neither',
+      lk.words && lk.words.title === 'Section' && lk.words.from === 'Behold' && lk.words.pct === 1 && lk.name.length === 1 && lk.name[0].from === 'Trad' &&
+      !none.words && !none.name.length, JSON.stringify([lk, none]));
+    const sx = (k, t) => ({ id: k, key: k, title: t || k, text: t || '' });
+    const rows = L.rows([{ secs: [sx('invocation'), sx('confession'), sx('kyrie')] }, { secs: [sx('gather'), sx('confession'), sx('wreath'), sx('kyrie')] }, { secs: [sx('absolution')] }]);
+    check('the comparison\'s rows: the first column\'s sections in order, the others lined up by name, those of no name there by their neighbour; none matched, last',
+      rows.map(r => r.key + ':' + r.cells.map(c => c ? 'x' : '-').join('')).join(' ') === 'invocation:x-- gather:-x- confession:xx- wreath:-x- kyrie:xx- absolution:--x',
+      rows.map(r => r.key + ':' + r.cells.map(c => c ? 'x' : '-').join('')).join(' '));
+    const ln = L.lines([{ secs: [{ id: 'a', text: 'L: The Lord be with you\nC: And also with you\nLet us pray for the world' }] }, { secs: [{ id: 'b', text: 'P: The Lord be with you.\nGrace to you and peace' }] }]);
+    check('...each line lit when it is in another column, the same words or most of its runs of three; else not',
+      ln[0].a.map(l => l.same).join() === 'true,false,false' && ln[1].b.map(l => l.same).join() === 'true,false', JSON.stringify(ln));
+  } catch (e) { check('the comparisons run', false, e.stack); }
+  try {
+    const S = new Function(fn('_svlSuppInto') + '\nreturn _svlSuppInto;')();
+    const lay = [{ id: 's1', title: 'Section' }, { id: 'tr0', title: 'Invocation' }, { id: 'tr1', title: 'Confession' }, { id: 'p', title: 'Prayer after Communion' }];
+    let n = 0, u = 0;
+    const f = { id: 'NC', title: 'No Communion', year: 2025, data: {
+      sectionLayout: [{ id: 'g', title: 'Gather' }, { id: 'i', title: '3. Invocation' }, { id: 'gr', title: 'Greeting' }, { id: 'c', title: 'Confession' }, { id: 'w', title: 'Advent Wreath' }, { id: 'r', title: '1st Reading' }],
+      items: [{ itemType: 'liturgy', sectionId: 'gr', sourceId: 'doc_3', title: 'Greeting', slides: [{ content: 'Grace' }] }, { itemType: 'content', sectionId: 'w', content: { text: 'Light the candle' } },
+              { itemType: 'scripture', sectionId: 'r', title: 'Isaiah 64' }, { itemType: 'liturgy', sectionId: 'c', sourceId: 'doc_4', title: 'Confession B', slides: [] }] } };
+    const out = S(lay, [f, { id: 'none', data: { sectionLayout: [], items: [] }, secs: [] }].map((x, i) => i ? x : Object.assign({ secs: ['gr', 'w', 'r', 'c'] }, x)),
+      { id: () => 'n' + (++n), src: () => 'lbd_' + (++u), pfx: 'o__' });
+    check('Use with sections of another file: each after the section it follows there (matched by name here); one of a name the order has, right after that one; its words as this order\'s own, never its readings',
+      lay.map(x => x.title).join() === 'Section,Invocation,Greeting,Confession,Confession,Advent Wreath,1st Reading,Prayer after Communion' &&
+      out.items.map(x => x.itemType + '@' + x.sectionId + ':' + x.sourceId).join() === 'liturgy@n1:lbd_1,liturgy@n2:lbd_2,content@n3:' &&
+      out.items[0].id === 'o__liturgy_lbd_1_n1' && out.from.map(x => x.id).join() === 'NC' && out.map.n3.secTitle === 'Advent Wreath' && out.map.n3.row === 'NC' &&
+      out.names.join() === 'Greeting,Confession,Advent Wreath,1st Reading', lay.map(x => x.title + '/' + x.id).join() + ' ' + JSON.stringify(out));
+    const lay2 = [{ id: 'x', title: 'Welcome' }];
+    S(lay2, [Object.assign({}, f, { secs: ['w'] })], { id: () => 'm1', src: () => 'lbd_9', pfx: '' });
+    check('...a section with nothing of its name in the order goes last', lay2.map(x => x.id).join() === 'x,m1');
+  } catch (e) { check('the other files\' sections go in', false, e.stack); }
+  check('Use carries the other files\' sections ticked into the Builder, which notes them as a blend (Sources lists them); one Undo with the liturgy',
+    /var supp = st\.others\.filter\(function\(r\) \{ return u\.supp\[r\.id\]; \}\)/.test(fn('spUseGo')) && /extras: extras, supp: supp, use: \{/.test(fn('spUseGo')) &&
+    /suppIn = _svlSuppInto\(currentOrderData\.sectionLayout, more\.supp,/.test(fn('_svlApply')) &&
+    /currentOrderData\.template\.serviceLiturgy\.blend = suppIn\.from;\s*currentOrderData\.template\.serviceLiturgy\.blendMap = suppIn\.map;/.test(fn('_svlApply')));
+  check('Add to it: every part ticked at first; Select all / Select none for the parts and for each other file; a file added ticks only its sections like nothing going in',
+    /if \(!u\.extras\) \{ u\.extras = \{\}; extras\.forEach\(function\(x\) \{ u\.extras\[x\.i\] = true; \}\); \}/.test(fn('_spUseState')) &&
+    /allNone\('trad', nOn, st\.extras\.length\)/.test(fn('_spUseStep3')) && /allNone\(r\.id, n, secs\.length\)/.test(fn('_spUseSuppHtml')) &&
+    /if \(!lk\.words && !lk\.name\.length\) on\[sx\.id\] = true;/.test(fn('spUseSupp')) && /var lk = _spLikeOf\(\{ title: x\.title, text: x\.text \}, inTrad\);/.test(fn('_spUseStep3')));
+  check('the side-by-side window: a column a liturgy (and the Traditional parts), the rows lined up, a line lit when found elsewhere; Highlights off and on in place',
+    /var rows = _spCmpRows\(cols\), lines = _spCmpLines\(cols\);/.test(fn('spUseCompare')) && /'<p class="spc-l' \+ \(l\.same \? ' is-same' : ' is-diff'\) \+ '">'/.test(fn('spUseCompare')) &&
+    /if \(card\) card\.classList\.toggle\('spc--nohl', !u\.cmpHl\);/.test(fn('spUseCmpHl')) && /\.spc--nohl \.spc-l\.is-same, \.spc--nohl \.spc-l\.is-diff \{ background: transparent; \}/.test(SRC) &&
+    /\.spc \{ position: fixed; inset: 0; z-index: 10025;/.test(SRC) && /spUseCmpClose\(\); \}/.test(fn('spUseClose')));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
