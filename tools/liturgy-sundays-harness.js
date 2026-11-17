@@ -577,9 +577,10 @@ try {
   // 20px shorter, then 30px more, on 2026-11-16; on 2026-11-17 each card
   // became its header alone, 20px shorter again (section 29).
   // ...and 5px taller again the same day (section 31): 47px and 77px.
-  check('...each card its header alone (measured: 62 to 42px at 480px wide, 92 to 72px on a desk; then 47 and 77)',
-    /\.ll-card__top \{ display: flex; align-items: center; gap: 12px; padding: 10px 18px; min-height: 77px; color: #fff; \}/.test(SRC) &&
-    /\.ll-card__top \{ padding: 3px 10px 3px 12px; min-height: 47px; gap: 10px; \}/.test(SRC) && !/\.ll-card__go \{/.test(SRC) && !/\.ll-card__body \{/.test(SRC));
+  // ...and bigger and glossy the same day (section 34): 72px and 104px.
+  check('...each card its header alone (measured: 62 to 42px at 480px wide, 92 to 72px on a desk; then 47 and 77; then 72 and 104)',
+    /\.ll-card__top \{ position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 18px 14px 16px; min-height: 104px;/.test(SRC) &&
+    /\.ll-card__top \{ padding: 10px 12px; min-height: 72px; gap: 12px; \}/.test(SRC) && !/\.ll-card__go \{/.test(SRC) && !/\.ll-card__body \{/.test(SRC));
   const svc13 = fn('renderServices'), grid13 = fn('_lsGridHtml');
   check('Services: the cards first, the counts and the library\'s buttons at the foot in one line; no All Services / Favourites chips',
     /_lsGridHtml\(\) \+[\s\S]*foot \+\s*'<\/div>';/.test(svc13) && svc13.indexOf("'<div class=\"ls-bar ls-bar--foot\">'") !== -1 &&
@@ -1692,8 +1693,8 @@ try {
   console.log('\n29. The landing\'s cards, a year\'s two sections, and what Use adds');
   const hub29 = fn('renderHub');
   check('the landing: each card one button, its header, with an arrow badge; no open button under it, no This Sunday; Church Year before Recently Added',
-    /'<button type="button" class="ll-card ll-card--' \+ c\.k \+ '" onclick="' \+ c\.fn \+ '" aria-label="' \+ _lfE\(c\.go\) \+ '">'/.test(hub29) &&
-    /<span class="ll-card__arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"><\/i><\/span>/.test(hub29) && !/ll-card__go|ll-card__body|ll-sun|This Sunday<\/h2>|_llSundayVerseLoad/.test(hub29) &&
+    /'<button type="button" class="ll-card ll-card--' \+ c\.k \+ '" style="--ll-i:' \+ i \+ '" onclick="' \+ c\.fn \+ '" aria-label="' \+ _lfE\(c\.go\) \+ '">'/.test(hub29) &&
+    /<span class="ll-card__arrow" aria-hidden="true"><span class="ll-card__open">Open<\/span><i class="fa-solid fa-arrow-right"><\/i><\/span>/.test(hub29) && !/ll-card__go|ll-card__body|ll-sun|This Sunday<\/h2>|_llSundayVerseLoad/.test(hub29) &&
     hub29.indexOf('llYearTtl') > 0 && hub29.indexOf('llYearTtl') < hub29.indexOf('llRecentTtl'));
   const res29 = fn('_spResHtml');
   // (Its Liturgy App Files went from the year the same day: see section 30.)
@@ -2058,6 +2059,30 @@ try {
     /\.spp-part:not\(\.spp-part--lock\):not\(\.spp-part--gone\) \{ overflow: hidden; \}/.test(SRC) && !/\.spp-part--lock[^{]*\{[^}]*background: #111/.test(SRC));
   check('...the words to type in a white box with a thick black edge',
     /\.spp-text \{ margin-top: 8px; border: 3px solid #111; \}/.test(SRC) && /\.spp-text \{[^}]*background: #fff;/.test(SRC));
+  // ------------------------------------------------------------ 34. The landing's three ways in
+  // From the operator (2026-11-17), circling the three cards: "make bigger",
+  // and "I want these buttons to look more obvious as 3 options, add some
+  // animations and gloss to entice users to tap on".
+  console.log('\n34. The landing\'s three ways in');
+  const hub34 = fn('renderHub');
+  check('each card a bigger button: the icon on a glass tile, a sheen to sweep across it, an Open pill; each knows its place for the staggers',
+    /'<span class="ll-card__top"><span class="ll-card__shine" aria-hidden="true"><\/span>'/.test(hub34) &&
+    /'<span class="ll-card__ico" aria-hidden="true"><i class="fa-solid ' \+ c\.icon \+ ' ll-card__icon"><\/i><\/span>'/.test(hub34) &&
+    /style="--ll-i:' \+ i \+ '"/.test(hub34) && /cards\.map\(function\(c, i\)/.test(hub34) &&
+    /\.ll-card__ico \{[^}]*width: 58px; height: 58px; border-radius: 50%;/.test(SRC) && /\.ll-card__ico \{ width: 46px; height: 46px; \}/.test(SRC));
+  check('...glossy: light over the top half, a bright edge above and a dark one below, a shadow in the card\'s own colour',
+    /\.ll-card__top::before \{[^}]*height: 52%;[^}]*background: linear-gradient\(180deg, rgba\(255, 255, 255, 0\.3\)/.test(SRC) &&
+    /\.ll-card__top::after \{[^}]*box-shadow: inset 0 1px 0 rgba\(255, 255, 255, 0\.45\), inset 0 -3px 0 rgba\(0, 0, 0, 0\.18\);/.test(SRC) &&
+    /\.ll-card--services \{ --ll-cs: rgba\(107, 36, 34, 0\.6\); --ll-ci: #7a2a27; \}/.test(SRC));
+  check('...moving: the three rise in one after another (backwards fill, so hover still lifts), a sheen sweeps each in turn, the arrow nudges, hover lifts, a press sinks',
+    /animation: llCardIn 0\.55s cubic-bezier\(0\.2, 0\.8, 0\.2, 1\) backwards; animation-delay: calc\(var\(--ll-i, 0\) \* 90ms\);/.test(SRC) &&
+    /animation: llCardShine 5\.5s ease-in-out infinite; animation-delay: calc\(1\.2s \+ var\(--ll-i, 0\) \* 1\.1s\);/.test(SRC) &&
+    /\.ll-card__arrow i \{ animation: llArrowNudge 2\.4s ease-in-out infinite;/.test(SRC) &&
+    /\.ll-card:hover \{ transform: translateY\(-3px\);/.test(SRC) && /\.ll-card:active \{ transform: translateY\(0\) scale\(0\.975\);/.test(SRC) &&
+    /@keyframes llCardIn \{/.test(SRC) && /@keyframes llCardShine \{/.test(SRC) && /@keyframes llArrowNudge \{/.test(SRC));
+  check('...still for those who ask for less motion; Open in words only where a card has the room',
+    /@media \(prefers-reduced-motion: reduce\) \{\s*\.ll-card, \.ll-card__arrow i, \.ll-card:hover \.ll-card__ico \{ animation: none !important; \}\s*\.ll-card__shine \{ display: none; \}/.test(SRC) &&
+    /\.ll-card__open \{ display: none; \}/.test(SRC) && /@media \(min-width: 1200px\), \(min-width: 769px\) and \(max-width: 1100px\) \{\s*\.ll-card__arrow \{ padding: 0 14px 0 16px; \}\s*\.ll-card__open \{ display: inline; \}/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }

@@ -399,8 +399,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
   three cards -- **Readings & Prayers**, **Liturgy of Services** (no line
   under either) and **Memories** ("Blast from the past: services for future
   reference"), as the operator named them on 2026-11-16 -- each card its
-  coloured header alone, one button with an arrow badge (47px on a phone,
-  77px on a desk, 2026-11-17) -- then the Church Year (a tile per season,
+  coloured header alone, one button with an arrow badge -- bigger and
+  glossy since 2026-11-17 (72px on a phone, 104px on a desk): the icon on
+  a glass tile, a sheen sweeping each in turn, a white Open pill whose
+  arrow nudges, the three rising in one after another -- then the Church
+  Year (a tile per season,
   opening Readings at its next service) and Recently Added. This Sunday went
   on 2026-11-17. The nav is Overview, Readings, Services, Memories.
 - **Readings** is the date's four readings as cards -- the reference opens
@@ -5425,6 +5428,25 @@ the anon key -- verify as `postgres`, not as the app.
       cards); the words to type are a white box with a 3px black edge. A
       section of the original taken out keeps its struck-through look, and
       a reading or a song its plain row. Harness section 33.
+    - **The landing's three ways in, bigger and glossy** (the operator,
+      2026-11-17, circling the three cards: "make bigger", and "I want these
+      buttons to look more obvious as 3 options, add some animations and
+      gloss to entice users to tap on"). Each card (`renderHub`) is 72px on
+      a phone (it was 47) and 104px on a desk (77): the icon on a round glass
+      tile (`.ll-card__ico`, 46px / 58px), the title larger with a soft
+      shadow, and the arrow a white pill in the card's own colour
+      (`--ll-ci`) -- "Open" in words where the card has the room (three
+      across from 1200px, or one a row between 769 and 1100px), a circle
+      otherwise. The gloss: light over the top half (`.ll-card__top::before`),
+      a bright edge above and a dark one below (`::after`), a shadow in the
+      card's colour (`--ll-cs`); `isolation: isolate` keeps both under the
+      words. The motion: the three rise in one after another as the page
+      opens (`llCardIn`, 90ms apart by `--ll-i`, `backwards` fill -- a
+      `forwards` or `both` fill would hold `transform: none` over the hover
+      lift); a sheen (`.ll-card__shine`, `llCardShine`) sweeps each in turn
+      every 5.5s; the arrow nudges (`llArrowNudge`); hover lifts 3px and pops
+      the icon (`llIcoPop`), a press sinks. `prefers-reduced-motion` stops
+      all of it and hides the sheen. Harness section 34.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
