@@ -5416,6 +5416,15 @@ the anon key -- verify as `postgres`, not as the app.
       back to "Same as the original" with nothing to save, and a Save
       through the Builder's copy as one Undo -- which the card's line and the
       Builder both showed, and one Builder Undo took back.
+      **Its look** (the operator, the same day, on a screenshot: "Black cells
+      with white texts, and thick black borderlines for the text input
+      boxes"): every section's heading and every part's heading is a black
+      bar (`#111`) with white words -- the section's number a white tile,
+      the bins a light red (`#ff8f86`), the part's icon and revert gold --
+      the part's bar edge to edge of its box (`overflow: hidden` on the
+      cards); the words to type are a white box with a 3px black edge. A
+      section of the original taken out keeps its struck-through look, and
+      a reading or a song its plain row. Harness section 33.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
