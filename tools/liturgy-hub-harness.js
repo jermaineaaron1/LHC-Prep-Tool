@@ -165,8 +165,8 @@ const run = (names, env, ret) => {
     /LiturgyModule\.openPassage\(' \+ q \+ ',' \+ idx \+ '\)">' \+ escapeHtml\(ref\) \+ '<\/button>/.test(card) &&
     /LiturgyModule\.llCopyReading\(/.test(card) && /LiturgyModule\.llUseInPlan\(/.test(card));
   check('no one-line summary is made up for a reading (the operator: leave them out)', !/summary|fetchSummary|gemini/i.test(card));
-  check('"changed / from the lectionary" sits above the card\'s actions',
-    /var acts = card\.querySelector\('\.ll-rcard__acts'\);\r?\n\s*if \(acts\) card\.insertBefore\(tag, acts\); else card\.appendChild\(tag\);/.test(SRC));
+  check('"changed / from the lectionary" sits under the reference, the actions being in the top row',
+    /card\.appendChild\(tag\);\s+\/\/ under the reference/.test(SRC) && !/card\.insertBefore\(tag, acts\)/.test(SRC));
   const pc = fn('_dayPrayerCard');
   check('the Prayer of the Day: Copy, Use in plan, Share, Edit', /llCopyPrayer/.test(pc) && /llUseInPlan/.test(pc) && /lfShareDay/.test(pc) && /editDayPrayer/.test(pc));
   const acts = fn('_llPaintDayActions');

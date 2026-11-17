@@ -407,7 +407,8 @@ than a bash heredoc, which quietly eats a level of backslashes.
   opening Readings at its next service) and Recently Added. This Sunday went
   on 2026-11-17. The nav is Overview, Readings, Services, Memories.
 - **Readings** is the date's four readings as cards -- the reference opens
-  the passage, then Open / Copy / Use in plan -- with no summary (the
+  the passage, and Open / Copy / Use in plan are icons beside the pen in the
+  card's top row (2026-11-17) -- with no summary (the
   operator said leave them out), the Prayer of the Day under them, and for
   the date Use in the service plan, Export PDF / Word (the Builder's own
   exporter) and Share readings. The date bar carries the liturgical day, a
@@ -5498,13 +5499,31 @@ the anon key -- verify as `postgres`, not as the app.
       Day / Week / Month, the season band (on a phone its colour beside the
       season and its words on a line under them; under 420px the colour's
       word alone, `.ll-band__clab` hiding "Liturgical colour:"), each
-      reading's card (32px icon, 38px buttons -- 46px where a narrow card sets
-      them icon over word, `@container (max-width: 300px)`), the Prayer of
-      the Day and the buttons under them. Measured at 480px wide: heading 74
+      reading's card (32px icon; its bar of buttons went the same day, next
+      bullet), the Prayer of the Day and the buttons under them. Measured at 480px wide: heading 74
       to 44px, date card 116 to 83, season 134 to 100, a reading 171 to 140,
       the Prayer of the Day 235 to 201, the buttons 98 to 68; at 1400px:
       heading 104 to 73, season 59 to 46, a reading 180 to 148, the Prayer of
       the Day 120 to 92. Harness section 36.
+    - **A reading's card, concise** (the operator, 2026-11-17, circling Open,
+      Copy and Use in plan under a reading and drawing them up beside the pen:
+      "make the readings card more concise"). `_readingSlotCard` puts the
+      three and the pen in one `.ll-rcard__acts` in the card's top row, after
+      the label: icons alone, each with its `title` and `aria-label` ("Open
+      the passage", "Copy", "Use in plan"), 32px and 36px on a touch screen
+      (`pointer: coarse`); the bar of three under the reference went, and the
+      card ends in its own padding. The lectionary's "from the lectionary" /
+      "changed" tag (`_markReadingsAgainstSource`) is appended under the
+      reference -- `insertBefore(tag, acts)` would throw now that the actions
+      are not the card's child. A card under 330px leaves its slot's coloured
+      icon out (`@container (max-width: 329px)`; the label says which), and
+      the grid sets four a row only when each card has room for its top row,
+      by the panel's own width (`container: llslots` on
+      `.lit-reading-slots-panel.ll-readings`): two under 1190px, one under
+      600px, the screen rules kept for a browser without container queries.
+      Measured: a card 140 to 110px on a phone (480px), 149 to 106px on a
+      desk; at 1600px four a row of 295px, at 1400px with the sidebar open two
+      of 499px. Harness section 37.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

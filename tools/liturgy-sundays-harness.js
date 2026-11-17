@@ -2128,11 +2128,37 @@ try {
     /#lectionaryHomeView \.ll-band__desc \{ flex-basis: 100%; order: 3;/.test(SRC) && /#lectionaryHomeView \.ll-band__colour \{ margin-left: auto; \}/.test(SRC) &&
     /'<span class="ll-band__clab">Liturgical colour: <\/span>' \+ _lfE\(m\.color\)/.test(SRC) &&
     /@media \(max-width: 420px\) \{\s*#lectionaryHomeView \.ll-band__clab \{ display: none; \}/.test(SRC));
-  check('...each reading, the Prayer of the Day and the buttons under them tighter; a narrow card\'s icon-over-word buttons 46px',
-    /#lectionaryHomeView \.ll-rcard__ico \{ width: 32px; height: 32px;/.test(SRC) && /#lectionaryHomeView \.ll-rcard__acts button \{ min-height: 38px; \}/.test(SRC) &&
-    /@container \(max-width: 300px\) \{ #lectionaryHomeView \.ll-rcard__acts button \{ min-height: 46px; \} \}/.test(SRC) &&
+  check('...each reading, the Prayer of the Day and the buttons under them tighter',
+    /#lectionaryHomeView \.ll-rcard__ico \{ width: 32px; height: 32px;/.test(SRC) &&
     /#lectionaryHomeView \.ll-prayer\.lit-day-prayer \{ padding: 10px 14px; gap: 12px; margin-top: 10px; \}/.test(SRC) &&
     /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 34px; \}/.test(SRC) && /#lectionaryHomeView \.ll-ractions \.lf-btn \{ min-height: 30px; \}/.test(SRC));
+  // ------------------------------------------------------------ 37. A reading's card, concise
+  // From the operator (2026-11-17), circling Open / Copy / Use in plan under a
+  // reading and drawing them up beside the pen: "make the readings card more
+  // concise".
+  console.log('\n37. A reading\'s card, concise');
+  const rcard = fn('_readingSlotCard');
+  const rHead = (rcard.match(/'<div class="ll-rcard__acts">'[\s\S]*?'<\/div><\/div>'/) || [''])[0];
+  check('Open, Copy, Use in plan and the pen are one row of icons in the card\'s top row, before the reference',
+    !!rHead && /LiturgyModule\.openPassage\(/.test(rHead) && /LiturgyModule\.llCopyReading\(/.test(rHead) && /LiturgyModule\.llUseInPlan\(/.test(rHead) &&
+    /class="lit-reading-slot-edit"/.test(rHead) && rcard.indexOf('ll-rcard__acts') < rcard.indexOf('ll-rcard__ref'));
+  check('...each icon says what it does (title and aria-label), with no word on the button',
+    /title="Open the passage" aria-label="Open ' \+ escapeHtml\(ref\) \+ '"/.test(rHead) && /title="Copy" aria-label="Copy ' \+ escapeHtml\(ref\) \+ '"/.test(rHead) &&
+    /title="Use in plan" aria-label="Use in the service plan"/.test(rHead) && !/<\/i>(Open|Copy|Use in plan)<\/button>/.test(rcard));
+  check('...the bar of three under the reference is gone, and the card ends with its own padding',
+    !/\.ll-rcard__acts \{ display: grid;/.test(SRC) && !/\.ll-rcard__acts button \+ button/.test(SRC) &&
+    /\.ll-rcard\.lit-reading-slot \{ cursor: default; display: flex; flex-direction: column; gap: 10px; padding: 0 0 14px;/.test(SRC) &&
+    /#lectionaryHomeView \.ll-rcard\.lit-reading-slot \{ gap: 6px; padding-bottom: 12px; \}/.test(SRC));
+  check('...32px icons, 36px on a touch screen, and a narrow card leaves its slot\'s icon out',
+    /\.ll-rcard__acts \{ display: flex; align-items: center; gap: 4px; flex-shrink: 0; \}/.test(SRC) &&
+    /\.ll-rcard__acts button \{ display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;/.test(SRC) &&
+    /@media \(pointer: coarse\) \{ \.ll-rcard__acts button \{ width: 36px; height: 36px;/.test(SRC) &&
+    /@container \(max-width: 329px\) \{ \.ll-rcard__ico \{ display: none; \} \}/.test(SRC));
+  check('...four cards a row only where each has room, by the panel\'s own width',
+    /\.lit-reading-slots-panel\.ll-readings \{ container: llslots \/ inline-size; \}/.test(SRC) &&
+    /@container llslots \(max-width: 1189px\) \{ \.ll--readings \.lit-reading-slots-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/.test(SRC) &&
+    /@container llslots \(max-width: 599px\) \{ \.ll--readings \.lit-reading-slots-grid \{ grid-template-columns: minmax\(0, 1fr\); \} \}/.test(SRC));
+  check('...the old 38px / 46px rules for the bar are gone', !/#lectionaryHomeView \.ll-rcard__acts button \{ min-height/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
