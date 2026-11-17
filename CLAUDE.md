@@ -443,10 +443,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
     are the box's tabs: **This Year · 2026** first and open at first (the
     coming service's year), holding this year's liturgy beside that year's
     documents -- the coming Sunday and, once its order is made, the in-use
-    card: the past year's liturgy over the day it is used for, the liturgy
-    folded under one bar, its sections and parts dragged into order, added
-    (a section, or a named subsection), renamed and removed, its words
-    edited there and in the Builder alike, the Builder, PDF and Share,
+    card: the past year's liturgy over the day it is used for, **Show
+    liturgy** opening the liturgy window -- a draft of the whole liturgy,
+    its sections and parts dragged into order, names and words typed in
+    place, sections and words added and taken out, every difference from
+    the original marked, a part, a section or all of it reverted, and Save
+    putting it into the Builder as one change -- the Builder, PDF and Share,
     another liturgy, and Remove, which undoes Use; else the Liturgy App
     Files for it with **Use** -- then the past years, each its own
     documents and Liturgy App Files saved from the Builder, then All
@@ -5338,6 +5340,82 @@ the anon key -- verify as `postgres`, not as the app.
       under (`_spFocusNext`); an app file with no document, its own row in its
       year. The desk's "The liturgy of" heading keeps the app file's name: it
       names the liturgy, the sources name the documents.
+    - **Show liturgy opens a window to edit the liturgy in** (the operator,
+      2026-11-17, crossing out the list on the in-use card: "a window like
+      the All Slides pad where the user can start editing the liturgy
+      intended to use. But not exactly the same as that editor ... drag and
+      drop to rearrange and also edit the header and content and add
+      sections and remove. Make sure the changes are tracked against the
+      original and give the option for the user to revert the entire
+      liturgy to the original or just some sections"). The card holds no
+      list any more -- the outline, its pen, bin, Reorder, + Section, Add
+      words and drag are gone (`_spOutlineHtml`, `_spoPartHtml`, `_spDrag*`,
+      `spoSec*`, `spoEdit`, `spoAdd*`, `spoPutBack/Gone/Sec`, and the
+      `lhc_sp_liturgy_open` setting); **Show liturgy** (`spoShow`) and the
+      line's **See** (`spoShowChanged`, at the first change) open `#spPad`
+      (`spoPad`, `_spPadDraw`): on a desk a window 880px wide, on a phone the
+      whole screen. It is a DRAFT (`_spPad.draft`, made by `_spPadFrom` from
+      the same outline as before, `_spOrderOutline`): every section a card
+      -- its grip, number, name typed in place (`spoPadTitle`), fold and bin
+      -- and in it its parts: a liturgy part's name and words typed in place
+      (`spoPadPartTitle`, `spoPadText`; a line of `---` a new slide, as All
+      Slides has it), a text part moved or taken out, a reading or a song a
+      locked row (the Roster's, the Songbook's), then **Add words** and
+      **Section after it**; **+ Section**, Fold all, and the window's own
+      **Undo** / **Redo** in its tools (a run of typing one step,
+      `_spPadFocusIn` / `_spPadTyped`; Ctrl+Z outside a field). Sections
+      and parts are dragged by their grips (`_spPadDrag*`, the body
+      scrolling at its edges, the sections folded to their rows while one
+      moves, a folded section taking a part dropped on its row). **Tracked
+      against the original** as the card is: `_spPadCmp` runs `_spCompare`
+      and `_spCompareSecs` over the draft (`_spPadItems`; a new section or
+      part compared by its key, a section put back by its original id), so
+      the bar says "Same as the original" or "Modified: ..." as it is typed
+      (`_spPadMark`, debounced, never redrawing the fields); each section is
+      tagged Renamed (and "In the original: ..."), Moved, Changed or Not in
+      the original, each part Changed, Renamed, Moved or New, with its
+      **Original** to see beside it; the original's sections and parts
+      taken out show in place, struck through, with **Put back**. **Revert**
+      on a section (`_spPadRevertSec`: its name, its parts' words and names,
+      the parts added in it out, its own parts back from other sections and
+      from being taken out, the original's order of them, and its place), on
+      a part (`_spPadRevertPart`) and **Revert all to original** in the bar
+      (`_spPadReset`: the added sections out, the original's back, every
+      section reverted, every part added out, the original's order) change
+      only the draft -- Undo or Cancel leaves the service as it was. **A part
+      renamed** is now a change on the card too: `_spCompare` marks a
+      matched part `renamed` (its original name) and every matched part its
+      file index `fi` (`cmp.file`), `_spCmpCounts` counts `partRenamed`,
+      `_spCmpBits` says it, and Reset to original puts the name back
+      (`_spResetPlan` `put[].title`, written by `_woLibRestore`). **Save**
+      (`spoPadSave`) sends `_spPadPlan(base, draft)` -- only what changed:
+      `add` (a new section, or the original's put back with its layout
+      entry), `edits` (words, matched to the slides as they were by
+      `_woPadTexts` so an unchanged slide keeps its formatting and
+      background; a part reverted to the original goes back as its own
+      slides, `raw`), `fresh` (a part typed -- one left empty is not made --
+      or the original's put back), `place` (a section's parts as listed),
+      `remove`, `drop`, `titles`, `order` -- with `origId`, through `_spEdit`
+      to `WO.libPad` (`_woLibPad`): ONE `_lbdChange` in the Builder's copy
+      (one Builder Undo), its save waited on, refused (code `changed`) when
+      the service's liturgy is another since the window opened. The moves
+      come before the removals, so a part dragged out of a section that was
+      then taken out is kept; a liturgy moved into a section keeps the
+      Builder's rules (its id naming its section, the section it left noted
+      as emptied of it, a second of one liturgy given a source of its own,
+      gotcha 37). A section or a part taken out and put back in the window
+      while the order still has it is KEPT, not copied again from the file
+      (`_spPadPlan` maps it back to its own id), so its backgrounds stay.
+      The window stays, with the draft and "Not saved", when the save does
+      not go in; closing with changes asks first (Keep editing, Discard,
+      Save; Esc keeps editing). The walk through does not start over it.
+      Measured in the preview on the 29 Nov order: a section renamed, words
+      added, a section dragged above Gather, a section taken out (shown in
+      place with Put back), a section with words added after Confession, a
+      part dragged onto a folded section, Revert on one section, Revert all
+      back to "Same as the original" with nothing to save, and a Save
+      through the Builder's copy as one Undo -- which the card's line and the
+      Builder both showed, and one Builder Undo took back.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
