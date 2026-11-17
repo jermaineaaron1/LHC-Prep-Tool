@@ -5288,6 +5288,36 @@ the anon key -- verify as `postgres`, not as the app.
       like Affirmation of Faith, unticked), the window side by side with
       Highlights off and on, and Use putting 11 of its sections in after
       Confession with Sources 2; Undo took it back.
+    - **A document says it was converted and where it is used; no App Files
+      section** (the operator, 2026-11-17, the same day, crossing the
+      section out in a past year and in This Year: "I want to only see if
+      the uploaded doc has been converted and used. If used then it will
+      look like the upper section of the 2026 folder. Clicking on the use
+      button will direct the user to where it's being used. Also allow the
+      user to use the same converted liturgy to more than one", and "Make
+      the design more concise"). `_spReadyHtml` is gone. Each row is
+      `_spDocRow`: its name; its kind, year as a chip that moves it
+      (`.sp-ychip` -> `spYearMenu`), its lectionary letter and when it was
+      added; ⋯ (`spDocMenu` / `spDocAct`: Preview, Rename, Change its year,
+      Share); then Convert, or Converted (its menu) with Use -- and once one
+      of its files is used, **where**: a row per service, as This Year's
+      card shows one (`_spUseRowHtml`: date tile, day, kind and letter, In
+      use or, for a past one, Used), and **Use for another service**
+      (`spUseDoc(id, { another: true })`, which starts the window on a date
+      not using it and marks one that does, "Uses this liturgy now"). A press
+      on a use (`spGoUse`) opens This Year and lights its card (`.sp-flash`)
+      for the coming service, else that service in the Liturgy Builder, whose
+      Back bar comes back. Which services use which file: every order's
+      liturgy, read lightly with the page and again with the order
+      (`_spUsesLoad`: `svl:template->serviceLiturgy`, no `standalone_`, the
+      date by `_mvOrderIso`), the coming one as the page reads it
+      (`_spUsesFor` -> `_spUsesOf`, pure: the coming soonest first, then the
+      past latest first). A Liturgy App File with no document (saved from
+      the Builder, or its document removed) is a row of the list itself
+      (`_spAppRow`: an APP badge, Use or its uses, ⋯ for Preview, Sundays,
+      Share, Delete). This Year is this year's liturgy in use, then -- beside
+      it on a desk -- its documents. The library box lost its `title`, which
+      laid "Every year's liturgy for this service" over everything in it.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

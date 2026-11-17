@@ -215,7 +215,7 @@ try {
   const ot = fn('_spOrderTab');
   check('the Liturgy Order tab is the service\'s library, its documents first; no order of worship, no reader',
     /return '<div class="sp-lib">' \+ _spResHtml\(occ, d, orderId\) \+ '<\/div>';/.test(ot) &&
-    /_spMakeHtml\(d, orderId\)/.test(fn('_spResHtml')) && /_spReadyHtml\(d, orderId, sel, /.test(fn('_spResHtml')) &&
+    /_spMakeHtml\(d, orderId\)/.test(fn('_spResHtml')) && /_spDocRow\(it, occ\.id, tab\)/.test(fn('_spResHtml')) &&
     !fn('_spParts') && !fn('_spSource') && !fn('spFull') && !/pl-ow|pl-text|_spTexts/.test(ot) && !/contenteditable/.test(ren));
   check('this year\'s liturgy is a way into the Liturgy Builder', /onclick="LiturgyModule\.spEdit\(\)"/.test(fn('_spMakeHtml')) && /_llOpenInBuilder\(id\)/.test(fn('spEdit')));
   // "Double clicking or tapping on the document will preview it."
@@ -251,7 +251,7 @@ try {
     check('...never from a tap on one of its buttons (Make ready, the eye, Share)', ctl === 2);
   } catch (e) { check('a document opens on a double-click or a double tap', false, e.message); }
   check('the rows say so, and are not zoomed or selected by the second tap',
-    /data-open="item" data-id="/.test(fn('_spResHtml')) && /Double-tap ' \+ \(tab === 'links' \? 'a link' : 'a document'\) \+ ' to preview it\. ' \+/.test(fn('_spResHtml')) &&
+    /data-open="item" data-id="/.test(fn('_spDocRow')) && /Double-tap ' \+ \(tab === 'links' \? 'a link' : 'a document'\) \+ ' to preview it' \+/.test(fn('_spResHtml')) &&
     /\.sp-doc\[data-open\], \.sp-ready__row\[data-open\] \{ cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; \}/.test(SRC) &&
     /_spBindOpen\(p\);/.test(ren));
   check('the click that follows a double tap does not close the preview it opened',
