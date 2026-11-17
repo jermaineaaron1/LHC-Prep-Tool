@@ -2044,6 +2044,20 @@ try {
     !/libRestore|libPad|_spEdit/.test(fn('spoPadReset') + fn('spoPadRevert') + fn('spoPadRevertPart')));
   check('...a phone gets the whole screen',
     /\.mv-ed\.spp \{ padding: 0; \}/.test(SRC) && /\.pl-ed \.mv-ed__card\.spp-win \{ max-width: none; height: 100vh; height: 100dvh;/.test(SRC));
+  // ------------------------------------------------------------ 33. The window's look
+  // From the operator (2026-11-17), on a screenshot of the window: "Black
+  // cells with white texts, and thick black borderlines for the text input
+  // boxes".
+  console.log('\n33. The window\'s look');
+  check('each section\'s heading a black bar with white words (its number a white tile, its bin a light red); a section of the original taken out keeps its own look',
+    /\.spp-sec:not\(\.spp-sec--gone\) > \.spp-sec__hd \{ padding: 7px 8px 7px 4px; background: #111; color: #fff; \}/.test(SRC) &&
+    /\.spp-sec:not\(\.spp-sec--gone\) > \.spp-sec__hd \.spp-num \{ background: #fff; color: #111; \}/.test(SRC) &&
+    /\.spp-sec__hd \.spp-title, \.spp-part__hd \.spp-ptitle \{ color: #fff; \}/.test(SRC) && /\.spp-sec__hd \.spp-ic--rm, \.spp-part__hd \.spp-ic--rm \{ color: #ff8f86; \}/.test(SRC));
+  check('...each part\'s heading a black bar too, edge to edge of its box; a reading or a song keeps its plain row',
+    /\.spp-part__hd \{ margin: -6px -8px 0; padding: 5px 8px; background: #111; color: #fff; \}/.test(SRC) &&
+    /\.spp-part:not\(\.spp-part--lock\):not\(\.spp-part--gone\) \{ overflow: hidden; \}/.test(SRC) && !/\.spp-part--lock[^{]*\{[^}]*background: #111/.test(SRC));
+  check('...the words to type in a white box with a thick black edge',
+    /\.spp-text \{ margin-top: 8px; border: 3px solid #111; \}/.test(SRC) && /\.spp-text \{[^}]*background: #fff;/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
