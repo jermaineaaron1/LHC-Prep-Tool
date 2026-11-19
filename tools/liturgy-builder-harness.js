@@ -868,8 +868,45 @@ console.log('\nA song taken out of its section');
   check('a song the screen simply has not drawn still gets its section from the last save (Song Order\'s case)',
     back.song.sectionId === 'wo-section-3' && back.stored && back.stored.sectionId === 'wo-section-3' && back.kept);
   check('the toasts no longer send anybody to Song Order (retired)',
-    !/stays in Song Order|stay in Song Order|songs stay\x27\) \+ \x27 in Song Order/.test(SRC) &&
-    /' — it waits at the foot of the page, in no section'/.test(SRC));
+    !/stays in Song Order|stay in Song Order|songs stay\x27\) \+ \x27 in Song Order/.test(SRC));
+})();
+
+// ---------------------------------------------------------------------------
+// Taking a song out of a section removes it (2026-11-19, the operator)
+// ---------------------------------------------------------------------------
+// "Make taking a song out of a section remove it entirely": it used to wait
+// at the foot of the page, in no section, and was still in the Songbook.
+console.log('\nTaking a song out of a section removes it');
+(function() {
+  const src = ['lbdUnplaceSong', '_lbdUnplaceSong', '_woSongSectionIds'].map(n => extractFn(n)).join('\n');
+  function run(songs, songId, secId) {
+    const toasts = [], cleared = {}, taken = {};
+    const list = [{ id: 's0', title: 'Invocation' }, { id: 's3', title: 'Praise & Worship' }];
+    const fn = new Function('songs', 'toasts', 'cleared', 'taken', 'list',
+      'var songOrderSections = songs; var _woUserClearedTypes = cleared; var _woSongsTakenOutOfSections = taken; var changes = 0;' +
+      'function _woSectionList() { return list; }' +
+      'function _lbdSong(id) { for (var i = 0; i < songOrderSections.length; i++) if (songOrderSections[i].id === id) return songOrderSections[i]; return null; }' +
+      'function _lbdChange(f) { changes++; f(); return true; }' +
+      'function showToast(m, t, o) { toasts.push({ m: m, undo: !!(o && o.action === "Undo") }); }' +
+      'function lbdUndo() {}' + src +
+      '\nlbdUnplaceSong(' + JSON.stringify(songId) + ', ' + JSON.stringify(secId) + ');' +
+      'return { songs: songOrderSections, changes: changes };');
+    const r = fn(songs, toasts, cleared, taken, list);
+    return Object.assign(r, { toasts, cleared });
+  }
+  const one = run([{ id: 'a', title: 'Crown Him With Many Crowns', serviceSections: ['s3'], sectionId: 's3' },
+                   { id: 'b', title: 'Make A Joyful Noise', serviceSections: ['s3'], sectionId: 's3' }], 'a', 's3');
+  check('the song goes from the order, as the Songbook\'s remove does -- not to the foot of the page',
+    one.songs.length === 1 && one.songs[0].id === 'b' && one.changes === 1, JSON.stringify(one.songs.map(x => x.id)));
+  check('...in one step with Undo, and a save may clear the last song',
+    one.toasts.length === 1 && one.toasts[0].undo && /^Removed “Crown Him With Many Crowns” from the order$/.test(one.toasts[0].m) && one.cleared.song === true,
+    JSON.stringify(one.toasts));
+  const old = run([{ id: 'a', title: 'Crown Him', serviceSections: ['s0', 's3'], sectionId: 's0' }], 'a', 's3');
+  check('an entry stored the old way, in two sections at once, only leaves this one',
+    old.songs.length === 1 && JSON.stringify(old.songs[0].serviceSections) === '["s0"]' && /taken out of this section/.test(old.toasts[0].m) && !old.cleared.song);
+  check('its menu says what it does: Remove from the order, a bin, in red',
+    /menu\.push\('-', \{ label: 'Remove from the order', icon: 'fa-solid fa-trash-can', danger: true, run: function\(\) \{ lbdUnplaceSong\(s\.id, c\.sec\); \} \}\);/.test(SRC) &&
+    !/label: 'Take out of this section'/.test(SRC));
 })();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

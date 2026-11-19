@@ -79544,13 +79544,28 @@ var WO = (function() {
     });
   }
 
+  // From a song's menu in a section: the song goes from the order, as the
+  // Songbook's remove does (2026-11-19, the operator: "make taking a song out
+  // of a section remove it entirely" -- it used to wait at the foot of the
+  // page, in no section, and was still in the Songbook). A song sung in
+  // another section is a copy of its own there (gotcha 55) and stays; an
+  // entry stored the old way, in several sections at once, only leaves this
+  // one. One step, with Undo; no question first, as before.
   function lbdUnplaceSong(songId, secId) {
     var s = _lbdSong(songId);
     if (!s) return;
-    _lbdChange(function() { _lbdUnplaceSong(s, secId); });
-    var placed = _woSongSectionIds(s).length > 0;
-    showToast('“' + (s.title || 'Song') + '” taken out of this section' + (placed ? '' : ' — it waits at the foot of the page, in no section'), 'info',
-      { action: 'Undo', duration: 6000, onAction: lbdUndo });
+    var list = _woSectionList();
+    var others = _woSongSectionIds(s, list).filter(function(x) { return x !== secId; });
+    if (others.length) {
+      _lbdChange(function() { _lbdUnplaceSong(s, secId, list); });
+      showToast('“' + (s.title || 'Song') + '” taken out of this section', 'info', { action: 'Undo', duration: 6000, onAction: lbdUndo });
+      return;
+    }
+    _lbdChange(function() {
+      songOrderSections = songOrderSections.filter(function(x) { return x && x.id !== songId; });
+      _woUserClearedTypes.song = true;
+    });
+    showToast('Removed “' + (s.title || 'Song') + '” from the order', 'info', { action: 'Undo', duration: 6000, onAction: lbdUndo });
   }
 
   function lbdMoveSongToSection(songId, fromSec, toSec) {
@@ -84983,7 +84998,7 @@ var WO = (function() {
         { label: md ? 'Edit the medley\u2026' : 'Make a medley\u2026', icon: 'fa-solid fa-layer-group', run: function() { openMedleyEditor(s.id); } }
       ];
       if (md) menu.push({ label: 'Take out of the medley', icon: 'fa-solid fa-link-slash', run: function() { woMedleyLeave(s.id); } });
-      menu.push('-', { label: 'Take out of this section', icon: 'fa-solid fa-xmark', danger: true, run: function() { lbdUnplaceSong(s.id, c.sec); } });
+      menu.push('-', { label: 'Remove from the order', icon: 'fa-solid fa-trash-can', danger: true, run: function() { lbdUnplaceSong(s.id, c.sec); } });
       _lbdOpenMenu(anchor, s.title || 'Song', menu);
       return;
     }

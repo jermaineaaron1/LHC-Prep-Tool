@@ -5824,10 +5824,21 @@ the anon key -- verify as `postgres`, not as the app.
     the order is open: with saves held in memory the database still has the
     old section, and the order sync (`_orderSyncApplyDelta`) "corrects" the
     order back to it, which looks like the same bug and is not. The toasts
-    that said a song "stays in Song Order" (retired) say where it is: at the
-    foot of the page, in no section. `tools/liturgy-builder-harness.js`
-    checks it, running `snapshotCurrentState` over the real
-    `collectOrderItems`.
+    that said songs "stay in Song Order" (retired) say where they are: at the
+    foot of the page, in no section -- which is still where a removed
+    section's songs go (`lbdRemoveSection`).
+    **Then, the same day: taking a song out of a section removes it** (the
+    operator: "make taking a song out of a section remove it entirely"). The
+    song's menu in a section says **Remove from the order** (a bin, in red;
+    it was Take out of this section), and `lbdUnplaceSong` takes the entry
+    out of `songOrderSections` as the Songbook's remove does, with
+    `_woUserClearedTypes.song` so a save may clear the last song -- one step,
+    Undo in the toast, no question first. A song sung in another section is
+    a copy of its own there (gotcha 55) and stays; an entry stored the old
+    way, in several sections at once, only leaves this one.
+    `tools/liturgy-builder-harness.js` checks both, running
+    `snapshotCurrentState` over the real `collectOrderItems`, and
+    `lbdUnplaceSong`.
 
 ## Quick Commands for Claude Code
 
