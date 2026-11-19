@@ -1392,14 +1392,14 @@ try {
   } catch (e) { check('the parts\' words draw', false, e.stack); }
   try {
     // Each source named as its document is (section 31): a stand-in lookup here.
-    const SH = new Function('_lfE', '_llYearText', '_spSrcLook', '_lfBadge', fn('_spSourcesHtml') + '\nreturn _spSourcesHtml;')(t => String(t), (o, y) => y + ' · Year A',
+    const SH = new Function('_lfE', '_llCycleFor', '_spSoftHyph', '_spSrcLook', '_lfBadge', fn('_spSourcesHtml') + '\nreturn _spSourcesHtml;')(t => String(t), (o, y) => 'Year A', t => String(t),
       x => ({ name: x.title, kind: null, year: String(x.year || ''), occ: x.occ }), k => '<span class="lf-badge">' + k.badge + '</span>');
     const one = SH({ id: 'f1', title: 'No Communion', year: 2025, occasion: 'advent' }, 'advent');
     const two = SH({ id: 'f1', title: 'No Communion', year: 2025, blend: [{ id: 'f2', title: 'Advent liturgy', year: 2023 }, { title: 'no id' }] }, 'advent');
     const past = SH({ fromOrder: 'o9', title: 'Service 1 Dec 2025' }, 'advent');
     check('Source on the card (Sources and how many, when blended), the original badged, each a badge opening its preview; a past service a badge to read',
       />Source<\/p>/.test(one) && /class="spi-srcb is-orig"><button type="button" class="spi-srcb__main" data-id="f1" onclick="LiturgyModule\.spoSrc\(this\.dataset\.id\)"/.test(one) && /<em>Original<\/em>/.test(one) &&
-      /Sources <b>2<\/b>/.test(two) && /data-id="f2"/.test(two) && !/no id/.test(two) && /class="spi-srcb is-orig is-past"/.test(past) && SH(null, 'a') === '', two);
+      /Sources <b>2<\/b>/.test(two) && /data-id="f2"/.test(two) && !/no id/.test(two) && /<span class="spi-srcb__yy"><b>2025<\/b><small>Year A<\/small><\/span>/.test(one) && /class="spi-srcb is-orig is-past"/.test(past) && SH(null, 'a') === '', two);
   } catch (e) { check('the sources draw', false, e.stack); }
   check('...a badge opens the document the file came from (PDF, Word, Google Doc), else the app file; never the folder',
     /var m = \/\^doc:\(\.\+\)\$\/\.exec\(String\(\(r && r\.made_from\) \|\| ''\)\), doc = m \? getItem\(m\[1\]\) : null;\s*if \(doc\) \{ lfOpen\(doc\.id\); return; \}/.test(fn('spoSrc')) &&
@@ -1862,7 +1862,7 @@ try {
   } catch (e) { check('the sources\' names and links run', false, e.stack); }
   const srcH31 = fn('_spSourcesHtml');
   check('...drawn as one badge: the kind\'s logo, the name and the kind\'s name (a press previews it), Original, then the year (a press goes there)',
-    /var logo = lk\.kind \? _lfBadge\(lk\.kind\) :/.test(srcH31) && /'<span class="spi-srcb__t"><b>' \+ _lfE\(lk\.name\) \+ '<\/b><small>' \+ _lfE\(lk\.kind \? lk\.kind\.label :/.test(srcH31) &&
+    /var logo = lk\.kind \? _lfBadge\(lk\.kind\) :/.test(srcH31) && /'<span class="spi-srcb__t"><b>' \+ _lfE\(_spSoftHyph\(lk\.name\)\) \+ '<\/b><small>' \+ _lfE\(lk\.kind \? lk\.kind\.label :/.test(srcH31) &&
     /onclick="LiturgyModule\.spoSrcGo\(this\.dataset\.id\)" title="' \+ _lfE\('Go to it in the ' \+ lk\.year \+ ' folder'\)/.test(srcH31) &&
     /spoSrcGo: spoSrcGo/.test(SRC) && /\(f\.label \|\| 'The original'\) \+ ': '/.test(fn('_spFocusOn')) && /var r = _spSrcRow\(id\);/.test(fn('spoSrc')));
   // ------------------------------------------------------------ 32. The liturgy window
@@ -2184,6 +2184,37 @@ try {
     /\.ll-prayer__ib \{ display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;/.test(SRC) &&
     /@media \(pointer: coarse\) \{ \.ll-prayer__ib \{ width: 36px; height: 36px;/.test(SRC) &&
     /@container \(max-width: 359px\) \{ \.ll-prayer__icon \{ display: none; \} \}/.test(SRC));
+  // ------------------------------------------------------------ 39. The Active Liturgy card on a narrow phone
+  // From the operator (2026-11-19), on a phone screenshot of the card: the
+  // text "struggling to fit", a long name hyphenated ("Commu - nion"), and
+  // "for the year column - put the year above and the letter below".
+  console.log('\n39. The Active Liturgy card on a narrow phone');
+  const src39 = fn('_spSourcesHtml');
+  let hy = null;
+  try { hy = new Function(fn('_spSoftHyph') + '\nreturn _spSoftHyph;')(); } catch (e) { hy = null; }
+  const show = t => hy ? hy(t).replace(/\u00AD/g, '-') : '';
+  check('a long word carries soft hyphens at its syllable breaks: Com-mu-nion, Pen-te-cost, Transfi-gu-ra-tion',
+    !!hy && show('1st Sunday Advent (Communion)') === '1st Sunday Advent (Com-mu-nion)' && show('Pentecost') === 'Pen-te-cost' &&
+    show('Transfiguration') === 'Transfi-gu-ra-tion');
+  check('...never inside th / ch / ph, a short word left whole, nothing else changed',
+    !!hy && show('Brother') === 'Brother' && show('Epiphany') === 'Epiphany' && show('Advent') === 'Advent' && show('Liturgy') === 'Liturgy' &&
+    hy('Communion').replace(/\u00AD/g, '') === 'Communion' && hy(null) === '' && /<b>' \+ _lfE\(_spSoftHyph\(lk\.name\)\) \+ '<\/b>/.test(src39));
+  check('...and the name hyphenates where the browser can, else breaks where it must, never widening the card',
+    /\.spi-srcb__t b \{ font-weight: 700; overflow-wrap: anywhere; -webkit-hyphens: auto; hyphens: auto;/.test(SRC) && /<html lang="en">/.test(SRC));
+  check('Original sits on the kind\'s line under the name, not beside it',
+    /'<\/b><small>' \+ _lfE\(lk\.kind \? lk\.kind\.label : \(x\.id \? 'Liturgy App File' : 'A past service'\)\) \+\s*\(x\.orig \? '<em>Original<\/em>' : ''\) \+ '<\/small><\/span>'/.test(src39) &&
+    /\.spi-srcb__t small \{ display: flex; align-items: center; flex-wrap: wrap;/.test(SRC));
+  check('the year column is the year above its letter ("2025" over "Year A"), and a year with no letter is the year alone',
+    /var lk = _spSrcLook\(x\), cyL = lk\.year \? _llCycleFor\(lk\.occ, lk\.year\) : '';/.test(src39) &&
+    /'<span class="spi-srcb__yy"><b>' \+ _lfE\(String\(lk\.year\)\) \+ '<\/b>' \+ \(cyL \? '<small>' \+ _lfE\(cyL\) \+ '<\/small>' : ''\) \+ '<\/span>'/.test(src39) &&
+    /\.spi-srcb__yy \{ display: flex; flex-direction: column; align-items: center;/.test(SRC) && !/_lfE\(cy\) \+ '<i class="fa-solid fa-arrow-right"/.test(src39));
+  check('a narrow card (phones only) gives Show Liturgy its own row and Builder the next, so the menu never runs off the edge',
+    /@media \(max-width: 768px\) \{\s*\.svp-act \{ container: svpcard \/ inline-size; \}\s*\.svp-act__body \{ container: svpact \/ inline-size; \}/.test(SRC) &&
+    /@container svpact \(max-width: 354px\) \{\s*#liturgyServicePanel \.svp-act__acts \{ flex-wrap: wrap; \}\s*#liturgyServicePanel \.svp-act \.lf-btn\.svp-show \{ flex: 1 1 100%; \}/.test(SRC));
+  check('...its heading keeps "Active Liturgy" on one line beside its badge, and on the narrowest phones Change is its arrows alone',
+    /@container svpcard \(max-width: 379px\) \{[^}]*\}\s*\.svp-act__hd > i \{ display: none; \}\s*\.svp-act__hd h3 \{ font-size: 1\.05rem; white-space: nowrap; \}/.test(SRC) &&
+    /@container svpact \(max-width: 249px\) \{\s*\.svp-chg \{ padding: 6px 9px; \}\s*\.svp-chg span \{ display: none; \}/.test(SRC) &&
+    /class="svp-chg" onclick="LiturgyModule\.spoPick\(\)" title="Choose, change, blend or stop using the liturgy"/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
