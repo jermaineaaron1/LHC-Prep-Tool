@@ -497,14 +497,17 @@ check('the refresh can be found', !!refSrc);
 // Matched WITH its indent, and by ORDER. Without the indent this also found
 // the identical line inside the wait loop, so a mutant that deleted the real
 // early return changed nothing the harness could see.
-const _early = refSrc.indexOf(String.fromCharCode(10) + '      if (!unsaved()) { location.reload(); return; }');
+// Refresh no longer reloads the page (gotcha 107): it refreshes in place, and
+// the open order is reloaded by it -- so the save still comes first.
+const _early = refSrc.indexOf(String.fromCharCode(10) + '      if (!unsaved()) { go(false); return; }');
 const _saves = refSrc.indexOf('WO.saveImmediately()');
-check('it saves BEFORE reloading, and only reloads once nothing is unsaved',
+check('it saves BEFORE refreshing, and only refreshes the order once nothing is unsaved',
   _early !== -1 && _saves !== -1 && _early < _saves);
-check('...and if the save will not land it says so rather than reloading',
+check('...and if the save will not land it says so, and Refresh then leaves that order alone',
   /if \(\+\+tries > 25\) \{/.test(refSrc) &&
-  refSrc.indexOf('Refreshing now would lose them') !== -1 &&
-  refSrc.indexOf("btn.textContent = 'Refresh anyway'") !== -1);
+  refSrc.indexOf('leaves this order as it is') !== -1 &&
+  refSrc.indexOf("btn.textContent = 'Refresh the rest'") !== -1 &&
+  refSrc.indexOf('btn.onclick = function () { go(true); };') !== -1);
 check('"unsaved" covers a save waiting on its debounce as well as one that failed',
   has(/_soUnsaved = \(state === 'pending' \|\| state === 'failed'\);/) &&
   has(/function unsavedWork\(\) \{ return !!\(_soUnsaved && currentOrderData\); \}/) &&
