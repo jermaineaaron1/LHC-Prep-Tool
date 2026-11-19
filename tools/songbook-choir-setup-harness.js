@@ -196,8 +196,8 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
   console.log('\n   ...on every other device');
   await (async () => {
     const env = new Function('ctx', `
-      var window = { SBQ_VOICE_LINES: { forSong: function(b) { ctx.log.push('read:' + b); return Promise.resolve([{ id: 1 }]); } }, STATE: ctx.STATE }, STATE = ctx.STATE, songOrderSections = ctx.copies;
-      var _sbVoiceLines = {}, _sbVoiceWanted = { A: true }, _sbVoiceRetryAt = {}, _sbmLive = {}, _sbmChoirGotAt = {};
+      var window = { SBQ_VOICE_LINES: { forSong: function(b) { ctx.log.push('read:' + b); return Promise.resolve([{ id: 1 }]); } }, STATE: ctx.STATE, lhcVoiceRec: ctx.rec }, STATE = ctx.STATE, songOrderSections = ctx.copies;
+      var _sbVoiceLines = {}, _sbVoiceWanted = { A: true }, _sbVoiceRetryAt = {}, _sbmLive = {}, _sbmChoirGotAt = {}, _sbmRecsAt = ctx.recsAt;
       function _sbBaseSongId(s) { return s.songId; }
       function _sbmBookOpen() { return true; }
       function _sbmSong() { return ctx.copies[0]; }
@@ -205,11 +205,12 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
       function showToast(m) { ctx.toasts.push(m); }
       function _sbmLiveCheck(adopt) { ctx.log.push('check:' + adopt); }
       ${fn('_sbmChoirShow')}
+      ${fn('_sbmTakesStale')}
       ${fn('_sbmChoirArrived')}
       ${fn('_sbmPartsArrived')}
       return { arrived: _sbmChoirArrived, parts: _sbmPartsArrived, lines: function() { return _sbVoiceLines; }, wanted: function() { return _sbVoiceWanted; } };`);
     const a = { id: 'a', songId: 'A', choirView: 'lyrics', sbmLyricsMode: 'both' }, z = { id: 'z', songId: 'Z', choirView: 'lyrics' };
-    const ctx = { STATE: { songs: [{ id: 'A' }, { id: 'Z' }] }, copies: [a, z], log: [], toasts: [] };
+    const ctx = { STATE: { songs: [{ id: 'A' }, { id: 'Z' }] }, copies: [a, z], log: [], toasts: [], rec: { _loaded: { A: true, Z: true } }, recsAt: { A: 1, Z: 1 } };
     let E = null;
     try { E = env(ctx); } catch (e) { check('the arrival exists', false, e.message); return; }
     try {
@@ -218,6 +219,8 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
         ctx.STATE.songs[0].voiceLayout === 'two-part' && E.lines().A && ctx.log.indexOf('render') > -1 && !E.wanted().A);
       check('...the reader told when it is the song in front, and what was seen taken as seen', /set up on another device/.test(ctx.toasts[0] || '') && ctx.log.indexOf('check:true') > -1);
       check('...and another song left as it was', z.choirView === 'lyrics');
+      // Its takes too, filed under the lines' new ids (gotcha 108).
+      check('...its takes read again with the new lines, and nobody else\'s', !ctx.rec._loaded.A && !ctx.recsAt.A && ctx.rec._loaded.Z === true && ctx.recsAt.Z === 1);
       ctx.log.length = 0;
       await E.arrived(['Q']);
       check('a song not in this book: nothing', ctx.log.length === 0);
