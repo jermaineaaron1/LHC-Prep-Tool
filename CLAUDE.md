@@ -5698,6 +5698,57 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-side-fold-harness.js` checks it, running `_sbmSideHtml`
     and `sbmSideFold` rather than matching them.
 
+107. **Refresh never leaves the page; nothing in the app reloads it.** From
+    the operator (2026-11-19): Refresh on a banner "refreshes the entire app
+    and brings the users to the main menu ... The users should be at the
+    same page and receive the updates. This is especially important when
+    the LCD receive updates are getting back online after a sudden internet
+    outage." Measured in WebKit and Chromium before the fix:
+    - **The offline bar's "Back online -- Refresh" called `location.reload()`**,
+      and the app always starts on Home: an operator in LCD Projection, full
+      screen with a slide on the wall, was put on Home with no order, no step
+      and no slide, the projection window lost the page that drives it, and
+      presenter full screen ended. It now calls `window.lhcRefreshHere`
+      (the offline bar's block), which brings each part up to date where it
+      stands: songs and orders (`window.lhcReloadData`: `loadSongs` and
+      `loadOrders`, which redraw Home's cards and the Songs list), the
+      Orders view (`WO.refreshHere`), the Roster's month
+      (`RosterEngine.refreshHere`, which refuses while its own
+      `STATE.rosterHasUnsaved` -- gotcha 29 -- and keeps both scrolls) and the
+      Liturgy page (`LiturgyModule.syncFromBackend`). There is no
+      `location.reload()` left in the app, and the harness keeps it so.
+    - **`WO.refreshHere`**: the Orders list read again (`_ordersPreloaded`
+      cleared, `silentPreloadOrders`); the Songbook open -> its own refresh
+      (`sbmLiveRefresh`), nothing under it touched; LCD Projection -> the live
+      sync (`_orderSyncTick`, now and at 0.9s and 2.2s: a change is acted on
+      once seen on two readings, and a reading in flight swallows the first),
+      which applies the change in place and keeps the slide on the wall and
+      the projection window (gotchas 81-82), never a reload of the order --
+      `selectOrder('service')` blanks the preview; the Builder and the
+      landing -> `_orderSyncReload`. Changes not saved still save and wait
+      first (five seconds), and after that Refresh brings the rest up to date
+      and LEAVES the open order as it is (`keepOrder`, `kept`), where it used
+      to reload and lose them.
+    - **"Reload order" lands on the place, not only the step.** Where it
+      lands is `_orderSyncWhere()`: 'service' (`lcd-console-open`), 'liturgy'
+      (`_lbdIsActive`), null for the landing, 'song' only while the Song
+      Order list really shows. It read `wo-mode-song`, which
+      `showOrderModeLanding` sets too, so a reload from the landing opened
+      the retired Song Order list. `_orderSyncReload` keeps `_orderSyncResume
+      = { mode, target, live, fs, scroll }`; the resume in `openOrderInEditor`
+      puts back the slide in front of the operator (`_orderSyncRestoreLive`,
+      retried while the schedule is drawn) unless the notice named the item
+      that changed (`_orderSyncRevealTarget`, as before), the console's full
+      screen -- the landing keeps the BROWSER's own full screen on the way
+      (`lcdToggleWorkspaceFullscreen(false, true)`), as it cannot be asked for
+      again without a tap -- and the builder's scroll.
+    Testing: `LHC_Net.mark(false)` then `mark(true)` raises the bar;
+    "another device" is a doctored `SBQ.loadOrder`, set after the sync has
+    taken its first reading. `currentOrderData` is not global: the order's id
+    is on `#woWorshipOrder`'s `data-order-id`.
+    `tools/refresh-keeps-place-harness.js` checks it, running
+    `_orderSyncWhere`, `WO.refreshHere` and `window.lhcRefreshHere`.
+
 ## Quick Commands for Claude Code
 
 ```bash
