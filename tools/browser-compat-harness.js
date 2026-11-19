@@ -168,6 +168,43 @@ console.log('\na fullscreen request is never chained without checking for a prom
 }
 
 // ---------------------------------------------------------------------------
+console.log('\na <select> given light text has its native look turned off');
+{
+  // Safari draws a <select> in the system's light grey and ignores the
+  // page's background unless appearance is none, so light text meant for a
+  // dark box came out light on light ("2026" in the Enablers bar).
+  let postcss = null;
+  try { postcss = require('postcss'); } catch (e) {}
+  if (!postcss) console.log('  (skipped: postcss not installed)');
+  else {
+    const light = /^(#fff\b|#ffffff\b|white\b|#f[0-9a-f]{2}\b|#[ef][0-9a-f]{5}\b|rgba?\(\s*2[3-5]\d\s*,\s*2[3-5]\d\s*,\s*2[3-5]\d)/i;
+    const flat = new Set(), lightRules = [];
+    styles.forEach(s => {
+      let root; try { root = postcss.parse(s.body); } catch (e) { return; }
+      root.walkRules(r => {
+        let sels; try { sels = r.selectors; } catch (e) { sels = [r.selector]; }
+        const d = r.nodes.filter(n => n.type === 'decl');
+        if (d.some(x => x.prop === 'appearance' && /none/.test(x.value))) sels.forEach(x => flat.add(x.trim()));
+        const col = d.find(x => x.prop === 'color');
+        if (col && light.test(col.value.trim()) && sels.some(x => /(^|[\s>])select$|-select$/.test(x.trim())))
+          sels.filter(x => !/\boption\b/.test(x)).forEach(x => lightRules.push([x.trim(), lineAt(s.at + r.source.start.offset)]));
+      });
+    });
+    const miss = [];
+    lightRules.forEach(([sel, line]) => { if (!flat.has(sel)) miss.push(sel + ' (line ' + line + ')'); });
+    const re = /<select\b[^>]*?style\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi; let m;
+    while ((m = re.exec(raw))) {
+      const st = m[1] || m[2] || '';
+      const c = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(st);
+      if (!c || !light.test(c[1].trim()) || /appearance\s*:\s*none/.test(st)) continue;
+      const id = (/\bid\s*=\s*["']?([\w-]+)/.exec(m[0]) || [])[1];
+      if (!id || !flat.has('#' + id)) miss.push((id ? '#' + id : '<select>') + ' (line ' + lineAt(m.index) + ')');
+    }
+    check('every light-text select is covered by appearance: none', miss, [], miss.join(', '));
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nforced dark modes are opted out of (the page has no dark design)');
 {
   check('<meta name="color-scheme" content="only light">', /<meta name="color-scheme" content="only light"/.test(raw), true);
