@@ -826,6 +826,52 @@ console.log('\n[service liturgies]');
     /create policy "anon_all_service_liturgies"/.test(sql));
 })();
 
+// ---------------------------------------------------------------------------
+// A song taken out of its section stays out (2026-11-19, the operator)
+// ---------------------------------------------------------------------------
+// "Take out of this section" left the song in the order with no section, and
+// the next save started with snapshotCurrentState, which fills a missing
+// sectionId in from the last save -- and set it back on the song itself. The
+// builder drew it in its old section again and the save stored it there; the
+// song "kept coming back", and adding it to another section made a second
+// copy. Removing it in the Songbook stuck, because that deletes the entry.
+console.log('\nA song taken out of its section');
+(function() {
+  const collectSrc = extractFn('collectOrderItems');
+  const snapSrc = extractFn('snapshotCurrentState');
+  let uniqueSrc = '', ssiSrc = '';
+  try { uniqueSrc = extractFn('_woUniqueItems'); } catch (e) { uniqueSrc = 'function _woUniqueItems(l) { return l; }'; }
+  try { ssiSrc = extractFn('_woSSIFromItems'); } catch (e) { ssiSrc = 'function _woSSIFromItems() { return {}; }'; }
+  function run(taken) {
+    const song = { id: 'sg1', songId: 'lib1', title: 'Crown Him With Many Crowns', serviceSections: [], sectionId: '' };
+    const order = { id: 'o1', allItems: [
+      { id: 'sg1', itemType: 'song', sectionId: 'wo-section-3', sourceId: 'lib1', title: 'Crown Him With Many Crowns', slides: [] },
+      { id: 'o1__liturgy_x_wo-section-0', itemType: 'liturgy', sectionId: 'wo-section-0', sourceId: 'x', slides: [] }
+    ] };
+    const fn = new Function('document', 'window', 'currentOrderData', 'songOrderSections', '_woSongsTakenOutOfSections',
+      'var console = { log: function() {}, warn: function() {} }; var editingSlideBox = null;' +
+      'function saveSlideEdit() {} function _captureCurrentLayout() {}' +
+      'function $(id) { return document.getElementById(id); }' +
+      'var songOriginalLyrics = {}; var songTransposeSemitones = {};' +
+      'var sbTextAnnots = {}; var songOriginalRichLyrics = {}; var currentSermonSlides = {};' +
+      uniqueSrc + '\n' + ssiSrc + '\n' + collectSrc + '\n' + snapSrc + '\nsnapshotCurrentState();');
+    fn(makeDocument(), { serviceSectionItems: {} }, order, [song], taken ? { sg1: true } : {});
+    const stored = order.allItems.find(i => i.id === 'sg1');
+    return { song, stored, kept: order.allItems.some(i => i.itemType === 'liturgy') };
+  }
+  const out = run(true);
+  check('a song taken out keeps no section on itself after the save\'s snapshot', out.song.sectionId === '' && out.song.serviceSections.length === 0,
+    'sectionId ' + JSON.stringify(out.song.sectionId));
+  check('...and the items the save writes have it in no section', !!out.stored && !out.stored.sectionId,
+    'stored ' + JSON.stringify(out.stored && out.stored.sectionId));
+  const back = run(false);
+  check('a song the screen simply has not drawn still gets its section from the last save (Song Order\'s case)',
+    back.song.sectionId === 'wo-section-3' && back.stored && back.stored.sectionId === 'wo-section-3' && back.kept);
+  check('the toasts no longer send anybody to Song Order (retired)',
+    !/stays in Song Order|stay in Song Order|songs stay\x27\) \+ \x27 in Song Order/.test(SRC) &&
+    /' — it waits at the foot of the page, in no section'/.test(SRC));
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {
