@@ -39450,7 +39450,14 @@ var WO = (function() {
       var prevMap = {};
       prevItems.forEach(function(pi) { if (pi.sectionId) prevMap[pi.id] = pi.sectionId; });
       items.forEach(function(item) {
-        if (!item.sectionId && prevMap[item.id]) {
+        // ...except a song the operator took out of its section: no section
+        // is the point, not a gap (see _woSongsTakenOutOfSections). Filled in
+        // here, the song's own sectionId was set back below, the builder drew
+        // it in the section again, and the save stored it there -- "Take out
+        // of this section" never stuck, and adding the song to another
+        // section then made a second copy (2026-11-19, the operator).
+        var taken = item.itemType === 'song' && _woSongsTakenOutOfSections[item.id];
+        if (!item.sectionId && prevMap[item.id] && !taken) {
           item.sectionId = prevMap[item.id];
         }
         // Also persist sectionId on the song object for future lookups
@@ -79315,7 +79322,7 @@ var WO = (function() {
         });
         songs.forEach(function(s) { _lbdUnplaceSong(s, secId, list); });
       });
-      showToast('Removed “' + title + '”' + (songs.length ? ' — its songs stay in Song Order' : ''), 'info',
+      showToast('Removed “' + title + '”' + (songs.length ? ' — its songs stay in the order, at the foot of the page' : ''), 'info',
         { action: 'Undo', duration: 6000, onAction: lbdUndo });
     }
     if (!items.length && !songs.length) { doIt(); return; }
@@ -79329,7 +79336,7 @@ var WO = (function() {
     if (nOther) goes.push(count(nOther, 'other item', 'other items'));
     var msg = goes.length ? 'Its ' + goes.join(' and ') + ' will be removed with it.' : '';
     if (songs.length) {
-      msg += (msg ? ' ' : '') + 'Its ' + count(songs.length, 'song stays', 'songs stay') + ' in Song Order, without a section.';
+      msg += (msg ? ' ' : '') + 'Its ' + count(songs.length, 'song stays', 'songs stay') + ' in the order, without a section, at the foot of the page.';
     }
     var ask = (typeof window.customConfirm === 'function')
       ? window.customConfirm('Remove “' + title + '”?', msg)
@@ -79402,7 +79409,7 @@ var WO = (function() {
     if (!s) return;
     _lbdChange(function() { _lbdUnplaceSong(s, secId); });
     var placed = _woSongSectionIds(s).length > 0;
-    showToast('“' + (s.title || 'Song') + '” taken out of this section' + (placed ? '' : ' — it stays in Song Order'), 'info',
+    showToast('“' + (s.title || 'Song') + '” taken out of this section' + (placed ? '' : ' — it waits at the foot of the page, in no section'), 'info',
       { action: 'Undo', duration: 6000, onAction: lbdUndo });
   }
 

@@ -5698,6 +5698,33 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-side-fold-harness.js` checks it, running `_sbmSideHtml`
     and `sbmSideFold` rather than matching them.
 
+107. **A song taken out of its section stays out -- the save's snapshot
+    used to put it back.** From the operator (2026-11-19): in the Liturgy
+    Builder, "Take out of this section" on a song in Praise & Worship did not
+    stick, and adding the song to the Invocation then left it in both;
+    removing it in the Songbook stuck. A song taken out stays in the order,
+    in no section (`_lbdUnplaceSong`: `serviceSections` [] and `sectionId`
+    '', and `_woSongsTakenOutOfSections` says it was on purpose). A save
+    made away from the LCD schedule starts with `snapshotCurrentState`,
+    which fills a missing `sectionId` in from the last save
+    (`currentOrderData.allItems`) -- for the Song Order tab, where nothing is
+    drawn -- and then wrote that back onto the song entry itself. So the
+    song's own `sectionId` was its old section again, `_woSongSectionIds`
+    (which falls back to `sectionId` when `serviceSections` is empty) put it
+    there, the builder drew it there, and the save stored it there. Adding
+    it to Invocation then found it placed, not loose, and made a second copy
+    (`_lbdAddSong`). The fill-in now skips a song in
+    `_woSongsTakenOutOfSections`, as `collectOrderItems`' own fallback
+    always did. The Songbook's remove deletes the entry, which is why it
+    stuck. Reproducing it in the preview needs `SBQ.loadOrder` stopped after
+    the order is open: with saves held in memory the database still has the
+    old section, and the order sync (`_orderSyncApplyDelta`) "corrects" the
+    order back to it, which looks like the same bug and is not. The toasts
+    that said a song "stays in Song Order" (retired) say where it is: at the
+    foot of the page, in no section. `tools/liturgy-builder-harness.js`
+    checks it, running `snapshotCurrentState` over the real
+    `collectOrderItems`.
+
 ## Quick Commands for Claude Code
 
 ```bash
