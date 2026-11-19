@@ -5576,6 +5576,18 @@ the anon key -- verify as `postgres`, not as the app.
       at 320px the day's name two lines (it was four) and the card 575 to
       514px; at 480px and on a desk the buttons stay one row. Harness section
       39.
+    - **A file's buttons, a small column on a phone** (the operator,
+      2026-11-19, on a phone screenshot of the Files Repository: "make the
+      action buttons smaller and also stack vertically and give more space
+      for the name of the file and the description text" -- the name was
+      squeezed to "(Communio / n)" beside three 42px buttons). Up to 600px
+      wide a row's Preview / Open / Watch, Share and ⋯ (`.svp-row__acts`, a
+      document's and an app file's rows alike) are a column down its right
+      edge, 32 x 28px each with 4px between, icons only (each keeps its
+      `title` and `aria-label`), the row's badge 36px and the row aligned to
+      its top. A desk keeps its row of buttons with Preview in words.
+      Measured at 375px: the name 195px wide (it had about 70) and two lines,
+      the three buttons 92px tall beside it. Harness section 40.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of

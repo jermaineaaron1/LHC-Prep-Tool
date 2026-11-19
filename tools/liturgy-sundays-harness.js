@@ -2215,6 +2215,23 @@ try {
     /@container svpcard \(max-width: 379px\) \{[^}]*\}\s*\.svp-act__hd > i \{ display: none; \}\s*\.svp-act__hd h3 \{ font-size: 1\.05rem; white-space: nowrap; \}/.test(SRC) &&
     /@container svpact \(max-width: 249px\) \{\s*\.svp-chg \{ padding: 6px 9px; \}\s*\.svp-chg span \{ display: none; \}/.test(SRC) &&
     /class="svp-chg" onclick="LiturgyModule\.spoPick\(\)" title="Choose, change, blend or stop using the liturgy"/.test(SRC));
+  // ------------------------------------------------------------ 40. A file's buttons in a column on a phone
+  // From the operator (2026-11-19), on a phone screenshot of the Files
+  // Repository: "make the buttons smaller and vertically", so the name and
+  // its line have the width -- it was squeezed to "(Communio / n)".
+  console.log('\n40. A file row\'s buttons, a small column on a phone');
+  const m40 = /\/\* On a phone a row's three buttons are a small column[\s\S]*?@media \(max-width: 600px\) \{([\s\S]*?)\n  \}/.exec(SRC);
+  const r40 = m40 ? m40[1] : '';
+  check('under 600px the buttons stack down the row\'s right edge',
+    /\.svp-row__acts \{ flex-direction: column; align-items: stretch; gap: 4px; \}/.test(r40) &&
+    /\.svp-rows \.sp-doc2__top \{ align-items: flex-start; gap: 10px; \}/.test(r40));
+  check('...smaller (32 x 28px, icons only), the badge 36px, so the name takes the width',
+    /#liturgyServicePanel \.svp-rows \.svp-row__acts > button \{ width: 32px; height: 28px; min-height: 0; margin: 0; padding: 0;/.test(r40) &&
+    /\.svp-row__acts \.svp-open span \{ display: none; \}/.test(r40) &&
+    /\.svp-rows \.sp-doc2__top > \.lf-badge \{ width: 36px; height: 36px;/.test(r40));
+  check('...for a document\'s row and an app file\'s alike, and a desk keeps its row of buttons',
+    (SRC.match(/'<span class="svp-row__acts">/g) || []).length === 2 &&
+    /\.svp-row__acts \{ flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; \}/.test(SRC));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
     if (fail === 0) { console.log('--expect-broken: nothing failed, so this source already has it (or the harness has no teeth)'); process.exit(1); }
