@@ -53,6 +53,7 @@ if (EXPECT_BROKEN) { console.log('\nBUT --expect-broken was given and the fixes 
     function renderSongbookLive() {}
     function showToast(m) { ctx.toasts.push(m); }
     function _sbmLiveCheck() {}
+    function _sbmTakesStale() {}   // its own harness: songbook-refresh-takes
     ${fn('_sbmChoirShow')}
     ${fn('_sbmChoirArrived')}
     return _sbmChoirArrived;`);

@@ -14750,9 +14750,8 @@ function renderLyricsPreviewContent() {
     // so switching tabs does not cost a round trip.
     if (_vlRows.length && window.lhcVoiceRec) {
       window.lhcVoiceRec.bind(container, currentLyricsPreviewSong.id);
-      if (window.lhcVoiceRec.loaded(currentLyricsPreviewSong.id)) {
-        window.lhcVoiceRec.paintAll(container);
-      } else {
+      window.lhcVoiceRec.paintAll(container);   // what the store holds, while a read is out
+      if (!window.lhcVoiceRec.loaded(currentLyricsPreviewSong.id)) {
         window.lhcVoiceRec.load(currentLyricsPreviewSong.id).then(function() {
           var still = document.getElementById('lyricsPreviewContent');
           if (still && currentLyricsPreviewMode === 'choir') window.lhcVoiceRec.paintAll(still);
@@ -16234,9 +16233,20 @@ window.lhcVoiceRec = {
     // four times.
     R._loading = R._loading || {};
     if (R._loading[songId]) return R._loading[songId];
-    R._takes[songId] = {};
-    R._drafts[songId] = [];
-    var seen = {};
+    // What the store holds stays on the screen until the read has come back
+    // with what replaces it. It used to be emptied first, so a read that
+    // failed -- church Wi-Fi, a phone between masts -- left every badge at
+    // nought and the takes looking deleted until the app was opened again.
+    // A failed read leaves _loaded unset, and the next asking tries again.
+    if (!R._takes[songId]) R._takes[songId] = {};
+    if (!R._drafts[songId]) R._drafts[songId] = [];
+    var held = function() {
+      var out = (R._drafts[songId] || []).slice();
+      Object.keys(R._takes[songId] || {}).forEach(function(k) { out = out.concat(R._takes[songId][k] || []); });
+      return out;
+    };
+    var had = {};
+    held().forEach(function(t) { if (t) had[String(t.id)] = true; });
     R._loading[songId] = sb.from('song_recordings').select('*')
       .eq('song_id', songId)
       .order('created_at', { ascending: true })
@@ -16245,15 +16255,26 @@ window.lhcVoiceRec = {
         // An unmigrated line_id column must leave the page as it is rather
         // than blanking a song's recordings.
         if (r.error) return R._takes[songId];
-        (r.data || []).forEach(function(row) {
-          if (seen[row.id]) return;
+        // While the read was out this device may have recorded a take (the
+        // read may have left before its row was written) or deleted one (and
+        // the read may have left before the delete): the store says which.
+        var now = {}, gone = {};
+        held().forEach(function(t) { if (t) now[String(t.id)] = t; });
+        Object.keys(had).forEach(function(id) { if (!now[id]) gone[id] = true; });
+        var takes = {}, drafts = [], seen = {};
+        var put = function(row) {
+          if (!row || seen[row.id] || gone[String(row.id)]) return;
           seen[row.id] = true;
-          if (row.line_id == null) { R._drafts[songId].push(row); return; }
+          if (row.line_id == null) { drafts.push(row); return; }
           var k = String(row.line_id);
-          (R._takes[songId][k] = R._takes[songId][k] || []).push(row);
-        });
+          (takes[k] = takes[k] || []).push(row);
+        };
+        (r.data || []).forEach(put);
+        Object.keys(now).forEach(function(id) { if (!had[id]) put(now[id]); });
+        R._takes[songId] = takes;
+        R._drafts[songId] = drafts;
         R._loaded[songId] = true;
-        return R._takes[songId];
+        return takes;
       })
       .catch(function() { delete R._loading[songId]; return R._takes[songId]; });
     return R._loading[songId];
@@ -52453,8 +52474,8 @@ var WO = (function() {
     if (ly && window.lhcVoiceRec) {
       var R = window.lhcVoiceRec, base = _sbBaseSongId(song);
       R.bind(ly, base);
-      if (R.loaded(base)) R.paintAll(ly);
-      else R.load(base).then(function() { var live = document.getElementById('sbmLyrics'); if (live) { R.bind(live, base); R.paintAll(live); } });
+      R.paintAll(ly);   // what the store holds, while a read is out
+      if (!R.loaded(base)) R.load(base).then(function() { var live = document.getElementById('sbmLyrics'); if (live) { R.bind(live, base); R.paintAll(live); } });
     }
   }
   function _sbmInstHooks() {
@@ -54871,7 +54892,13 @@ var WO = (function() {
       }
       var d = _sbmLiveDiff(L.seen, fp), song = _sbmSong(), base = song ? _sbBaseSongId(song) : '';
       if (d.marks) { L.seen.marks = fp.marks; if (song) { delete _sbmMarksAt[base]; _sbmLoadMarks(song, true); } }
-      if (d.recs) { L.seen.recs = fp.recs; if (base) _sbmRecRefresh(base); }
+      // The other songs of the book are read again when they are next shown:
+      // a take recorded on another device for a song not in front used to
+      // stay missing until the app was opened again.
+      if (d.recs) { L.seen.recs = fp.recs; (L.ids || []).forEach(function(b) { if (b !== base) _sbmTakesStale(b); }); if (base) _sbmRecRefresh(base, true); }
+      // A read of the song's takes that failed is tried again here, every
+      // half-minute, rather than the badges waiting for the next redraw.
+      else if (base && window.lhcVoiceRec && !window.lhcVoiceRec.loaded(base) && !(window.lhcVoiceRec._loading || {})[base]) _sbmRecRefresh(base, true);
       if (!d.structural) { L.pendingAt = 0; _sbmLiveBanner(false); return; }
       // Only a change that is still there a few seconds on: a word typed
       // and taken straight out again never reaches the banner.
@@ -54919,7 +54946,9 @@ var WO = (function() {
       // The lines are forgotten AND the asking for them: the prefetch skips a
       // song it has asked about once, so forgetting only the lines left every
       // score on "Loading the choir parts" until the page was reloaded.
-      ids.forEach(function(b) { delete _sbVoiceLines[b]; delete _sbVoiceWanted[b]; delete _sbmRecsAt[b]; delete _sbmMarksAt[b]; });
+      // ...and the takes with them (_sbmTakesStale): filed by the lines' old
+      // ids, they were all on the screen as nought.
+      ids.forEach(function(b) { delete _sbVoiceLines[b]; delete _sbVoiceWanted[b]; _sbmTakesStale(b); delete _sbmMarksAt[b]; });
       var before = songOrderSections;
       if (_sbStandaloneId) openSongbookStandalone(_sbStandaloneId);
       else if (currentOrderData && currentOrderData.id) openSongbookByOrderId(currentOrderData.id);
@@ -55481,14 +55510,29 @@ var WO = (function() {
     }
     return null;
   }
-  function _sbmRecRefresh(base) {
+  // A song's takes are filed by line id, and a save of its choir parts gives
+  // every line a new id (the database moves each take to its new line,
+  // gotcha 19). So wherever the book reads a song's lines again it reads its
+  // takes again too, or the badges look for takes under ids the score no
+  // longer has and every recording seems gone until the app is opened afresh
+  // (a choir practice, 2026-11-18). Forgotten here, read on the next draw.
+  function _sbmTakesStale(base) {
+    if (!base) return;
+    delete _sbmRecsAt[base];
+    if (window.lhcVoiceRec && window.lhcVoiceRec._loaded) delete window.lhcVoiceRec._loaded[base];
+  }
+  // quiet: the change came from another device, so this one does not announce
+  // it as its own -- that broadcast set _sbmLiveOwnAt, and a check in the next
+  // 15 seconds then took any further change as this device's and bannered
+  // nothing.
+  function _sbmRecRefresh(base, quiet) {
     delete _sbmRecsAt[base];
     if (window.lhcVoiceRec) {
       delete window.lhcVoiceRec._loaded[base];
       window.lhcVoiceRec.load(base).then(function() {
         document.querySelectorAll('.sb-song-page--choir[data-choir-song="' + base + '"]').forEach(function(el) { window.lhcVoiceRec.paintAll(el); });
       });
-      if (window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(base);
+      if (!quiet && window.lhcVoiceRec._changed) window.lhcVoiceRec._changed(base);
     }
     var song = _sbmSong(); if (song) _sbmLoadRecs(song);
     if (typeof sbLoadRecordings === 'function' && _sbRecCurrentSongId === base) sbLoadRecordings(base);
@@ -61368,6 +61412,7 @@ var WO = (function() {
       var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === b; }) : null;
       if (lib) lib.voiceLayout = 'two-part';
       delete _sbVoiceWanted[b]; delete _sbVoiceRetryAt[b];
+      _sbmTakesStale(b);
     });
     _sbmChoirShow(bases);
     return Promise.all(bases.map(function(b) {
@@ -67170,14 +67215,19 @@ var WO = (function() {
           return { lyrics: _sbChoirChordWords(copy, songId), save: function(t) { return _sbChoirChordSave(copy, songId, t); } };
         } });
       }
-      if (window.lhcVoiceRec.loaded(songId)) {
-        window.lhcVoiceRec.paintAll(page);
-      } else {
+      // What the store holds is painted at once, read or not. A read can take
+      // seconds on church Wi-Fi (one that fails, about seven), and a score
+      // drawn meanwhile showed every line at nought -- takes that looked lost.
+      window.lhcVoiceRec.paintAll(page);
+      if (!window.lhcVoiceRec.loaded(songId)) {
         window.lhcVoiceRec.load(songId).then(function() {
           // The songbook may have been redrawn while this was in flight,
           // so the element is looked up again rather than captured.
-          var live = document.querySelector('.sb-song-page--choir[data-choir-song="' + songId + '"]');
-          if (live) { window.lhcVoiceRec.bind(live, songId); window.lhcVoiceRec.paintAll(live); }
+          // Every one: the song view's score and the printed pages both carry
+          // the song, and painting the first left the other at nought.
+          document.querySelectorAll('.sb-song-page--choir[data-choir-song="' + songId + '"]').forEach(function(live) {
+            window.lhcVoiceRec.bind(live, songId); window.lhcVoiceRec.paintAll(live);
+          });
         });
       }
     });

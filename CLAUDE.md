@@ -1064,7 +1064,8 @@ the anon key -- verify as `postgres`, not as the app.
     `if (loaded) paint else load().then(paint)`, so after `replaceAll`
     renumbers every row the store is about rows that no longer exist and
     the chips vanish -- the database correct, the screen wrong. `replaceAll`
-    now drops that flag. Anything else that renumbers lines must too.
+    now drops that flag. Anything else that renumbers lines must too --
+    and a device that only READS renumbered lines as well (gotcha 108).
 
 23. **Playback needs three ways back to rest, not one.** `onended` is the
     one everybody writes. A file that has gone fires `onerror`, and a
@@ -5748,6 +5749,46 @@ the anon key -- verify as `postgres`, not as the app.
     is on `#woWorshipOrder`'s `data-order-id`.
     `tools/refresh-keeps-place-harness.js` checks it, running
     `_orderSyncWhere`, `WO.refreshHere` and `window.lhcRefreshHere`.
+
+108. **The Songbook's Refresh reads the takes again with the lines, and a
+    read of the takes never empties what is held.** From the operator
+    (2026-11-19): at a choir practice somebody changed the songbook, the
+    others pressed Refresh, and "all the recordings were gone" until they
+    closed the app and opened it again. Reproduced in Chromium and WebKit
+    with every write blocked ("Make Room": 18 takes, then 0):
+    - **A save of the choir parts gives every line a new id** and the
+      database moves each take to its new line (gotcha 19). The saving device
+      drops `lhcVoiceRec._loaded` (gotcha 22); the OTHER devices raise the
+      banner, and `sbmLiveRefresh` read the songs and the lines again but not
+      the takes -- still "loaded", filed under ids the score no longer had,
+      so every badge read nought. Wherever the book reads a song's lines
+      again it now calls `_sbmTakesStale(base)` (the store's `_loaded` and the
+      Tracks list's `_sbmRecsAt` forgotten, read on the next draw): Refresh,
+      and `_sbmChoirArrived`. Anything new that re-reads lines from the
+      database does the same.
+    - **`lhcVoiceRec.load` emptied the store before its read**, so a read that
+      failed (about seven seconds to give up on a dead uplink) or was only
+      slow left a score drawn meanwhile at nought. The store now stays as it
+      is until the read lands, which replaces it whole; a take recorded here
+      while it was out is kept, one deleted here stays deleted; a failed read
+      leaves `_loaded` unset. And every view paints what the store holds AT
+      ONCE, then again when the read lands (`sbBindChoirRecorders` -- every
+      page of the song, not only the first -- the reading view's lyrics card,
+      the song library's Choir parts tab).
+    - **A failed read is tried again on the 30-second check** (`_sbmLiveCheck`:
+      the song in front not loaded and no read out -> `_sbmRecRefresh(base,
+      true)`), so a Refresh during a dropout heals by itself once the network
+      answers. Takes changed on another device now forget the OTHER songs'
+      stores too, read when shown: one recorded elsewhere for a song not in
+      front stayed missing until the app was reopened.
+    - **`_sbmRecRefresh(base, quiet)`**: quiet for a change another device
+      made. Unquiet it fires `lhc:recordings-changed`, whose listener
+      broadcasts `changed` AS THIS DEVICE'S and sets `_sbmLiveOwnAt`, so a
+      check in the next 15 seconds took any further change -- the lines too --
+      as its own and bannered nothing.
+    `tools/songbook-refresh-takes-harness.js` checks it, running `load`,
+    `_sbmTakesStale`, `_sbmRecRefresh`, `_sbmLiveCheck` and
+    `sbBindChoirRecorders` against stand-ins.
 
 ## Quick Commands for Claude Code
 
