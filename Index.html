@@ -107640,20 +107640,44 @@ var LiturgyModule = (function() {
     if (doc) return { name: doc.title || doc.fileName || 'its document', kind: _lfKind(doc), year: t.year || '', occ: t.occ || x.occ };
     return { name: x.title, kind: null, year: String((r && r.year) || x.year || ''), occ: (r && r.occasion_id) || x.occ };
   }
+  // Soft hyphens (U+00AD) at the syllable breaks of a name's long words, so a
+  // narrow badge breaks "Communion" as "Commu-nion" and never before its
+  // last letter, on every browser -- hyphens: auto needs a dictionary the
+  // browser may not have. A break goes between two consonants with vowels
+  // round them (com|mu) or before a consonant that opens a syllable (mu|nion),
+  // three letters at least either side, never inside th, ch, sh, ph, gh, ck,
+  // ng, qu or wh. Words under seven letters are left whole.
+  function _spSoftHyph(s) {
+    var V = /[aeiouy]/i, PAIR = /^(th|ch|sh|ph|gh|ck|ng|qu|wh)$/i;
+    return String(s == null ? '' : s).replace(/[A-Za-z]{7,}/g, function(w) {
+      var out = w.slice(0, 3);
+      for (var i = 3; i < w.length; i++) {
+        var ok = i <= w.length - 3 && !PAIR.test(w.slice(i - 1, i + 1)) && !V.test(w[i]) && V.test(w[i + 1] || '') &&
+          (V.test(w[i - 1]) || V.test(w[i - 2]));
+        out += (ok ? '\u00AD' : '') + w[i];
+      }
+      return out;
+    });
+  }
   function _spSourcesHtml(svl, occ) {
     if (!svl || !(svl.id || svl.fromOrder)) return '';
     var list = [{ id: svl.id || '', title: svl.title || (svl.fromOrder ? 'A past service' : 'A Liturgy App File'), year: svl.year, occ: svl.occasion || occ, orig: true }]
       .concat((Array.isArray(svl.blend) ? svl.blend : []).filter(function(f) { return f && f.id; }).map(function(f) { return { id: f.id, title: f.title || 'A Liturgy App File', year: f.year, occ: occ }; }));
     return '<div class="spi-src"><p class="spi-src__h"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>' + (list.length > 1 ? 'Sources <b>' + list.length + '</b>' : 'Source') + '</p><div class="spi-src__list">' + list.map(function(x) {
-      var lk = _spSrcLook(x), cy = lk.year ? _llYearText(lk.occ, lk.year) : '';
+      // On a narrow card the name takes the room (2026-11-19, the operator:
+      // a long name hyphenated, "Commu-nion", the year over its letter):
+      // Original sits on the kind's line under the name, and the year
+      // column is the year above "Year A".
+      var lk = _spSrcLook(x), cyL = lk.year ? _llCycleFor(lk.occ, lk.year) : '';
       var logo = lk.kind ? _lfBadge(lk.kind) : '<span class="lf-badge spi-srcb__app" aria-hidden="true"><i class="fa-solid fa-book-bookmark"></i></span>';
-      var main = logo + '<span class="spi-srcb__t"><b>' + _lfE(lk.name) + '</b><small>' + _lfE(lk.kind ? lk.kind.label : (x.id ? 'Liturgy App File' : 'A past service')) + '</small></span>' +
-        (x.orig ? '<em>Original</em>' : '');
+      var main = logo + '<span class="spi-srcb__t"><b>' + _lfE(_spSoftHyph(lk.name)) + '</b><small>' + _lfE(lk.kind ? lk.kind.label : (x.id ? 'Liturgy App File' : 'A past service')) +
+        (x.orig ? '<em>Original</em>' : '') + '</small></span>';
       if (!x.id) return '<span class="spi-srcb is-orig is-past"><span class="spi-srcb__main">' + main + '</span></span>';
       return '<span class="spi-srcb' + (x.orig ? ' is-orig' : '') + '">' +
         '<button type="button" class="spi-srcb__main" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrc(this.dataset.id)" title="Preview it" aria-label="' + _lfE('Preview ' + lk.name) + '">' + main + '</button>' +
-        (cy ? '<button type="button" class="spi-srcb__yr" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrcGo(this.dataset.id)" title="' + _lfE('Go to it in the ' + lk.year + ' folder') + '">' +
-            _lfE(cy) + '<i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>' : '') + '</span>';
+        (lk.year ? '<button type="button" class="spi-srcb__yr" data-id="' + _lfE(x.id) + '" onclick="LiturgyModule.spoSrcGo(this.dataset.id)" title="' + _lfE('Go to it in the ' + lk.year + ' folder') + '">' +
+            '<span class="spi-srcb__yy"><b>' + _lfE(String(lk.year)) + '</b>' + (cyL ? '<small>' + _lfE(cyL) + '</small>' : '') + '</span>' +
+            '<i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>' : '') + '</span>';
     }).join('') + '</div></div>';
   }
   // A source's Liturgy App File, from this page's rows, else the original's
@@ -127352,10 +127376,15 @@ function filterLiturgyItems() {
   .spi-srcb .lf-badge { width: 26px; height: 26px; border-radius: 7px; font-size: 0.5rem; }
   .spi-srcb__app { color: #1f4d36; background: #e3f4ea; font-size: 0.72rem !important; }
   .spi-srcb__t { display: flex; flex-direction: column; min-width: 0; }
-  .spi-srcb__t b { font-weight: 700; overflow-wrap: anywhere; line-height: 1.25; }
-  .spi-srcb__t small { font-weight: 500; font-size: 0.66rem; color: #6b5f50; }
+  /* a long name is hyphenated where the language allows ("Commu-nion",
+     html lang="en"), else broken where it must; it never widens the card */
+  .spi-srcb__t b { font-weight: 700; overflow-wrap: anywhere; -webkit-hyphens: auto; hyphens: auto; line-height: 1.25; }
+  .spi-srcb__t small { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 8px; font-weight: 500; font-size: 0.66rem; color: #6b5f50; }
   .spi-srcb em { flex: 0 0 auto; font-style: normal; font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase; color: #8a6a24; }
   .spi-srcb__yr { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 0; border-left: 1px solid #e3d2a6; background: #fdf1d3; color: #7a5a1c; font: 700 0.68rem 'Poppins', sans-serif; white-space: nowrap; cursor: pointer; }
+  /* the year over its lectionary letter */
+  .spi-srcb__yy { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+  .spi-srcb__yy small { font-weight: 600; font-size: 0.86em; opacity: 0.85; }
   .spi-srcb__yr:hover { background: #f8e4b4; }
   .spi-srcb__yr i { font-size: 0.6rem; }
   .spi-srcb__main:focus-visible, .spi-srcb__yr:focus-visible { outline: 2px solid #1f4d36; outline-offset: -2px; }
@@ -127531,7 +127560,7 @@ function filterLiturgyItems() {
   .svp-act .spi-srcb__t b { font-size: 0.92rem; }
   .svp-act .spi-srcb__t small { font-size: 0.8rem; }
   .svp-act .spi-srcb em { padding: 3px 11px; border-radius: 999px; background: #fbe6a8; color: #7a5a1c; font-size: 0.74rem; font-weight: 700; letter-spacing: 0; text-transform: none; }
-  .svp-act .spi-srcb__yr { padding: 0 12px; font-size: 0.82rem; font-weight: 700; color: #3d2f10; }
+  .svp-act .spi-srcb__yr { padding: 0 10px; font-size: 0.82rem; font-weight: 700; color: #3d2f10; }
   #liturgyServicePanel .svp-act .spi-cmp { margin: 0; }
   #liturgyServicePanel .svp-act .spi-cmp--same { padding: 0; background: none; font-size: 0.92rem; }
   .svp-act .spi-cmp--same > i { color: #1f7a3f; font-size: 1.1rem; }
@@ -127545,6 +127574,37 @@ function filterLiturgyItems() {
   #liturgyServicePanel .svp-act--none .lf-btn.svp-builder { width: 100%; background: #1f5a37; border-color: #1f5a37; color: #fff; }
   #liturgyServicePanel .svp-act .lf-btn.svp-more { flex: 0 0 auto; width: 52px; padding: 0; background: #fff; border: 1px solid #d8cdb8; color: #1d1a14; }
   #liturgyServicePanel .svp-act .svp-builder:hover, #liturgyServicePanel .svp-act .svp-more:hover { background: #f7f3ea; }
+  /* A narrow card (a phone of about 420px or less; 2026-11-19, the operator:
+     the text "struggling to fit"). Show Liturgy, Builder and the menu need
+     about 341px in a row, so the card gives Show Liturgy a row of its own and
+     Builder the rest of the next, rather than running the menu off its edge;
+     and the heading keeps "Active Liturgy" on one line beside its badge, the
+     tick left out. Only up to 768px wide, where the card is a block of its
+     column: a size container measures nothing from its contents. */
+  @media (max-width: 768px) {
+    .svp-act { container: svpcard / inline-size; }
+    .svp-act__body { container: svpact / inline-size; }
+  }
+  @container svpact (max-width: 354px) {
+    #liturgyServicePanel .svp-act__acts { flex-wrap: wrap; }
+    #liturgyServicePanel .svp-act .lf-btn.svp-show { flex: 1 1 100%; }
+    #liturgyServicePanel .svp-act .lf-btn.svp-builder { flex: 1 1 auto; }
+    .svp-act .spi-srcb .lf-badge { width: 30px; height: 30px; border-radius: 8px; font-size: 0.55rem; }
+    .svp-act .spi-srcb__main { gap: 8px; padding: 8px 8px 8px 9px; }
+    .svp-act .spi-srcb__yr { padding: 0 8px; }
+  }
+  /* the narrowest phones (320px): Change is its arrows alone (its title names
+     it), so the day's name is not squeezed to a word a line */
+  @container svpact (max-width: 249px) {
+    .svp-chg { padding: 6px 9px; }
+    .svp-chg span { display: none; }
+  }
+  @container svpcard (max-width: 379px) {
+    .svp-act__hd { flex-wrap: wrap; row-gap: 6px; }
+    .svp-act__hd > i { display: none; }
+    .svp-act__hd h3 { font-size: 1.05rem; white-space: nowrap; }
+    .svp-act__badge { padding: 3px 9px; font-size: 0.68rem; }
+  }
   .svp-act--none .sp-fits, .svp-act--none .sp-make__none, .svp-act--none .sp-how, .svp-act--none .sp-make__when { margin: 0; }
   /* the Files Repository */
   .svp-files .svp-hd__ico { color: #d18f2a; }

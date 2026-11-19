@@ -5537,6 +5537,31 @@ the anon key -- verify as `postgres`, not as the app.
       bulletin" line went; that sentence is the prayer's `title`. Measured:
       no prayer 201 to 106px on a phone (480px); a 70-word prayer about 358
       to 268px there, 168px on a desk. Harness section 38.
+    - **The Active Liturgy card on a narrow phone** (the operator, 2026-11-19,
+      on a phone screenshot: the text "struggling to fit", a long name
+      hyphenated -- "Commu - nion" -- and "for the year column - put the year
+      above and the letter below"). The Source badge's name carries soft
+      hyphens at its long words' syllable breaks (`_spSoftHyph`, pure: words
+      of seven letters or more, between two consonants with vowels round them
+      or before a consonant that opens a syllable, three letters at least
+      either side, never inside th / ch / sh / ph / gh / ck / ng / qu / wh), so
+      it breaks "(Commu-" / "nion)" on every browser -- `hyphens: auto` is
+      set too, but needs a dictionary the browser may not have, and without
+      one `overflow-wrap: anywhere` broke before the last ")". Original sits
+      on the kind's line under the name, and the year column is the year over
+      its lectionary letter (`.spi-srcb__yy`: "2025" / "Year A",
+      `_llCycleFor`; a year with no letter alone). Up to 768px wide the card
+      and its body are size containers (`svpcard`, `svpact`; not on a desk,
+      where a container measures nothing from its contents): under 355px of
+      body, Show Liturgy takes a row of its own and Builder the next -- the
+      three need about 341px, and the menu ran off the card's edge at 375px;
+      under 380px of card the heading drops its tick, so "Active Liturgy"
+      stays on one line beside its badge; under 250px (a 320px phone) Change
+      is its arrows alone (its title names it), and the badge's logo is 30px.
+      Measured at 375px: nothing past the card's edge, the card 500 to 467px;
+      at 320px the day's name two lines (it was four) and the card 575 to
+      514px; at 480px and on a desk the buttons stay one row. Harness section
+      39.
 
 105. **The Slide Editor is a window, and the console's vertical band is
     zero-sum.** From the operator (2026-11-15), on a marked-up screenshot of
