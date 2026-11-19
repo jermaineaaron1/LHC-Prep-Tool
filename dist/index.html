@@ -31044,6 +31044,10 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
   window.clearSongSearch = clearSongSearch; // Expose for Clear button
   window.showToast = showToast; // Expose globally for other modules
   window.setActiveView = setActiveView; // Expose for top nav bar (per screenshot 297/298)
+  // Songs and orders read again where the reader stands, for the offline
+  // bar's Refresh (window.lhcRefreshHere): loadAllData without its toast and
+  // splash. Each redraws what it feeds (Home's cards, the Songs list).
+  window.lhcReloadData = function() { return Promise.all([loadSongs(), loadOrders()]); };
   window.escapeHtml = escapeHtml; // Expose globally for other modules
   window.hexToRgba = hexToRgba; // Expose for playlist/media modal
   window.openModal = openModal; // Expose for WO module and inline handlers
@@ -36699,9 +36703,11 @@ var WO = (function() {
   var _orderSyncPending    = null; // a difference seen once, waiting to be seen twice
   var _orderSyncShown      = null; // the difference currently on the banner
   var _orderSyncDismissed  = null; // one the operator has waved away
-  var _orderSyncResumeMode = null; // where to land after a reload we triggered
+  // Where to land after a reload we triggered: { mode, target, live, fs,
+  // scroll } -- the step, the item the notice was about, the slide in front
+  // of the operator, the console's full screen, the place on the page.
+  var _orderSyncResume = null;
   var _orderSyncBannerTarget = null; // the item the notice on screen is about
-  var _orderSyncResumeTarget = null; // ...carried through the reload it asks for
   var ORDER_SYNC_MS = 4000;
 
   window._lcdLiveTest = {
@@ -37066,24 +37072,86 @@ var WO = (function() {
     document.body.appendChild(bar);
   }
 
+  // Which step of the order is on screen: 'service' (LCD Projection),
+  // 'liturgy' (the Liturgy Builder), 'song' (the retired Song Order list),
+  // or null (the order's landing, the three steps offered). It used to read
+  // `wo-mode-song` for Song Order, but showOrderModeLanding sets that class
+  // too, so a reload from the landing opened the retired Song Order list.
+  function _orderSyncWhere() {
+    if (document.body.classList.contains('lcd-console-open')) return 'service';
+    if (_lbdIsActive()) return 'liturgy';
+    var landing = $('woModeLanding');
+    if (landing && landing.style.display !== 'none' && landing.getClientRects().length) return null;
+    var mc = document.querySelector('.wo-main-content');
+    if (mc && mc.style.display !== 'none' && mc.classList.contains('wo-song-order')) return 'song';
+    return null;
+  }
+
+  function _orderSyncScrollTop() {
+    var se = document.scrollingElement || document.documentElement;
+    return se ? se.scrollTop : 0;
+  }
+
   function _orderSyncReload() {
     // The banner floats, so pressing it is not a click away: ask here, and
     // leave the banner up if the answer is Keep editing.
     if (!_lcdDraftGuard(_orderSyncReload)) return;
     var oid = currentOrderData && currentOrderData.id;
     if (!oid) return;
-    // Land back in the half of the order they were working in.
-    _orderSyncResumeMode = document.body.classList.contains('lcd-console-open') ? 'lcd'
-                         : _lbdIsActive() ? 'liturgy'
-                         : (document.body.classList.contains('wo-mode-song') ? 'song' : null);
-    _orderSyncResumeTarget = _orderSyncBannerTarget;
+    // Back exactly where the operator was (2026-11-19: "The users should be
+    // at the same page and receive the updates"): the step; in LCD
+    // Projection the slide in front of them and the console's full screen,
+    // which the landing would otherwise leave; in the builder, the place on
+    // the page.
+    var mode = _orderSyncWhere();
+    _orderSyncResume = {
+      mode: mode,
+      target: _orderSyncBannerTarget,
+      live: mode === 'service' ? _orderSyncRememberLive() : null,
+      fs: mode === 'service' && document.body.classList.contains('lcd-workspace-fullscreen'),
+      scroll: _orderSyncScrollTop()
+    };
     _orderSyncClearBanner();
     _orderSyncPending = null;
     _orderSyncDismissed = null;
     delete _orderSyncSeen[oid];   // the reload re-seeds it
-    showToast('Reloading order…', 'info');
+    showToast('Reloading order\u2026', 'info');
     loadOrder(oid);
   }
+
+  // Back online (the offline bar's Refresh, window.lhcRefreshHere): what the
+  // Orders view shows is read again WITHOUT leaving it -- the list, and the
+  // order open here, on the step it is on. LCD Projection catches up through
+  // the live sync, which applies a change in place and keeps the slide on the
+  // wall and the projection window (gotchas 81-82); the builder and the
+  // landing reload the order and come back to where they were. Returns
+  // { where, kept }: kept when keepOrder asked to leave an order whose
+  // changes have not saved.
+  function refreshHere(opts) {
+    opts = opts || {};
+    var out = { where: 'none', kept: false };
+    try { _ordersPreloaded = false; silentPreloadOrders(); } catch (e) {}
+    if (_sbmBookOpen()) { try { sbmLiveRefresh(); } catch (e) {} out.where = 'songbook'; return out; }
+    var oid = currentOrderData && currentOrderData.id;
+    var view = $('worshipOrderView');
+    if (!oid || !view || !view.getClientRects().length) return out;
+    var where = _orderSyncWhere();
+    out.where = where || 'landing';
+    if (where === 'service') {
+      // A change is acted on once it is seen on two readings, so read again;
+      // and once more, as a reading already in flight swallows the first.
+      _orderSyncPending = null;
+      _orderSyncDismissed = null;
+      _orderSyncTick();
+      setTimeout(_orderSyncTick, 900);
+      setTimeout(_orderSyncTick, 2200);
+      return out;
+    }
+    if (opts.keepOrder && unsavedWork()) { out.kept = true; return out; }
+    _orderSyncReload();
+    return out;
+  }
+
 
   // Which kinds of item the operator has deliberately removed since the last
   // successful save. A save may clear a whole category only if the person
@@ -37408,14 +37476,34 @@ var WO = (function() {
     // A reload the sync notice asked for goes back where the operator was,
     // rather than dropping them on a mode-choice screen they never asked to
     // see. One-shot: any other route through here still lands on the landing.
-    if (_orderSyncResumeMode) {
-      var _resume = _orderSyncResumeMode;
-      var _target = _orderSyncResumeTarget;
-      _orderSyncResumeMode = null;
-      _orderSyncResumeTarget = null;
+    if (_orderSyncResume) {
+      var _rs = _orderSyncResume;
+      _orderSyncResume = null;
       setTimeout(function() {
-        if (typeof selectOrder === 'function') selectOrder(_resume);
-        if (_target) _orderSyncRevealTarget(_target);
+        if (_rs.mode && typeof selectOrder === 'function') selectOrder(_rs.mode);
+        // The console's full screen, left only by the class: the browser's own
+        // full screen was kept (showOrderModeLanding), as it cannot be asked
+        // for again without a tap.
+        if (_rs.mode === 'service' && _rs.fs && !document.body.classList.contains('lcd-workspace-fullscreen')) {
+          lcdToggleWorkspaceFullscreen(true);
+        }
+        if (_rs.target) { _orderSyncRevealTarget(_rs.target); return; }
+        if (_rs.mode === 'service' && _rs.live) {
+          // The slide the operator had, once the schedule is drawn again.
+          var _tries = 0;
+          (function _back() {
+            if (_orderSyncRestoreLive(_rs.live)) return;
+            var sel = document.querySelector('.wo-slide-box.selected');
+            var k = sel ? (sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '') : '';
+            if (k === _rs.live.key) return;
+            if (++_tries < 12) setTimeout(_back, 250);
+          })();
+        } else if (_rs.mode === 'liturgy' && _rs.scroll) {
+          setTimeout(function() {
+            var se = document.scrollingElement || document.documentElement;
+            if (se) se.scrollTop = _rs.scroll;
+          }, 0);
+        }
       }, 60);
     }
     // A link shared to this service -- from a phone's share sheet, the share
@@ -39641,7 +39729,9 @@ var WO = (function() {
     // The landing screen is hidden by the full-screen CSS, so staying in that
     // mode here would leave a blank viewport with no way out but Esc.
     if (document.body.classList.contains('lcd-workspace-fullscreen')) {
-      lcdToggleWorkspaceFullscreen(false);
+      // A reload on its way back to LCD Projection keeps the browser's own
+      // full screen: it cannot be asked for again without a tap.
+      lcdToggleWorkspaceFullscreen(false, !!(_orderSyncResume && _orderSyncResume.fs));
     }
   }
 
@@ -99901,6 +99991,7 @@ var WO = (function() {
     autoSaveOrder: autoSaveOrder,
     saveImmediately: saveImmediately,
     unsavedWork: unsavedWork,
+    refreshHere: refreshHere,
     _replayPendingOrderSave: _replayPendingOrderSave,
     _rescueDeletedOrderAsNew: _rescueDeletedOrderAsNew,
     saveOrderAs: saveOrderAs,
@@ -134806,6 +134897,23 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
       });
     },
 
+    // Back online (window.lhcRefreshHere): the month on screen read again
+    // where it stands, scrolled where it was -- unless it holds edits not
+    // yet saved, which the read would write over.
+    refreshHere: function() {
+      if (STATE.rosterHasUnsaved && STATE.rosterEdits.size) return Promise.resolve(false);
+      var self = this;
+      var wrap = document.querySelector('#worshipRosterView .roster-table-wrapper');
+      var x = wrap ? wrap.scrollLeft : 0, y = window.pageYOffset || 0;
+      return this.loadRosterData().then(function() {
+        self.render();
+        var w2 = document.querySelector('#worshipRosterView .roster-table-wrapper');
+        if (w2) w2.scrollLeft = x;
+        window.scrollTo(0, y);
+        return true;
+      });
+    },
+
     loadRosterData: function() {
       var self = this;
       // If Supabase SDK isn't ready yet, retry up to 3 seconds
@@ -143556,37 +143664,76 @@ window.LHC_Install = (function() {
             : 'Offline — cannot reach the database. Nothing new will load and changes cannot be saved.');
     }
 
-    /* Back online. A reload is what picks up everything another device did
-       while this one was out -- the songs, the roster, the orders list -- so
-       the bar says so and offers it, rather than leaving the operator reading
-       an hour-old screen that looks perfectly normal. */
+    /* Back online. What other devices did while this one was out -- the
+       songs, the orders list, the roster, the order open here -- is read again
+       IN PLACE (2026-11-19, the operator: "The users should be at the same
+       page and receive the updates. This is especially important when the
+       LCD receive updates are getting back online after a sudden internet
+       outage"). Refresh used to reload the whole page, and the app always
+       starts on Home: the operator lost the order, the step and the slide,
+       the projection window lost the page that drives it, and presenter full
+       screen ended. Nothing reloads now; each part on screen catches up where
+       it stands. */
+    window.lhcRefreshHere = function (opts) {
+      opts = opts || {};
+      var jobs = [], kept = false;
+      function shown(id) { var v = document.getElementById(id); return !!(v && v.getClientRects().length); }
+      function add(p) { if (p && p.then) jobs.push(p.then(function () {}, function () {})); }
+      try { if (window.lhcReloadData) add(window.lhcReloadData()); } catch (e) {}
+      try {
+        if (window.WO && WO.refreshHere) kept = !!(WO.refreshHere({ keepOrder: !!opts.keepOrder }) || {}).kept;
+      } catch (e) {}
+      try {
+        if (shown('worshipRosterView') && window.RosterEngine && RosterEngine.refreshHere) add(RosterEngine.refreshHere());
+      } catch (e) {}
+      try {
+        if (shown('liturgyView') && window.LiturgyModule && LiturgyModule.syncFromBackend) LiturgyModule.syncFromBackend();
+      } catch (e) {}
+      return Promise.all(jobs).then(function () { return { kept: kept }; });
+    };
+
     function _offRefresh(btn) {
       function unsaved() {
         try { return !!(window.WO && WO.unsavedWork && WO.unsavedWork()); }
         catch (e) { return false; }
       }
-      if (!unsaved()) { location.reload(); return; }
-      /* Anything typed during the outage never reached the database. Reloading
-         first would throw it away, so this saves and WAITS, and if the save
-         still has not landed it says so rather than reloading anyway. */
+      function go(keepOrder) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Refreshing';
+        window.lhcRefreshHere({ keepOrder: keepOrder }).then(function (r) {
+          _offWasOff = false;
+          _offSeenAt = _offSince();
+          offDiv.classList.remove('show');
+          if (typeof showToast === 'function') {
+            if (r && r.kept) showToast('Up to date. This order was left as it is: your changes in it have not saved yet.', 'warning');
+            else showToast('Up to date.', 'success');
+          }
+        });
+      }
+      if (!unsaved()) { go(false); return; }
+      /* Anything typed during the outage never reached the database, and the
+         order open here is reloaded by Refresh -- so this saves and WAITS. If
+         the save still has not landed, it says so, and Refresh then leaves
+         that order as it is and brings everything else up to date. */
       btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving…';
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving';
       try { if (window.WO && WO.saveImmediately) WO.saveImmediately(); } catch (e) {}
       var tries = 0;
       (function wait() {
-        if (!unsaved()) { location.reload(); return; }
+        if (!unsaved()) { go(false); return; }
         if (++tries > 25) {           // five seconds
           offDiv.querySelector('.lhc-off-msg').innerHTML =
             '<i class="fa-solid fa-triangle-exclamation"></i> Your changes still have not saved. '
-            + 'Refreshing now would lose them.';
+            + 'Refresh brings everything else up to date and leaves this order as it is.';
           btn.disabled = false;
-          btn.textContent = 'Refresh anyway';
-          btn.onclick = function () { location.reload(); };
+          btn.textContent = 'Refresh the rest';
+          btn.onclick = function () { go(true); };
           return;
         }
         setTimeout(wait, 200);
       })();
     }
+
 
     function _offDraw(mode) {
       var back = (mode === 'back');
