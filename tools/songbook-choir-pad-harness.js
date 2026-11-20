@@ -230,6 +230,7 @@ const env = new Function('ctx', 'window', secVar + '\n' + NAMES.map(fn).join('\n
   function showToast(m) { ctx.toasts.push(m); }
   function showLoader() {}
   function renderSongbookLive() {}
+  function _sbmBookOpen() { return true; }   // the pad runs inside an open Songbook
   function _sbVoiceWrite(base, sid, rows, o) { ctx.written = rows; ctx.writeOpts = o; return Promise.resolve(); }
   function _sbmPadSaveChords(base, rows, chords, sid) { ctx.chords = chords; return Promise.resolve({ written: false, orphans: chords.filter(function(c) { return !c.words; }).map(function(c) { return c.words; }) }); }
   function _sbPartColoursSave() { return Promise.resolve(); }

@@ -109,7 +109,9 @@ check('the editor hands the Songbook\'s words back to it, and stays open if refu
   !!saveSrc && /if \(currentLyricsMode === '__sb__'\) \{\r?\n\s*if \(window\.WO && WO\.sbSaveLyricsFromModal && WO\.sbSaveLyricsFromModal\(lyrics\) === false\) return;\r?\n\s*closeLyricsEditor\(\);\r?\n\s*return;/.test(saveSrc) &&
   saveSrc.indexOf("currentLyricsMode === '__sb__'") < saveSrc.indexOf('songData[currentLyricsMode].lyrics = lyrics'));
 check('...which saves them both ways, tells the others, and shows them',
-  has(/_sbCanonicalText\[sid\] = lyrics;[^]*?sbAutoSave\(\);\r?\n\s*autoSaveOrder\(\);\r?\n\s*_sbmLiveSend\(\);\r?\n\s*renderSongbookLive\(\);/));
+  // shows them while the Songbook is open: the Liturgy Book saves through
+  // here too, and a Songbook drawn hidden measures every page as nothing
+  has(/_sbCanonicalText\[sid\] = lyrics;[^]*?sbAutoSave\(\);\r?\n\s*autoSaveOrder\(\);\r?\n\s*_sbmLiveSend\(\);\r?\n(?:\s*\/\/[^\n]*\n)*\s*if \(_sbmBookOpen\(\)\) renderSongbookLive\(\);/));
 check('...with the transposition\'s baseline the new words', has(/songOriginalLyrics\[sid\] = lyrics;\r?\n\s*songOriginalRichLyrics\[sid\] = song\.richLyrics;/));
 check('closing the editor lets the song go', has(/if \(currentLyricsMode === '__sb__'\) \{\r?\n\s*currentLyricsMode = 'new';\r?\n\s*if \(window\.WO && WO\.sbLyricsEditorClosed\) WO\.sbLyricsEditorClosed\(\);/) &&
   has(/sbLyricsEditorClosed: sbLyricsEditorClosed,/));
