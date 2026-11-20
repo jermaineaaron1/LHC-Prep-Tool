@@ -388,8 +388,12 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - **Song Order**, step 2 until November 2026, is retired: it is under More
   as "Song Order (old view)" with a note pointing to the Songbook, and its
   code is to be deleted once nobody has missed it for a few services.
-- The **Liturgy Book** (More menu, or the builder's button) is the builder's
-  printable form and edits the same order.
+- The **Liturgy Book** (More menu, or the builder's big gold button) is the
+  builder's printable form and edits the same order -- since 2026-11-20 as
+  a document: white, black and gold, the words reflowed to the screen and
+  zoomed, sections dragged, renamed and added in its contents, Enter at a
+  slide's end a new slide, full screen read only until a 2-second hold
+  (gotcha 111).
 - Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
@@ -2577,8 +2581,9 @@ the anon key -- verify as `postgres`, not as the app.
     for text painted outside its box) lives in one late stylesheet,
     `<style id="lhc-phone-fit-css">` after the bottom bar: the Liturgy
     Book's bar on a phone (it held fourteen buttons in 54px; Close was off
-    the screen) is two rows, the name with Close pinned beside it, then the
-    tools in one row that scrolls sideways; the Songbook More sheet's
+    the screen) is two rows -- since 2026-11-20 the name with undo, redo,
+    More and Close, then Full Screen, PDF, WhatsApp and the size, nothing
+    scrolling (gotcha 111); the Songbook More sheet's
     sentence-long labels wrap; the order's step tabs tighten under 420px.
     And a `<select>` with light text for a dark box sets `appearance: none`
     with an arrow drawn in: Safari otherwise draws its own light grey and
@@ -5898,6 +5903,71 @@ the anon key -- verify as `postgres`, not as the app.
       (`getAnimations({ subtree: true })`, `currentTime = 2200`) and measure.
     `tools/builder-word-bar-harness.js` checks it, running the bar, the
     double-tap, `lbdAddSection`, `_lbdIntroGeom` and `_lbdIntroPlace`.
+
+111. **The Liturgy Book is a document: it reflows, it is edited, and full
+    screen asks for a hold.** From the operator (2026-11-20), the same
+    mark-up: "Allow users to customize through Liturgy book"; Enter at the
+    end of a slide makes a new one; drag, add and rename sections in its
+    contents; "Better layout for buttons. Prioritise Fullscreen & PDF print,
+    WhatsApp share"; fit the width, big and clear, with zoom; in full screen
+    the content laid out as in the working mode, editable after a 2-second
+    hold. Asked, they chose words that reflow (not A4 scaled) and white,
+    black and gold.
+    - **Reflow, not scale.** The page is the screen's width, at most 860px
+      (`.lb2-page`, `.lb2-page-break`; no `210mm` on the screen), and the
+      zoom is CSS `zoom` on `#lb2ZoomWrap` (`_lb2ApplyZoom`), so bigger is
+      bigger words wrapped again. It used to be a `transform: scale` of an
+      A4 page, capped at 100%, so a phone showed a 45% page. The fit is
+      `_lb2FitZoom` (pure): 110% on a phone, 100-130% on a desk as its width
+      allows; a size chosen is kept on the device (`lhc_lb2_zoom`,
+      60-240%), and the % button fits again (`lb2ZoomFit`). Print and the
+      PDF write `zoom:1` and `210mm` into their window, so paper is A4.
+      Firefox before 126 has no `zoom`: the book is at 100% there.
+    - **White, black, gold.** The book's style block and its renderer's
+      inline styles were green; a fixed map turned them (the print window
+      copies both), then a block of its own: a charcoal bar with a gold rule,
+      a white page with a gold rule over the contents. The modal's inline
+      background is `#e9e7e1`.
+    - **The header**: Full Screen (gold), PDF / Print (white), WhatsApp
+      (green) first, then the size (- % +), undo and redo -- now the
+      builder's own (`lbdUndo` / `lbdRedo`; they were TODO), More (the
+      Builder, chords, two columns, sync, save) and close. Book Mode ("coming
+      soon") is gone from it. On a phone the late phone-fit block (gotcha 71)
+      makes it two rows, all on the screen.
+    - **The contents** (the index table): each row carries `data-sec`, a
+      grip and a pen. The grip drags a section (`_lb2DragStart` ...
+      `_lb2DragEnd` -> `_lbdMoveSectionTo`, one Undo), rows trading places
+      under the finger by `elementFromPoint` -- a box's measured top is wrong
+      inside Safari's CSS zoom (gotcha 71). The pen, a double tap or a
+      double-click renames in place (`_lb2StartRename`: Enter keeps, Escape
+      puts back). "+ Add section" at the foot offers the builder's kinds
+      (`_LBD_SEC_KINDS`, gotcha 110), a blank one named at once in place.
+    - **The words**: Enter (`beforeinput` `insertParagraph`, which a phone's
+      keyboard sends too) at the end of a slide's words is a new slide after
+      it, with its background, the cursor in it (`_lb2NewSlideAfter`);
+      anywhere else a new line; Backspace at a slide's start joins it to the
+      one before (`_lb2JoinBack`). A word kept on blur is a `_lbdChange`
+      now (`lb2SaveSlideEdit`), so one Undo in the book and the builder.
+      `_lbdCommit` redraws an open book after any change (`_lb2Rerender`),
+      never under a word being typed (`_lb2TextSave`, and the focus check),
+      keeping its scroll.
+    - **Full screen** (`_lb2SetFullscreen`): the device's own where it has
+      one (`requestFullscreen`, webkit's returning nothing -- no `.catch`), the
+      header over the page rather than above it, the same zoom, so the book
+      is laid out as it was; the device leaving it (Escape) leaves ours
+      (`_lb2OnFsChange`). The words are read only (`_lb2Lock`,
+      `contenteditable` false, the phone's long-press selection off) until
+      held 2 seconds without moving 10px (`_lb2HoldStart`, a gold ring
+      growing): then they open where the finger was, and the bar at the foot
+      offers Done editing; it also leaves full screen and sizes the page. A
+      menu opened in full screen is drawn inside it (`_lbdOpenMenu` appends
+      to the full-screen element; only it is drawn).
+    - Testing in the hidden preview: focus and blur do not fire, so a word
+      typed is not saved there; drive `beforeinput` and pointer events, and
+      scroll the contents into view first (`elementFromPoint` sees only what
+      is on the screen).
+    `tools/liturgy-book-doc-harness.js` checks it, running the fit, the
+    zoom kept, the drag's drop, and the new slide and the join.
 
 ## Quick Commands for Claude Code
 
