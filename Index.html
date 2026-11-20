@@ -10769,6 +10769,56 @@
 .lb2-song-slide-edit:focus { background: #fff; border-color: #8a6d1c; box-shadow: 0 0 0 3px rgba(201,162,39,0.18); }
 .lb2-song-slide-edit-wrap { margin-bottom: 12px; }
 .lb2-song-slide-hdr { font-size: 0.68rem; font-weight: 700; color: #8a6d1c; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; font-family: 'Poppins', sans-serif; }
+/* A song as the Songbook's Lyrics show it (2026-11-20): gold section tags,
+   bold black lines, a blank line a breath; with the book's Chords on, the
+   Chords + Lyrics grid. .lb2-page in front, because the app's own
+   .wo-lyrics-section-header.verse... rules come later in the page. */
+.lb2-song-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.lb2-song-seg { display: inline-flex; gap: 3px; padding: 3px; background: #f1ede3; border: 1px solid #e6dfcf; border-radius: 999px; }
+.lb2-song-seg__b {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 14px;
+  border: 0; border-radius: 999px; background: transparent; color: #5b5346;
+  font: 600 0.8rem/1 'Poppins', sans-serif; cursor: pointer; white-space: nowrap;
+}
+.lb2-song-seg__b.is-on { background: #111; color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+.lb2-song-seg__b.is-on i { color: #e3c25b; }
+span.lb2-song-seg__b { cursor: default; }
+.lb2-song-open {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px;
+  border: 1.5px solid #d9c89a; border-radius: 999px; background: #fff; color: #7f5d20;
+  font: 600 0.78rem/1 'Poppins', sans-serif; cursor: pointer; white-space: nowrap;
+}
+.lb2-song-open:hover { background: #faf3df; }
+.lb2-page .lb2-song-lyrics { font-family: var(--lb2-words, Georgia, serif); font-size: 1.1rem; line-height: 1.45; color: #0f172a; overflow-wrap: anywhere; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-section-header {
+  display: inline-block; margin: 1.6em 0 0.8em; padding: 5px 10px;
+  border: 0; border-left: 2.4px solid #d4a853; border-radius: 4px;
+  background: linear-gradient(90deg, rgba(212,168,83,0.18), transparent); color: #7f5d20;
+  font-family: inherit; font-weight: 700; font-size: 0.8rem; line-height: 1.45; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.lb2-page .lb2-song-lyrics > .wo-lyrics-section-header:first-child { margin-top: 0; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-lyric-line { font-weight: 700; color: #000; margin: 0 0 0.5em; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-empty-line { height: 0.6em; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-section-header + .wo-lyrics-empty-line,
+.lb2-page .lb2-song-lyrics .wo-lyrics-empty-line + .wo-lyrics-empty-line { height: 0.15em; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-chord-pair { margin: 0.2em 0 0.55em; line-height: 1.35; }
+.lb2-page .lb2-song-lyrics--nochords .wo-lyrics-chord-pair { margin: 0 0 0.35em; }
+.lb2-page .lb2-song-lyrics--nochords .wo-lyrics-chord-line,
+.lb2-page .lb2-song-lyrics--nochords .wo-inline-chord { display: none; }
+.lb2-page .lb2-song-lyrics:not(.lb2-song-lyrics--nochords) .wo-lyrics-chord-line,
+.lb2-page .lb2-song-lyrics:not(.lb2-song-lyrics--nochords) .wo-lyrics-lyric-line {
+  font-family: var(--lb2-grid, ui-monospace, 'SF Mono', Menlo, Consolas, 'Courier New', monospace);
+  font-size: calc(1rem * var(--sbm-fit, 1)); letter-spacing: 0; white-space: pre-wrap; tab-size: 2;
+}
+.lb2-page .lb2-song-lyrics .wo-lyrics-chord-line,
+.lb2-page .lb2-song-lyrics .wo-inline-chord { font-weight: 700; color: #04756f; }
+.lb2-page .lb2-song-lyrics .wo-lyrics-chord-line { margin: 0.6em 0 0; line-height: 1.35; }
+.lb2-song-choir .sb-choir { padding: 0; }
+@media (max-width: 480px) {
+  .lb2-song-seg__b { padding: 0 11px; }
+  .lb2-song-open { padding: 0 10px; }
+  .lb2-song-open__l { display: none; }
+}
 /* Fullscreen hover toolbar */
 .lb2-header { transition: transform 0.28s ease, opacity 0.28s ease; }
 .lb2-header--fs-hidden { transform: translateY(-100%); opacity: 0; pointer-events: none; }
@@ -52156,6 +52206,8 @@ var WO = (function() {
     // Keys, notes and lyrics may have changed in the book; the builder shows them.
     if (_lbdIsActive()) lbdRender();
     if (_sbClosingStandalone) { _sbClosingStandalone = false; _sbLeaveStandalone(); }
+    // Opened from the Liturgy Book: back to the book.
+    _lb2AfterSongbook();
   }
 
   // A standalone songbook is the app's open "order" while it is open -- the
@@ -87264,6 +87316,16 @@ var WO = (function() {
     var pct = Math.round(_lb2Zoom * 100) + '%';
     var lbl = $('lb2ZoomLabel'); if (lbl) lbl.textContent = pct;
     var fz = $('lb2FsZoom'); if (fz) fz.textContent = pct;
+    _lb2FitChords();
+  }
+  // With the book's Chords on, a chord line and its words too long for the
+  // page are set smaller together, as the Songbook does (_sbmFitChordPairsIn,
+  // gotcha 38): wrapped, the chords would sit over the wrong words. Again
+  // whenever the width can change: a draw, the zoom, a resize.
+  function _lb2FitChords() {
+    var body = $('lb2Body');
+    if (!body) return;
+    Array.prototype.forEach.call(body.querySelectorAll('.lb2-song-lyrics:not(.lb2-song-lyrics--nochords)'), _sbmFitChordPairsIn);
   }
 
   function lb2ZoomIn() { _lb2SetZoom(_lb2Zoom + 0.1); }
@@ -87310,6 +87372,7 @@ var WO = (function() {
     body.addEventListener('pointerdown', _lb2OnDown);
     body.addEventListener('click', _lb2OnClick);
     body.addEventListener('beforeinput', _lb2OnBeforeInput);
+    body.addEventListener('keydown', _lb2OnKey);
     document.addEventListener('fullscreenchange', _lb2OnFsChange);
     document.addEventListener('webkitfullscreenchange', _lb2OnFsChange);
   }
@@ -87326,19 +87389,44 @@ var WO = (function() {
     else probe.setEnd(r.startContainer, r.startOffset);
     return probe.toString().replace(/[\s\u00a0]+/g, '') === '';
   }
-  // Enter: at the end of a slide's words, a new slide after it, the cursor
-  // in it (the operator, 2026-11-20); anywhere else, a new line. Shift+Enter
-  // is always a new line. Backspace at the start of a slide joins it to the
-  // one before. Both are one Undo.
+  // Shift+Enter (or Ctrl+Enter) is a new slide at the cursor, as in the
+  // Liturgy Builder (the operator, 2026-11-20): the words after the cursor
+  // start the next slide, none at the end. Plain Enter is a new line --
+  // except on a touch screen, whose keyboard has no Shift: there Enter at
+  // the end of a slide's words is the new slide. Backspace at the start of
+  // a slide joins it to the one before. Each is one Undo.
+  function _lb2OnKey(e) {
+    if (e.key !== 'Enter' || e.isComposing || e.altKey || !(e.shiftKey || e.ctrlKey || e.metaKey)) return;
+    var el = e.target && e.target.closest && e.target.closest('.lb2-slide-edit');
+    if (!el || !el.isContentEditable) return;
+    e.preventDefault();
+    if (!_lb2Split(el)) document.execCommand('insertLineBreak');
+  }
   function _lb2OnBeforeInput(e) {
     var el = e.target && e.target.closest && e.target.closest('.lb2-slide-edit');
     if (!el || !el.isContentEditable) return;
     if (e.inputType === 'insertParagraph') {
       e.preventDefault();
-      if (!(_lb2CaretAt(el, 'end') && _lb2NewSlideAfter(el))) document.execCommand('insertLineBreak');
+      if (!(_lbdTouchKeys() && _lb2CaretAt(el, 'end') && _lb2Split(el))) document.execCommand('insertLineBreak');
     } else if (e.inputType === 'deleteContentBackward' && _lb2CaretAt(el, 'start')) {
       if (_lb2JoinBack(el)) e.preventDefault();
     }
+  }
+  // The slide cut at the cursor: what is selected goes, the words after the
+  // cursor are taken out of the box and start the new slide.
+  function _lb2Split(el) {
+    if (!_lb2SlideOf(el)) return false;
+    var after = '';
+    var sel = window.getSelection && window.getSelection();
+    var r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    if (r && el.contains(r.startContainer) && el.contains(r.endContainer)) {
+      if (!r.collapsed) r.deleteContents();
+      var tail = document.createRange();
+      tail.setStart(r.startContainer, r.startOffset);
+      tail.setEnd(el, el.childNodes.length);
+      after = _lbdTextOf(tail.extractContents());
+    }
+    return _lb2NewSlideAfter(el, after);
   }
   function _lb2SlideOf(el) {
     var item = _lbdItem(el.getAttribute('data-item-id'));
@@ -87355,15 +87443,18 @@ var WO = (function() {
     _lbdPlaceCaret(box, caret || 0);
     try { box.scrollIntoView({ block: 'nearest' }); } catch (e) {}
   }
-  function _lb2NewSlideAfter(el) {
+  // A new slide after this one, holding `after` (the words that were after
+  // the cursor), with this slide's background; the cursor at its start.
+  function _lb2NewSlideAfter(el, after) {
     var at = _lb2SlideOf(el);
     if (!at) return false;
     var item = at.item, idx = at.idx, text = _lb2Words(el);
+    var rest = String(after || '').replace(/\r/g, '').replace(/^\n+/, '').replace(/\n+$/, '');
     el.onblur = null;
     el.removeAttribute('onblur');
     _lbdChange(function() {
       if (String((item.slides[idx] && item.slides[idx].content) || '') !== text) _lbdSetSlide(item, idx, text);
-      item.slides.splice(idx + 1, 0, { index: idx + 1, content: '', background: (item.slides[idx] && item.slides[idx].background) || '' });
+      item.slides.splice(idx + 1, 0, { index: idx + 1, content: rest, background: (item.slides[idx] && item.slides[idx].background) || '' });
       _lbdRenumber(item.slides);
     });
     _lb2Rerender(true);
@@ -87636,7 +87727,7 @@ var WO = (function() {
     printWin.document.write('[contenteditable]{outline:none;}');
     // The screen's book reflows and zooms; paper is A4 at 100% (2026-11-20).
     printWin.document.write('#lb2ZoomWrap{zoom:1!important;}.lb2-page{width:210mm!important;max-width:none!important;padding:24mm 20mm 20mm!important;box-shadow:none!important;border-radius:0!important;}');
-    printWin.document.write('.lb2-idx-grip,.lb2-idx-ren,.lb2-idx-addrow,.lb2-fsbar,.lb2-hold-ring{display:none!important;}.lb2-slide-edit,.lb2-song-slide-edit{border-color:transparent!important;background:transparent!important;}');
+    printWin.document.write('.lb2-idx-grip,.lb2-idx-ren,.lb2-idx-addrow,.lb2-fsbar,.lb2-hold-ring,.lb2-song-bar{display:none!important;}.lb2-slide-edit,.lb2-song-slide-edit{border-color:transparent!important;background:transparent!important;}');
     printWin.document.write('</style></head><body>');
     printWin.document.write(body.innerHTML);
     printWin.document.write('</body></html>');
@@ -87954,7 +88045,6 @@ var WO = (function() {
           html += '<div class="lb2-page-hdr-info"><div class="lb2-page-title">' + escapeHtml(item.title || 'Untitled') + '</div>';
           html += '<div class="lb2-page-sec-lbl">' + escapeHtml(sec.title) + '</div></div></div>';
           html += '<div class="lb2-page-hdr-right"><span class="' + badgeClass + '">' + badgeLabel + '</span>';
-          if (isSong) html += '<span class="lb2-readonly-hint" style="background:#faf8f3;border-color:#d9c89a;color:#8a6d1c;"><i class="fa-solid fa-pen-to-square" style="font-size:0.65rem;"></i> Editable</span>';
           html += '</div></div>'; // hdr-right + lb2-page-hdr
           if (eIdx === 0) html += _lb2SecNotesHtml(sec);
 
@@ -87968,61 +88058,14 @@ var WO = (function() {
               html += '<div class="lb2-liturg-notes-text">' + escapeHtml(_litNotes) + '</div>';
               html += '</div>';
             }
+            // As the Songbook shows it: its Lyrics (with chords when the book's
+            // Chords is on) or, for a song with choir parts, its Choir score;
+            // the Songbook offered, never forced (the operator, 2026-11-20).
+            var _sView = _lb2SongViewOf(song);
+            html += _lb2SongBarHtml(song, _sView);
             html += '<div class="lb2-song-content-ro" data-song-id="' + escapeHtml(song.id || '') + '">';
             if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
-            if (_lb2ShowChords) {
-              // Use the exact same rendering as the SongBook preview modal
-              var rawLyrics = song.masterLyrics || song.lyrics || '';
-              if (rawLyrics.trim() && typeof formatLyricsWithTranspose === 'function') {
-                html += '<div class="lb2-song-chords-view">' + formatLyricsWithTranspose(rawLyrics, true, 0) + '</div>';
-              } else if (rawLyrics.trim()) {
-                // Fallback: manual chord-line detection if function unavailable
-                html += '<div class="lb2-song-chords-view">';
-                rawLyrics.split('\n').forEach(function(line) {
-                  var t = line.trim();
-                  if (!t) { html += '<div style="height:10px;"></div>'; return; }
-                  if (t.match(/^\[.+\]$/)) { html += '<div class="section-header">' + escapeHtml(t.slice(1,-1)) + '</div>'; return; }
-                  var isChord = typeof isChordLineGlobal === 'function' ? isChordLineGlobal(line) : (/^[A-G][b#]?/.test(t) && !/[a-z]{3,}/.test(line));
-                  html += isChord ? '<div class="chord-line">' + escapeHtml(line) + '</div>' : '<div class="lyric-line">' + escapeHtml(line) + '</div>';
-                });
-                html += '</div>';
-              } else {
-                html += '<div class="lb2-song-no-lyrics">No lyrics with chords available</div>';
-              }
-            } else {
-              var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
-                         : (song.slides && song.slides.length)           ? song.slides : [];
-              if (slides.length) {
-                slides.forEach(function(slide, sIdx) {
-                  var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
-                  if (!txt) return;
-                  var safeId = escapeHtml(song.id || '');
-                  html += '<div class="lb2-song-slide-edit-wrap">';
-                  html += '<div class="lb2-song-slide-hdr">Slide ' + (sIdx + 1) + '</div>';
-                  html += '<div class="lb2-song-slide-edit" contenteditable="true"' +
-                    ' data-song-id="' + safeId + '" data-slide-idx="' + sIdx + '"' +
-                    ' onblur="WO.lb2SaveSongSlideEdit(\'' + safeId + '\',' + sIdx + ',this.innerText)">' +
-                    escapeHtml(txt) + '</div>';
-                  html += '</div>';
-                });
-              } else if (song.lyrics) {
-                // Strip chord lines from plain lyrics for clean display
-                var lines = song.lyrics.split('\n'), block = '';
-                lines.forEach(function(line) {
-                  var l = line.trim();
-                  if (!l) {
-                    if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; }
-                  } else if (l.match(/^\[.+\]$/)) {
-                    if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; }
-                  } else if (!(typeof isChordLineGlobal === 'function' ? isChordLineGlobal(line) : false)) {
-                    block += (block ? '\n' : '') + l;
-                  }
-                });
-                if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
-              } else {
-                html += '<div class="lb2-song-no-lyrics">No lyrics available &mdash; open in Songbook to add lyrics</div>';
-              }
-            }
+            html += _lb2SongWordsHtml(song, _sView);
             html += '</div>';
           } else if (item.itemType === 'video') {
             html += '<div class="lb2-item-content"><div class="lb2-video-ref"><i class="fa-solid fa-video"></i>';
@@ -88103,6 +88146,81 @@ var WO = (function() {
       if (arr[idx].richHtml) arr[idx].richHtml = null;
     });
     return changed;
+  }
+
+  // ── A song in the book, as the Songbook shows it (the operator,
+  // 2026-11-20): its Lyrics -- the copy's words in the key sung, the
+  // Songbook's gold section tags and bold black lines, with the chords when
+  // the book's Chords is on -- or, where the song has choir parts, its Choir
+  // score. Which one is this device's, per song; Lyrics until Choir is
+  // chosen. The Songbook is a button away, never forced.
+  var _lb2SongViews = null, _lb2ChoirAsked = {};
+  function _lb2SongViewsRead() {
+    if (_lb2SongViews) return _lb2SongViews;
+    try { _lb2SongViews = JSON.parse(localStorage.getItem('lhc_lb2_song_view') || '{}') || {}; } catch (e) { _lb2SongViews = {}; }
+    return _lb2SongViews;
+  }
+  function _lb2SongViewOf(song) {
+    return _lb2SongViewsRead()[_sbBaseSongId(song)] === 'choir' && _sbSongHasChoir(song) ? 'choir' : 'lyrics';
+  }
+  function lb2SongView(entryId, mode) {
+    var song = _lbdSong(entryId);
+    if (!song) return;
+    var v = _lb2SongViewsRead(), base = _sbBaseSongId(song);
+    if (mode === 'choir') v[base] = 'choir'; else delete v[base];
+    if (_lb2ChoirAsked[base] === 2) delete _lb2ChoirAsked[base];
+    try { localStorage.setItem('lhc_lb2_song_view', JSON.stringify(v)); } catch (e) {}
+    _lb2Rerender(true);
+  }
+  function _lb2SongBarHtml(song, mode) {
+    var sid = escapeJsArg(song.id || ''), choir = _sbSongHasChoir(song);
+    var tab = function(m, icon, label) {
+      var on = mode === m;
+      return choir
+        ? '<button type="button" class="lb2-song-seg__b' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + on + '" onclick="WO.lb2SongView(\'' + sid + '\',\'' + m + '\')"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</button>'
+        : '<span class="lb2-song-seg__b is-on"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</span>';
+    };
+    return '<div class="lb2-song-bar">' +
+      '<div class="lb2-song-seg"' + (choir ? ' role="tablist" aria-label="Show this song as"' : '') + '>' +
+        tab('lyrics', 'fa-align-left', 'Lyrics') + (choir ? tab('choir', 'fa-people-group', 'Choir') : '') + '</div>' +
+      '<button type="button" class="lb2-song-open" onclick="WO.lb2OpenSongbook(\'' + sid + '\')" title="Open this song in the Songbook"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span class="lb2-song-open__l">Open in</span>Songbook</button>' +
+      '</div>';
+  }
+  function _lb2SongWordsHtml(song, mode) {
+    if (mode === 'choir') {
+      var body = _sbChoirBodyHtml(song);
+      if (body) return '<div class="lb2-song-choir">' + _sbChoirCss(song) + '<div class="sb-choir">' + body + '</div></div>';
+      var base = _sbBaseSongId(song);
+      if (!_lb2ChoirAsked[base]) {
+        _lb2ChoirAsked[base] = 1;
+        _sbLinesReady(base).then(function() { _lb2Rerender(false); }, function() { _lb2ChoirAsked[base] = 2; _lb2Rerender(false); });
+      }
+      return '<div class="lb2-song-no-lyrics">' + (_lb2ChoirAsked[base] === 2 ? 'The choir parts could not be read just now.' : 'Reading the choir parts\u2026') + '</div>';
+    }
+    if (!String(song.richLyrics || song.lyrics || '').replace(/<[^>]*>/g, '').trim()) {
+      return '<div class="lb2-song-no-lyrics">No words yet. They are added in the Songbook.</div>';
+    }
+    var html = _sbmLyricsSource(song), steps = _sbmStepsOf(song);
+    if (steps) html = _sbTransposeHtml(html, steps);
+    return '<div class="lb2-song-lyrics' + (_lb2ShowChords ? '' : ' lb2-song-lyrics--nochords') + '" style="--lb2-words:' +
+      escapeHtml(_sbmFontWords()) + ';--lb2-grid:' + escapeHtml(_sbmFontGrid()) + ';">' + html + '</div>';
+  }
+  // The book's own way into the Songbook: the book closes, the Songbook opens
+  // at the song, and closing the Songbook brings the book back where it was.
+  var _lb2BackFromSb = null;
+  function lb2OpenSongbook(entryId) {
+    var body = $('lb2Body');
+    _lb2BackFromSb = { orderId: currentOrderData && currentOrderData.id, top: body ? body.scrollTop : 0 };
+    closeLiturgyBook();
+    soOpenInSongbook(entryId);
+  }
+  function _lb2AfterSongbook() {
+    var b = _lb2BackFromSb;
+    _lb2BackFromSb = null;
+    if (!b || !currentOrderData || currentOrderData.id !== b.orderId) return;
+    openLiturgyBook();
+    var body = $('lb2Body');
+    if (body) body.scrollTop = b.top;
   }
 
   function lb2SaveSongSlideEdit(songId, slideIdx, newContent) {
@@ -101105,6 +101223,8 @@ var WO = (function() {
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
+    lb2SongView: lb2SongView,
+    lb2OpenSongbook: lb2OpenSongbook,
     printSingleSong: printSingleSong,
     // Service order slide navigation
     selectSlideBox: selectSlideBox,
