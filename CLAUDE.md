@@ -185,9 +185,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
      slide, Backspace at its start joins it back); notes are margin
      comments. On a phone it works like Google Docs: a bottom bar with Add
      in the middle, the outline and the library as sheets from below, and
-     the formatting keys over the keyboard; its top bar is the section (at
-     most half the bar) then WhatsApp (the order's link), Save (green), Load
-     (light blue), undo and redo (`_lbdMbarHtml`, 2026-11-09). Load asks:
+     the formatting keys over the keyboard; its top bar is small buttons --
+     the sections by number, the PDF, collapse all -- then the Liturgy Book,
+     big, gold and shiny, then WhatsApp (the order's link), Save, Load, undo
+     and redo, small (`_lbdMbarHtml`, 2026-11-20; gotcha 110). Load asks:
      "Load Liturgy for <occasion>" (the ones SAVED in the Liturgy Library)
      or "Load Liturgy from Past Services". Compact shows one line per part;
      Full text shows every word. Import takes a Word .docx or text pasted
@@ -5839,6 +5840,64 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-builder-harness.js` checks both, running
     `snapshotCurrentState` over the real `collectOrderItems`, and
     `lbdUnplaceSong`.
+
+110. **The builder starts people at the Liturgy Book, and works like a
+    document.** From the operator (2026-11-20), marking up the phone builder
+    and the Liturgy Book: "I want the Liturgy builder to resemble a workable
+    word document", with sections dragged, added (a reading, a recitation, a
+    song...) and renamed. Asked, they chose the bar below, Song -> Songbook
+    and liturgy -> its words for a double-tap, and the intro, word for word.
+    - **The phone's top bar** (`_lbdMbarHtml`): small 30px buttons -- the
+      sections (the outline, `nav-toggle`, showing the number of the section
+      you are in, `_lbdCurNum`, its name in the title), the PDF (`export-pdf`
+      -> `lbdExport('pdf')`), collapse / expand all (`fold-all`, its icon and
+      words saying which) -- then **the Liturgy Book**, gold, glossy, with a
+      sheen sweeping it (`lbw-mb-book`, `flex: 1 1 auto`, two lines of words
+      when narrow), then WhatsApp, Save, Load, undo, redo, small. At 375px it
+      all fits in 355px. The desk ribbon's Liturgy Book is the same gold
+      button (`lbw-rb--book`), first after Add Item (at the end a tablet
+      scrolled it out of sight), and keeps its words on a laptop and tablet.
+    - **A double-tap opens a part** (`_lbdDoubleTap`, from `_lbdOnClick`): two
+      clicks within 400ms and 32px on one part -- a song opens in the
+      Songbook at it (`soOpenInSongbook`), a liturgy, reading or text part in
+      its own All Slides (`lbdAllSlides(id)`). Never on the words being typed
+      (`[data-field="slide"]`, `content-text`), a button, field or note, where
+      a double-click selects a word. `.lbw-el` is `touch-action:
+      manipulation`, so the second tap is not a zoom.
+    - **A + between two sections** (`_lbdInsHtml`, between every pair; the
+      end keeps Add a section): on a desk a dashed line and "Add section" on
+      hover, on a touch screen always a small round +, hidden while a section
+      is dragged. It opens `_LBD_SEC_KINDS`: a blank section (named New
+      Section, its name selected to type), or Reading, Recitation (said
+      together), Song, Prayer, Text slide -- each named for its kind and
+      asking at once for what goes in it (`lbdAddSection(at, title, then)` ->
+      `_lbdInsert(then, id)`) -- Sermon, Announcements. New sections carry no
+      kind (`serviceSectionId` ''), so none becomes where the roster's
+      readings land. Renaming is as before: type on the name, or the
+      section's menu.
+    - **Where to start** (`_lbdBookIntro`): once on a device
+      (`lhc_lbd_book_intro_v1`), 1.4s after the builder first draws, never in
+      the desk's Phone view (`__SBM_PREVIEW` -- so not in the read-only
+      preview server either) nor over the Liturgy Book, a sheet or a menu;
+      More > "Where to start designing" and `WO.lbdBookIntro()` play it
+      again. It waits until the button has stopped moving (`_lbdWhenStill`):
+      opening the builder slides the app's sidebar shut, and an intro aimed
+      mid-slide put its arrow on Save. Then a layer over the screen that taps
+      through but for its banner (z-index 3200): the screen dimmed but for a
+      spotlight on the Liturgy Book; nine Bible pages flying behind; a large
+      bow that draws and looses an arrow, whose tip lands on the button's
+      edge (`_lbdIntroGeom`, pure) and wobbles; the button pulsing gold;
+      fireworks; and a banner, "Start Designing the Liturgy from Here", with
+      Open the Liturgy Book and Got it. Where they go is `_lbdIntroPlace`
+      (pure): on a desk the banner under the button and the bow off to the
+      side, so the arrow flies in level over the banner; on a phone a shorter
+      banner over the button and the shot from below. A tap anywhere,
+      Escape, a resize or 12 seconds end it; reduced motion shows the banner
+      and a ring only. Testing it in a hidden pane or a background tab: the
+      animations do not run, so pause them at a time
+      (`getAnimations({ subtree: true })`, `currentTime = 2200`) and measure.
+    `tools/builder-word-bar-harness.js` checks it, running the bar, the
+    double-tap, `lbdAddSection`, `_lbdIntroGeom` and `_lbdIntroPlace`.
 
 ## Quick Commands for Claude Code
 
