@@ -2472,6 +2472,16 @@ const CASES = [
     s => s.replace("      var idx = (typeof at === 'number' && at >= 0 && at <= lay.length) ? at : lay.length;\r\n      lay.splice(idx, 0, { id: id, title: title || 'New Section', serviceSectionId: '' });", "      lay.push({ id: id, title: title || 'New Section', serviceSectionId: '' });")],
   ['builder-word-bar-harness.js', 'the intro plays every time the builder opens',
     s => s.replace("    try { localStorage.setItem(_LBD_BOOK_INTRO_KEY, '1'); } catch (e) {}\r\n", '')],
+  // The Liturgy Book as a document (2026-11-20): reflowed zoom, Enter for a
+  // new slide, edits as Undo steps, full screen read only until a hold.
+  ['liturgy-book-doc-harness.js', 'the book is an A4 page shrunk to the screen again',
+    s => s.replace("wrap.style.zoom = String(_lb2Zoom);", "wrap.style.transform = 'scale(' + _lb2Zoom + ')';")],
+  ['liturgy-book-doc-harness.js', 'Enter at a slide\'s end only breaks the line',
+    s => s.replace("if (!(_lb2CaretAt(el, 'end') && _lb2NewSlideAfter(el))) document.execCommand('insertLineBreak');", "document.execCommand('insertLineBreak');")],
+  ['liturgy-book-doc-harness.js', 'a dragged section goes before the one it was dropped after',
+    s => s.replace("        : prev ? _lbdMoveSectionTo(d.id, prev.getAttribute('data-sec'), true) : false;\r\n    }\r\n    if (!moved) _lb2Rerender(true);", "        : prev ? _lbdMoveSectionTo(d.id, prev.getAttribute('data-sec'), false) : false;\r\n    }\r\n    if (!moved) _lb2Rerender(true);")],
+  ['liturgy-book-doc-harness.js', 'full screen leaves the words open to a stray tap',
+    s => s.replace("      document.addEventListener('mousemove', _lb2FsMouseHandler);\r\n      _lb2Lock(true);", "      document.addEventListener('mousemove', _lb2FsMouseHandler);\r\n      _lb2Lock(false);")],
   ['builder-word-bar-harness.js', 'the arrow stops short of the Liturgy Book',
     s => s.replace("return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 2) };", "return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 40) };")],
   ['phone-bar-font-master-harness.js', 'a font for words moves the chords off their words',
