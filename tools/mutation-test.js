@@ -2482,6 +2482,8 @@ const CASES = [
     s => s.replace("        : prev ? _lbdMoveSectionTo(d.id, prev.getAttribute('data-sec'), true) : false;\r\n    }\r\n    if (!moved) _lb2Rerender(true);", "        : prev ? _lbdMoveSectionTo(d.id, prev.getAttribute('data-sec'), false) : false;\r\n    }\r\n    if (!moved) _lb2Rerender(true);")],
   ['liturgy-book-doc-harness.js', 'full screen leaves the words open to a stray tap',
     s => s.replace("      document.addEventListener('mousemove', _lb2FsMouseHandler);\r\n      _lb2Lock(true);", "      document.addEventListener('mousemove', _lb2FsMouseHandler);\r\n      _lb2Lock(false);")],
+  ['builder-word-bar-harness.js', 'a double-tap on a heading no longer renames it',
+    s => s.replace('    if (_lbdDoubleTap(e, t) || _lbdHeadDoubleTap(e, t)) return;', '    if (_lbdDoubleTap(e, t)) return;')],
   ['builder-word-bar-harness.js', 'the arrow stops short of the Liturgy Book',
     s => s.replace("return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 2) };", "return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 40) };")],
   ['phone-bar-font-master-harness.js', 'a font for words moves the chords off their words',

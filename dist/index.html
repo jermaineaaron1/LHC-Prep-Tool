@@ -85596,6 +85596,27 @@ var WO = (function() {
     return false;
   }
 
+  // Double-tap (or double-click) a section's heading to rename it (the
+  // operator, 2026-11-20): its whole name selected, to type over. Anywhere on
+  // the heading but its buttons and its grip -- on the name too, where a
+  // double-click would otherwise select one word.
+  var _lbdHeadTap = null;
+  function _lbdHeadDoubleTap(e, t) {
+    var h = t.closest && t.closest('.lbw-page .lbw-h');
+    if (!h || t.closest('button, a, input, select, textarea, .lbw-grip')) { _lbdHeadTap = null; return false; }
+    var sec = h.closest('.lbw-sec[data-sec]');
+    if (!sec) return false;
+    var id = sec.getAttribute('data-sec'), now = Date.now();
+    if (_lbdHeadTap && _lbdHeadTap.id === id && now - _lbdHeadTap.at < 400 &&
+        Math.abs(e.clientX - _lbdHeadTap.x) < 32 && Math.abs(e.clientY - _lbdHeadTap.y) < 32) {
+      _lbdHeadTap = null;
+      _lbdFocus('.lbw-sec[data-sec="' + _lbdCssId(id) + '"] [data-field="sec-title"]', 'select');
+      return true;
+    }
+    _lbdHeadTap = { id: id, at: now, x: e.clientX, y: e.clientY };
+    return false;
+  }
+
   function _lbdCtx(el) {
     var sec = el.closest('[data-sec]'), song = el.closest('[data-song]'), item = el.closest('[data-item]'), sl = el.closest('[data-idx]');
     return {
@@ -85625,7 +85646,7 @@ var WO = (function() {
     if (Date.now() - _lbdSuppressClick < 450 && t.closest('.lbw-nav, .lbw-h')) { e.preventDefault(); return; }
     var c = _lbdCtx(t);
     if (c.sec && !t.closest('.lbw-nav')) _lbdSetCur(c.sec, _lbdElKey(t, c));
-    if (_lbdDoubleTap(e, t)) return;
+    if (_lbdDoubleTap(e, t) || _lbdHeadDoubleTap(e, t)) return;
     var btn = t.closest('[data-act]');
     if (!btn || btn.disabled) return;
     var act = btn.getAttribute('data-act');
@@ -130394,6 +130415,7 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw-h {
   grid-area: h; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 46px; padding: 4px 8px 4px 6px;
   background: var(--lbw-green-l); border: 1px solid #dae8db; border-radius: 9px;
+  touch-action: manipulation; /* a double-tap renames, never zooms (2026-11-20) */
 }
 .lbw-sec.is-current > .lbw-h { border-color: #b3d2ba; box-shadow: 0 0 0 2px rgba(28,107,67,0.1); }
 .lbw-sec.is-drop > .lbw-h { border-color: var(--lbw-green); box-shadow: 0 0 0 3px rgba(28,107,67,0.22); background: #e1f0e4; }

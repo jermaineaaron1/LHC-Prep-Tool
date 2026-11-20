@@ -126,7 +126,7 @@ if (dt) {
   check('...and never on the words being typed, a button or a note (a double-click there selects a word)', opened.length === 0, JSON.stringify(opened));
 } else check('the double-tap could be built', false);
 check('the builder\'s click asks it first, and a part is touch-action: manipulation so the second tap is not a zoom',
-  /if \(_lbdDoubleTap\(e, t\)\) return;/.test(fn('_lbdOnClick')) && has(/\.lbw-el \{ touch-action: manipulation; \}/) &&
+  /if \(_lbdDoubleTap\(e, t\)/.test(fn('_lbdOnClick')) && has(/\.lbw-el \{ touch-action: manipulation; \}/) &&
   /\[data-field="slide"\], \[data-field="content-text"\], \.lbw-note/.test(fn('_lbdDoubleTap')));
 
 // ------------------------------------------------------------ 3. a section between
@@ -227,6 +227,35 @@ if (place) {
 } else check('the placement could be built', false);
 check('with reduced motion: the banner and a ring, nothing flying',
   has(/@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.lbi-pages, \.lbi-fw, \.lbi-bow, \.lbi-arrow \{ display: none; \}/));
+
+// ------------------------------------------------------------ 5. a heading renamed
+console.log('\n5. A double-tap on a section heading renames it');
+const focused = [];
+let ht = null;
+try {
+  ht = new Function('focused', 'var Date = { now: function() { return focused.clock; } };' +
+    'function _lbdCssId(s) { return s; } function _lbdFocus(sel, how) { focused.push(sel + " " + how); }' +
+    'var _lbdHeadTap = null;\n' + fn('_lbdHeadDoubleTap') + '\nreturn _lbdHeadDoubleTap;')(focused);
+} catch (e) { ht = null; }
+function headTarget(secId, excluded) {
+  const sec = { getAttribute: () => secId };
+  const h = { closest: sel => (sel === '.lbw-sec[data-sec]' ? sec : null) };
+  return { closest: sel => (sel === '.lbw-page .lbw-h' ? h : (excluded ? {} : null)) };
+}
+function htap(secId, at, x, excluded) { focused.clock = at; return ht({ clientX: x || 80, clientY: 30 }, headTarget(secId, excluded)); }
+if (ht) {
+  htap('s3', 1000); const r = htap('s3', 1250);
+  check('two taps on a heading within 400ms select its whole name, to type over',
+    r === true && focused[0] === '.lbw-sec[data-sec="s3"] [data-field="sec-title"] select', JSON.stringify(focused));
+  focused.length = 0;
+  htap('s3', 5000); htap('s3', 5600);
+  htap('s3', 8000); htap('s4', 8100);
+  htap('s3', 9000, 80, true); htap('s3', 9100, 80, true);
+  check('...not taps half a second apart, on two headings, or on its buttons and grip', focused.length === 0, JSON.stringify(focused));
+} else check('the heading double-tap could be built', false);
+check('the builder\'s click asks it, and a heading is touch-action: manipulation so the second tap is not a zoom',
+  /if \(_lbdDoubleTap\(e, t\) \|\| _lbdHeadDoubleTap\(e, t\)\) return;/.test(fn('_lbdOnClick')) &&
+  has(/border: 1px solid #dae8db; border-radius: 9px;\r?\n  touch-action: manipulation;/));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {

@@ -5878,8 +5878,15 @@ the anon key -- verify as `postgres`, not as the app.
       asking at once for what goes in it (`lbdAddSection(at, title, then)` ->
       `_lbdInsert(then, id)`) -- Sermon, Announcements. New sections carry no
       kind (`serviceSectionId` ''), so none becomes where the roster's
-      readings land. Renaming is as before: type on the name, or the
-      section's menu.
+      readings land.
+    - **A double-tap on a section heading renames it** (the operator, the
+      same day; `_lbdHeadDoubleTap`, from `_lbdOnClick` beside the part's):
+      two clicks within 400ms and 32px anywhere on the heading but its
+      buttons and grip -- on the name too, where a double-click would select
+      one word -- select the whole name to type over (`_lbdFocus(...,
+      'select')`, the section menu's Rename). `.lbw-h` is `touch-action:
+      manipulation`. Typing on the name, and the menu's Rename, are as
+      before.
     - **Where to start** (`_lbdBookIntro`): once on a device
       (`lhc_lbd_book_intro_v1`), 1.4s after the builder first draws, never in
       the desk's Phone view (`__SBM_PREVIEW` -- so not in the read-only
@@ -5901,8 +5908,8 @@ the anon key -- verify as `postgres`, not as the app.
       and a ring only. Testing it in a hidden pane or a background tab: the
       animations do not run, so pause them at a time
       (`getAnimations({ subtree: true })`, `currentTime = 2200`) and measure.
-    `tools/builder-word-bar-harness.js` checks it, running the bar, the
-    double-tap, `lbdAddSection`, `_lbdIntroGeom` and `_lbdIntroPlace`.
+    `tools/builder-word-bar-harness.js` checks it, running the bar, both
+    double-taps, `lbdAddSection`, `_lbdIntroGeom` and `_lbdIntroPlace`.
 
 111. **The Liturgy Book is a document: it reflows, it is edited, and full
     screen asks for a hold.** From the operator (2026-11-20), the same
