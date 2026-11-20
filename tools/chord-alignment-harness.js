@@ -150,8 +150,9 @@ check('the stylesheets were found at all', CSS.length > 50000,
 check('at least one rule sets the pair together', pairRules.length > 0,
   pairRules.length + ' found');
 // Earlier versions' read-only card (2026-11-08) binds the pair too, for its
-// own preview; it must never stand in for the songbook's own rules.
-const ownPairs = pairRules.filter(r => !/\.sbm-ev__words/.test(r.sel));
+// own preview, and so does the Liturgy Book's Chords view (2026-11-20);
+// neither may stand in for the songbook's own rules.
+const ownPairs = pairRules.filter(r => !/\.sbm-ev__words|\.lb2-/.test(r.sel));
 check('  and the songbook itself does, not only a preview card', ownPairs.some(r => /font-family\s*:/.test(r.body)),
   ownPairs.length + ' of the songbook rules');
 
@@ -169,7 +170,7 @@ withFont.forEach((r, i) => {
   // (2026-11-09): the stack still ends in monospace, inside the var(), and
   // the variable is only ever set to a fixed-width face
   // (phone-bar-font-master-harness checks every such font is one).
-  check('  and ends in a monospace fallback', /monospace\)?\s*!?\s*important?\s*$/i.test(fam.trim()),
+  check('  and ends in a monospace fallback', /monospace\)?\s*(!\s*important)?\s*$/i.test(fam.trim()),
     fam.trim().slice(-30));
 });
 

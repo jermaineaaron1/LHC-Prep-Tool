@@ -391,9 +391,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
 - The **Liturgy Book** (More menu, or the builder's big gold button) is the
   builder's printable form and edits the same order -- since 2026-11-20 as
   a document: white, black and gold, the words reflowed to the screen and
-  zoomed, sections dragged, renamed and added in its contents, Enter at a
-  slide's end a new slide, full screen read only until a 2-second hold
-  (gotcha 111).
+  zoomed, sections dragged, renamed and added in its contents, Shift+Enter
+  a new slide at the cursor, each song as the Songbook's Lyrics (or Choir)
+  with Open in Songbook beside it, full screen read only until a 2-second
+  hold (gotcha 111).
 - Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
@@ -5949,11 +5950,16 @@ the anon key -- verify as `postgres`, not as the app.
       double-click renames in place (`_lb2StartRename`: Enter keeps, Escape
       puts back). "+ Add section" at the foot offers the builder's kinds
       (`_LBD_SEC_KINDS`, gotcha 110), a blank one named at once in place.
-    - **The words**: Enter (`beforeinput` `insertParagraph`, which a phone's
-      keyboard sends too) at the end of a slide's words is a new slide after
-      it, with its background, the cursor in it (`_lb2NewSlideAfter`);
-      anywhere else a new line; Backspace at a slide's start joins it to the
-      one before (`_lb2JoinBack`). A word kept on blur is a `_lbdChange`
+    - **The words**: Shift+Enter or Ctrl+Enter (`keydown`, `_lb2OnKey`) is a
+      new slide at the cursor, as in the Liturgy Builder (the operator, the
+      same day): `_lb2Split` takes the words after the cursor out of the box
+      (a selection goes first) and `_lb2NewSlideAfter(el, after)` puts them
+      in a new slide after it, with its background, the cursor at its start
+      -- at the end, an empty slide. Plain Enter (`beforeinput`
+      `insertParagraph`) is a new line, except on a touch screen
+      (`_lbdTouchKeys`: a phone's keyboard has no Shift), where at the end
+      of a slide's words it is the new slide. Backspace at a slide's start
+      joins it to the one before (`_lb2JoinBack`). A word kept on blur is a `_lbdChange`
       now (`lb2SaveSlideEdit`), so one Undo in the book and the builder.
       `_lbdCommit` redraws an open book after any change (`_lb2Rerender`),
       never under a word being typed (`_lb2TextSave`, and the focus check),
@@ -5969,12 +5975,39 @@ the anon key -- verify as `postgres`, not as the app.
       offers Done editing; it also leaves full screen and sizes the page. A
       menu opened in full screen is drawn inside it (`_lbdOpenMenu` appends
       to the full-screen element; only it is drawn).
+    - **A song is the Songbook's, not its slides** (the operator, the same
+      day: "show Lyrics or Choir mode ... Don't direct them to the
+      songbook ... but please give the option"). Each song's page has a bar
+      (`_lb2SongBarHtml`): **Lyrics**, and **Choir** where the song has
+      choir parts (`_sbSongHasChoir`), as tabs, and **Open in Songbook**
+      (`lb2OpenSongbook`: the book closes, `soOpenInSongbook` opens the
+      Songbook at the song, and `closeSongbook` ends in `_lb2AfterSongbook`,
+      which reopens the book at its scroll when the same order is still
+      open). Lyrics (`_lb2SongWordsHtml`) is the Songbook's own source,
+      `_sbmLyricsSource` in the key sung (`_sbmStepsOf`,
+      `_sbTransposeHtml`), dressed as its Lyrics view -- gold section tags,
+      bold black lines, a blank line 0.6em -- in the reader's Songbook fonts
+      (`--lb2-words` / `--lb2-grid`). Its rules start `.lb2-page`, because
+      the app's own `.wo-lyrics-section-header.verse` colours come later in
+      the page and would win at equal weight; print copies them (they hold
+      "lb2"). With the book's Chords on it is Chords + Lyrics: one
+      fixed-width grid, `pre-wrap` (`break-spaces` wraps a line whose
+      trailing space does not fit, before its last word), and a pair too
+      long set smaller together by the Songbook's `_sbmFitChordPairsIn`
+      (`_lb2FitChords`, from `_lb2ApplyZoom`: every draw, zoom and
+      resize). Choir is Book Mode's read-only score (`_sbChoirBodyHtml` +
+      `_sbChoirCss`), read once (`_sbLinesReady`, `_lb2ChoirAsked`) and
+      said meanwhile. Which is this device's, per song
+      (`lhc_lb2_song_view`, only 'choir' kept); Lyrics until Choir is
+      chosen. The song's slide boxes and the Editable badge went: words
+      are changed in the Songbook. Print hides the bar.
     - Testing in the hidden preview: focus and blur do not fire, so a word
       typed is not saved there; drive `beforeinput` and pointer events, and
       scroll the contents into view first (`elementFromPoint` sees only what
       is on the screen).
     `tools/liturgy-book-doc-harness.js` checks it, running the fit, the
-    zoom kept, the drag's drop, and the new slide and the join.
+    zoom kept, the drag's drop, the keys, the new slide and the join, and
+    the song's bar, words and way to the Songbook.
 
 ## Quick Commands for Claude Code
 
