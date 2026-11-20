@@ -12,8 +12,10 @@
 //      joins it back; every edit one Undo, the builder's.
 //   5. Full screen: laid out as it is, the words read only until held for
 //      2 seconds.
-//   6. Songs as the Songbook shows them: Lyrics (or Choir, where the song has
-//      parts) in the key sung, and the Songbook a button away.
+//   6. Songs as the Songbook shows them: Lyrics, Chords, or Choir where the
+//      song has parts, in the key sung, and the Songbook a button away.
+//   7. A song's words double-tapped are edited in place and saved through
+//      the Songbook's own save; the choir score opens the choir pad.
 //
 // USAGE
 //   node tools/liturgy-book-doc-harness.js
@@ -88,7 +90,7 @@ check('the page is the screen\'s width, at most 860px -- no A4 width left on the
   /width: 100%; max-width: 860px; min-height: 50mm; background: white;/.test(BLOCK) && !/width: 210mm/.test(BLOCK));
 check('print and the PDF stay A4 at 100%, without the editing furniture',
   /#lb2ZoomWrap\{zoom:1!important;\}\.lb2-page\{width:210mm!important;max-width:none!important;/.test(fn('lb2PrintPDF')) &&
-  /\.lb2-idx-grip,\.lb2-idx-ren,\.lb2-idx-addrow,\.lb2-fsbar,\.lb2-hold-ring,\.lb2-song-bar\{display:none!important;\}/.test(fn('lb2PrintPDF')));
+  /\.lb2-idx-grip,\.lb2-idx-ren,\.lb2-idx-addrow,\.lb2-fsbar,\.lb2-hold-ring,\.lb2-song-bar,\.lb2-song-hint\{display:none!important;\}/.test(fn('lb2PrintPDF')));
 check('opening fits it (or uses the size chosen), and a resize refits unless a size was chosen; the % fits again',
   /_lb2Zoom = _lb2ZoomChosen\(\) \|\| _lb2FitZoom\(window\.innerWidth\);/.test(fn('openLiturgyBook')) &&
   /if \(_lb2ZoomChosen\(\)\) return;/.test(fn('openLiturgyBook')) && /localStorage\.removeItem\(_LB2_ZOOM_KEY\)/.test(fn('lb2ZoomFit')) &&
@@ -292,29 +294,33 @@ try {
   const store = {}, rec = [];
   const S = songSandbox({ store, rec, songs: [plainSong, choirSong] });
   const b1 = S.bar(plainSong, S.view(plainSong));
-  check('a song with no choir parts says Lyrics, offers no Choir, and offers the Songbook (never sends there by itself)',
-    /<span class="lb2-song-seg__b is-on">.*Lyrics<\/span>/.test(b1) && !/Choir/.test(b1) &&
-    b1.indexOf('class="lb2-song-open" onclick="WO.lb2OpenSongbook(\'e1\')"') !== -1 && /Open in<\/span>Songbook/.test(b1), b1);
+  check('a song with no choir parts: Lyrics and Chords as tabs, no Choir; the Songbook offered (never sent there by itself); the double-tap said',
+    /lb2-song-seg__b is-on" role="tab" aria-selected="true"[^>]*'lyrics'/.test(b1) && /role="tab" aria-selected="false"[^>]*'chords'\)"><i class="fa-solid fa-guitar"/.test(b1) &&
+    !/Choir/.test(b1) && b1.indexOf('class="lb2-song-open" onclick="WO.lb2OpenSongbook(\'e1\')"') !== -1 && /Open in<\/span>Songbook/.test(b1) &&
+    /Double-tap the words to edit them here/.test(b1) && /Double-tap the score to edit the choir parts/.test(S.bar(choirSong, 'choir')), b1);
   const b2 = S.bar(choirSong, S.view(choirSong));
   check('a song with choir parts: Lyrics and Choir as tabs, Lyrics first; an apostrophe in its id cannot break the handlers',
     /lb2-song-seg__b is-on" role="tab" aria-selected="true"[^>]*lyrics/.test(b2) && /role="tab" aria-selected="false"[^>]*choir/.test(b2) &&
     b2.indexOf("WO.lb2SongView('e\\'2','choir')") !== -1, b2);
   S.set("e'2", 'choir');
   const keptChoir = S.view(choirSong) === 'choir' && JSON.parse(store.lhc_lb2_song_view).room === 'choir' && rec.join('|') === 'redraw!';
-  S.set("e'2", 'lyrics');
-  check('Choir chosen is kept on this device for that song and drawn at once; Lyrics again forgets it',
-    keptChoir && S.view(choirSong) === 'lyrics' && store.lhc_lb2_song_view === '{}', JSON.stringify(store) + ' ' + rec.join('|'));
+  S.set("e'2", 'chords');
+  const keptChords = S.view(choirSong) === 'chords';
+  S.set("e'2", 'lyrics'); S.set("e'2", 'sideways');
+  check('Lyrics, Chords or Choir chosen is kept on this device for that song and drawn at once (nothing else is taken)',
+    keptChoir && keptChords && S.view(choirSong) === 'lyrics' && JSON.parse(store.lhc_lb2_song_view).room === 'lyrics' && rec.length === 3,
+    JSON.stringify(store) + ' ' + rec.join('|'));
   const S2 = songSandbox({ store: { lhc_lb2_song_view: '{"crown":"choir"}' }, rec: [], songs: [plainSong] });
-  check('...and a song that has no parts is never shown as Choir', S2.view(plainSong) === 'lyrics');
-  const w = S.words(plainSong, 'lyrics');
-  const S3 = songSandbox({ store: {}, rec: [], songs: [], chords: true });
-  const wc = S3.words(plainSong, 'lyrics');
-  check('Lyrics: the Songbook\'s own words (_sbmLyricsSource) in the key sung, without chords unless the book\'s Chords is on, in the reader\'s fonts',
-    /^<div class="lb2-song-lyrics lb2-song-lyrics--nochords" style="--lb2-words:Georgia, serif;--lb2-grid:Roboto Mono;"><W>Crown Him<\/W>@2<\/div>$/.test(w) &&
-    /^<div class="lb2-song-lyrics" style=/.test(wc), w + ' / ' + wc);
+  const S2c = songSandbox({ store: { lhc_lb2_song_view: '{"room":"lyrics"}' }, rec: [], songs: [], chords: true });
+  check('...a song that has no parts is never shown as Choir; a song not chosen for follows "Chords on every song"',
+    S2.view(plainSong) === 'lyrics' && S2c.view(plainSong) === 'chords' && S2c.view(choirSong) === 'lyrics');
+  const w = S.words(plainSong, 'lyrics'), wc = S.words(plainSong, 'chords');
+  check('Lyrics: the Songbook\'s own words (_sbmLyricsSource) in the key sung, without chords; Chords with them; in the reader\'s fonts',
+    /^<div class="lb2-song-lyrics lb2-song-lyrics--nochords" title="Double-tap to edit" style="--lb2-words:Georgia, serif;--lb2-grid:Roboto Mono;"><W>Crown Him<\/W>@2<\/div>$/.test(w) &&
+    /^<div class="lb2-song-lyrics" title="Double-tap to edit" style=/.test(wc), w + ' / ' + wc);
   check('a song with no words yet says so', /No words yet/.test(S.words({ id: 'e3', base: 'x', lyrics: '' }, 'lyrics')) &&
     /No words yet/.test(S.words({ id: 'e3', base: 'x', lyrics: '', richLyrics: '<div><br></div>' }, 'lyrics')));
-  check('Choir: the Songbook\'s read-only score with its own styles', S.words(choirSong, 'choir') === '<div class="lb2-song-choir"><style>vl</style><div class="sb-choir"><SCORE></div></div>');
+  check('Choir: the Songbook\'s read-only score with its own styles', S.words(choirSong, 'choir') === '<div class="lb2-song-choir" title="Double-tap to edit the choir parts"><style>vl</style><div class="sb-choir"><SCORE></div></div>');
   let fail1; const rec4 = [];
   const S4 = songSandbox({ store: {}, rec: rec4, songs: [], read: new Promise((res, rej) => { fail1 = rej; }) });
   const unread = { id: 'e4', base: 'holy', choir: true };
@@ -354,6 +360,102 @@ check('with Chords on: one fixed-width grid that keeps its spaces, a pair too lo
   /_lb2FitChords\(\);\s*\}\s*$/.test(fn('_lb2ApplyZoom')) && /querySelectorAll\('\.lb2-song-lyrics:not\(\.lb2-song-lyrics--nochords\)'\), _sbmFitChordPairsIn\)/.test(fn('_lb2FitChords')));
 check('the choir score sits in the page\'s own margins; a phone shortens the Songbook button so the bar is one row',
   /\.lb2-song-choir \.sb-choir \{ padding: 0; \}/.test(BLOCK) && /@media \(max-width: 480px\) \{[^}]*\}[^}]*\}\s*\.lb2-song-open__l \{ display: none; \}/.test(BLOCK));
+// ------------------------------------------------------------ 7. editing a song
+console.log('\n7. A song\'s words double-tapped are edited where they are, and saved for everyone');
+let M = null;
+try { M = new Function(fn('_lb2WordsMerge') + '\nreturn _lb2WordsMerge;')(); } catch (e) { M = null; }
+if (M) {
+  const stored = ['[Verse 1]', 'D    G', 'Crown Him with many crowns', 'A7', 'The Lamb upon His throne', '', 'Hark how the heavenly', 'G'];
+  const chord = [false, true, false, true, false, false, false, true];
+  const shown = stored.filter((l, i) => !chord[i]);
+  check('nothing typed: the words come back exactly as stored', JSON.stringify(M(stored, chord, shown.slice())) === JSON.stringify(stored));
+  const mended = M(stored, chord, ['[Verse 1]', 'Crown Him with many crowns', 'The Lamb upon His holy throne', '', 'Hark how the heavenly']);
+  check('a word mended keeps the chords over its line', mended.join('|') === '[Verse 1]|D    G|Crown Him with many crowns|A7|The Lamb upon His holy throne||Hark how the heavenly|G', mended.join('|'));
+  const added = M(stored, chord, ['[Verse 1]', 'Crown Him with many crowns', 'A new line', 'The Lamb upon His throne', '', 'Hark how the heavenly']);
+  check('a new line has no chords, and the line under it keeps its own', added.join('|') === '[Verse 1]|D    G|Crown Him with many crowns|A new line|A7|The Lamb upon His throne||Hark how the heavenly|G', added.join('|'));
+  const cut = M(stored, chord, ['[Verse 1]', 'The Lamb upon His throne', '', 'Hark how the heavenly']);
+  check('a line taken out takes its chords with it; chords after the last line stay', cut.join('|') === '[Verse 1]|A7|The Lamb upon His throne||Hark how the heavenly|G', cut.join('|'));
+} else check('_lb2WordsMerge could be built', false);
+// The end of an edit, with what it calls stood in for.
+function edSandbox(o) {
+  return new Function('o',
+    'var _lb2Ed = o.ed, rec = o.rec;' +
+    'function _sbNpLines() { return o.typed; } function _lb2SrcLines() { return o.now; }' +
+    'function _sbEditRelease(b) { rec.push("release " + b); } function _sbEditMayWrite() { return o.may !== false; }' +
+    'function _sbSetCopyWords(s, w) { rec.push("save " + w); s.customLyrics = w; } function _lb2Rerender() { rec.push("redraw"); }' +
+    'function _lb2EdBarOff() {} function _lb2EdKey() {} function _lb2EdPaste() {} function _lb2EdBlur() {}' +
+    'function showToast(m, k, opt) { rec.push("toast " + m); o.undo = opt && opt.onAction; }' +
+    'function isChordLineGlobal(l) { return /^[A-G][#b]?m?7?(\\s+[A-G][#b]?m?7?)*\\s*$/.test(String(l).trim()); }' +
+    'function sbTransposeChordLine(l, n) { return l.replace(/[A-G]/g, function(c) { return "CDEFGAB".charAt(("CDEFGAB".indexOf(c) + 7 + n) % 7); }); }' +
+    fn('_sbNpMap') + fn('_lb2WordsMerge') + fn('_lb2EdEnd') + '\nreturn _lb2EdEnd;')(o);
+}
+function fakeEl() { return { classList: { remove() {} }, removeEventListener() {}, removeAttribute() {} }; }
+try {
+  const song = { customLyrics: 'a' }, rec = [];
+  const stored = ['G', 'Crown Him', 'D', 'The Lamb'], chord = [true, false, true, false];
+  const ed = { el: fakeEl(), song, base: 'crown', lyrics: true, shown: ['Crown Him', 'The Lamb'], stored, chord, before: stored.join('\n'), steps: 0 };
+  const o = { ed, rec, typed: ['Crown Him', 'The holy Lamb'], now: { lines: stored.slice() } };
+  edSandbox(o)(true);
+  check('Lyrics typed: saved through the Songbook\'s save with the chords put back, the song let go, the book drawn, an Undo offered',
+    rec.join('|') === 'save G\nCrown Him\nD\nThe holy Lamb|release crown|redraw|toast Saved. The Songbook and the slides have it too' && typeof o.undo === 'function', rec.join('|'));
+  rec.length = 0; o.undo();
+  check('...and Undo puts the words back while nobody has changed them since', rec.join('|') === 'save ' + stored.join('\n') + '|redraw', rec.join('|'));
+  song.customLyrics = 'someone else'; rec.length = 0; o.undo();
+  check('...but not over words changed since', /^toast The words were changed since/.test(rec.join('|')), rec.join('|'));
+  const rec2 = [], o2 = { ed: Object.assign({}, ed, { el: fakeEl() }), rec: rec2, typed: ['Crown Him', 'The holy Lamb'], now: { lines: ['Crown Him', 'other'] } };
+  edSandbox(o2)(true);
+  check('words changed underneath while typing are not written over', /^release crown\|toast These words were changed while you were typing/.test(rec2.join('|')) && !rec2.some(x => /^save /.test(x)), rec2.join('|'));
+  const rec3 = [], o3 = { ed: Object.assign({}, ed, { el: fakeEl() }), rec: rec3, typed: ['Crown Him', 'The holy Lamb'], now: { lines: stored.slice() }, may: false };
+  edSandbox(o3)(true);
+  const rec4 = [], o4 = { ed: Object.assign({}, ed, { el: fakeEl() }), rec: rec4, typed: ['Crown Him', 'The holy Lamb'], now: { lines: stored.slice() } };
+  edSandbox(o4)(false);
+  check('another device that has the song first keeps it; Esc / Cancel puts it all back', rec3.length === 0 && rec4.join('|') === 'release crown|redraw', rec3.join('|') + ' / ' + rec4.join('|'));
+  const song5 = { customLyrics: '' }, rec5 = [];
+  const st5 = ['C    G', 'Crown Him'];
+  const o5 = { ed: { el: fakeEl(), song: song5, base: 'crown', lyrics: false, shown: ['D    A', 'Crown Him'], stored: st5, chord: [true, false], before: st5.join('\n'), steps: 1 },
+    rec: rec5, typed: ['D    B', 'Crown Him'], now: { lines: st5.slice() } };
+  edSandbox(o5)(true);
+  check('Chords typed in the key sung go back into the copy\'s own key (the Songbook\'s _sbNpMap)', /^save C    A\nCrown Him\|/.test(rec5.join('|')), rec5.join('|'));
+} catch (e) { check('the end of an edit could be built', false, e.message); }
+// The double-tap on the book's clicks.
+try {
+  const o = { clock: 1000 }, rec = [];
+  const K = new Function('rec', 'o',
+    'var Date = { now: function() { return o.clock; } }, _lb2Locked = false, _lb2Ed = null, _lb2SongTap = null, _lb2Tap = null;' +
+    'function _lb2SongDouble(el, x, y) { rec.push("double " + el.name + " " + x); }' +
+    fn('_lb2OnClick') + '\nreturn { click: _lb2OnClick, lock: function(v) { _lb2Locked = v; }, edit: function(v) { _lb2Ed = v; } };')(rec, o);
+  const words = { name: 'w' }, other = { name: 'o' };
+  const ev = (el, x) => ({ target: { closest: sel => (/lb2-song-lyrics/.test(sel) ? el : null) }, clientX: x, clientY: 10 });
+  K.click(ev(words, 50)); o.clock = 1200; K.click(ev(words, 52));
+  const first = rec.join('|');
+  o.clock = 3000; K.click(ev(words, 50)); o.clock = 3500; K.click(ev(words, 50));
+  o.clock = 5000; K.click(ev(words, 50)); o.clock = 5100; K.click(ev(other, 50));
+  K.lock(true); o.clock = 7000; K.click(ev(words, 50)); o.clock = 7100; K.click(ev(words, 50));
+  K.lock(false); K.edit({}); o.clock = 9000; K.click(ev(words, 50)); o.clock = 9100; K.click(ev(words, 50));
+  check('two taps (or a double-click) on a song\'s words within 350ms edit them where tapped; not slower taps, two songs, full screen\'s lock, or while one is being typed',
+    first === 'double w 52' && rec.length === 1, rec.join('|'));
+} catch (e) { check('the double-tap could be built', false, e.message); }
+const sd = fn('_lb2SongDouble'), es = fn('_lb2EditStart');
+check('the choir score opens the choir pad over the book at the moment tapped (out of the device\'s full screen, where <body> is not drawn)',
+  /if \(box\.classList\.contains\('lb2-song-choir'\)\) \{/.test(sd) && /hit\.closest\('\[data-anchor\^="s:"\]'\)/.test(sd) &&
+  /if \(_lb2FullscreenActive\) _lb2SetFullscreen\(false\);/.test(sd) &&
+  /_sbOverviewOpen\(_sbBaseSongId\(song\), song\.id, song\.title \|\| '', null, null, at \? at\.getAttribute\('data-anchor'\) : null\);/.test(sd) &&
+  /window\.addEventListener\('lhc:lines-changed', function\(\) \{ if \(_lb2Open\(\)\) _lb2Rerender\(false\); \}\);/.test(fn('_lb2Bind')));
+check('editing starts only on words that are lines, the song held; in Lyrics the chord lines are taken out while typed',
+  /if \(!src\) \{ showToast\(/.test(es) && /box\.querySelectorAll\('\.wo-lyrics-chord-line'\), function\(c\) \{ c\.remove\(\); \}\)/.test(es) &&
+  /if \(!_sbEditClaim\(song\)\)/.test(es) && /box\.setAttribute\('contenteditable', 'true'\);/.test(es) && /_sbNpCaretAt\(box, x, y\)/.test(es) &&
+  /\(e\.ctrlKey \|\| e\.metaKey\) && \(e\.key === 'Enter'/.test(fn('_lb2EdKey')) && /e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); _lb2EdEnd\(false\);/.test(fn('_lb2EdKey')));
+check('full screen: holding a song\'s words 2 seconds edits them too; closing the book keeps what was typed',
+  /'\.lb2-slide-edit, \.lb2-song-slide-edit, \.lb2-song-lyrics, \.lb2-song-choir'/.test(fn('_lb2OnDown')) &&
+  /\{ _lb2SongDouble\(box, x, y\); return; \}/.test(fn('_lb2HoldFire')) && /if \(_lb2Ed\) _lb2EdEnd\(true\);/.test(fn('closeLiturgyBook')));
+check('the Songbook is drawn only when it is open -- a save from the book does not draw it hidden',
+  /if \(_sbmBookOpen\(\)\) renderSongbookLive\(\);\s*\}\s*$/.test(fn('_sbSetCopyWords')) && /if \(_sbmBookOpen\(\)\) renderSongbookLive\(\);/.test(fn('_sbmPadSaveSong')));
+check('"Chords on every song" forgets each song\'s own Lyrics or Chords, and keeps its Choir',
+  /Object\.keys\(v\)\.forEach\(function\(k\) \{ if \(v\[k\] !== 'choir'\) delete v\[k\]; \}\);/.test(fn('lb2ToggleChords')) && /'Lyrics on every song' : 'Chords on every song'/.test(fn('lb2More')));
+check('the bar shows inside the device\'s full screen; the words never zoom on the second tap; a gold edge while typed',
+  /\(document\.fullscreenElement \|\| document\.webkitFullscreenElement \|\| document\.body\)\.appendChild\(bar\);/.test(fn('_lb2EdBar')) &&
+  /\.lb2-song-lyrics, \.lb2-song-choir \{ touch-action: manipulation; cursor: text; \}/.test(BLOCK) && /\.lb2-song-lyrics\.is-editing \{ outline: 2px solid #c9a227;/.test(BLOCK) &&
+  has(/lb2SongEdSave: lb2SongEdSave,\s*lb2SongEdCancel: lb2SongEdCancel,/));
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {
   if (fail === 0) {

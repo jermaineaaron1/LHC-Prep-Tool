@@ -10814,6 +10814,13 @@ span.lb2-song-seg__b { cursor: default; }
 .lb2-page .lb2-song-lyrics .wo-inline-chord { font-weight: 700; color: #04756f; }
 .lb2-page .lb2-song-lyrics .wo-lyrics-chord-line { margin: 0.6em 0 0; line-height: 1.35; }
 .lb2-song-choir .sb-choir { padding: 0; }
+/* A double-tap edits the words in place (2026-11-20): the words a page, never
+   zoomed by the second tap; while typed on, a gold edge. */
+.lb2-song-hint { display: flex; align-items: center; gap: 6px; margin: -6px 0 12px; font: 500 0.72rem/1.3 'Poppins', sans-serif; color: #8a7a55; }
+.lb2-song-hint i { color: #c9a227; }
+.lb2-song-lyrics, .lb2-song-choir { touch-action: manipulation; cursor: text; }
+.lb2-song-lyrics.is-editing { outline: 2px solid #c9a227; outline-offset: 8px; border-radius: 6px; background: #fffdf5; box-shadow: 0 0 0 10px #fffdf5; caret-color: #8a6d1c; }
+.lb2-locked .lb2-song-lyrics, .lb2-locked .lb2-song-choir { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: default; }
 @media (max-width: 480px) {
   .lb2-song-seg__b { padding: 0 11px; }
   .lb2-song-open { padding: 0 10px; }
@@ -59447,7 +59454,7 @@ var WO = (function() {
     }).then(function(r) {
       return _sbPartColoursSave(base, colours).then(function() { return r; });
     }).then(function(r) {
-      renderSongbookLive();
+      if (_sbmBookOpen()) renderSongbookLive();   // the pad opens over the Liturgy Book too
       if (o.quiet) return r;
       var n = (r && r.orphans) ? r.orphans.length : 0;
       showToast(n ? 'Saved \u2014 ' + n + ' chord line' + (n === 1 ? ' has' : 's have') + ' no lyric line to sit over' : 'Arrangement saved', n ? 'info' : 'success');
@@ -71795,7 +71802,9 @@ var WO = (function() {
     sbAutoSave();
     autoSaveOrder();
     _sbmLiveSend();
-    renderSongbookLive();
+    // Drawn only when it is open: the Liturgy Book saves through here too,
+    // and a book drawn while hidden measures every page as nothing.
+    if (_sbmBookOpen()) renderSongbookLive();
   }
   // The editor closed, saved or not: the song is let go.
   function sbLyricsEditorClosed() {
@@ -87263,6 +87272,7 @@ var WO = (function() {
   }
 
   function closeLiturgyBook() {
+    if (_lb2Ed) _lb2EdEnd(true);
     var modal = $('liturgyBookModal');
     if (modal) modal.style.display = 'none';
     if (_lb2ResizeHandler) { window.removeEventListener('resize', _lb2ResizeHandler); _lb2ResizeHandler = null; }
@@ -87353,7 +87363,7 @@ var WO = (function() {
     _lbdOpenMenu(btn, 'Liturgy Book', [
       { label: 'Back to the Liturgy Builder', icon: 'fa-solid fa-arrow-left', run: lb2GoToOrder },
       '-',
-      { label: _lb2ShowChords ? 'Chords: on (tap for off)' : 'Chords: off (tap for on)', icon: 'fa-solid fa-guitar', run: lb2ToggleChords },
+      { label: _lb2ShowChords ? 'Lyrics on every song' : 'Chords on every song', icon: 'fa-solid fa-guitar', run: lb2ToggleChords },
       { label: _lb2TwoCol ? 'Two columns: on (tap for off)' : 'Two columns: off (tap for on)', icon: 'fa-solid fa-table-columns', run: lb2ToggleTwoCol },
       '-',
       { label: 'Sync with the other devices', icon: 'fa-solid fa-arrows-rotate', run: lb2Refresh },
@@ -87373,6 +87383,7 @@ var WO = (function() {
     body.addEventListener('click', _lb2OnClick);
     body.addEventListener('beforeinput', _lb2OnBeforeInput);
     body.addEventListener('keydown', _lb2OnKey);
+    window.addEventListener('lhc:lines-changed', function() { if (_lb2Open()) _lb2Rerender(false); });
     document.addEventListener('fullscreenchange', _lb2OnFsChange);
     document.addEventListener('webkitfullscreenchange', _lb2OnFsChange);
   }
@@ -87483,6 +87494,16 @@ var WO = (function() {
   var _lb2Tap = null;
   function _lb2OnClick(e) {
     var t = e.target;
+    // A song's words or score: two taps within 350ms and 32px edit them.
+    var sw = !_lb2Locked && !_lb2Ed && t.closest && t.closest('.lb2-song-lyrics, .lb2-song-choir');
+    if (sw) {
+      var now = Date.now(), st = _lb2SongTap;
+      if (st && st.el === sw && now - st.at < 350 && Math.abs(e.clientX - st.x) < 32 && Math.abs(e.clientY - st.y) < 32) {
+        _lb2SongTap = null;
+        _lb2SongDouble(sw, e.clientX, e.clientY);
+      } else _lb2SongTap = { el: sw, at: now, x: e.clientX, y: e.clientY };
+      return;
+    }
     var pen = t.closest && t.closest('.lb2-idx-ren');
     if (pen) { var r0 = pen.closest('tr[data-sec]'); if (r0) _lb2StartRename(r0.getAttribute('data-sec')); return; }
     var lbl = t.closest && t.closest('.lb2-idx-section-label');
@@ -87555,7 +87576,7 @@ var WO = (function() {
     var grip = t.closest && t.closest('.lb2-idx-grip');
     if (grip && !_lb2Locked) { _lb2DragStart(e, grip); return; }
     if (_lb2Locked) {
-      var box = t.closest && t.closest('.lb2-slide-edit, .lb2-song-slide-edit');
+      var box = t.closest && t.closest('.lb2-slide-edit, .lb2-song-slide-edit, .lb2-song-lyrics, .lb2-song-choir');
       if (box) _lb2HoldStart(e, box);
     }
   }
@@ -87663,6 +87684,7 @@ var WO = (function() {
     _lb2HoldEnd();
     _lb2Lock(false);
     try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) {}
+    if (box.classList.contains('lb2-song-lyrics') || box.classList.contains('lb2-song-choir')) { _lb2SongDouble(box, x, y); return; }
     try { box.focus({ preventScroll: true }); } catch (e) { box.focus(); }
     var r = null;
     try {
@@ -87727,7 +87749,7 @@ var WO = (function() {
     printWin.document.write('[contenteditable]{outline:none;}');
     // The screen's book reflows and zooms; paper is A4 at 100% (2026-11-20).
     printWin.document.write('#lb2ZoomWrap{zoom:1!important;}.lb2-page{width:210mm!important;max-width:none!important;padding:24mm 20mm 20mm!important;box-shadow:none!important;border-radius:0!important;}');
-    printWin.document.write('.lb2-idx-grip,.lb2-idx-ren,.lb2-idx-addrow,.lb2-fsbar,.lb2-hold-ring,.lb2-song-bar{display:none!important;}.lb2-slide-edit,.lb2-song-slide-edit{border-color:transparent!important;background:transparent!important;}');
+    printWin.document.write('.lb2-idx-grip,.lb2-idx-ren,.lb2-idx-addrow,.lb2-fsbar,.lb2-hold-ring,.lb2-song-bar,.lb2-song-hint{display:none!important;}.lb2-slide-edit,.lb2-song-slide-edit{border-color:transparent!important;background:transparent!important;}');
     printWin.document.write('</style></head><body>');
     printWin.document.write(body.innerHTML);
     printWin.document.write('</body></html>');
@@ -87789,6 +87811,10 @@ var WO = (function() {
   }
   function lb2ToggleChords() {
     _lb2ShowChords = !_lb2ShowChords;
+    // Every song: a song's own Lyrics or Chords is forgotten (its Choir kept).
+    var v = _lb2SongViewsRead();
+    Object.keys(v).forEach(function(k) { if (v[k] !== 'choir') delete v[k]; });
+    try { localStorage.setItem('lhc_lb2_song_view', JSON.stringify(v)); } catch (e) {}
     var btn = $('lb2ChordsBtn');
     if (btn) btn.classList.toggle('lb2-tool-btn--active', _lb2ShowChords);
     renderLiturgyBookLive();
@@ -88150,10 +88176,11 @@ var WO = (function() {
 
   // ── A song in the book, as the Songbook shows it (the operator,
   // 2026-11-20): its Lyrics -- the copy's words in the key sung, the
-  // Songbook's gold section tags and bold black lines, with the chords when
-  // the book's Chords is on -- or, where the song has choir parts, its Choir
-  // score. Which one is this device's, per song; Lyrics until Choir is
-  // chosen. The Songbook is a button away, never forced.
+  // Songbook's gold section tags and bold black lines -- its Chords (Chords +
+  // Lyrics), or, where the song has choir parts, its Choir score. Which one
+  // is this device's, per song; until one is chosen, the book's "Chords on
+  // every song" says. A double-tap on the words edits them in place (below).
+  // The Songbook is a button away, never forced.
   var _lb2SongViews = null, _lb2ChoirAsked = {};
   function _lb2SongViewsRead() {
     if (_lb2SongViews) return _lb2SongViews;
@@ -88161,13 +88188,16 @@ var WO = (function() {
     return _lb2SongViews;
   }
   function _lb2SongViewOf(song) {
-    return _lb2SongViewsRead()[_sbBaseSongId(song)] === 'choir' && _sbSongHasChoir(song) ? 'choir' : 'lyrics';
+    var v = _lb2SongViewsRead()[_sbBaseSongId(song)];
+    if (v === 'choir' && _sbSongHasChoir(song)) return 'choir';
+    if (v === 'chords' || v === 'lyrics') return v;
+    return _lb2ShowChords ? 'chords' : 'lyrics';
   }
   function lb2SongView(entryId, mode) {
     var song = _lbdSong(entryId);
-    if (!song) return;
+    if (!song || !/^(lyrics|chords|choir)$/.test(mode)) return;
     var v = _lb2SongViewsRead(), base = _sbBaseSongId(song);
-    if (mode === 'choir') v[base] = 'choir'; else delete v[base];
+    v[base] = mode;
     if (_lb2ChoirAsked[base] === 2) delete _lb2ChoirAsked[base];
     try { localStorage.setItem('lhc_lb2_song_view', JSON.stringify(v)); } catch (e) {}
     _lb2Rerender(true);
@@ -88176,20 +88206,20 @@ var WO = (function() {
     var sid = escapeJsArg(song.id || ''), choir = _sbSongHasChoir(song);
     var tab = function(m, icon, label) {
       var on = mode === m;
-      return choir
-        ? '<button type="button" class="lb2-song-seg__b' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + on + '" onclick="WO.lb2SongView(\'' + sid + '\',\'' + m + '\')"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</button>'
-        : '<span class="lb2-song-seg__b is-on"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</span>';
+      return '<button type="button" class="lb2-song-seg__b' + (on ? ' is-on' : '') + '" role="tab" aria-selected="' + on + '" onclick="WO.lb2SongView(\'' + sid + '\',\'' + m + '\')"><i class="fa-solid ' + icon + '" aria-hidden="true"></i>' + label + '</button>';
     };
     return '<div class="lb2-song-bar">' +
-      '<div class="lb2-song-seg"' + (choir ? ' role="tablist" aria-label="Show this song as"' : '') + '>' +
-        tab('lyrics', 'fa-align-left', 'Lyrics') + (choir ? tab('choir', 'fa-people-group', 'Choir') : '') + '</div>' +
+      '<div class="lb2-song-seg" role="tablist" aria-label="Show this song as">' +
+        tab('lyrics', 'fa-align-left', 'Lyrics') + tab('chords', 'fa-guitar', 'Chords') + (choir ? tab('choir', 'fa-people-group', 'Choir') : '') + '</div>' +
       '<button type="button" class="lb2-song-open" onclick="WO.lb2OpenSongbook(\'' + sid + '\')" title="Open this song in the Songbook"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span class="lb2-song-open__l">Open in</span>Songbook</button>' +
-      '</div>';
+      '</div>' +
+      '<div class="lb2-song-hint"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i>' +
+        (mode === 'choir' ? 'Double-tap the score to edit the choir parts' : 'Double-tap the words to edit them here') + '</div>';
   }
   function _lb2SongWordsHtml(song, mode) {
     if (mode === 'choir') {
       var body = _sbChoirBodyHtml(song);
-      if (body) return '<div class="lb2-song-choir">' + _sbChoirCss(song) + '<div class="sb-choir">' + body + '</div></div>';
+      if (body) return '<div class="lb2-song-choir" title="Double-tap to edit the choir parts">' + _sbChoirCss(song) + '<div class="sb-choir">' + body + '</div></div>';
       var base = _sbBaseSongId(song);
       if (!_lb2ChoirAsked[base]) {
         _lb2ChoirAsked[base] = 1;
@@ -88202,9 +88232,197 @@ var WO = (function() {
     }
     var html = _sbmLyricsSource(song), steps = _sbmStepsOf(song);
     if (steps) html = _sbTransposeHtml(html, steps);
-    return '<div class="lb2-song-lyrics' + (_lb2ShowChords ? '' : ' lb2-song-lyrics--nochords') + '" style="--lb2-words:' +
+    return '<div class="lb2-song-lyrics' + (mode === 'chords' ? '' : ' lb2-song-lyrics--nochords') + '" title="Double-tap to edit" style="--lb2-words:' +
       escapeHtml(_sbmFontWords()) + ';--lb2-grid:' + escapeHtml(_sbmFontGrid()) + ';">' + html + '</div>';
   }
+  // ── A song's words edited in the book (the operator, 2026-11-20: "if the
+  // user double taps on the field, they can edit it here and it will sync").
+  // A double-tap (or double-click) on the words makes that song's words
+  // typeable where they are, in the view showing -- Lyrics or Chords; Enter
+  // is a new line, Esc puts it all back, Save or a tap elsewhere keeps it.
+  // The Songbook's notepad rules (gotcha 65): the song is held while typed
+  // (_sbEditClaim), a line left as it was goes back exactly as stored, and a
+  // chord line typed or changed goes back into the copy's own key
+  // (_sbNpMap). In Lyrics the chord lines are taken out while it is typed
+  // and put back over the lines they were over (_lb2WordsMerge), so a word
+  // mended keeps its chords. Saved through the Songbook's own save
+  // (_sbSetCopyWords): the Songbook, the LCD's slides and the other devices
+  // have it, with an Undo. On the Choir score, the choir pad opens over the
+  // book at the moment tapped (_sbOverviewOpen).
+  var _lb2Ed = null, _lb2SongTap = null;
+  // The copy's words as lines, one a block, and which of them are chord
+  // lines; null when the blocks are not lines (words reworked as formatted
+  // text), which are left to the Songbook's editor.
+  function _lb2SrcLines(song) {
+    var lines = _sbmLinesOf(song);
+    if (!lines) return null;
+    var box = document.createElement('div');
+    box.innerHTML = _sbmLyricsSource(song);
+    var kids = box.children;
+    return { lines: lines, chord: lines.map(function(x, i) { return !!(kids[i] && kids[i].classList.contains('wo-lyrics-chord-line')); }) };
+  }
+  // Lyrics typed with the chord lines out of sight, put back with them: each
+  // chord line rides on the line under it. A line left as it was keeps its
+  // chords; a line changed keeps the chords of the line it replaced (lines
+  // paired in order between the ones left as they were); a new line has
+  // none, and a line taken out takes its chords with it. Pure.
+  function _lb2WordsMerge(stored, isChord, typed) {
+    var shown = [], pend = [];
+    stored.forEach(function(l, i) {
+      if (isChord[i]) { pend.push(l); return; }
+      shown.push({ t: l, chords: pend });
+      pend = [];
+    });
+    var tail = pend, n = shown.length, m = typed.length, L = [], i, j;
+    var key = function(x) { return String(x).replace(/\s+$/, ''); };
+    for (i = 0; i <= n; i++) { L[i] = []; for (j = 0; j <= m; j++) L[i][j] = 0; }
+    for (i = n - 1; i >= 0; i--) for (j = m - 1; j >= 0; j--) L[i][j] = key(shown[i].t) === key(typed[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    var out = [], gapS = [], gapT = [];
+    function flush() {
+      gapT.forEach(function(t, k) { if (gapS[k]) out.push.apply(out, gapS[k].chords); out.push(t); });
+      gapS = []; gapT = [];
+    }
+    i = 0; j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && key(shown[i].t) === key(typed[j])) { flush(); out.push.apply(out, shown[i].chords); out.push(shown[i].t); i++; j++; }
+      else if (j >= m || (i < n && L[i + 1][j] >= L[i][j + 1])) { gapS.push(shown[i]); i++; }
+      else { gapT.push(typed[j]); j++; }
+    }
+    flush();
+    out.push.apply(out, tail);
+    return out;
+  }
+  // A double-tap on a song: its words typed on, or its choir pad.
+  function _lb2SongDouble(box, x, y) {
+    if (_lb2Ed || !box || !box.isConnected) return;
+    var wrap = box.closest('.lb2-song-content-ro');
+    var song = wrap ? _lbdSong(wrap.getAttribute('data-song-id')) : null;
+    if (!song) return;
+    if (box.classList.contains('lb2-song-choir')) {
+      var at = null;
+      try { var hit = document.elementFromPoint(x, y); at = hit && hit.closest && hit.closest('[data-anchor^="s:"]'); } catch (e) {}
+      if (_lb2FullscreenActive) _lb2SetFullscreen(false);   // the pad is drawn on <body>
+      _sbOverviewOpen(_sbBaseSongId(song), song.id, song.title || '', null, null, at ? at.getAttribute('data-anchor') : null);
+      return;
+    }
+    _lb2EditStart(box, song, x, y);
+  }
+  function _lb2EditStart(box, song, x, y) {
+    var src = _lb2SrcLines(song);
+    if (!src) { showToast('These words are set as formatted text, so they are changed in the Songbook (Open in Songbook).', 'info', { duration: 6000 }); return false; }
+    var lyrics = box.classList.contains('lb2-song-lyrics--nochords');
+    if (lyrics) Array.prototype.forEach.call(box.querySelectorAll('.wo-lyrics-chord-line'), function(c) { c.remove(); });
+    var shown = _sbNpLines(box);
+    var want = lyrics ? src.lines.filter(function(l, i) { return !src.chord[i]; }) : src.lines;
+    var same = shown.length === want.length && (!lyrics || shown.every(function(l, i) { return l.replace(/\s+$/, '') === want[i].replace(/\s+$/, ''); }));
+    if (!same) {
+      _lb2Rerender(true);
+      showToast('These words cannot be typed over here. Change them in the Songbook (Open in Songbook).', 'info', { duration: 6000 });
+      return false;
+    }
+    if (!_sbEditClaim(song)) { if (lyrics) _lb2Rerender(true); return false; }
+    _lb2Ed = { el: box, song: song, base: _sbBaseSongId(song), lyrics: lyrics, shown: shown, stored: src.lines, chord: src.chord,
+               before: src.lines.join('\n'), steps: _sbmStepsOf(song) };
+    box.setAttribute('contenteditable', 'true');
+    box.setAttribute('spellcheck', 'false');
+    box.classList.add('is-editing');
+    box.addEventListener('keydown', _lb2EdKey);
+    box.addEventListener('paste', _lb2EdPaste);
+    box.addEventListener('blur', _lb2EdBlur);
+    try { box.focus({ preventScroll: true }); } catch (e) { box.focus(); }
+    if (x != null) _sbNpCaretAt(box, x, y); else lhcCaretToStart(box);
+    _lb2EdBar();
+    return true;
+  }
+  function _lb2EdKey(e) {
+    if (!_lb2Ed || e.isComposing) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _lb2EdEnd(false); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.key === 's' || e.key === 'S')) { e.preventDefault(); e.stopPropagation(); _lb2EdEnd(true); }
+  }
+  function _lb2EdPaste(e) {
+    var t = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    e.preventDefault();
+    try { document.execCommand('insertText', false, t.replace(/\r\n?/g, '\n')); } catch (x) {}
+  }
+  // A tap elsewhere keeps it; the bar's buttons keep the focus.
+  function _lb2EdBlur() {
+    setTimeout(function() {
+      var E = _lb2Ed;
+      if (!E) return;
+      var a = document.activeElement;
+      if (a && (a === E.el || E.el.contains(a) || (a.closest && a.closest('#lb2SongEdBar')))) return;
+      _lb2EdEnd(true);
+    }, 0);
+  }
+  function _lb2EdEnd(save) {
+    var E = _lb2Ed;
+    if (!E) return;
+    _lb2Ed = null;
+    var el = E.el;
+    el.removeEventListener('keydown', _lb2EdKey);
+    el.removeEventListener('paste', _lb2EdPaste);
+    el.removeEventListener('blur', _lb2EdBlur);
+    el.removeAttribute('contenteditable');
+    el.classList.remove('is-editing');
+    _lb2EdBarOff();
+    var typed = _sbNpLines(el), changed = typed.join('\n') !== E.shown.join('\n');
+    if (!save || !changed) { _sbEditRelease(E.base); _lb2Rerender(true); return; }
+    // Changed underneath (another device, the Songbook): not written over.
+    var now = _lb2SrcLines(E.song);
+    if (!now || now.lines.join('\n') !== E.before) {
+      _sbEditRelease(E.base);
+      showToast('These words were changed while you were typing, so they were not saved.', 'warning', { duration: 6000 });
+      _lb2Rerender(true);
+      return;
+    }
+    if (!_sbEditMayWrite(E.song)) return;   // what was typed stays on the page, to copy
+    var song = E.song, before = E.before;
+    var after = (E.lyrics ? _lb2WordsMerge(E.stored, E.chord, typed) : _sbNpMap(E.shown, E.stored, typed, E.steps)).join('\n');
+    if (after === before) { _sbEditRelease(E.base); _lb2Rerender(true); return; }
+    _sbSetCopyWords(song, after);
+    _sbEditRelease(E.base);
+    _lb2Rerender(true);
+    showToast('Saved. The Songbook and the slides have it too', 'success', { action: 'Undo', duration: 7000, onAction: function() {
+      if (String(song.customLyrics || '') !== after) { showToast('The words were changed since, so this was not undone.', 'info'); return; }
+      if (!_sbEditMayWrite(song)) return;
+      _sbSetCopyWords(song, before);
+      _lb2Rerender(true);
+    } });
+  }
+  // The bar while a song is typed on: Cancel, Save. Drawn inside the full
+  // screen when the book is in one (only that is drawn), and kept above a
+  // phone's keyboard.
+  function _lb2EdBar() {
+    _lb2EdBarOff();
+    var bar = document.createElement('div');
+    bar.id = 'lb2SongEdBar';
+    bar.className = 'sbm sbm-npbar lb2-songedbar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Editing the words');
+    var keep = ' onpointerdown="event.preventDefault()" onmousedown="event.preventDefault()"';
+    bar.innerHTML = '<span class="sbm-npbar__t"><i class="fa-solid fa-pen"></i>Editing the words</span>' +
+      '<button type="button" class="sbm-npbar__btn"' + keep + ' onclick="WO.lb2SongEdCancel()" title="Put everything back (Esc)">Cancel</button>' +
+      '<button type="button" class="sbm-npbar__btn sbm-npbar__btn--save"' + keep + ' onclick="WO.lb2SongEdSave()" title="Save (Ctrl+Enter)"><i class="fa-solid fa-check"></i>Save</button>';
+    (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(bar);
+    var vv = window.visualViewport;
+    if (vv) { vv.addEventListener('resize', _lb2EdPlace); vv.addEventListener('scroll', _lb2EdPlace); }
+    _lb2EdPlace();
+  }
+  function _lb2EdBarOff() {
+    var bar = document.getElementById('lb2SongEdBar');
+    if (bar) bar.remove();
+    var vv = window.visualViewport;
+    if (vv) { vv.removeEventListener('resize', _lb2EdPlace); vv.removeEventListener('scroll', _lb2EdPlace); }
+  }
+  function _lb2EdPlace() {
+    var bar = document.getElementById('lb2SongEdBar'), vv = window.visualViewport;
+    if (!bar || !vv) return;
+    bar.style.bottom = 'auto';
+    bar.style.top = Math.max(8, Math.round(vv.offsetTop + vv.height - (bar.offsetHeight || 48) - 12)) + 'px';
+  }
+  function lb2SongEdSave() { _lb2EdEnd(true); }
+  function lb2SongEdCancel() { _lb2EdEnd(false); }
+
   // The book's own way into the Songbook: the book closes, the Songbook opens
   // at the song, and closing the Songbook brings the book back where it was.
   var _lb2BackFromSb = null;
@@ -101225,6 +101443,8 @@ var WO = (function() {
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
     lb2SongView: lb2SongView,
     lb2OpenSongbook: lb2OpenSongbook,
+    lb2SongEdSave: lb2SongEdSave,
+    lb2SongEdCancel: lb2SongEdCancel,
     printSingleSong: printSingleSong,
     // Service order slide navigation
     selectSlideBox: selectSlideBox,

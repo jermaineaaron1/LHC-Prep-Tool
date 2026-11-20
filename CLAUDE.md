@@ -392,9 +392,10 @@ than a bash heredoc, which quietly eats a level of backslashes.
   builder's printable form and edits the same order -- since 2026-11-20 as
   a document: white, black and gold, the words reflowed to the screen and
   zoomed, sections dragged, renamed and added in its contents, Shift+Enter
-  a new slide at the cursor, each song as the Songbook's Lyrics (or Choir)
-  with Open in Songbook beside it, full screen read only until a 2-second
-  hold (gotcha 111).
+  a new slide at the cursor, each song as the Songbook's Lyrics, Chords or
+  Choir -- its words edited in place on a double-tap, saved for the Songbook,
+  the slides and every device -- with Open in Songbook beside it, full screen
+  read only until a 2-second hold (gotcha 111).
 - Notes: per section (`sectionLayout[i].notes`), per song (`liturgistNotes`)
   and for the whole service (`template.serviceNotes`). Never projected; shown
   in the builder, the Liturgy Book, the Songbook index and the LCD rail.
@@ -5983,7 +5984,11 @@ the anon key -- verify as `postgres`, not as the app.
       (`lb2OpenSongbook`: the book closes, `soOpenInSongbook` opens the
       Songbook at the song, and `closeSongbook` ends in `_lb2AfterSongbook`,
       which reopens the book at its scroll when the same order is still
-      open). Lyrics (`_lb2SongWordsHtml`) is the Songbook's own source,
+      open). Since the same day's second round the tabs are **Lyrics**,
+      **Chords** and (with parts) **Choir**, each song's own; a song not
+      chosen for follows More's "Chords on every song" (`_lb2ShowChords`,
+      which forgets each song's Lyrics or Chords and keeps its Choir).
+      Lyrics (`_lb2SongWordsHtml`) is the Songbook's own source,
       `_sbmLyricsSource` in the key sung (`_sbmStepsOf`,
       `_sbTransposeHtml`), dressed as its Lyrics view -- gold section tags,
       bold black lines, a blank line 0.6em -- in the reader's Songbook fonts
@@ -5998,16 +6003,49 @@ the anon key -- verify as `postgres`, not as the app.
       resize). Choir is Book Mode's read-only score (`_sbChoirBodyHtml` +
       `_sbChoirCss`), read once (`_sbLinesReady`, `_lb2ChoirAsked`) and
       said meanwhile. Which is this device's, per song
-      (`lhc_lb2_song_view`, only 'choir' kept); Lyrics until Choir is
-      chosen. The song's slide boxes and the Editable badge went: words
-      are changed in the Songbook. Print hides the bar.
+      (`lhc_lb2_song_view`: 'lyrics' / 'chords' / 'choir'). The song's slide
+      boxes and the Editable badge went. Print hides the bar and its hint.
+    - **A song's words edited in place** (the operator, the same day: "if
+      the user double taps on the field, they can edit it here and it will
+      sync with all other related functions"). Two taps within 350ms and
+      32px on the words (`_lb2OnClick` -> `_lb2SongDouble`; in full screen
+      the 2-second hold, `_lb2HoldFire`) make that song's words typeable
+      where they are, in the view showing (`_lb2EditStart`): Enter a new
+      line, Esc puts it all back, Save, Ctrl+Enter or a tap elsewhere keeps
+      it (`_lb2EdEnd`), a bar (`#lb2SongEdBar`, drawn inside the device's
+      full screen when there is one) with Cancel and Save. The Songbook
+      notepad's rules (gotcha 65): only words that are lines, one a block
+      (`_lb2SrcLines` over `_sbmLinesOf`; formatted text is refused, to the
+      Songbook); the song held (`_sbEditClaim`, `_sbEditMayWrite`); not
+      written over words changed underneath; in Chords a line left as it
+      was goes back exactly as stored and a chord line typed goes back into
+      the copy's own key (`_sbNpMap`). In Lyrics the chord lines are taken
+      out of the box while it is typed -- hidden ones were still in the DOM,
+      and a deletion across them took them -- and put back by
+      `_lb2WordsMerge` (pure): each rides on the line under it, a line
+      changed keeps the chords of the line it replaced (paired in order
+      between the lines left as they were), a new line has none, a line
+      taken out takes its chords. Saved through `_sbSetCopyWords`: the copy's
+      words, the LCD's slides when the projected words changed
+      (`_sbSlidesFollow`), the Songbook's quick sync, the order's save and
+      the live nudge, with Undo on the toast (while nobody changed them
+      since) -- the book's own Undo is the builder's, which does not hold a
+      song's words. `_sbSetCopyWords` and `_sbmPadSaveSong` now draw the
+      Songbook only while it is open (`_sbmBookOpen`): drawn hidden, it
+      measured every page as nothing. A double-tap on the Choir score opens
+      the choir pad over the book (`_sbOverviewOpen`, z-index 3650 over the
+      book's 2210) at the moment tapped (its `s:` anchor), leaving the
+      device's full screen first; a saved arrangement redraws the book
+      (`lhc:lines-changed`). Closing the book mid-edit keeps what was
+      typed.
     - Testing in the hidden preview: focus and blur do not fire, so a word
       typed is not saved there; drive `beforeinput` and pointer events, and
       scroll the contents into view first (`elementFromPoint` sees only what
       is on the screen).
     `tools/liturgy-book-doc-harness.js` checks it, running the fit, the
-    zoom kept, the drag's drop, the keys, the new slide and the join, and
-    the song's bar, words and way to the Songbook.
+    zoom kept, the drag's drop, the keys, the new slide and the join, the
+    song's bar, words and way to the Songbook, the double-tap, the words'
+    merge and the end of an edit.
 
 ## Quick Commands for Claude Code
 
