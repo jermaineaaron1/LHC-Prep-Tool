@@ -2461,7 +2461,19 @@ const CASES = [
     s => s.replace('      lay.splice(after ? to + 1 : to, 0, moved);\r\n      _lbdSortSongsByService();\r\n', '      lay.splice(after ? to + 1 : to, 0, moved);\r\n')],
   // The phone's bar, the songbook's font, the master copy (2026-11-09).
   ['phone-bar-font-master-harness.js', 'the phone\'s bar loses its Save',
-    s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],
+    s => s.replace("      '<button type=\"button\" class=\"lbw-mb lbw-mb-s lbw-mb-act\" data-act=\"save-liturgy\" aria-label=\"Save This Liturgy\" title=\"Save This Liturgy\"><i class=\"fa-solid fa-floppy-disk\" aria-hidden=\"true\"></i></button>' +\r\n", '')],
+  // The builder as a document (2026-11-20): small buttons and the Liturgy
+  // Book big, a double-tap opens a part, a + between sections, the intro once.
+  ['builder-word-bar-harness.js', 'the phone\'s bar loses its Liturgy Book',
+    s => s.replace("        '<i class=\"fa-solid fa-book-bookmark\" aria-hidden=\"true\"></i><span>Liturgy Book</span></button>' +\r\n      '<button type=\"button\" class=\"lbw-mb lbw-mb-s lbw-mb-act\" data-act=\"share-link\"", "        '</button>' +\r\n      '<button type=\"button\" class=\"lbw-mb lbw-mb-s lbw-mb-act\" data-act=\"share-link\"")],
+  ['builder-word-bar-harness.js', 'a double-tap on the words opens All Slides instead of selecting a word',
+    s => s.replace("button, a, input, select, textarea, [data-field=\"slide\"], [data-field=\"content-text\"], .lbw-note, .lbw-margin", "button, a, input, select, textarea, .lbw-note, .lbw-margin")],
+  ['builder-word-bar-harness.js', 'a section added between two goes to the end',
+    s => s.replace("      var idx = (typeof at === 'number' && at >= 0 && at <= lay.length) ? at : lay.length;\r\n      lay.splice(idx, 0, { id: id, title: title || 'New Section', serviceSectionId: '' });", "      lay.push({ id: id, title: title || 'New Section', serviceSectionId: '' });")],
+  ['builder-word-bar-harness.js', 'the intro plays every time the builder opens',
+    s => s.replace("    try { localStorage.setItem(_LBD_BOOK_INTRO_KEY, '1'); } catch (e) {}\r\n", '')],
+  ['builder-word-bar-harness.js', 'the arrow stops short of the Liturgy Book',
+    s => s.replace("return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 2) };", "return { ang: Math.atan2(dy, dx) * 180 / Math.PI, dist: dist, stop: Math.max(0, dist - edge - 40) };")],
   ['phone-bar-font-master-harness.js', 'a font for words moves the chords off their words',
     s => s.replace("return f.mono ? f.fam : _SBM_GRID_STACK;", "return f.fam || _SBM_GRID_STACK;")],
   ['phone-bar-font-master-harness.js', 'the master copy is overwritten whatever the answer',

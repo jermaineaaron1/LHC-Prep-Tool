@@ -54,7 +54,7 @@ function check(label, ok, detail) {
 }
 
 // ------------------------------------------------------------ 1. the phone's top bar
-console.log('\n1. The builder on a phone: the section half the bar, then WhatsApp, Save and Load');
+console.log('\n1. The builder on a phone: small buttons, the Liturgy Book big, then WhatsApp, Save and Load');
 const mb = fn('_lbdMbarHtml');
 check('after the section: WhatsApp (the link), Save and Load, then undo and redo', !!mb &&
   mb.indexOf('data-act="nav-toggle"') < mb.indexOf('data-act="share-link"') && mb.indexOf('data-act="share-link"') < mb.indexOf('data-act="save-liturgy"') &&
@@ -62,7 +62,11 @@ check('after the section: WhatsApp (the link), Save and Load, then undo and redo
   /fa-brands fa-whatsapp/.test(mb) && /aria-label="Save This Liturgy"/.test(mb));
 check('...each doing what the ribbon\'s does: the link on WhatsApp, Save This Liturgy, the Load menu',
   has(/case 'share-link': lbdShareWhatsApp\(false\); break;/) && has(/case 'save-liturgy': lbdSvlSaveSheet\(\); break;/) && has(/case 'menu-load': _lbdOpenLoadMenu\(btn\); break;/));
-check('the section takes at most half the bar', has(/\.lbw-mb-sec \{\r?\n  flex: 1 1 0; min-width: 0; max-width: 50%;/));
+// 2026-11-20 (the operator): the section is a small button by its number,
+// and the Liturgy Book takes what is left -- tools/builder-word-bar-harness.js.
+check('the section is a small button now, by its number; the Liturgy Book takes the room', !!mb &&
+  /class="lbw-mb lbw-mb-s lbw-mb-pick" data-act="nav-toggle"/.test(mb) && /class="lbw-mb lbw-mb-book" data-act="open-book"/.test(mb) &&
+  has(/\.lbw-mb-book \{\r?\n  flex: 1 1 auto; min-width: 74px;/) && !has(/\.lbw-mb-sec \{/));
 check('...Save green and Load light blue, as on the desk', has(/\.lbw-mb\[data-act="save-liturgy"\] \{ background: #1f9d55; color: #fff; \}/) &&
   has(/\.lbw-mb\[data-act="menu-load"\] \{ border: 1px solid #7dd3fc; background: #e0f2fe; color: #0369a1; \}/));
 check('Load asks: a liturgy saved in the Liturgy Library for this service, or a past service',
