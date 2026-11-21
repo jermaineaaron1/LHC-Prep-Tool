@@ -32852,6 +32852,11 @@ var SBQ_ROSTER = {
     return sb.from('roster').upsert(rows, { onConflict: 'month,year,role_id,service_date' })
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
+        // A reading changed on the Roster: an order open on this device
+        // follows at once (WO._woFollowSoon); others within half a minute.
+        if (rows.some(function(x) { return /^(reading1|psalm|reading2|gospel)$/.test(x.role_id); })) {
+          try { window.dispatchEvent(new CustomEvent('lhc:readings-changed', { detail: {} })); } catch (e) {}
+        }
         return { success: true, updated: rows.length };
       });
   },
@@ -34809,6 +34814,8 @@ var SBQ_PRAYERS = {
     }).then(function(r) {
       if (r.error) throw new Error(r.error.message);
       (r.data || []).forEach(function(row) { var p = SBQ_PRAYERS._fromRow(row); SBQ_PRAYERS._put(p.key, p); });
+      // An order open on this device follows at once (WO._woFollowSoon).
+      try { window.dispatchEvent(new CustomEvent('lhc:prayers-changed', { detail: { keys: keys } })); } catch (e) {}
       return (r.data || []).filter(function(row) {
         var want = rows.filter(function(x) { return x.service_key === row.service_key; })[0];
         return want && String(row.prayer || '') === want.prayer;
@@ -34830,6 +34837,7 @@ var SBQ_PRAYERS = {
     return Promise.resolve(sb.from('day_prayers').delete().eq('service_key', String(key))).then(function(r) {
       if (r.error) throw new Error(r.error.message);
       SBQ_PRAYERS._put(String(key), null);
+      try { window.dispatchEvent(new CustomEvent('lhc:prayers-changed', { detail: { keys: [String(key)] } })); } catch (e) {}
       return true;
     });
   }
@@ -34976,8 +34984,32 @@ window.lhcDayPrayer = (function() {
       .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
   }
 
+  // The prayer an item's slides already say (pure): the words after "Let
+  // us pray" on its heading slide and every slide after it, speakers and a
+  // closing Amen aside; '' for a template's empty "C :". What a converted
+  // liturgy states as its own Prayer of the Day (2026-11-21).
+  function _dpWords(oldTexts) {
+    var old = (oldTexts || []).map(function(x) { return String(x == null ? '' : x).replace(/\r/g, ''); });
+    var h = -1, lines = [];
+    for (var i = 0; i < old.length && h < 0; i++) {
+      if (old[i].split('\n').some(function(l) { return HEAD_RE.test(l); })) h = i;
+    }
+    if (h >= 0) {
+      var ls = old[h].split('\n'), stop = -1, j;
+      for (j = 0; j < ls.length; j++) { if (PRAY_RE.test(ls[j])) { stop = j; break; } }
+      if (stop < 0) { for (j = 0; j < ls.length; j++) { if (HEAD_RE.test(ls[j])) { stop = j; break; } } }
+      lines = ls.slice(stop + 1);
+      old.slice(h + 1).forEach(function(x) { lines = lines.concat(x.split('\n')); });
+    } else {
+      old.forEach(function(x) { if (!/be\s+with\s+you|also\s+with\s+you/i.test(x)) lines = lines.concat(x.split('\n')); });
+    }
+    var t = lines.map(function(l) { return l.replace(SPEAKER_RE, ''); }).join(' ').replace(/\s+/g, ' ').trim();
+    t = t.replace(/\s*\bamen[.!]?\s*$/i, '').trim();
+    return t.length >= 30 ? t : '';
+  }
+
   return { split: _dpSplit, slides: _dpSlides, same: _dpSameSlides, plan: _dpPlan,
-           target: _dpTarget, norm: _dpNorm, plain: _dpPlain };
+           target: _dpTarget, norm: _dpNorm, plain: _dpPlain, words: _dpWords };
 })();
 
 // ================================================================
@@ -80201,12 +80233,15 @@ var WO = (function() {
         _woSectionItems(sx.id).forEach(function(it) {
           if (it.itemType !== 'scripture') return;
           var role = _roleForSlotLabel((it.content && it.content.subLabel) || '');
-          if (role) have[role] = true;
+          if (role && !have[role]) have[role] = _woReadingRef(it) || true;
         });
       });
       var todo = opts.auto ? _woReadingsTodo(wanted, byRole, have, _woReadingsNoted(order))
                            : wanted.filter(function(w) { return !have[w.role]; });
-      if (opts.auto) _woNoteReadings(order, wanted.filter(function(w) { return have[w.role]; }), byRole);
+      // A reading had is noted only when it IS the Roster's: one the Roster
+      // has since changed is the follow's to replace (_woFollowPlan), and a
+      // note would make it look taken already.
+      if (opts.auto) _woNoteReadings(order, wanted.filter(function(w) { return have[w.role] && _woRefKey(have[w.role]) === _woRefKey(byRole[w.role]); }), byRole);
       if (!todo.length) { say('Those readings are already in this order.', 'info'); return 0; }
       var got = [], failed = [];
       function step(i) {
@@ -80296,9 +80331,14 @@ var WO = (function() {
   function _woNoteReadings(order, list, byRole) {
     if (!order || !list || !list.length) return;
     if (!order.template) order.template = {};
-    var n = Object.assign({}, _woReadingsNoted(order));
-    list.forEach(function(w) { if (byRole[w.role]) n[w.role] = byRole[w.role]; });
+    var n = Object.assign({}, _woReadingsNoted(order)), t = Object.assign({}, _woReadingTitles(order));
+    list.forEach(function(w) { if (byRole[w.role]) n[w.role] = byRole[w.role]; if (w.title) t[w.role] = w.title; });
     order.template.rosterReadings = n;
+    order.template.rosterReadingTitles = t;
+  }
+  function _woReadingTitles(order) {
+    var t = order && order.template && order.template.rosterReadingTitles;
+    return (t && typeof t === 'object') ? t : {};
   }
   // Is the order's service today or later? An order keeps "Nov 1", with the
   // year in its title or worked out from when it was made (_yearForOrder).
@@ -80357,6 +80397,289 @@ var WO = (function() {
       }, tries ? 15000 : 20000);
     })();
   }
+  // ── An upcoming order follows the Roster (2026-11-21) ──────────────────
+  //
+  // From the operator: the readings on the Roster -- and the Readings page,
+  // which is the same store -- and the date's Prayer of the Day dictate what
+  // an upcoming service's order projects, even where the Liturgy App File
+  // it came from says otherwise, and a change made there reaches an order
+  // already open, a running projection included (asked: "Also live on open
+  // screens"). A reading the Roster changes is replaced by the new passage;
+  // one it sets to '-' or leaves deliberately blank is taken out (asked); a
+  // reading it names that the order lacks is the fill's, as before
+  // (_woReadingsTodo); the prayer follows as _woPrayerIntoData /
+  // _woPrayerIntoLcd decide. Each device that holds the order -- the
+  // Liturgy Builder on its data, LCD Projection on its schedule -- applies it
+  // itself: on opening, every 30 seconds while it holds it, and at once when
+  // this device saves a reading or a prayer (lhc:readings-changed /
+  // lhc:prayers-changed). Nothing is written to a stored order nobody holds:
+  // the service page says what differs, with Update the order now. A
+  // liturgy's own readings and prayer win because Use puts them on the
+  // Roster and the Readings page first (gotcha 104).
+  var _WO_READ_ROLES = ['reading1', 'psalm', 'reading2', 'gospel'];
+  // A reference as the Roster wrote it, its stray spaces tidied: "Mark 1 :1-3".
+  function _woRefTidy(ref) {
+    return String(ref == null ? '' : ref).replace(/\s+/g, ' ').replace(/\s*:\s*/g, ':').replace(/\s*,\s*/g, ', ').trim();
+  }
+  // Two references the same passage (pure): case, spaces, dashes, "Psalms" aside.
+  function _woRefKey(x) {
+    return String(x || '').toLowerCase().replace(/[\u2013\u2014]/g, '-').replace(/^psalms\b/, 'psalm').replace(/\s+/g, '');
+  }
+  // The Roster's readings for one service as stored (pure over its rows): a
+  // reference, or 'none' where it says '-' or was left deliberately blank.
+  // An empty cell, or TBD, says nothing.
+  function _woRosterRawOf(rows, dateStr) {
+    var out = {};
+    (rows || []).forEach(function(r) {
+      if (!r || _WO_READ_ROLES.indexOf(r.roleId) === -1 || _lbdNormDate(r.date) !== _lbdNormDate(dateStr)) return;
+      var v = String(r.value || '').trim();
+      if (v === '-' || v === '__BLANK__') out[r.roleId] = 'none';
+      else if (v && v.toUpperCase() !== 'TBD') out[r.roleId] = _woRefTidy(v);
+    });
+    return out;
+  }
+  // What the order does to follow (pure). have: { role: [{ id, ref }] }, its
+  // readings now; noted: what it last took from the Roster
+  // (template.rosterReadings); titles: the titles it put in
+  // (template.rosterReadingTitles). In step when the order's reading is the
+  // Roster's, or is what it was given for the Roster's reference as it now
+  // is. -> [{ role, act: 'replace' | 'remove', ids, ref }]
+  function _woFollowPlan(raw, have, noted, titles) {
+    noted = noted || {}; titles = titles || {};
+    var out = [];
+    _WO_READ_ROLES.forEach(function(role) {
+      var r = raw && raw[role], items = (have && have[role]) || [];
+      if (!r || !items.length) return;
+      var ids = items.map(function(x) { return x.id; });
+      if (r === 'none') { out.push({ role: role, act: 'remove', ids: ids, ref: '' }); return; }
+      var h = _woRefKey(items[0].ref), k = _woRefKey(r);
+      if (h === k) return;
+      if (_woRefKey(noted[role]) === k && (!titles[role] || _woRefKey(titles[role]) === h)) return;
+      out.push({ role: role, act: 'replace', ids: ids, ref: r });
+    });
+    return out;
+  }
+  function _woNoteFollow(order, done) {
+    if (!order || !done.length) return;
+    if (!order.template) order.template = {};
+    var n = Object.assign({}, _woReadingsNoted(order)), t = Object.assign({}, _woReadingTitles(order));
+    done.forEach(function(a) {
+      n[a.role] = a.act === 'remove' ? 'none' : a.ref;
+      if (a.title) t[a.role] = a.title; else delete t[a.role];
+    });
+    order.template.rosterReadings = n;
+    order.template.rosterReadingTitles = t;
+  }
+  // The Roster for one date, read fresh: the four readings' rows only.
+  function _woRosterRawFor(dateStr, year) {
+    var sb = (typeof SBQ !== 'undefined' && SBQ._sb) ? SBQ._sb() : null, month = _monthFromDateStr(dateStr);
+    if (!sb || month < 0) return Promise.resolve({});
+    return Promise.resolve(sb.from('roster').select('role_id,service_date,value').eq('month', month).eq('year', year).in('role_id', _WO_READ_ROLES)).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return _woRosterRawOf((r.data || []).map(function(x) { return { roleId: x.role_id, date: x.service_date, value: x.value }; }), dateStr);
+    });
+  }
+  // The reading in a slot of the LCD's schedule, by its banner.
+  function _woLcdBanners(role) {
+    var root = document.getElementById('woWorshipOrder');
+    return root ? Array.prototype.filter.call(root.querySelectorAll('.scripture-banner'), function(b) {
+      return _roleForSlotLabel(b.getAttribute('data-sub-label')) === role;
+    }) : [];
+  }
+  function _woLcdHadRef(role) {
+    var b = _woLcdBanners(role)[0];
+    return b ? (b.getAttribute('data-scripture-title') || '') : '';
+  }
+  // The order's readings now, where it is held: { role: [{ id, ref }] }.
+  function _woFollowHave(step) {
+    var have = {};
+    var put = function(role, id, ref) { if (role) (have[role] = have[role] || []).push({ id: id, ref: ref }); };
+    if (step === 'service') {
+      _WO_READ_ROLES.forEach(function(role) {
+        _woLcdBanners(role).forEach(function(b, i) { put(role, role + '#' + i, b.getAttribute('data-scripture-title') || ''); });
+      });
+      return have;
+    }
+    _woSectionList().forEach(function(sx) {
+      _woSectionItems(sx.id).forEach(function(it) {
+        if (it && it.itemType === 'scripture') put(_roleForSlotLabel((it.content && it.content.subLabel) || ''), it.id, _woReadingRef(it));
+      });
+    });
+    return have;
+  }
+  // The passages for what is replaced, one at a time (the service limits).
+  function _woFollowFetch(acts) {
+    var got = {}, reps = acts.filter(function(a) { return a.act === 'replace'; });
+    function step(i) {
+      if (i >= reps.length) return Promise.resolve(got);
+      var a = reps[i];
+      return LiturgyModule.fetchPassage(a.ref, 'esv').then(function(p) {
+        if (!p || p.error || !p.text) return;
+        var canonical = String(p.reference || '').trim();
+        got[a.role] = { title: (canonical && canonical.indexOf(';') === -1) ? canonical : a.ref, text: p.text };
+      }).catch(function() {}).then(function() {
+        return i + 1 < reps.length ? new Promise(function(res) { setTimeout(res, 350); }) : null;
+      }).then(function() { return step(i + 1); });
+    }
+    return step(0);
+  }
+  // The builder: one change on the order's data. Not offered as Undo: the
+  // Roster says what is read, and an Undo would be followed again.
+  function _woFollowIntoData(order, acts, got) {
+    var done = [];
+    var ok = _lbdChange(function() {
+      acts.forEach(function(a) {
+        if (a.act === 'replace' && !got[a.role]) return;
+        var first = true, hit = false;
+        currentOrderData.allItems = (currentOrderData.allItems || []).filter(function(x) {
+          if (!x || a.ids.indexOf(x.id) === -1) return true;
+          hit = true;
+          if (a.act === 'remove' || !first) return false;
+          first = false;
+          var g = got[a.role], old = Array.isArray(x.slides) ? x.slides : [];
+          var sub = (x.content && x.content.subLabel) || '';
+          var alleluia = old.some(function(sl) { return _woScriptureSlideKind(sl && sl.content).kind === 'pre'; });
+          var plan = _woScriptureSlides(sub, g.title, g.text, alleluia);
+          x.title = g.title;
+          x.content = Object.assign({}, x.content || {}, { reference: g.title, subLabel: sub });
+          x.slides = plan.map(function(sl, k) { return { index: k, content: sl.text, background: (old[k] && old[k].background) || '' }; });
+          return true;
+        });
+        if (!hit) return;
+        if (a.act === 'remove') _woUserClearedTypes.scripture = true;
+        done.push(a.act === 'replace' ? Object.assign({}, a, { title: got[a.role].title }) : a);
+      });
+      if (!done.length) return false;
+      _woNoteFollow(currentOrderData, done);
+    });
+    return ok ? done : [];
+  }
+  // LCD Projection: its schedule is what a save reads (gotcha 35), so the
+  // readings are changed there, by the LCD's own remove and insert, one step
+  // on its undo stack. A reading whose slide is on the wall waits until it
+  // is not (gotcha 81); words held in the slide editor wait too.
+  function _woFollowIntoLcd(order, acts, got) {
+    if (currentOrderData !== order || !_woLcdInPage()) return [];
+    if ((typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) || document.querySelector('#woWorshipOrder .wo-slide-box textarea')) return [];
+    var sel = document.querySelector('#woWorshipOrder .wo-slide-box.selected');
+    var onAir = typeof _lcdOnAir === 'function' && _lcdOnAir();
+    var groupOf = function(b) { var g = b.nextElementSibling; return g && g.classList.contains('wo-scripture-slides-group') ? g : null; };
+    var done = [], pushed = false, bgs = {};
+    acts.forEach(function(a) {
+      var bs = _woLcdBanners(a.role);
+      if (!bs.length || (a.act === 'replace' && !got[a.role])) return;
+      if (sel && onAir && bs.some(function(b) { var g = groupOf(b); return g && g.contains(sel); })) return;
+      if (!pushed) { _lcdPushUndo(); pushed = true; }
+      // The section a banner is in, by where it is: a reading the schedule
+      // drew into its template's slot carries no data-section of its own.
+      var secOf = function(b) { var host = b.parentElement; return host && /-boxes$/.test(host.id || '') ? host.id.replace(/-boxes$/, '') : (b.getAttribute('data-section') || ''); };
+      bs.forEach(function(b) { var sx = secOf(b); if (sx && !bgs[sx]) bgs[sx] = _lcdCaptureSectionBgs(sx) || []; });
+      var alleluia = bs.some(function(b) {
+        var g = groupOf(b);
+        return g && Array.prototype.some.call(g.querySelectorAll('.wo-slide-content'), function(c) { return _woScriptureSlideKind(_lcdSlideText(c)).kind === 'pre'; });
+      });
+      var did = false;
+      bs.forEach(function(b, i) {
+        var host = b.parentElement, btn = b.querySelector('button');
+        if (!host || !btn) return;
+        // removeScriptureKeepSlot puts an empty slot where the banner was:
+        // that slot is the one filled (or taken away), not the first of its
+        // kind in some section.
+        var at = Array.prototype.indexOf.call(host.children, b);
+        removeScriptureKeepSlot(btn);
+        var slot = host.children[at];
+        if (!slot || slot.getAttribute('data-subsection-type') !== 'scripture') return;
+        if (a.act === 'replace' && i === 0) {
+          insertScriptureIntoBox(slot, { title: got[a.role].title, content: got[a.role].text,
+            singAlleluia: alleluia || (a.role === 'gospel' && getOrderType() === 'traditional') });
+        } else slot.remove();
+        did = true;
+      });
+      if (did) done.push(a.act === 'replace' ? Object.assign({}, a, { title: got[a.role].title }) : a);
+    });
+    if (!done.length) return [];
+    Object.keys(bgs).forEach(function(sx) { _lcdRestoreSectionBgs(sx, bgs[sx]); });
+    _woNoteFollow(currentOrderData, done);
+    autoSaveOrder();
+    // insertScriptureIntoBox shows its own first slide in the preview: the
+    // slide that was selected goes back there (and stays on the wall).
+    if (sel && sel.isConnected) { try { selectSlideBox(sel); } catch (e) {} }
+    return done;
+  }
+  function _woFollowToast(done) {
+    var lab = function(role) { var r = READING_ROLES.filter(function(x) { return x.role === role; })[0]; return r ? r.label : role; };
+    var bits = done.filter(function(a) { return a.act === 'replace'; }).map(function(a) { return lab(a.role) + ': ' + a.title; });
+    var gone = done.filter(function(a) { return a.act === 'remove'; }).map(function(a) { return lab(a.role); });
+    if (gone.length) bits.push(gone.join(' and ') + ' taken out (none on the Roster)');
+    showToast('The readings follow the Roster now. ' + bits.join('; ') + '.', 'info', { duration: 9000 });
+  }
+  var _woFollowBusy = false, _woFollowSaid = {}, _woFollowT = null;
+  // Where this device holds an upcoming order: 'service' (LCD Projection in
+  // the page), 'liturgy' (the builder), or null.
+  function _woFollowHeld() {
+    var o = currentOrderData;
+    if (!o || !o.id || _sbStandaloneId || String(o.id).indexOf('standalone_') === 0 || _loadingOrder) return null;
+    if (!_woOrderIsUpcoming(o)) return null;
+    if (_woLcdInPage()) return 'service';
+    if (_lbdIsActive()) return 'liturgy';
+    return null;
+  }
+  function _woFollow(why) {
+    var step = _woFollowHeld();
+    if (!step || _woFollowBusy) return Promise.resolve(0);
+    if (step === 'liturgy' && typeof _lbdTypingNow === 'function' && _lbdTypingNow()) return Promise.resolve(0);
+    if (step === 'service' && ((typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) || (typeof editingSlideBox !== 'undefined' && editingSlideBox))) return Promise.resolve(0);
+    var o = currentOrderData, dateStr = String(o.serviceDate || '').trim(), year = _yearForOrder(o);
+    if (!dateStr || _monthFromDateStr(dateStr) < 0 || typeof LiturgyModule === 'undefined' || !LiturgyModule.fetchPassage) return Promise.resolve(0);
+    _woFollowBusy = true;
+    var finish = function(n) { _woFollowBusy = false; return n; };
+    return _woRosterRawFor(dateStr, year).then(function(raw) {
+      if (currentOrderData !== o || _woFollowHeld() !== step) return 0;
+      var acts = _woFollowPlan(raw, _woFollowHave(step), _woReadingsNoted(o), _woReadingTitles(o));
+      if (!acts.length) return 0;
+      return _woFollowFetch(acts).then(function(got) {
+        if (currentOrderData !== o || _woFollowHeld() !== step) return 0;
+        var done = step === 'liturgy' ? _woFollowIntoData(o, acts, got) : _woFollowIntoLcd(o, acts, got);
+        if (done.length) _woFollowToast(done);
+        var failed = acts.filter(function(a) { return a.act === 'replace' && !got[a.role]; }).map(function(a) { return a.ref; });
+        var fk = o.id + '|' + failed.join('|');
+        if (failed.length && !_woFollowSaid[fk]) {
+          _woFollowSaid[fk] = true;
+          showToast('Could not look up ' + failed.join(', ') + ' from the Roster. Check the reference there.', 'error', { duration: 9000 });
+        }
+        return done.length;
+      });
+    }).then(finish, function(e) { console.warn('Following the Roster failed', e); return finish(0); });
+  }
+  // The date's Prayer of the Day, read fresh, into the order where it is held.
+  function _woFollowPrayer(step) {
+    var o = currentOrderData;
+    if (!o || !step || typeof SBQ_PRAYERS === 'undefined' || !window.lhcDayPrayer) return Promise.resolve(false);
+    var iso = _woOrderIso(o);
+    if (!iso) return Promise.resolve(false);
+    return SBQ_PRAYERS.get(iso, { fresh: true }).then(function(row) {
+      if (!row || !row.prayer || currentOrderData !== o || _woFollowHeld() !== step) return false;
+      return step === 'liturgy' ? _woPrayerIntoData(o, row, iso) : _woPrayerIntoLcd(o, row, iso);
+    }).catch(function() { return false; });
+  }
+  // Every 30 seconds while an upcoming order is held -- in a hidden tab only
+  // while something is on the wall -- and soon after a save here: what was
+  // replaced or taken out, then what is missing, then the prayer.
+  function _woFollowTick() {
+    if (document.visibilityState !== 'visible' && !(typeof _lcdOnAir === 'function' && _lcdOnAir())) return;
+    var step = _woFollowHeld();
+    if (!step || _woFollowBusy) return;
+    _woFollow('tick').then(function() {
+      if (_woFollowHeld() !== step) return;
+      return Promise.resolve(fillReadingsFromRoster({ quiet: true, auto: true })).catch(function() {});
+    }).then(function() { return _woFollowPrayer(step); });
+  }
+  function _woFollowSoon() { clearTimeout(_woFollowT); _woFollowT = setTimeout(_woFollowTick, 800); }
+  window.addEventListener('lhc:readings-changed', _woFollowSoon);
+  window.addEventListener('lhc:prayers-changed', _woFollowSoon);
+  document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') _woFollowSoon(); });
+  setInterval(_woFollowTick, 30000);
+
   var _woAutoReadingsDone = {};
   // step: 'liturgy' (the builder, the order's data) or 'service' (the LCD's
   // schedule, once it is in the page). Once per order and step a session.
@@ -80367,11 +80690,17 @@ var WO = (function() {
       var o = currentOrderData;
       if (!o || !o.id || _sbStandaloneId || String(o.id).indexOf('standalone_') === 0) return;
       var key = o.id + '|' + step;
-      if (_woAutoReadingsDone[key] || !_woOrderIsUpcoming(o)) return;
+      if (!_woOrderIsUpcoming(o)) return;
       if (step === 'service' && !_woLcdInPage()) { if (++tries < 40) setTimeout(go, 150); return; }
       if (step === 'liturgy' && !_lbdIsActive()) return;
+      // The fill and the mend once a session; the follow on every opening
+      // (and on its own clock, _woFollowTick): the Roster may have changed.
+      if (_woAutoReadingsDone[key]) { _woFollowSoon(); return; }
       _woAutoReadingsDone[key] = true;
-      var filled = fillReadingsFromRoster({ quiet: true, auto: true });
+      // What the Roster has changed first (replaced, taken out), then what is
+      // missing: the other way round, the fill would note the old reading as
+      // the Roster's.
+      var filled = _woFollow('open').then(function() { return fillReadingsFromRoster({ quiet: true, auto: true }); });
       // ...and a reading saved cut short is fetched whole, after the fill.
       if (step === 'liturgy') Promise.resolve(filled).then(_woMendReadings, _woMendReadings);
     })();
@@ -80645,6 +80974,8 @@ var WO = (function() {
     var found = _woPrayerLcdItems();
     var t = D.target(found.sections, found.items);
     if (!t || !t.item || !t.item.boxes.length) return false;
+    // Its slide on the wall right now: left until it is not (gotcha 81).
+    if (typeof _lcdOnAir === 'function' && _lcdOnAir() && t.item.boxes.some(function(b) { return b.classList.contains('selected'); })) return false;
     var old = t.item.slides.map(function(s) { return s.content || ''; });
     var plan = D.plan(_woPrayerNoted(order, iso), old, row.prayer);
     if (plan === 'none' || plan === 'keep') return false;
@@ -84259,6 +84590,8 @@ var WO = (function() {
       currentOrderData.template.serviceLiturgy.use = { at: useAt, made: !!useRec.made,
         roster: useRec.roster == null ? null : String(useRec.roster),
         readings: (useRec.readings || []).map(function(r) { return { role: r.role, was: String(r.was || ''), ref: String(r.ref || '') }; }),
+        prayer: useRec.prayer ? { text: String(useRec.prayer.text || ''), was: useRec.prayer.was == null ? null : String(useRec.prayer.was),
+          wasFile: useRec.prayer.wasFile || null, wasOcc: useRec.prayer.wasOcc || null } : null,
         songs: addedIds.slice() };
       // What came from the other files: noted as a blend is, so the page
       // says "With parts of ..." and Sources lists them.
@@ -92793,7 +93126,8 @@ var WO = (function() {
           var want = wanted[i];
           var ref = byRole[want.role];
           var slot = _emptySlotFor(sectionId, want.role);
-          if (!slot) { already.push(want.label); dealt.push(want); return step(i + 1); }
+          // Had already: noted only when it IS the Roster's (as the builder's fill).
+          if (!slot) { already.push(want.label); if (_woRefKey(_woLcdHadRef(want.role)) === _woRefKey(ref)) dealt.push(want); return step(i + 1); }
 
           return LiturgyModule.fetchPassage(ref, 'esv').then(function(p) {
             if (!p || p.error || !p.text) { failed.push(ref); return step(i + 1); }
@@ -92814,7 +93148,7 @@ var WO = (function() {
               singAlleluia: want.role === 'gospel' && getOrderType() === 'traditional'
             });
             filled.push(want.label);
-            dealt.push(want);
+            dealt.push(Object.assign({}, want, { title: slideTitle }));
             return new Promise(function(res) { setTimeout(res, 350); }).then(function() { return step(i + 1); });
           });
         }
@@ -101411,6 +101745,7 @@ var WO = (function() {
     redo: function() { return _lbdIsActive() ? lbdRedo() : woRedo(); },
     lbdRender: lbdRender,
     lbdFillReadings: lbdFillReadings,
+    followRosterNow: function() { return _woFollow('manual').then(function(n) { return Promise.resolve(fillReadingsFromRoster({ quiet: true, auto: true })).catch(function() {}).then(function() { return n; }); }); },
     svlOutline: _svlOutline, svlCounts: _svlCounts, svlOutlineHtml: _svlOutlineHtml, svlItemToggle: _svlItemToggle, lbdSvlItem: lbdSvlItem,
     orderForIso: _woOrderForIso, orderInfoForIso: _woOrderInfoForIso, createOrderForIso: _woCreateOrderForIso, svlUseFromLibrary: svlUseFromLibrary, exportDoc: _woExportDoc,
     libOutlineOf: _woLibOutlineOf, libTplOf: _woLibTplOf, libSaveNow: function(ms) { return _soSaveSettled(ms); }, libSetSlides: _woLibSetSlides, libPdf: _woLibPdf, libUnuse: _woLibUnuse, libDelete: _woLibDelete, libRestore: _woLibRestore, libKeepBg: _woLibKeepBg, svlSecMap: _woSvlSecMap, libSection: _woLibSection, libAddPart: _woLibAddPart, libPart: _woLibPart, libBlend: _woLibBlend, libPad: _woLibPad, libHistory: _woLibHistory, libStep: _woLibStep, currentOrderId: function() { return (currentOrderData && currentOrderData.id) || null; }, occasionFor: _svlOccasionFor, sectionsOf: _woSectionsOf,
@@ -102461,6 +102796,7 @@ var LiturgyModule = (function() {
           value: value, updated_at: new Date().toISOString()
         }, { onConflict: 'month,year,role_id,service_date' })).then(function(up) {
           if (up && up.error) throw new Error(up.error.message);
+          try { window.dispatchEvent(new CustomEvent('lhc:readings-changed', { detail: { iso: iso } })); } catch (e) {}
           if (oldVal === value) return value;
           // A failed log must not undo a saved reading.
           return Promise.resolve(sb.from('roster_changes').insert({
@@ -107276,14 +107612,19 @@ var LiturgyModule = (function() {
       var ordersP = (typeof SBQ !== 'undefined' && SBQ.loadOrders) ? Promise.resolve(SBQ.loadOrders()).catch(function() { return []; }) : Promise.resolve([]);
       return Promise.all([
         SBQ_READINGS.getRange(next.key, next.key).catch(function() { return {}; }),
-        (typeof SBQ_PRAYERS !== 'undefined' ? SBQ_PRAYERS.get(next.key) : Promise.resolve(null)).catch(function() { return null; }),
+        (typeof SBQ_PRAYERS !== 'undefined' ? SBQ_PRAYERS.get(next.key, { fresh: true }) : Promise.resolve(null)).catch(function() { return null; }),
         SBQ_READINGS.getRoleValues(next.key, next.key, _mvRoleIds()).catch(function() { return {}; }),
-        ordersP
+        ordersP,
+        // The lectionary's readings for the date: the original where the
+        // liturgy names none (_spFollowData).
+        (typeof SBQ_LECT_SOURCES !== 'undefined' ? SBQ_LECT_SOURCES.getLatest() : Promise.resolve(null)).catch(function() { return null; })
       ]).then(function(r2) {
         if (tok !== _spTok) return;
         var d = _spData;
         d.reads = (r2[0] || {})[next.key] || (r2[0] || {})[next.key.slice(0, 10)] || {};
         d.prayer = (r2[1] && r2[1].prayer) || '';
+        var ls = r2[4];
+        d.lect = (ls && ls.readings && (ls.readings[next.key] || ls.readings[next.key.slice(0, 10)])) || null;
         d.people = (r2[2] || {})[next.key] || {};
         d.order = (r2[3] || []).filter(function(o) { return o && !/^standalone_/.test(String(o.id)) && _mvOrderIso(o) === next.key; })[0] || null;
         renderService();
@@ -108381,7 +108722,7 @@ var LiturgyModule = (function() {
       var back = !u.made && !!(b && b.snap && b.at === u.at);
       if (!u.made && !back) return { none: true };
       return { made: !!u.made, back: back, roster: u.roster == null ? null : String(u.roster),
-               readings: (u.readings || []).slice(), songs: (u.songs || []).length, legacy: false };
+               readings: (u.readings || []).slice(), songs: (u.songs || []).length, legacy: false, prayer: u.prayer || null };
     }
     var made = Date.parse((order && (order.createdDate || order.created_date)) || '');
     var near = (changes || []).filter(function(c) {
@@ -108400,14 +108741,19 @@ var LiturgyModule = (function() {
   }
   // What Remove will do now (pure): the record against the Roster as it is.
   // A Roster changed since by somebody else is left as they left it.
-  function _spUnusePlan(rec, rosterNow, readsNow) {
+  function _spUnusePlan(rec, rosterNow, readsNow, prayNow) {
     if (!rec || rec.none) return { none: true };
     var back = rec.roster != null && /special/i.test(String(rosterNow || ''));
     var reads = [], kept = [];
     (rec.readings || []).forEach(function(r) {
       if (_spRefKey((readsNow || {})[r.role]) === _spRefKey(r.ref)) reads.push(r); else kept.push(r);
     });
-    return { made: rec.made, back: rec.back, roster: back ? rec.roster : null, reads: reads, kept: kept, songs: rec.songs || 0 };
+    // The prayer Use put on the Readings page goes back while it is still the
+    // liturgy's; one changed there since stays.
+    var pr = rec.prayer, norm = function(t) { return String(t || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+    var pray = pr && pr.text && norm(prayNow) === norm(pr.text) ? pr : null;
+    return { made: rec.made, back: rec.back, roster: back ? rec.roster : null, reads: reads, kept: kept, songs: rec.songs || 0,
+             pray: pray, prayKept: !!(pr && pr.text && !pray) };
   }
   var _spRm = null;
   function spoRemove() {
@@ -108422,11 +108768,12 @@ var LiturgyModule = (function() {
       : Promise.resolve([]);
     var day = String(next.key).slice(0, 10);
     Promise.all([chP, SBQ_READINGS.serviceTypeAt(next.key).catch(function() { return ''; }),
-                 SBQ_READINGS.getRange(day, day).catch(function() { return {}; })]).then(function(res) {
+                 SBQ_READINGS.getRange(day, day).catch(function() { return {}; }),
+                 (typeof SBQ_PRAYERS !== 'undefined' ? SBQ_PRAYERS.get(next.key, { fresh: true }) : Promise.resolve(null)).catch(function() { return null; })]).then(function(res) {
       var r = _spRm;
       if (!r || r.key !== next.key) return;
       var rec = _spUseRecord(tpl, d.orderFull || d.order, res[0]);
-      r.plan = _spUnusePlan(rec, res[1], (res[2] || {})[next.key] || (res[2] || {})[day] || {});
+      r.plan = _spUnusePlan(rec, res[1], (res[2] || {})[next.key] || (res[2] || {})[day] || {}, res[3] ? res[3].prayer : '');
       _spRmDraw();
     });
   }
@@ -108451,6 +108798,8 @@ var LiturgyModule = (function() {
       if (pl.roster != null) li.push(['fa-calendar-days', 'The Roster: back to a ' + tn(pl.roster).replace(/^no service kind \(blank\)$/, 'blank service kind') + '.']);
       pl.reads.forEach(function(x) { li.push(['fa-book-bible', 'The Roster’s ' + nm(x.role) + ': back to ' + (x.was || 'none') + ' (it is ' + x.ref + ').']); });
       pl.kept.forEach(function(x) { li.push(['fa-circle-info', 'The Roster’s ' + nm(x.role) + ' stays as it is: it was changed after this liturgy came in.']); });
+      if (pl.pray) li.push(['fa-hands-praying', pl.pray.was ? 'The Prayer of the Day on the Readings page: back to the one it had before.' : 'The Prayer of the Day this liturgy put on the Readings page is taken off (there was none before).']);
+      if (pl.prayKept) li.push(['fa-circle-info', 'The Prayer of the Day on the Readings page stays as it is: it was changed after this liturgy came in.']);
     }
     var body = !pl ? '<p class="lf-muted"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Looking at what it changed…</p>'
       : pl.none ? '<p class="spr-msg">This liturgy came in before the app kept a record of what the service was like before, so it cannot be taken off here. Use another Liturgy App File in its place, or change it in the Liturgy Builder.</p>'
@@ -108880,6 +109229,11 @@ var LiturgyModule = (function() {
       if (pl.reads.length) p = p.then(function() {
         return _spPutReadings(key, pl.reads.map(function(x) { return { role: x.role, ref: x.was }; })).catch(function(e) { rosterLeft.push('its readings (' + ((e && e.message) || e) + ')'); });
       });
+      if (pl.pray) p = p.then(function() {
+        var w = pl.pray;
+        return (w.was ? SBQ_PRAYERS.set(key, w.was, { occasion: w.wasOcc || null, sourceFile: w.wasFile || null }) : SBQ_PRAYERS.remove(key))
+          .catch(function(e) { rosterLeft.push('the Prayer of the Day (' + ((e && e.message) || e) + ')'); });
+      });
       return p;
     }).then(function() {
       if (_spRm === r) { _spRm = null; var el2 = document.getElementById('spRemove'); if (el2) el2.remove(); }
@@ -108967,7 +109321,71 @@ var LiturgyModule = (function() {
       '</div>';
     var change = _sp.change ? '<div class="spi-change">' + list + '<p class="spi-change__hint">Use puts a Liturgy App File in its place. Convert a past year’s document in the library to make one.</p></div>' : '';
     return '<section class="sp-make sp-make--use svp-act">' + _spActHd(used ? 'Ready for Church Use' : 'Written in the Builder', used ? '' : 'is-plain') +
-      '<div class="svp-act__body">' + day + '<div class="svp-act__src">' + src + '</div>' + _spDiffHtml(cmp) + reads + acts + change + '</div></section>';
+      '<div class="svp-act__body">' + day + '<div class="svp-act__src">' + src + '</div>' + _spDiffHtml(cmp) + (used ? _spFollowHtml(d) : '') + reads + acts + change + '</div></section>';
+  }
+  // What the service follows against its original (2026-11-21, the
+  // operator: the Roster and the Readings page dictate its readings and
+  // Prayer of the Day, "Please also notify that the scripture readings used
+  // is different from the original"). The original readings are its Liturgy
+  // App File's, else the lectionary's; the original prayer is the file's
+  // own, when it states one. lag: the order still has a reading the Roster
+  // has since changed or taken out (an order held anywhere follows within
+  // half a minute; one nobody has open, when it is next opened -- or now).
+  // Pure but for _spOrigRow.
+  function _spFollowData(d) {
+    var svl = (_spTpl(d) || {}).serviceLiturgy || {};
+    var row = svl.id ? _spOrigRow(d) : null;
+    var file = (row && row.data) ? _spFileReadings(row) : [];
+    var orig = {}, from = '';
+    if (file.length) { file.forEach(function(x) { orig[x.role] = x.ref; }); from = 'liturgy'; }
+    else if (d.lect) { CV_ROLES.forEach(function(r) { if (d.lect[r[0]]) orig[r[0]] = d.lect[r[0]]; }); from = d.lect ? 'lectionary' : ''; }
+    var now = d.reads || {};
+    var none = function(v) { v = String(v || '').trim(); return !v || v === '-' || v === '__BLANK__'; };
+    var diffs = !from ? [] : CV_ROLES.map(function(r) {
+      var o = orig[r[0]] || '', c = now[r[0]], cn = none(c);
+      if (!o && cn) return null;
+      if (o && !cn && _spRefKey(o) === _spRefKey(c)) return null;
+      if (!o && !String(c || '').trim()) return null;
+      return { role: r[0], label: r[1], now: cn ? '' : String(c).trim().replace(/[ ]*:[ ]*/g, ':'), was: o };
+    }).filter(Boolean);
+    var have = {};
+    (d.orderItems || []).forEach(function(it) {
+      if (!it || (it.itemType || it.item_type) !== 'scripture') return;
+      var role = _cvReadingRole((it.content && it.content.subLabel) || '', it.title || '');
+      if (role && !have[role]) have[role] = String((it.content && it.content.reference) || it.title || '');
+    });
+    var lag = CV_ROLES.some(function(r) {
+      var c = String(now[r[0]] || '').trim(), h = have[r[0]];
+      if (!h || !c) return false;
+      if (c === '-' || c === '__BLANK__') return true;
+      return _spRefKey(h) !== _spRefKey(c.replace(/\s*:\s*/g, ':'));
+    });
+    var D = window.lhcDayPrayer, fp = (row && row.data) ? _spFilePrayer(row.data) : '';
+    var pray = !!(fp && d.prayer && D && D.norm(fp) !== D.norm(d.prayer));
+    return { from: from, diffs: diffs, lag: lag && !!d.order, pray: pray, prayNow: d.prayer || '', prayWas: fp };
+  }
+  function _spFollowHtml(d) {
+    var f = _spFollowData(d);
+    if (!f.diffs.length && !f.pray && !f.lag) return '';
+    var list = f.diffs.map(function(x) {
+      return '<li><b>' + _lfE(x.label) + '</b><span>' + (x.now ? _lfE(x.now) : '<em>none</em>') + '</span>' +
+        '<small>' + (x.was ? 'original: ' + _lfE(x.was) : 'not in the original') + '</small></li>';
+    }).join('');
+    return '<div class="spi-follow" role="note">' +
+      (f.diffs.length ? '<p class="spi-follow__h"><i class="fa-solid fa-book-bible" aria-hidden="true"></i><span><b>Readings from the Roster</b> \u00b7 ' +
+          f.diffs.length + ' differ' + (f.diffs.length === 1 ? 's' : '') + ' from the ' + (f.from === 'liturgy' ? 'liturgy’s own' : 'lectionary’s') + '</span></p>' +
+          '<ul class="spi-follow__list">' + list + '</ul>' : '') +
+      (f.pray ? '<details class="spi-follow__pray"><summary><i class="fa-solid fa-hands-praying" aria-hidden="true"></i><span><b>Prayer of the Day from the Readings page</b> \u00b7 differs from the liturgy’s own</span></summary>' +
+          '<p class="spi-follow__now">' + _lfE(f.prayNow) + '</p><p class="spi-follow__was"><small>The liturgy’s own</small>' + _lfE(f.prayWas) + '</p></details>' : '') +
+      (f.lag ? '<button type="button" class="spo-fill spi-follow__go" onclick="LiturgyModule.spoFollow()"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>' +
+          '<span>The order still has the readings from before. <b>Update the order now</b></span></button>' : '') +
+      '</div>';
+  }
+  // Update the order now: the Liturgy Builder takes the Roster's readings in.
+  function spoFollow() {
+    var d = _spData;
+    if (!d || !d.order || !(window.WO && WO.followRosterNow)) return;
+    _llOpenInBuilder(d.order.id, function() { WO.followRosterNow(); });
   }
   // Sources (2026-11-16, the operator: "give a section called sources and
   // list the number of liturgies that are being referenced ... clicking on
@@ -111422,6 +111840,25 @@ var LiturgyModule = (function() {
     });
     return CV_ROLES.filter(function(r) { return got[r[0]]; }).map(function(r) { return { role: r[0], ref: got[r[0]] }; });
   }
+  // The Prayer of the Day a Liturgy App File states as its own (pure but for
+  // lhcDayPrayer): the words of its "Prayer of the Day" part, '' when it has
+  // none or only a template's empty "C :" (2026-11-21: a special liturgy's
+  // own prayer is followed, as its readings are).
+  function _spFilePrayer(data) {
+    var D = window.lhcDayPrayer, d = data || {}, secs = {};
+    if (!D || !D.words) return '';
+    (d.sectionLayout || []).forEach(function(sx) { if (sx && sx.id) secs[sx.id] = sx.title || ''; });
+    var re = /prayer\s+of\s+the\s+day|\bcollect\b/i;
+    var it = (d.items || []).filter(function(x) {
+      return x && x.itemType === 'liturgy' && (re.test(x.title || '') || re.test(secs[x.sectionId] || ''));
+    })[0];
+    if (!it) return '';
+    return D.words((it.slides || []).map(function(sl) { return (sl && (sl.content || sl.text)) || ''; }));
+  }
+  function _spPeek(t, n) {
+    t = String(t || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1).trim() + '\u2026' : t;
+  }
   // Two references the same passage (pure): case, spaces, dashes and "Psalms" aside.
   function _spRefKey(x) {
     return String(x || '').toLowerCase().replace(/[\u2013\u2014]/g, '-').replace(/^psalms\b/, 'psalm').replace(/\s+/g, '');
@@ -111595,7 +112032,31 @@ var LiturgyModule = (function() {
         '<label class="spu-pick' + (mineOn ? '' : ' is-on') + '"><input type="radio" name="spUseReads" value="roster"' + (mineOn ? '' : ' checked') + ' onchange="LiturgyModule.spUseReadsFrom(this.value)">' +
           '<span><b>The Roster’s</b><small>Nothing on the Roster changes.</small></span></label></div>';
     }
-    return '<p class="spu-lbl">Readings for ' + _lfE(_lfLongDate(sel.key)) + '</p>' + table + choice +
+    // The prayer, as the readings (2026-11-21): a liturgy that states its own
+    // Prayer of the Day puts it on the Readings page for this date, so the
+    // Builder, LCD Projection and the bulletin say it, and an edit there later
+    // reaches the order.
+    var prayHtml = '', fp = _spFilePrayer(st.f.data), D = window.lhcDayPrayer;
+    if (fp && typeof SBQ_PRAYERS !== 'undefined') {
+      u.pray = u.pray || {};
+      var pr = u.pray[sel.key];
+      if (pr === undefined) {
+        pr = u.pray[sel.key] = 'wait';
+        SBQ_PRAYERS.get(sel.key, { fresh: true }).then(function(row) { if (_spUse !== u) return; u.pray[sel.key] = row || false; _spUseDraw(); },
+          function() { if (_spUse === u) { u.pray[sel.key] = false; _spUseDraw(); } });
+      }
+      var cur = (pr && pr !== 'wait') ? pr.prayer : '', pOn = u.prayFrom !== 'readings';
+      prayHtml = '<p class="spu-lbl">Prayer of the Day</p>' + (pr === 'wait'
+        ? '<p class="spu-empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>Reading the Prayer of the Day…</p>'
+        : (cur && D && D.norm(cur) === D.norm(fp))
+        ? '<p class="spu-note spu-note--ok"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>The Readings page already has this liturgy’s prayer.</span></p>'
+        : '<div class="spu-picks" role="radiogroup" aria-label="Which prayer">' +
+            '<label class="spu-pick' + (pOn ? ' is-on' : '') + '"><input type="radio" name="spUsePray" value="liturgy"' + (pOn ? ' checked' : '') + ' onchange="LiturgyModule.spUsePrayFrom(this.value)">' +
+              '<span><b>This liturgy’s</b><small>' + _lfE(_spPeek(fp, 120)) + '</small><small>The Readings page for ' + _lfE(_lfShortDate(sel.key)) + ' is changed to it, so the LCD and the bulletin say it too.</small></span></label>' +
+            '<label class="spu-pick' + (pOn ? '' : ' is-on') + '"><input type="radio" name="spUsePray" value="readings"' + (pOn ? '' : ' checked') + ' onchange="LiturgyModule.spUsePrayFrom(this.value)">' +
+              '<span><b>The Readings page’s</b><small>' + (cur ? _lfE(_spPeek(cur, 120)) : 'None there yet.') + '</small></span></label></div>');
+    }
+    return '<p class="spu-lbl">Readings for ' + _lfE(_lfLongDate(sel.key)) + '</p>' + table + choice + prayHtml +
       '<button type="button" class="spu-go" data-key="' + _lfE(sel.key) + '" onclick="LiturgyModule.spUseReadings(this.dataset.key)">' +
         '<i class="fa-solid fa-pen-to-square" aria-hidden="true"></i><span>Change the Roster’s readings on the Readings page<small>A button there brings you back here.</small></span></button>';
   }
@@ -111816,6 +112277,7 @@ var LiturgyModule = (function() {
     _spUseDraw();
   }
   function spUseReadsFrom(v) { if (_spUse && !_spUse.busy) { _spUse.readsFrom = v === 'roster' ? 'roster' : 'liturgy'; _spUseDraw(); } }
+  function spUsePrayFrom(v) { if (_spUse && !_spUse.busy) { _spUse.prayFrom = v === 'readings' ? 'readings' : 'liturgy'; _spUseDraw(); } }
   function spUseExtra(i, on) { if (_spUse && !_spUse.busy) { if (on) _spUse.extras[i] = true; else delete _spUse.extras[i]; _spUseDraw(); } }
   // A part's words shown or hidden in place: the list keeps its place.
   function spUseOpen(i, btn) {
@@ -111977,6 +112439,18 @@ var LiturgyModule = (function() {
     });
     // What Use changes is noted on the order (gotcha 104), so Remove can put
     // it back: whether it made the order, the Roster's kind and readings before.
+    // The liturgy's own prayer on the Readings page, when it states one and
+    // that was chosen; what it replaced is noted, so Remove can put it back.
+    var prayRec = null, fp = _spFilePrayer(f.data), D = window.lhcDayPrayer;
+    if (fp && u.prayFrom !== 'readings' && typeof SBQ_PRAYERS !== 'undefined') p = p.then(function() {
+      return SBQ_PRAYERS.get(row.key, { fresh: true }).catch(function() { return null; }).then(function(cur) {
+        if (cur && D && D.norm(cur.prayer) === D.norm(fp)) return;
+        say('Putting the prayer on the Readings page…', 'put the prayer on the Readings page');
+        return SBQ_PRAYERS.set(row.key, fp, { occasion: row.day || null, sourceFile: f.title || 'Liturgy App File' }).then(function() {
+          prayRec = { text: fp, was: cur ? cur.prayer : null, wasFile: cur ? (cur.sourceFile || null) : null, wasOcc: cur ? (cur.occasion || null) : null };
+        });
+      });
+    });
     var rosterWas = null;
     p = p.then(function() {
       if (row.roster === 'special') return;
@@ -112004,7 +112478,7 @@ var LiturgyModule = (function() {
       _llOpenInBuilder(orderId, function() {
         var r = (window.WO && WO.svlUseFromLibrary) ? WO.svlUseFromLibrary({ id: f.id, title: f.title, year: f.year, occasion_id: f.occasion_id, order_type: f.order_type, data: f.data },
           { songs: !!u.songs, extras: extras, supp: supp, use: { made: !row.order, roster: rosterWas,
-            readings: writes.map(function(w) { return { role: w.role, was: w.was, ref: w.ref }; }) } }) : null;
+            readings: writes.map(function(w) { return { role: w.role, was: w.was, ref: w.ref }; }), prayer: prayRec } }) : null;
         Promise.race([Promise.resolve(r), new Promise(function(res) { setTimeout(res, 15000); })]).then(function() { llBackToLib(); });
       });
     }, function(e) {
@@ -119244,7 +119718,7 @@ var LiturgyModule = (function() {
     spNewYear: spNewYear, spMoveYear: spMoveYear, spDragStart: spDragStart, spYearOver: spYearOver, spYearDrop: spYearDrop, lfMoveYear: lfMoveYear,
     spYearMenu: spYearMenu, spYearPick: spYearPick, spRdYear: spRdYear,
     spTour: spTour, spTourGo: spTourGo, spTourClose: _spTourClose, spAfterConvert: _spAfterConvert, spUseDoc: spUseDoc, spUseDate: spUseDate, spUseFile: spUseFile, spUseLeave: spUseLeave,
-    spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spUseReadsFrom: spUseReadsFrom,
+    spUseGo: spUseGo, spUseReconvert: spUseReconvert, spUseReadings: spUseReadings, spUseReadsFrom: spUseReadsFrom, spUsePrayFrom: spUsePrayFrom, spoFollow: spoFollow,
     spUseStep: spUseStep, spUseExtra: spUseExtra, spUseSongs: spUseSongs, spUseComm: spUseComm, spUseReturn: spUseReturn,
     spoReadings: spoReadings, spoShow: spoShow, spoChange: spoChange, spoPdf: spoPdf, spoGoOrig: spoGoOrig, spoShowChanged: spoShowChanged,
     spoPad: spoPad, spoPadTitle: spoPadTitle, spoPadPartTitle: spoPadPartTitle, spoPadText: spoPadText, spoPadUndo: spoPadUndo, spoPadRedo: spoPadRedo,
@@ -128969,6 +129443,20 @@ function filterLiturgyItems() {
   #liturgyServicePanel .svp-act .spi-cmp--same { padding: 0; background: none; font-size: 0.92rem; }
   .svp-act .spi-cmp--same > i { color: #1f7a3f; font-size: 1.1rem; }
   .svp-act .spo-fill { margin: 0; }
+  /* What the service follows against its original (2026-11-21). */
+  .svp-act .spi-follow { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border: 1px solid #e5cf95; border-radius: 12px; background: #fffaf0; }
+  .spi-follow__h, .spi-follow__pray > summary { display: flex; align-items: flex-start; gap: 8px; margin: 0; font: 500 0.82rem/1.35 'Poppins', sans-serif; color: #3d3320; }
+  .spi-follow__h > i, .spi-follow__pray > summary > i { color: #a07a1f; margin-top: 2px; }
+  .spi-follow__list { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0 0 0 22px; list-style: none; }
+  .spi-follow__list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font: 400 0.8rem/1.35 'Poppins', sans-serif; color: #111; }
+  .spi-follow__list b { font-weight: 600; min-width: 84px; }
+  .spi-follow__list small { color: #7a6a45; font-size: 0.74rem; }
+  .spi-follow__pray > summary { cursor: pointer; list-style: none; }
+  .spi-follow__pray > summary::-webkit-details-marker { display: none; }
+  .spi-follow__now, .spi-follow__was { margin: 6px 0 0 22px; font: 400 0.8rem/1.45 Georgia, serif; color: #111; }
+  .spi-follow__was { color: #6b6250; }
+  .spi-follow__was small { display: block; font: 600 0.7rem 'Poppins', sans-serif; color: #7a6a45; text-transform: uppercase; letter-spacing: 0.04em; }
+  .svp-act .spi-follow__go { margin: 2px 0 0; }
   .svp-act__acts { display: flex; gap: 8px; }
   #liturgyServicePanel .svp-act .lf-btn.svp-show, #liturgyServicePanel .svp-act .lf-btn.svp-builder, #liturgyServicePanel .svp-act .lf-btn.svp-more {
     width: auto; min-height: 46px; justify-content: center; gap: 9px; border-radius: 12px; font-weight: 700; }
