@@ -1574,7 +1574,9 @@ the anon key -- verify as `postgres`, not as the app.
     role an order has had or already held, and `_woReadingsTodo` leaves a
     noted role out -- so a reading somebody took out stays out -- unless the
     roster now names a different passage. The ribbon's Roster readings
-    button still fills everything missing.
+    button still fills everything missing. Since 2026-11-21 a reading the
+    Roster CHANGES or takes out is followed as well, live (gotcha 112), and a
+    reading had is noted only when it is the Roster's.
 
 49. **A standalone songbook must take the editor over from the order before
     it, and give it back.** `saveCurrentOrder` refuses any save while
@@ -6075,6 +6077,85 @@ the anon key -- verify as `postgres`, not as the app.
     zoom kept, the drag's drop, the keys, the new slide and the join, the
     song's bar, words and way to the Songbook, the double-tap, the words'
     merge and the end of an edit.
+
+112. **An upcoming order follows the Roster -- its readings and its Prayer
+    of the Day -- live, on every device that holds it.** From the operator
+    (2026-11-21), on 29 Nov: the Roster had been changed (Isaiah 40:3-5,
+    "Mark 1 :1-3", '-' for the Psalm, the 2nd Reading blank) and the LCD
+    still projected the lectionary's -- what the order took when its Liturgy
+    App File was used on 16 Nov; the fill (gotcha 48) only ever added a
+    missing reading. The Roster and the Readings page (one store, gotcha 5)
+    dictate the readings, the Readings page the prayer, even over what the
+    file says; asked, the operator chose "Also live on open screens" and that
+    '-' or a deliberate blank (`__BLANK__`) takes the reading out.
+    - **What to do** is `_woFollowPlan(raw, have, noted, titles)` (pure):
+      `raw` the Roster for the date read fresh (`_woRosterRawFor`, the four
+      roles only; `_woRosterRawOf` -- a reference tidied by `_woRefTidy`,
+      "Mark 1 :1-3" to "Mark 1:1-3", or 'none'; an empty cell or TBD says
+      nothing); `have` the order's readings by role (`_roleForSlotLabel`);
+      `noted` `template.rosterReadings`, `titles` the new
+      `template.rosterReadingTitles` (the title each was put in under: the
+      service's canonical "Psalm 80:1-7" for a Roster's "Ps 80"). In step when
+      the reading is the Roster's (`_woRefKey`: case, spaces, dashes,
+      "Psalms") or what it was given for the Roster's reference as it now is;
+      otherwise `replace`, or `remove` for 'none'. A reading the order lacks is
+      still the fill's. No exception for a reading edited by hand: the Roster
+      dictates, so a stale save from another device that writes an old
+      reading back is replaced again on the next check.
+    - **Who applies it**: the device that HOLDS the order (`_woFollowHeld`:
+      LCD Projection in the page, else the builder, upcoming, not a songbook).
+      The builder on its data (`_woFollowIntoData`: one `_lbdChange`, the item
+      keeping its id, section and slot, each slide the background of its
+      place); LCD Projection on its schedule (`_woFollowIntoLcd`: the LCD's own
+      `removeScriptureKeepSlot` then `insertScriptureIntoBox` into the slot the
+      banner leaves -- `host.children[at]`; a reading the schedule drew into
+      its template's slot has NO `data-section`, and `_emptySlotFor` by that
+      found nothing, so the first try removed the 1st Reading and put nothing
+      back -- one `_lcdPushUndo`, backgrounds re-pinned, `autoSaveOrder`).
+      Never the reading whose slide is on the wall (`_lcdOnAir`), which waits
+      for the next check (gotcha 81), nor under typing or words held in the
+      slide editor; `_woPrayerIntoLcd` now waits likewise. Nothing is written
+      to a stored order nobody holds: the order sync cannot redraw readings
+      (`_ORDER_SYNC_ADDABLE` has no scripture), and a stored write raced a
+      holder's autosave. No Undo is offered: the Roster would be followed again.
+      The toast names each change ("First Reading: Isaiah 40:3-5; Psalm and
+      Second Reading taken out (none on the Roster)").
+    - **When**: on every opening (`_woAutoReadings`: the follow FIRST, then the
+      fill -- the other way round the fill noted the old reading as the
+      Roster's; the fill and the mend stay once a session); every 30 seconds
+      while held (`_woFollowTick`: follow, fill, then `_woFollowPrayer` with
+      `SBQ_PRAYERS.get(iso, { fresh: true })` through the existing
+      `_woPrayerIntoData` / `_woPrayerIntoLcd`), in a hidden tab only while
+      something is on the wall; and 0.8s after this device saves a reading or
+      a prayer (`lhc:readings-changed` from `SBQ_READINGS.setReference` and
+      `SBQ_ROSTER.saveEdits` when a reading role is in it; `lhc:prayers-changed`
+      from `SBQ_PRAYERS.saveMany` and `remove`). The fills (builder and LCD) now
+      note a reading they already had only when it IS the Roster's
+      (`_woLcdHadRef` for the LCD), and note titles.
+    - **A special liturgy's own wins at Use**: readings already go on the
+      Roster (gotcha 104). The prayer now too: `_spFilePrayer(data)` reads the
+      file's Prayer of the Day part through the new `lhcDayPrayer.words`
+      (after "Let us pray", speakers and Amen aside, '' for an empty "C :");
+      the Use window's Readings step offers This liturgy's (default) or The
+      Readings page's (`spUsePrayFrom`), and `spUseGo` writes it with
+      `SBQ_PRAYERS.set`, noting `use.prayer = { text, was, wasFile, wasOcc }`
+      (kept by `_svlApply`). Remove puts the old one back -- or takes it off --
+      while the Readings page still has the liturgy's (`_spUnusePlan`'s `pray`,
+      `prayKept`). After that, an edit on the Readings page is followed.
+    - **The service page says what differs from the original**
+      (`_spFollowHtml` over `_spFollowData`, under the comparison on the
+      Active Liturgy card): the Roster's readings against the file's own
+      (`_spFileReadings`), else the lectionary's (`SBQ_LECT_SOURCES.getLatest`,
+      now read by `_spLoad`, `d.lect`), each with its original; the Readings
+      page's prayer against the file's own; and, when the stored order still
+      holds a reading the Roster has changed or taken out, **Update the order
+      now** (`spoFollow`: the Builder opens it and `WO.followRosterNow`).
+    - Testing in the preview: there is no `/api`, so stub
+      `LiturgyModule.fetchPassage`; the order sync is harmless here (saves
+      stubbed, stored order unchanged).
+    `tools/follow-roster-harness.js` checks it, running the plan, the
+    builder's apply, `lhcDayPrayer.words`, `_spFilePrayer`, Remove's plan and
+    the card's comparison.
 
 ## Quick Commands for Claude Code
 

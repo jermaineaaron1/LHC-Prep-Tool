@@ -95,6 +95,8 @@ const STUBS = ['Date', 'STATE', 'savedOrders', 'currentOrderData', 'LHC_Offline'
   '_woPrayerIntoData', '_woPrayerIntoLcd'];
 const FACTORY = MISSING.length ? null : new Function(STUBS.join(','),
   WO_CONSTS + '\nvar _woAutoReadingsDone = {}, _woAutoPrayerDone = {}, _woMendDone = {}, _woAutoOfflineDone = false;\n' +
+  // The follow (2026-11-21) runs before the fill; stood in for here, at once.
+  'function _woFollow() { return { then: function(f) { return Promise.resolve(f()); } }; } function _woFollowSoon() {}\n' +
   WO_BODIES.filter(Boolean).join('\n') +
   '\nreturn { year: _yearForOrder, when: _woOrderWhen, upcoming: _woOrderIsUpcoming, iso: _woOrderIso,' +
   ' forIso: _woOrderForIso, autoOffline: _woAutoOffline, autoReadings: _woAutoReadings,' +

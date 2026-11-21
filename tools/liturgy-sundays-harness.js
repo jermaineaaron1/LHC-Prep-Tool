@@ -438,7 +438,7 @@ try {
       const names = ['_spFilesOf', '_spRow', '_spTypeName', '_spFileTag', '_spUseRows', '_spUsePick', '_spUseExtras', '_spUseDay', '_spUseOpen', '_spAfterConvert', 'spUseDoc', 'spUse',
         '_spUseState', '_spUseReads', '_spUseStep1', '_spUseStep2', '_spSlidesOf', '_spUseLits', '_spUseWordsHtml', '_spUseBrings', '_spUseStep3', '_spUseStep4', '_spUseDraw', 'spUseStep', 'spUseDate', 'spUseFile', 'spUseReadsFrom',
         'spUseExtra', 'spUseSongs', 'spUseComm', 'spUseClose', 'spUseLeave', 'spUseReadings', '_spUseBackBar', 'spUseReturn', '_spPutReadings', 'spUseGo', 'spUseReconvert',
-        'spConvMenu', 'spConvAct', '_spFileReadings', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName',
+        'spConvMenu', 'spConvAct', '_spFileReadings', '_spFilePrayer', '_spPeek', '_spRefKey', '_spReadDiff', '_cvBook', '_cvRefOf', '_cvReadingRole', '_cvRoleName',
         '_spBlKey', '_spSimNorm', '_spShingles', '_spShOf', '_spSimOf', '_spNameAlike', '_spSecTexts', '_spLikeOf', '_spUsePieces', '_spUseLikeHtml', '_spUseSuppHtml',
         'spUseAll', 'spUseSupp', 'spUseSuppSec', '_spCmpRows', '_spCmpLines', 'spUseCompare', 'spUseCmpHl', 'spUseCmpClose', '_spUsesFor', '_spUsesOf'];
       const bodies = names.map(fn);
@@ -981,7 +981,7 @@ try {
     /Same as the original/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoShowChanged\(\)/.test(fn('_spDiffHtml')) && /LiturgyModule\.spoPutAll\(\)/.test(fn('_spDiffHtml')) &&
     /<b>Modified:<\/b>/.test(fn('_spDiffHtml')) && /Reset to original/.test(fn('_spDiffHtml')) &&
     /title: 'Reset to the original\?'/.test(fn('spoPutAll')) && /The readings and the songs stay\. Undo brings back what was here\./.test(fn('spoPutAll')) &&
-    /_spCmpNow\(d, ol\)/.test(use16) && /'<div class="svp-act__src">' \+ src \+ '<\/div>' \+ _spDiffHtml\(cmp\) \+ reads \+ acts \+ change/.test(use16));
+    /_spCmpNow\(d, ol\)/.test(use16) && /'<div class="svp-act__src">' \+ src \+ '<\/div>' \+ _spDiffHtml\(cmp\) \+ \(used \? _spFollowHtml\(d\) : ''\) \+ reads \+ acts \+ change/.test(use16));
   check('...everything put back from the card (Reset to original) through WO.libRestore in the Builder\'s copy; the window\'s Save through _spEdit too, which opens the Builder once when it does not hold the order and comes back',
     /_spEdit\(function\(oid\) \{ return WO\.libRestore\(oid, Object\.assign\(\{ unblend: true, origId: c\.cmp\.origId \}, plan\)\); \}/.test(fn('spoPutAll')) &&
     /_spEdit\(function\(oid\) \{ return WO\.libPad\(oid, plan\); \}/.test(fn('spoPadSave')) &&
@@ -1659,7 +1659,7 @@ try {
         setTimeout: f => f() };
       const keys = Object.keys(env);
       const F = new Function(...keys, 'var currentOrderData = null; var READING_ROLES = [{ role: "reading1", label: "First Reading" }, { role: "psalm", label: "Psalm" }, { role: "reading2", label: "Second Reading" }, { role: "gospel", label: "Gospel Reading" }];\n' +
-        ['_roleForSlotLabel', '_woReadingSecs', '_lbdScriptureSection', '_lbdSlotForRole', '_lbdReadingTaken', '_lbdFillReadings'].map(fn).join('\n') +
+        ['_roleForSlotLabel', '_woReadingSecs', '_lbdScriptureSection', '_lbdSlotForRole', '_lbdReadingTaken', '_woReadingRef', '_woRefKey', '_lbdFillReadings'].map(fn).join('\n') +
         '\nreturn { fill: _lbdFillReadings, hold: function(o) { currentOrderData = o; } };')(...keys.map(k => env[k]));
       F.hold(order);
       return { order, fill: F.fill };

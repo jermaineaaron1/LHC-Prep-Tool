@@ -161,7 +161,7 @@ function check(label, ok, detail) {
 
   const ar = fn('_woAutoReadings');
   check('it runs after the roster\'s readings are filled in, when the builder opens an upcoming order',
-    /var filled = fillReadingsFromRoster\(\{ quiet: true, auto: true \}\);\r?\n\s*\/\/[^\n]*\r?\n\s*if \(step === 'liturgy'\) Promise\.resolve\(filled\)\.then\(_woMendReadings, _woMendReadings\);/.test(ar));
+    /var filled = _woFollow\('open'\)\.then\(function\(\) \{ return fillReadingsFromRoster\(\{ quiet: true, auto: true \}\); \}\);\r?\n\s*\/\/[^\n]*\r?\n\s*if \(step === 'liturgy'\) Promise\.resolve\(filled\)\.then\(_woMendReadings, _woMendReadings\);/.test(ar));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
