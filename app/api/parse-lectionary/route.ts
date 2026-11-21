@@ -14,8 +14,10 @@
 // native support for those formats.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import { isOwnStorage } from '../_lib/isOwnStorage';
+import { withBusyRetry, AiBusyError, settingLadder, reasonOf } from '../_lib/aiRetry';
+import { rollYears } from '../_lib/churchYear';
 
 export const runtime = 'nodejs';
 // A bulletin is one service and answers in a few seconds. A lectionary is
@@ -27,6 +29,27 @@ export const runtime = 'nodejs';
 // 60 is what parse-song-sheet and convert-pptx-to-slides already use, and
 // is allowed on every plan.
 export const maxDuration = 60;
+// The route's own deadline inside the platform's 60s, so the person always
+// gets an answer in words, never the platform's HTML page (as parse-liturgy,
+// gotcha 101); no try starts with less than MIN_TRY_MS left.
+const DEADLINE_MS = 54000;
+const MIN_TRY_MS = 8000;
+
+// When Google is busy -- "503 ... This model is currently experiencing high
+// demand", which is what the first import of the church's Prayers of the Day
+// document got on 2026-11-21, shown to the person as raw JSON -- the lighter
+// model, then both again after a moment (_lib/aiRetry). Lite first: copying
+// words and references needs no more, and a busy flash takes ten seconds
+// just to say no.
+const GEMINI_MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
+// As little thinking as each model takes, for the documents that are copied
+// out (prayers, a calendar): none, then the least, then the model's own. A
+// single bulletin is asked with the model's own default.
+const THINKING: Array<{ thinkingBudget?: number; thinkingLevel?: ThinkingLevel } | null> = [
+  { thinkingBudget: 0 },
+  { thinkingLevel: ThinkingLevel.MINIMAL },
+  null,
+];
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -109,6 +132,8 @@ function extFromUrl(url: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const t0 = Date.now();
+  const left = () => DEADLINE_MS - (Date.now() - t0);
   try {
     const { url, readingDate, mode, yearHint } = await req.json();
     // 'calendar' reads a whole lectionary; 'prayers' a document of Prayers
@@ -157,7 +182,13 @@ export async function POST(req: NextRequest) {
     const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
 
     const dateNote = readingDate ? ` The bulletin is for the service on ${readingDate}.` : '';
-    const yearNote = yearHint ? ` Where the document gives a day and month without a year, assume ${yearHint}.` : '';
+    // A church year runs from Advent into the next calendar year, so one year
+    // for every undated date put January to November a year early. The model
+    // is told how the years run, and rollYears mends what it gets wrong.
+    const yearNote = yearHint
+      ? ` Where the document gives a day and month without a year: the dates run in order from ${yearHint}, and once they pass ` +
+        `December into January they are in ${Number(yearHint) + 1}. A year printed in the document always wins.`
+      : '';
 
     // Two prompts, because the two jobs fail in opposite directions. Asked
     // for one service, the model must not wander to the next page; asked for
@@ -167,7 +198,8 @@ export async function POST(req: NextRequest) {
         `List EVERY dated prayer you can find, in the order they appear. For each one give the date as YYYY-MM-DD, the name of the day ` +
         `if the document gives one, and the prayer itself copied word for word exactly as printed -- keep its wording, spelling and ` +
         `punctuation, and its closing "Amen." if it has one. Join the lines of one prayer into running text; do not include the heading, ` +
-        `the date, page numbers or anything that is not the prayer.${yearNote} Skip any prayer whose date you cannot work out rather ` +
+        `the date, page numbers or anything that is not the prayer. Where a day offers alternative prayers (with "Or" between them), ` +
+        `give only the first.${yearNote} Skip any prayer whose date you cannot work out rather ` +
         `than guessing one, and do not invent prayers that are not in the document.`
       : isCalendar
       ? `This document is a church lectionary: a table or list of services, each with a date and its appointed readings. ` +
@@ -179,7 +211,9 @@ export async function POST(req: NextRequest) {
       : `This document is a church bulletin or lectionary sheet. Identify the 4 lectionary readings assigned for this service: the 1st Reading (Old Testament), the Psalm, the 2nd Reading (Epistle/New Testament), and the Gospel reading.${dateNote} ` +
         `Report each as a plain scripture reference (book, chapter, and verses -- e.g. "Isaiah 6:1-8"), not the passage text itself. If a reading is not present in the document, report it as null.`;
 
-    const ai = new GoogleGenAI({ apiKey });
+    // ONE attempt per ask: the SDK's own retry spends the whole time on the
+    // first model (aiRetry); withBusyRetry decides when to ask again, and whom.
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
 
     const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
 
@@ -210,29 +244,50 @@ export async function POST(req: NextRequest) {
 
     // A year of prayers is a lot of words to write back -- far more than a
     // year of references -- and the platform stops the function at
-    // maxDuration. Reading prayers off a page needs no reasoning, so the
-    // model is asked not to think first, which is most of the time saved.
-    // A model that will not run without thinking refuses the setting
-    // outright, and is then asked again without it.
-    const ask = (noThinking: boolean) => ai.models.generateContent({
-      // Version-agnostic alias -- always points to the current, non-
-      // deprecated flash-tier model, so this route doesn't break every
-      // time Google retires an old dated model version (e.g. gemini-2.5-flash
-      // was retired for new API keys/projects).
-      model: 'gemini-flash-latest',
-      contents: [{ role: 'user', parts }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: isPrayers ? PRAYERS_SCHEMA : isCalendar ? CALENDAR_SCHEMA : RESPONSE_SCHEMA,
-        ...(noThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-      },
-    });
+    // maxDuration. Copying needs no reasoning, so those documents are asked
+    // with as little thinking as each model takes (a refusal of a setting is
+    // asked again with the next, remembered for the next round). Each try is
+    // cut off at the deadline and logged.
+    const copying = isPrayers || isCalendar;
+    const ask = async (model: string, thinking: (typeof THINKING)[number]) => {
+      const at = Date.now();
+      const how = thinking ? JSON.stringify(thinking) : 'default thinking';
+      try {
+        const res = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: isPrayers ? PRAYERS_SCHEMA : isCalendar ? CALENDAR_SCHEMA : RESPONSE_SCHEMA,
+            ...(thinking ? { thinkingConfig: thinking } : {}),
+            abortSignal: AbortSignal.timeout(Math.max(1000, left())),
+          },
+        });
+        console.log('parse-lectionary try:', mode || 'single', model, how, (Date.now() - at) + 'ms', 'answered');
+        return res;
+      } catch (err: unknown) {
+        console.log('parse-lectionary try:', mode || 'single', model, how, (Date.now() - at) + 'ms', reasonOf(err));
+        throw err;
+      }
+    };
+    const ladder = settingLadder(copying ? THINKING : [null]);
     let response;
     try {
-      response = await ask(isPrayers);
+      ({ value: response } = await withBusyRetry(GEMINI_MODELS, (model) => ladder(model, (thinking) => ask(model, thinking)),
+        { budgetMs: left() - MIN_TRY_MS }));
     } catch (err: unknown) {
-      if (!isPrayers || !/think/i.test(err instanceof Error ? err.message : String(err))) throw err;
-      response = await ask(false);
+      if (err instanceof AiBusyError) {
+        console.warn('parse-lectionary: every try was turned away:', err.reasons.join(' | '));
+        if (err.slow) {
+          return NextResponse.json({
+            error: 'Reading this document took longer than the page can wait (about a minute) -- a whole year is a lot of words. ' +
+              'Press Read the document again; if it keeps happening, import a few months at a time (each import adds to what is saved).',
+            slow: true, reasons: err.reasons,
+          }, { status: 504 });
+        }
+        return NextResponse.json({ error: 'Google\u2019s AI is busy just now. Wait a minute, then press Read the document again.', busy: true, reasons: err.reasons }, { status: 503 });
+      }
+      throw err;
     }
 
     const raw = response.text;
@@ -248,14 +303,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'AI returned an unparseable result.' }, { status: 502 });
       }
       const seen = new Set<string>();
-      const entries = (parsed.entries || [])
+      const entries = rollYears((parsed.entries || [])
         .map((e) => ({
           date: String(e.date || '').trim(),
           occasion: e.occasion ? String(e.occasion).trim() : null,
           // One prayer is running text: the lines of the page joined, the
           // spacing tidied, nothing else changed.
           prayer: String(e.prayer || '').replace(/\s+/g, ' ').trim(),
-        }))
+        })), yearHint)
         .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date))
         .filter((e) => e.prayer.length > 0)
         // One prayer per date: the first, as the document orders them.
@@ -278,7 +333,7 @@ export async function POST(req: NextRequest) {
       }
 
       const seen = new Set<string>();
-      const entries = (parsed.entries || [])
+      const entries = rollYears((parsed.entries || [])
         .map((e) => ({
           date: String(e.date || '').trim(),
           occasion: e.occasion ? String(e.occasion).trim() : null,
@@ -286,7 +341,7 @@ export async function POST(req: NextRequest) {
           psalm: e.psalm || null,
           secondReading: e.secondReading || null,
           gospel: e.gospel || null,
-        }))
+        })), yearHint)
         // A date the client cannot key on is worse than no row: it would show
         // in the review table and then save nowhere.
         .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date))

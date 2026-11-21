@@ -34980,6 +34980,98 @@ window.lhcDayPrayer = (function() {
            target: _dpTarget, norm: _dpNorm, plain: _dpPlain };
 })();
 
+// ================================================================
+// lhcPrayerDoc -- a Prayers of the Day document read as it is written
+// (2026-11-21). The church's yearly document (the ELCA propers, "Prayer of
+// the Day YearB_26-27") gives each service a heading -- "Sun. Nov. 29 --
+// First Sunday of Advent" -- then its readings, "Prayer of the Day" and the
+// prayer, "Or" before an alternative, then "Gospel Acclamation". Read here,
+// line by line, in the browser: no AI, so it is instant, word for word, and
+// not turned away when Google is busy, which is what stopped the first
+// import of that document ("503 ... high demand"). A document laid out any
+// other way still goes to the AI reader. Pure, for the harness.
+window.lhcPrayerDoc = (function() {
+  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  var DAY = '(?:sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)[a-z]*';
+  var MON = '(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*';
+  // "Sun. Nov. 29 -- First Sunday of Advent", "Mon., Nov. 30 -- Andrew,
+  // Apostle", "Mon. Mar.22 -- Monday in Holy Week", "Fri. Jan. 1, 2027 --
+  // Name of Jesus". A weekday's row of readings ("Thu - Nov. 26 Zechariah
+  // 13:1-9 ...") has its dash BEFORE the date, so is never one.
+  var HEAD = new RegExp('^' + DAY + '\\.?,?\\s+' + MON + '\\.?\\s*(\\d{1,2})(?:\\s*,\\s*(\\d{4}))?\\s*[\\u2014\\u2013-]+\\s*(.+)$', 'i');
+  var ROW = new RegExp('^' + DAY + '\\.?\\s*[\\u2014\\u2013-]', 'i');
+  function norm(x) { return String(x == null ? '' : x).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function head(l) { return HEAD.exec(norm(l)); }
+  // Where a prayer ends: its alternative, the acclamation, the colour, the
+  // next service, a weekday's row of readings, or a season's own heading.
+  function stop(l) {
+    var t = norm(l);
+    return /^or$/i.test(t) || /^(gospel acclamation|readings|colou?r\s*:|year [abc]\b|day and date|this church year calendar)/i.test(t) ||
+      ROW.test(t) || !!head(t);
+  }
+  // Not words of a prayer: a page number, the page's dots.
+  function blank(l) { var t = norm(l); return !t || /^\d{1,3}$/.test(t) || /^[\u2022\u00b7.\s]+$/.test(t); }
+  // The year its first date is in: its own "2026/2027" (the first, on its
+  // title page -- a later season's heading may carry an old one, as this
+  // document's Epiphany pages say 2023/2024), else the year typed.
+  function startYear(lines, hint) {
+    for (var i = 0; i < Math.min(lines.length, 60); i++) {
+      var m = /\b(20\d\d)\s*[\/\u2013\u2014-]\s*(20\d\d)\b/.exec(lines[i] || '');
+      if (m && +m[2] === +m[1] + 1) return { year: +m[1], fromDoc: true };
+    }
+    return { year: parseInt(hint, 10) || new Date().getFullYear(), fromDoc: false };
+  }
+  // Every dated prayer, in the document's order: a date printed without a
+  // year is in the year before it, and December into January is the next
+  // year; a year printed with the date wins. One prayer a date, the first --
+  // where a day offers an alternative ("Or"), the first is taken.
+  function parse(lines, year) {
+    var out = [], seen = {}, last = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var h = head(lines[i]);
+      if (!h) continue;
+      var mon = MONTHS[h[1].slice(0, 3).toLowerCase()], day = +h[2];
+      if (h[3]) year = +h[3];
+      else if (last && mon < last - 6) year++;
+      last = mon;
+      var words = [];
+      for (var j = i + 1; j < lines.length && !head(lines[j]); j++) {
+        var t = norm(lines[j]);
+        if (!/^prayer of the day\b/i.test(t)) continue;
+        var same = t.replace(/^prayer of the day\s*:?\s*/i, '');
+        if (same) words.push(same);
+        for (j++; j < lines.length && !stop(lines[j]); j++) if (!blank(lines[j])) words.push(norm(lines[j]));
+        break;
+      }
+      var prayer = norm(words.join(' '));
+      var date = year + '-' + (mon < 10 ? '0' : '') + mon + '-' + (day < 10 ? '0' : '') + day;
+      var real = new Date(Date.UTC(year, mon - 1, day)).getUTCDate() === day;
+      if (!real || prayer.length < 20 || seen[date]) continue;
+      seen[date] = true;
+      out.push({ date: date, occasion: norm(h[4]) || null, prayer: prayer });
+    }
+    return out;
+  }
+  // A page of text as lines, from pdf.js's pieces: a new line where the
+  // baseline moves, a space where a gap opens between two pieces of one.
+  function pdfLines(items) {
+    var lines = [], cur = '', y = null, end = null;
+    (items || []).forEach(function(it) {
+      var str = it && typeof it.str === 'string' ? it.str : '';
+      var tr = (it && it.transform) || [0, 0, 0, 0, 0, 0], iy = tr[5], ix = tr[4];
+      if (y !== null && Math.abs(iy - y) > 2) { lines.push(cur); cur = ''; end = null; }
+      if (end !== null && ix - end > 1.5 && cur && !/\s$/.test(cur) && !/^\s/.test(str)) cur += ' ';
+      cur += str;
+      y = iy;
+      end = ix + (it && it.width || 0);
+      if (it && it.hasEOL) { lines.push(cur); cur = ''; y = null; end = null; }
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  return { parse: parse, startYear: startYear, pdfLines: pdfLines, head: head };
+})();
+
 var SBQ_SONGS = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -114437,7 +114529,7 @@ var LiturgyModule = (function() {
       '<div class="lect-import-field">' +
         '<label class="liturgy-form-label" for="prayImportYear">Year to assume</label>' +
         '<input type="number" id="prayImportYear" class="liturgy-form-input" value="' + new Date().getFullYear() + '" min="1900" max="2200" style="width:140px;">' +
-        '<p class="lect-import-hint">Used only where the document prints a day and month with no year.</p>' +
+        '<p class="lect-import-hint">The year the document\u2019s first date is in, where it prints a day and month with no year. Its dates run on into the next year after December; a year printed in the document always wins.</p>' +
       '</div>' +
       '<div id="prayImportError" class="bible-passage-error" style="display:none;margin-top:14px;"></div>' +
       '<div class="bible-browser-actions" style="margin-top:18px;">' +
@@ -114452,6 +114544,49 @@ var LiturgyModule = (function() {
     if (e) { e.textContent = msg; e.style.display = 'block'; }
     var b = document.getElementById('prayImportReadBtn');
     if (b) { b.disabled = false; b.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Read the document'; }
+  }
+
+  // The document read in the browser, as it is written (lhcPrayerDoc): a PDF
+  // through pdf.js, already on the page; a Word file through the Builder's own
+  // reader. Answers null when the layout is not one it knows, or the file
+  // cannot be read here -- the AI reader then has it.
+  function _prayReadLocal(file, hint) {
+    var P = window.lhcPrayerDoc;
+    if (!P || !file) return Promise.resolve(null);
+    var name = String(file.name || '').toLowerCase();
+    var read = function() {
+      if (/\.pdf$/.test(name)) {
+        var lib = window.pdfjsLib;
+        if (!lib || !lib.getDocument) return Promise.resolve(null);
+        if (lib.GlobalWorkerOptions && !lib.GlobalWorkerOptions.workerSrc) lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        return file.arrayBuffer().then(function(ab) { return lib.getDocument({ data: ab }).promise; }).then(function(pdf) {
+          var pages = [];
+          for (var n = 1; n <= pdf.numPages; n++) pages.push(n);
+          return Promise.all(pages.map(function(n) {
+            return pdf.getPage(n).then(function(pg) { return pg.getTextContent(); }).then(function(tc) { return P.pdfLines(tc.items); });
+          })).then(function(all) { return [].concat.apply([], all); });
+        });
+      }
+      if (/\.docx$/.test(name) && window.WO && WO.docxParas) {
+        return file.arrayBuffer().then(WO.docxParas).then(function(paras) {
+          var out = [];
+          (paras || []).forEach(function(p) { String(p.text || '').split('\n').forEach(function(l) { out.push(l); }); });
+          return out;
+        });
+      }
+      return Promise.resolve(null);
+    };
+    return read().then(function(lines) {
+      if (!lines || !lines.length) return null;
+      var y = P.startYear(lines, hint);
+      var entries = P.parse(lines, y.year);
+      if (entries.length < 2) return null;
+      var spans = entries[0].date.slice(0, 4) !== entries[entries.length - 1].date.slice(0, 4);
+      return { entries: entries.sort(function(a, b) { return a.date.localeCompare(b.date); }), warnings: [],
+        note: 'Read straight from the document, word for word (no AI).' +
+          (y.fromDoc ? ' The years come from the document itself (' + y.year + '/' + (y.year + 1) + ').' : '') +
+          (spans ? ' Dates from January on are in ' + (y.year + 1) + '.' : '') };
+    }).catch(function(e) { console.warn('LiturgyModule: the document could not be read here; the AI reader will', e); return null; });
   }
 
   function runPrayerImport() {
@@ -114470,6 +114605,30 @@ var LiturgyModule = (function() {
       var fileUrl = res.url || res.publicUrl;
       if (!fileUrl) throw new Error('Upload returned no URL');
       if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Reading…';
+      // As it is written first; the AI only for a layout it does not know.
+      return _prayReadLocal(file, yearHint).then(function(local) {
+        if (local) return local;
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Reading with AI…';
+        return _prayReadAi(fileUrl, yearHint);
+      }).then(function(data) {
+        if (data.error) throw new Error(data.error);
+        var entries = data.entries || [];
+        if (!entries.length) throw new Error((data.warnings && data.warnings[0]) || 'No dated prayers were found in this document.');
+        _prayImport = { fileName: file.name, fileUrl: fileUrl, entries: entries, warnings: data.warnings || [], note: data.note || '' };
+        var dates = entries.map(function(e) { return e.date; }).sort();
+        return SBQ_PRAYERS.getRange(dates[0], dates[dates.length - 1]).then(function(existing) {
+          _prayImport.existing = existing || {};
+          _renderPrayImportReview();
+        });
+      });
+    }).catch(function(e) {
+      console.error('LiturgyModule: prayer import failed', e);
+      _prayImportError(e.message || String(e));
+    });
+  }
+  // The AI reader (/api/parse-lectionary, mode 'prayers'), for a layout the
+  // browser does not know.
+  function _prayReadAi(fileUrl, yearHint) {
       return fetch('/api/parse-lectionary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114486,21 +114645,7 @@ var LiturgyModule = (function() {
             throw new Error('The server replied with something unreadable (HTTP ' + r.status + ').');
           }
         });
-      }).then(function(data) {
-        if (data.error) throw new Error(data.error);
-        var entries = data.entries || [];
-        if (!entries.length) throw new Error((data.warnings && data.warnings[0]) || 'No dated prayers were found in this document.');
-        _prayImport = { fileName: file.name, fileUrl: fileUrl, entries: entries, warnings: data.warnings || [] };
-        var dates = entries.map(function(e) { return e.date; }).sort();
-        return SBQ_PRAYERS.getRange(dates[0], dates[dates.length - 1]).then(function(existing) {
-          _prayImport.existing = existing || {};
-          _renderPrayImportReview();
-        });
       });
-    }).catch(function(e) {
-      console.error('LiturgyModule: prayer import failed', e);
-      _prayImportError(e.message || String(e));
-    });
   }
 
   function _renderPrayImportReview() {
@@ -114536,6 +114681,7 @@ var LiturgyModule = (function() {
         '<span class="lect-tag lect-tag-clash">' + nClash + ' differ' + (nClash === 1 ? 's' : '') + ' from what is saved</span>' +
         '<span class="lect-tag lect-tag-same">' + nSame + ' already match' + (nSame === 1 ? 'es' : '') + '</span>' +
       '</div>' +
+      (_prayImport.note ? '<p class="lect-import-hint"><i class="fa-solid fa-file-circle-check mr-1"></i>' + escapeHtml(_prayImport.note) + '</p>' : '') +
       (nClash ? '<p class="lect-import-hint"><i class="fa-solid fa-circle-info mr-1"></i>Where the document words a prayer differently from the one saved, both are shown and the saved one is kept. Pick the other if you want it changed.</p>' : '') +
       (_prayImport.warnings.length ? '<div class="bible-passage-error" style="margin:0 0 12px;">' + escapeHtml(_prayImport.warnings.join(' ')) + '</div>' : '') +
       '<div class="lect-import-tablewrap">' +

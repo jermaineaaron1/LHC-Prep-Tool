@@ -15,6 +15,10 @@
 //   5. The bulletin: no carry-over of last week's prayer; the date's prayer
 //      printed unless the bulletin was given its own after the import.
 //   6. The Readings page shows it and imports it.
+//   7. The church's own document read as written, in the browser, no AI
+//      (2026-11-21: the AI reader was turned away busy, and would have put
+//      every date from January a year early); the AI reader, when it is
+//      used, asks again when Google is busy and mends the years.
 //
 // USAGE
 //   node tools/day-prayer-harness.js
@@ -87,8 +91,9 @@ const STALE = ['L: The LORD be with you\n\nC: And also with you',
     /responseSchema: isPrayers \? PRAYERS_SCHEMA : isCalendar \? CALENDAR_SCHEMA : RESPONSE_SCHEMA/.test(RSRC));
   check('dates the browser cannot key on, and empty prayers, never come back',
     /if \(isPrayers\) \{[\s\S]*?\.filter\(\(e\) => \/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(e\.date\)\)[\s\S]*?\.filter\(\(e\) => e\.prayer\.length > 0\)/.test(RSRC));
-  check('a model that will not run without thinking is asked again without the setting',
-    /response = await ask\(isPrayers\);[\s\S]*?if \(!isPrayers \|\| !\/think\/i\.test\([\s\S]*?response = await ask\(false\);/.test(RSRC));
+  check('each model is asked with as little thinking as it takes, a refused setting asked again with the next',
+    /const ladder = settingLadder\(copying \? THINKING : \[null\]\);/.test(RSRC) && /const copying = isPrayers \|\| isCalendar;/.test(RSRC) &&
+    /\{ thinkingBudget: 0 \},\s*\{ thinkingLevel: ThinkingLevel\.MINIMAL \},\s*null,/.test(RSRC));
 
   // ------------------------------------------------------------ 2. helpers
   console.log('\n2. lhcDayPrayer: the words into the order\'s own slides');
@@ -263,6 +268,119 @@ const STALE = ['L: The LORD be with you\n\nC: And also with you',
   check('the module exports what its buttons call',
     ['openPrayerImportModal', 'runPrayerImport', 'savePrayerImport', 'editDayPrayer', 'saveDayPrayer', 'removeDayPrayer']
       .every(n => new RegExp('    ' + n + ': ' + n + ',').test(SRC)));
+
+  // ------------------------------------------------------------ 7. read as written
+  console.log('\n7. The church\'s own document read as written; the AI reader asks again when busy');
+  let PD = null;
+  try {
+    const a = SRC.indexOf('window.lhcPrayerDoc = (function() {');
+    const b = SRC.indexOf('})();', a);
+    const w = {};
+    new Function('window', SRC.slice(a, b + 5))(w);
+    PD = w.lhcPrayerDoc || null;
+  } catch (e) { PD = null; }
+  check('the reader is there, pure', !!(PD && PD.parse && PD.startYear && PD.pdfLines));
+  if (PD) {
+    // The document's layout, in words of our own (not the church's text).
+    const DOC = [
+      '1', 'Year B \u2015 2026/2027', 'Advent', 'Nov. 29, 2026 through Dec. 24, 2026',
+      'DAY AND DATE FIRST READING SECOND READING PSALM',
+      'Thu \u2013 Nov. 26 Zechariah 13:1-9 Revelation 14:6-13 Psalm 80:1-7, 17-19', 'Or',
+      'Thu. Nov. 26 \u2014 Day of Thanksgiving (USA)', 'Readings', 'Deuteronomy 8:7-18', 'Prayer of the Day',
+      'Generous God, we give you thanks for the harvest and the', 'days of our lives, through Jesus Christ our Lord.',
+      'Gospel Acclamation', 'Alleluia. Give thanks. Alleluia.', 'Color: Green',
+      'Sun. Nov. 29 \u2014 First Sunday of Advent', 'Readings', 'Isaiah 64:1-9', 'Prayer of the Day',
+      'Come quickly, Lord, and wake us from our sleep, that we may', 'watch for your coming day, now and forever.',
+      'Gospel Acclamation', 'Color: Blue',
+      'Mon \u2014 Nov. 30 Micah 4:1-5 Revelation 15:1-8 Psalm 79', 'Or',
+      'Mon., Nov. 30 \u2014 Andrew, Apostle', 'Prayer of the Day', 'Lord of the call, give us grace to follow you as Andrew did, without delay.',
+      'Gospel Acclamation',
+      'Sun. Dec. 20 \u2014 Fourth Sunday of Advent', 'Readings', 'Luke 1:26-38', 'Prayer of the Day',
+      'Lord of the promise, make our hearts ready for the one who', '4', '\u2022 \u2022 \u2022',
+      'comes, and keep us faithful in waiting, now and forever.', 'Gospel Acclamation',
+      'Fri. Jan. 1, 2027 \u2014 Name of Jesus', 'Prayer of the Day', 'Holy Father, plant the name of Jesus in every heart, now and forever.',
+      'Gospel Acclamation',
+      'YEAR B 2023/2024 \u2014 Time After Epiphany',
+      'Sun. Jan. 3 \u2014 Second Sunday of Christmas', 'Prayer of the Day',
+      'God of light, fill the earth with your Word and let us shine with it, now and forever.',
+      'Or', 'An alternative prayer that must not be taken, now and forever and ever.',
+      'Gospel Acclamation',
+      'Mon. Mar.22 \u2014 Monday in Holy Week', 'Prayer of the Day', 'Crucified Lord, plant your cross in our hearts, that we may come to joy.',
+      'Color: Purple/Scarlet',
+      'Thu. Apr. 22 \u2014 Day of the Creation', 'Readings', 'Job 39:1-11',
+      'Fri \u2014 Apr. 23 Amos 8:11-13 Acts 8:9-25 Psalm 22:25-31',
+      'Sun. Apr. 25 \u2014 Fifth Sunday of Easter', 'Prayer of the Day', 'Vine of life, nourish us that we may bear the fruit of your love.',
+      'Gospel Acclamation',
+      'Mon. Apr. 25 \u2014 Mark, Evangelist (transferred)', 'Prayer of the Day', 'A second prayer for a date that already has one, never taken.',
+      'Gospel Acclamation',
+      'Sun. Nov. 21 \u2014 Christ the King', 'Prayer of the Day', 'King of all, gather every people under your gentle rule, now and forever.',
+    ];
+    const y = PD.startYear(DOC, 2025);
+    const got = PD.parse(DOC, y.year);
+    const by = {}; got.forEach(e => { by[e.date] = e; });
+    check('the year is the document\'s own "2026/2027", from its title -- not the year typed, nor a later season\'s old heading',
+      y.year === 2026 && y.fromDoc === true && PD.startYear(['no years here'], 2031).year === 2031, JSON.stringify(y));
+    check('each service heading with its prayer, in order; a weekday\'s row of readings and a day with no prayer are not services',
+      got.map(e => e.date).join(' ') === '2026-11-26 2026-11-29 2026-11-30 2026-12-20 2027-01-01 2027-01-03 2027-03-22 2027-04-25 2027-11-21',
+      got.map(e => e.date).join(' '));
+    const noYear = PD.parse(['Sun. Dec. 27 — First Sunday of Christmas', 'Prayer of the Day', 'Word made flesh, dwell among us and make us your own, now and forever.',
+      'Sun. Jan. 10 — Baptism of Our Lord', 'Prayer of the Day', 'Voice over the waters, call us your own in the waters of baptism, now and forever.'], 2026).map(e => e.date).join(' ');
+    check('December into January is the next year, with no year printed anywhere; a year printed wins; the November after is the next November',
+      noYear === '2026-12-27 2027-01-10' && !!by['2027-01-03'] && !!by['2027-03-22'] && !!by['2027-11-21'] && !by['2026-01-03'], noYear);
+    check('the prayer word for word: its lines joined, a page number and the page\'s dots between them left out',
+      by['2026-12-20'] && by['2026-12-20'].prayer === 'Lord of the promise, make our hearts ready for the one who comes, and keep us faithful in waiting, now and forever.',
+      by['2026-12-20'] && by['2026-12-20'].prayer);
+    check('an alternative after "Or" is not taken; a second heading for a date that has one is not either',
+      by['2027-01-03'].prayer === 'God of light, fill the earth with your Word and let us shine with it, now and forever.' &&
+      by['2027-04-25'].occasion === 'Fifth Sunday of Easter');
+    check('"Mon., Nov. 30" and "Mon. Mar.22" are headings too; the occasion is the heading\'s words after its dash',
+      by['2026-11-30'] && by['2026-11-30'].occasion === 'Andrew, Apostle' && by['2027-03-22'] && by['2027-03-22'].occasion === 'Monday in Holy Week');
+    const items = [
+      { str: 'Sun. Nov. 29 ', transform: [1, 0, 0, 1, 100, 700], width: 60 }, { str: '\u2014 First Sunday', transform: [1, 0, 0, 1, 160, 700], width: 70 },
+      { str: 'of Advent', transform: [1, 0, 0, 1, 233, 700], width: 40, hasEOL: true },
+      { str: 'Prayer of the Day', transform: [1, 0, 0, 1, 100, 680], width: 80 },
+      { str: 'Come', transform: [1, 0, 0, 1, 100, 660], width: 20 }];
+    check('pdf.js\'s pieces become lines: a new line where the baseline moves, a space where a gap opens',
+      JSON.stringify(PD.pdfLines(items)) === JSON.stringify(['Sun. Nov. 29 \u2014 First Sunday of Advent', 'Prayer of the Day', 'Come']),
+      JSON.stringify(PD.pdfLines(items)));
+  }
+  const local = fn('_prayReadLocal'), run = fn('runPrayerImport');
+  check('the import reads the document in the browser first -- a PDF by pdf.js, a Word file by the Builder\'s reader -- the AI only for a layout it does not know',
+    /return _prayReadLocal\(file, yearHint\)\.then\(function\(local\) \{\s*if \(local\) return local;[\s\S]*?return _prayReadAi\(fileUrl, yearHint\);/.test(run) &&
+    /lib\.getDocument\(\{ data: ab \}\)\.promise/.test(local) && /P\.pdfLines\(tc\.items\)/.test(local) && /WO\.docxParas/.test(local) &&
+    /if \(entries\.length < 2\) return null;/.test(local) && /\.catch\(function\(e\) \{[^}]*return null; \}\);/.test(local));
+  check('the review says it was read as written, and from which years',
+    /_prayImport\.note \? '<p class="lect-import-hint">/.test(fn('_renderPrayImportReview')) && /Read straight from the document, word for word \(no AI\)\./.test(local));
+  check('the AI reader: the lighter model first, Google\'s own retry off, a deadline of its own',
+    /const GEMINI_MODELS = \['gemini-flash-lite-latest', 'gemini-flash-latest'\];/.test(RSRC) &&
+    /new GoogleGenAI\(\{ apiKey, httpOptions: \{ retryOptions: \{ attempts: 1 \} \} \}\)/.test(RSRC) &&
+    /abortSignal: AbortSignal\.timeout\(Math\.max\(1000, left\(\)\)\)/.test(RSRC) &&
+    /withBusyRetry\(GEMINI_MODELS, \(model\) => ladder\(model, \(thinking\) => ask\(model, thinking\)\),\s*\{ budgetMs: left\(\) - MIN_TRY_MS \}\)/.test(RSRC));
+  check('busy or slow, it says so in words -- never Google\'s raw JSON',
+    /busy: true, reasons: err\.reasons \}, \{ status: 503 \}\)/.test(RSRC) && /slow: true, reasons: err\.reasons,/.test(RSRC) &&
+    /AI is busy just now\. Wait a minute, then press Read the document again\./.test(RSRC));
+  check('it is told how a church year\'s dates run, and to take the first of alternative prayers',
+    /once they pass ` \+\s*`December into January they are in \$\{Number\(yearHint\) \+ 1\}\. A year printed in the document always wins\./.test(RSRC) &&
+    /Where a day offers alternative prayers \(with "Or" between them\), ` \+\s*`give only the first\./.test(RSRC));
+  let CY = null;
+  try {
+    const ts = require('typescript');
+    const js = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', 'app', 'api', '_lib', 'churchYear.ts'), 'utf8'),
+      { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 } }).outputText;
+    const mod = { exports: {} };
+    new Function('module', 'exports', 'require', js)(mod, mod.exports, require);
+    CY = mod.exports;
+  } catch (e) { CY = null; console.log('  (churchYear.ts could not be compiled: ' + e.message + ')'); }
+  if (CY && CY.rollYears) {
+    const d = xs => xs.map(date => ({ date }));
+    const a = CY.rollYears(d(['2026-11-29', '2026-12-25', '2026-01-03', '2026-03-28', '2026-11-21']), 2026).map(e => e.date).join(' ');
+    const b = CY.rollYears(d(['2026-11-29', '2027-01-03', '2026-11-21']), 2026).map(e => e.date).join(' ');
+    const c = CY.rollYears(d(['2026-01-04', '2026-03-28', '2026-11-29']), 2026).map(e => e.date).join(' ');
+    check('the AI\'s dates mended in the document\'s order: January on is the next year, and so is the November after',
+      a === '2026-11-29 2026-12-25 2027-01-03 2027-03-28 2027-11-21' && b === '2026-11-29 2027-01-03 2027-11-21' && c === '2026-01-04 2026-03-28 2026-11-29', a + ' / ' + b + ' / ' + c);
+    check('...before the route sorts them, prayers and calendars alike',
+      (RSRC.match(/const entries = rollYears\(\(parsed\.entries \|\| \[\]\)/g) || []).length === 2 && /\}\)\), yearHint\)/.test(RSRC));
+  } else check('churchYear.ts compiles', false);
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (EXPECT_BROKEN) {
