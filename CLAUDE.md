@@ -4041,12 +4041,41 @@ the anon key -- verify as `postgres`, not as the app.
       `/api/parse-lectionary` with `mode: 'prayers'` (`PRAYERS_SCHEMA`: date,
       occasion, the prayer word for word), a review of every date, and a
       prayer saved that the document words differently shown with both and
-      KEPT until somebody picks the other. A year of prayers is far more
-      output than a year of references, so that mode asks the model not to
-      think first (`thinkingBudget: 0`), and asks again without the setting
-      if the model refuses it; still too long, the message says to import a
-      few months at a time. Day view shows the date's prayer under the
-      readings with Edit (`editDayPrayer`, typed = no source file).
+      KEPT until somebody picks the other. Day view shows the date's prayer
+      under the readings with Edit (`editDayPrayer`, typed = no source file).
+    - **The church's own document is read as written, in the browser, no
+      AI** (2026-11-21: "Prayer of the Day YearB_26-27.pdf", the ELCA
+      propers, 28 pages, was turned away by Google -- "503 ... high demand",
+      shown as raw JSON -- and the AI would have put every date from January
+      a year early, from "Year to assume 2026"). `window.lhcPrayerDoc` (pure,
+      beside `lhcDayPrayer`): a heading "Sun. Nov. 29 -- First Sunday of
+      Advent" ("Mon., Nov. 30", "Mon. Mar.22", "Fri. Jan. 1, 2027"; a
+      weekday's row of readings has its dash before the date and is not
+      one), then "Prayer of the Day" and its lines up to "Or" (an
+      alternative is never taken), "Gospel Acclamation", "Readings",
+      "Color:", the next heading or a weekday row, a page number and the
+      page's dots skipped. The year is the document's own "2026/2027" from
+      its first lines (`startYear`; a later season's heading may carry an
+      old one -- that document's Epiphany pages say 2023/2024), else the year
+      typed; December into January is the next year, a year printed wins.
+      One prayer a date, the first. `_prayReadLocal` reads a PDF with the
+      page's pdf.js (`pdfLines`: a new line where the baseline moves, a space
+      where a gap opens) or a .docx with `WO.docxParas`, and answers null --
+      the AI reader then has it -- for under two prayers or a file it cannot
+      read. Measured on that document: 52 prayers, in about a second, every
+      one checked word for word (page breaks mid-prayer, alternatives); the
+      review says it was read as written and from which years. The **AI
+      reader** (`/api/parse-lectionary`, prayers and calendars and single
+      bulletins) now asks as parse-liturgy does: `gemini-flash-lite-latest`
+      then `gemini-flash-latest` through `withBusyRetry`, Google's own retry
+      off, the least thinking each model takes for prayers and calendars
+      (`settingLadder`), its own 54s deadline, and busy or slow answered in
+      words (503 `busy`, 504 `slow`). It is told how a church year's dates
+      run and to take the first of alternative prayers, and
+      `_lib/churchYear.ts`'s `rollYears` mends its dates in the document's
+      order before they are sorted: a document starting in the second half
+      of the year assumed puts a date of that year before its first month,
+      and every date after the year has turned, in the next year.
     - **The words become slides by `window.lhcDayPrayer`** (pure, outside the
       modules): the order's own Prayer of the Day liturgy keeps its shape --
       every slide before the heading ("Prayer of The Day") as it is, the
