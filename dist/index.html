@@ -8652,8 +8652,15 @@
             </div>
             <div class="wo-slides-modal-body">
               <div class="wo-slides-tabs">
-                <button class="wo-slides-tab active" data-tab="upload" onclick="WO.switchSlidesTab('upload')">
-                  <i class="fa-solid fa-upload mr-1"></i> Slides
+                <!-- The folder first, because the deck is usually already in
+                     it: somebody put it there from another device, or from
+                     this one last Sunday. Uploading is the way in, not the
+                     way most imports start. -->
+                <button class="wo-slides-tab active" data-tab="folder" onclick="WO.switchSlidesTab('folder')">
+                  <i class="fa-solid fa-folder-open mr-1"></i> Folder
+                </button>
+                <button class="wo-slides-tab" data-tab="upload" onclick="WO.switchSlidesTab('upload')">
+                  <i class="fa-solid fa-upload mr-1"></i> Upload
                 </button>
                 <button class="wo-slides-tab" data-tab="url" onclick="WO.switchSlidesTab('url')">
                   <i class="fa-solid fa-link mr-1"></i> Embed URL
@@ -8663,7 +8670,14 @@
                 </button>
               </div>
 
-              <div class="wo-slides-tab-content" id="woSlidesTabUpload">
+              <!-- Every presentation anybody has added, on every device: the
+                   Media Tray's Presentations and Announcements drawers, which
+                   are shared through lhc_backgrounds. This is also the one
+                   route a phone has, since the tray itself is hidden below
+                   1201px. -->
+              <div class="wo-slides-tab-content" id="woSlidesTabFolder"></div>
+
+              <div class="wo-slides-tab-content" id="woSlidesTabUpload" style="display:none">
                 <div class="wo-slides-upload-area" id="woSlidesDropZone" onclick="document.getElementById('woSlidesFileInput').click()">
                   <i class="fa-solid fa-cloud-arrow-up"></i>
                   <p>Click to browse or drag & drop</p>
@@ -45131,7 +45145,10 @@ var WO = (function() {
     $('woSlidesFileList').innerHTML = '';
     $('woSlidesUrlInput').value = '';
     $('woSlidesModal').classList.add('show');
-    switchSlidesTab('upload');
+    // The folder when there is something in it, Upload when there is not:
+    // opening on an empty folder is a dead end, and opening on Upload when the
+    // deck is already there is the extra step this change exists to remove.
+    switchSlidesTab(_woSlidesFolderItems().length ? 'folder' : 'upload');
   }
 
   function openSlidesModalTab(sectionId, tab) {
@@ -45168,10 +45185,69 @@ var WO = (function() {
 
   function switchSlidesTab(tab) {
     document.querySelectorAll('.wo-slides-tab').forEach(function(t) { t.classList.remove('active'); });
-    document.querySelector('.wo-slides-tab[data-tab="' + tab + '"]').classList.add('active');
+    var btn = document.querySelector('.wo-slides-tab[data-tab="' + tab + '"]');
+    if (btn) btn.classList.add('active');
+    var folder = $('woSlidesTabFolder');
+    if (folder) folder.style.display = tab === 'folder' ? 'block' : 'none';
     $('woSlidesTabUpload').style.display = tab === 'upload' ? 'block' : 'none';
     $('woSlidesTabUrl').style.display = tab === 'url' ? 'block' : 'none';
     $('woSlidesTabVideo').style.display = tab === 'video' ? 'block' : 'none';
+    // Add Slides acts on files chosen in Upload; the folder adds on a click,
+    // so leaving the button there would be a second button that does nothing.
+    var addBtn = document.querySelector('.wo-slides-add-btn');
+    if (addBtn) addBtn.style.display = tab === 'folder' ? 'none' : '';
+    if (tab === 'folder') _woRenderSlidesFolder();
+  }
+
+  // ---- The shared presentation folder, inside the Add Presentation window --
+  // The same records the Media Tray's Presentations and Announcements drawers
+  // show (savedBackgrounds, shared through lhc_backgrounds), filtered to the
+  // documents that have a stored copy to expand from. Dragging one out of the
+  // tray already worked on a desk; this is the same thing for anyone who
+  // cannot reach the tray -- a phone, where .lcd-lower-row is display:none.
+  function _woSlidesFolderItems() {
+    return (savedBackgrounds || []).filter(function(b) {
+      if (!b || !_lcdIsDocItem(b)) return false;
+      return !!_bgShared(b).url;
+    }).reverse();
+  }
+
+  function _woRenderSlidesFolder() {
+    var box = $('woSlidesTabFolder');
+    if (!box) return;
+    var items = _woSlidesFolderItems();
+    if (!items.length) {
+      box.innerHTML =
+        '<div class="wo-slides-folder-empty">' +
+          '<i class="fa-solid fa-folder-open"></i>' +
+          '<p>No presentations in the folder yet</p>' +
+          '<span>Add one from <b>Upload</b> and it is saved for everyone, on every device.</span>' +
+        '</div>';
+      return;
+    }
+    box.innerHTML =
+      '<div class="wo-slides-folder-hint">Tap a presentation to add it to this section, one slide per page.</div>' +
+      '<div class="wo-slides-folder-list">' +
+      items.map(function(bg) {
+        var cat = _lcdItemCategory(bg);
+        return '<button type="button" class="wo-slides-folder-item" onclick="WO.slidesFolderPick(\'' + escapeJsArg(bg.id) + '\')">' +
+          '<i class="fa-solid ' + (/\.pptx?$/i.test(bg.name || '') ? 'fa-file-powerpoint' : 'fa-file-lines') + '"></i>' +
+          '<span class="wo-slides-folder-name">' + escapeHtml(bg.name || 'Untitled') + '</span>' +
+          '<span class="wo-slides-folder-cat">' + (cat === 'announcement' ? 'Announcements' : 'Presentations') + '</span>' +
+        '</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  function slidesFolderPick(bgId) {
+    var bg = (savedBackgrounds || []).filter(function(b) { return b && b.id === bgId; })[0];
+    var sectionId = currentSlidesSectionId;
+    if (!bg) { showToast('That file is no longer in the folder', 'warning'); _woRenderSlidesFolder(); return; }
+    closeSlidesModal();
+    if (!sectionId) { showToast('Open a section first, then add the presentation', 'warning'); return; }
+    // The same expansion the drag from the tray uses, with no drop target --
+    // which _lcdPptDropIndex reads as "the end of the section".
+    _lcdExpandDocIntoSection(sectionId, bg, {});
   }
 
   function handleSlidesFileSelect(files) {
@@ -45633,25 +45709,68 @@ var WO = (function() {
   // These sync the INDEX of them to a shared `lhc_backgrounds` table so
   // every user's Media Tray shows the same media. Fire-and-forget; the
   // local IndexedDB/localStorage cache still works if the table is absent.
+  // Whether this Supabase knows lhc_backgrounds.category yet. Null until a
+  // write has told us; false after one is refused for that column, so the
+  // retry happens once and every later write goes straight to the short row.
+  var _bgCatColumn = null;
+
+  // The one place that decides what a media record's address and path ARE.
+  // Pictures and video are stored with `cloudUrl` / `storagePath`; a document
+  // put in the tray by _lcdIngestTrayFile is stored with `url` / `path`, which
+  // this used to read as nothing at all -- so `bg.storagePath` was undefined,
+  // `bg.cloudUrl || bg.data` was the empty string a document carries, and the
+  // function returned before writing anything. Every PowerPoint anybody added
+  // to the Presentations drawer was therefore on that one device for good,
+  // while its FILE sat in shared Storage the whole time.
+  function _bgShared(bg) {
+    var url = bg.cloudUrl || bg.url ||
+      (typeof bg.data === 'string' && bg.data.indexOf('http') === 0 ? bg.data : '');
+    return { url: url, path: bg.storagePath || bg.path || '' };
+  }
+
   function _sbSaveBackgroundToSupabase(bg) {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb || !bg) return;
-    var url = bg.cloudUrl || bg.data;
+    var where = _bgShared(bg);
     // Only share cloud-backed media - never push a giant base64 data URL.
-    if (!bg.storagePath && (!url || url.indexOf('http') !== 0)) return;
+    if (!where.path && (!where.url || where.url.indexOf('http') !== 0)) return;
     var row = {
       id: bg.id,
       type: bg.type || 'image',
       name: bg.name || '',
-      url: url,
-      storage_path: bg.storagePath || '',
+      url: where.url,
+      storage_path: where.path,
       updated_at: new Date().toISOString()
     };
-    try {
-      sb.from('lhc_backgrounds').upsert(row, { onConflict: 'id' }).then(function(res) {
-        if (res && res.error) console.warn('[LHC] background sync error:', res.error.message);
-      });
-    } catch (e) { console.warn('[LHC] background sync failed:', e); }
+    // The drawer travels with the file, or a shared presentation arrives on
+    // the next device with no category and is read as a background -- the one
+    // drawer that cannot render it.
+    function send(withCategory) {
+      var payload = withCategory
+        ? Object.assign({ category: _lcdItemCategory(bg) }, row)
+        : row;
+      try {
+        sb.from('lhc_backgrounds').upsert(payload, { onConflict: 'id' }).then(function(res) {
+          if (!res || !res.error) { if (withCategory) _bgCatColumn = true; return; }
+          // Until migrations/2026-11-22_lhc_backgrounds_category.sql is run the
+          // column is not there, and PostgREST refuses the whole row -- so the
+          // file would be shared with nobody rather than shared without its
+          // drawer. Say it once, then write the short row from here on.
+          if (withCategory && /category/i.test(res.error.message || '')) {
+            if (_bgCatColumn !== false) {
+              console.info('[LHC] lhc_backgrounds.category not present yet — ' +
+                'shared media will arrive in the Backgrounds drawer until ' +
+                'migrations/2026-11-22_lhc_backgrounds_category.sql is run');
+            }
+            _bgCatColumn = false;
+            send(false);
+            return;
+          }
+          console.warn('[LHC] background sync error:', res.error.message);
+        });
+      } catch (e) { console.warn('[LHC] background sync failed:', e); }
+    }
+    send(_bgCatColumn !== false);
   }
 
   function _sbDeleteBackgroundFromSupabase(bgId) {
@@ -45670,29 +45789,49 @@ var WO = (function() {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb) return;
     try {
-      sb.from('lhc_backgrounds').select('id,type,name,url,storage_path').then(function(res) {
-        if (!res || res.error || !res.data) {
-          if (res && res.error) console.warn('[LHC] background load error:', res.error.message);
-          return;
-        }
-        var localIds = savedBackgrounds.map(function(b) { return b.id; });
-        var added = 0;
-        res.data.forEach(function(rowb) {
-          if (localIds.indexOf(rowb.id) === -1) {
-            savedBackgrounds.push({
-              id: rowb.id,
-              type: rowb.type,
-              name: rowb.name,
-              data: rowb.url,
-              cloudUrl: rowb.url,
-              storagePath: rowb.storage_path,
-              storageProvider: 'supabase'
-            });
-            added++;
+      // category is asked for separately, because selecting a column this
+      // Supabase does not have yet fails the WHOLE read -- and the shared
+      // media library is worth more than the drawer it arrives in.
+      function pull(withCategory) {
+        var cols = withCategory ? 'id,type,name,url,storage_path,category' : 'id,type,name,url,storage_path';
+        sb.from('lhc_backgrounds').select(cols).then(function(res) {
+          if (!res || res.error || !res.data) {
+            if (withCategory && res && res.error && /category/i.test(res.error.message || '')) {
+              _bgCatColumn = false;
+              pull(false);
+              return;
+            }
+            if (res && res.error) console.warn('[LHC] background load error:', res.error.message);
+            return;
           }
+          if (withCategory) _bgCatColumn = true;
+          var localIds = savedBackgrounds.map(function(b) { return b.id; });
+          var added = 0;
+          res.data.forEach(function(rowb) {
+            if (localIds.indexOf(rowb.id) === -1) {
+              savedBackgrounds.push({
+                id: rowb.id,
+                type: rowb.type,
+                name: rowb.name,
+                category: rowb.category || '',
+                data: rowb.type === 'document' ? '' : rowb.url,
+                // A document is expanded from `url` and deleted by `path`
+                // (_lcdExpandDocIntoSection, deleteFromSupabase). Restoring it
+                // under cloudUrl/storagePath alone left both undefined, so a
+                // shared deck said "That file has no stored copy to expand".
+                url: rowb.url,
+                path: rowb.storage_path,
+                cloudUrl: rowb.url,
+                storagePath: rowb.storage_path,
+                storageProvider: 'supabase'
+              });
+              added++;
+            }
+          });
+          if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
         });
-        if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
-      });
+      }
+      pull(_bgCatColumn !== false);
     } catch (e) { console.warn('[LHC] background load failed:', e); }
   }
 
@@ -47166,6 +47305,30 @@ var WO = (function() {
     screen.appendChild(wrap);
   }
 
+  // A file this import just uploaded, added to the shared Media Tray folder
+  // (and so to lhc_backgrounds) unless it is already there by path.
+  function _woRememberInFolder(result, fileName) {
+    if (!result || !result.url || !fileName) return;
+    if (!/\.(pptx?|pdf|docx?|key|odp)$/i.test(fileName)) return;   // a picture or a video is not a presentation
+    var already = (savedBackgrounds || []).some(function(b) {
+      return b && (b.path === result.path || b.storagePath === result.path);
+    });
+    if (already) return;
+    var rec = {
+      id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      type: 'document',
+      category: 'presentation',
+      name: String(fileName).substring(0, 40),
+      url: result.url,
+      path: result.path,
+      data: ''
+    };
+    savedBackgrounds.push(rec);
+    if (typeof saveBackgrounds === 'function') saveBackgrounds();
+    if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(rec);
+    if (typeof _lcdRenderMediaTray === 'function') _lcdRenderMediaTray();
+  }
+
   function addSlidesFromFiles(sectionId, files) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -47212,6 +47375,13 @@ var WO = (function() {
                 name: _capFileName
               });
             }
+            // One folder, three ways in. A deck imported straight into a
+            // section used to exist only inside that order, so next month
+            // nobody could find it and the same file was uploaded again --
+            // which is how Storage filled with copies. Registering it here
+            // means the burger, the tray and a drag all put a file in the
+            // same shared place.
+            _woRememberInFolder(result, _capFileName);
             if (_isPptx) {
               // result.path travels with it so the upload can be deleted once
               // Google has the deck -- see the cleanup in _onConverted.
@@ -47352,6 +47522,35 @@ var WO = (function() {
   var _lcdImportCancelled = {};
   var _lcdImportRetry = {};
 
+  // How wide a rendered page should be, in real pixels. 1920 is the church's
+  // projector; going beyond it buys nothing on the wall and costs memory and
+  // upload time per page.
+  var _LCD_PAGE_WIDTH = 1920;
+  // How many pages may be in the air at once. pdf.js decodes serially, so this
+  // is about how many canvases exist together, not about speed.
+  var _LCD_PAGE_POOL = 3;
+  // 0.92 was chosen for a 1440px raster. At 1920 the same artefacts are half
+  // the size on the wall, so this is left where it is: raising it grows every
+  // page's upload for a difference nobody can see from a pew.
+  var _LCD_PAGE_QUALITY = 0.92;
+
+  // Pure enough to reason about: the scale that makes this page come out
+  // _LCD_PAGE_WIDTH wide, held between 1.5 (a page already bigger than the
+  // projector) and 4 (a tiny page, where the old fixed 2 was too small and an
+  // unbounded scale would be a 10,000px canvas).
+  function _lcdScaleForWidth(pageWidthPt, targetPx) {
+    if (!(pageWidthPt > 0)) return 2;
+    return Math.max(1.5, Math.min(4, targetPx / pageWidthPt));
+  }
+
+  function _lcdPageScale(page) {
+    try {
+      return _lcdScaleForWidth(page.getViewport({ scale: 1 }).width, _LCD_PAGE_WIDTH);
+    } catch (e) {
+      return 2;
+    }
+  }
+
   function _lcdImportEl(sectionId) {
     var id = sectionId + '-pptx-loading';
     var el = document.getElementById(id);
@@ -47447,63 +47646,89 @@ var WO = (function() {
           done: 0, total: totalPages, cancellable: true
         });
 
-        // Process each page
-        for (var pageNum = 1; pageNum <= totalPages; pageNum++) {
-          (function(pn) {
-            pdf.getPage(pn).then(function(page) {
-              // Cancelled: stop before doing the expensive part. Pages already
-              // in flight finish harmlessly -- nothing is added to the deck.
+        // Render the pages A FEW AT A TIME, each at the projector's own
+        // resolution.
+        //
+        // It used to start every page at once at a fixed scale of 2. Both
+        // halves of that were wrong, and they were wrong together:
+        //
+        //  - A 16:9 deck exports as a 720x405pt PDF page, so scale 2 is a
+        //    1440x810 raster. On the church's 1080p projector that is then
+        //    stretched 1.33x, which is why imported slides look softer than
+        //    the same deck shown from PowerPoint. _lcdPageScale asks for the
+        //    real pixels instead.
+        //  - Starting all of them at once allocated one canvas per page and
+        //    held every one until the last finished. At the sharper size a
+        //    30-page deck would be ~250MB of canvas in the air at once, which
+        //    is how a tab dies mid-import on the laptop that runs the service.
+        //
+        // So: a small pool, and each canvas released the moment its JPEG is
+        // out. pdf.js serialises the decoding anyway, so the pool costs no
+        // wall-clock time -- it just stops the memory from piling up.
+        var _nextPage = 1;
+        function _renderNext() {
+          if (_lcdImportCancelled[sectionId]) return;
+          if (_nextPage > totalPages) return;
+          var pn = _nextPage++;
+          pdf.getPage(pn).then(function(page) {
+            // Cancelled: stop before doing the expensive part. Pages already
+            // in flight finish harmlessly -- nothing is added to the deck.
+            if (_lcdImportCancelled[sectionId]) return;
+            var viewport = page.getViewport({ scale: _lcdPageScale(page) });
+
+            var canvas = document.createElement('canvas');
+            var context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            return page.render({ canvasContext: context, viewport: viewport }).promise.then(function() {
+              var imageData = canvas.toDataURL('image/jpeg', _LCD_PAGE_QUALITY);
+              // Let the backing store go now rather than at the end of the
+              // import: on iOS and on low-memory laptops the canvas is the
+              // expensive part, not the JPEG.
+              canvas.width = canvas.height = 0;
+              if (typeof page.cleanup === 'function') { try { page.cleanup(); } catch (e) {} }
+
+              pageImages[pn - 1] = { type: 'image', data: imageData, name: 'Page ' + pn };
+
+              pagesProcessed++;
+              // Cancelled mid-import: stop reporting and keep the partly
+              // rendered pages out of the deck entirely, so the operator
+              // never ends up with half a presentation they did not ask for.
               if (_lcdImportCancelled[sectionId]) return;
-              // Render at 2x scale for better quality
-              var scale = 2;
-              var viewport = page.getViewport({ scale: scale });
-
-              // Create canvas to render page
-              var canvas = document.createElement('canvas');
-              var context = canvas.getContext('2d');
-              canvas.width = viewport.width;
-              canvas.height = viewport.height;
-
-              var renderContext = {
-                canvasContext: context,
-                viewport: viewport
-              };
-
-              page.render(renderContext).promise.then(function() {
-                // Convert canvas to image data URL
-                var imageData = canvas.toDataURL('image/jpeg', 0.92);
-
-                pageImages[pn - 1] = {
-                  type: 'image',
-                  data: imageData,
-                  name: 'Page ' + pn
-                };
-
-                pagesProcessed++;
-                // Cancelled mid-import: stop reporting and keep the partly
-                // rendered pages out of the deck entirely, so the operator
-                // never ends up with half a presentation they did not ask for.
-                if (_lcdImportCancelled[sectionId]) return;
-                _lcdImportSet(sectionId, {
-                  file: _impName, stage: 'Converting slides ' + pagesProcessed + ' of ' + totalPages,
-                  done: pagesProcessed, total: totalPages, cancellable: true
-                });
-                if (pagesProcessed === totalPages) {
-                  // All pages processed, add to slides. pageImages is indexed
-                  // by page number, so the original order survives the fact
-                  // that the render promises settle out of order.
-                  pageImages.forEach(function(img) {
-                    if (img) {
-                      currentSermonSlides[sectionId].slides.push(img);
-                    }
-                  });
-                  _lcdImportClear(sectionId);
-                  if (callback) callback();
-                }
+              _lcdImportSet(sectionId, {
+                file: _impName, stage: 'Converting slides ' + pagesProcessed + ' of ' + totalPages,
+                done: pagesProcessed, total: totalPages, cancellable: true
               });
+              if (pagesProcessed === totalPages) {
+                // pageImages is indexed by page number, so the original order
+                // survives the fact that the renders settle out of order.
+                pageImages.forEach(function(img) {
+                  if (img) currentSermonSlides[sectionId].slides.push(img);
+                });
+                _lcdImportClear(sectionId);
+                if (callback) callback();
+                return;
+              }
+              _renderNext();
             });
-          })(pageNum);
+          }).catch(function(e) {
+            console.warn('[PPT] page ' + pn + ' failed to render:', e);
+            // One bad page must not strand the whole import: count it and
+            // carry on, and the deck comes back with the pages that did read.
+            pagesProcessed++;
+            if (pagesProcessed === totalPages) {
+              pageImages.forEach(function(img) {
+                if (img) currentSermonSlides[sectionId].slides.push(img);
+              });
+              _lcdImportClear(sectionId);
+              if (callback) callback();
+              return;
+            }
+            _renderNext();
+          });
         }
+        for (var _p = 0; _p < Math.min(_LCD_PAGE_POOL, totalPages); _p++) _renderNext();
       }).catch(function(err) {
         console.error('Error loading PDF:', err);
         _lcdImportError(sectionId,
@@ -48698,7 +48923,20 @@ var WO = (function() {
       // left and the rest off the right -- the word simply gone from the wall.
       // The old shrink-to-fit hid this by making the whole slide smaller.
       '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
-      '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
+      // A presentation slide gets a layer of its OWN, outside
+      // .projection-content and so outside the safe-zone barrier.
+      //
+      // It used to be drawn inside that box, which is inset by the barrier --
+      // 5% a side by default. A 16:9 deck on a 16:9 projector therefore came
+      // out at 90% of the screen with a black border all round, which is what
+      // "the slides seem to be reduced in size" is. The barrier exists to keep
+      // WORDS out of a livestream overlay's corner; a PowerPoint slide is
+      // already laid out for a whole screen and must not be inset again.
+      //
+      // Below #projBlank (99999) so Blank still covers it, above the
+      // background (0) and the words (1).
+      '#projSlide { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; display: none; align-items: center; justify-content: center; background: #000; }' +
+      '#projSlide img { width: 100%; height: 100%; object-fit: contain; display: block; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
       '.projection-video { width: 100vw; height: 100vh; }' +
       '.projection-video iframe, .projection-video video { width: 100%; height: 100%; border: none; }' +
@@ -48707,6 +48945,7 @@ var WO = (function() {
       '#fsHintBtn:hover { background: rgba(255,255,255,0.15); color: #fff; }' +
       '</style></head><body>' +
       '<div id="projBackground"></div>' +
+      '<div id="projSlide"></div>' +
       '<div class="projection-content" id="projContent">' +
       '<div class="projection-ready">Waiting for content...</div>' +
       '</div>' +
@@ -48813,6 +49052,18 @@ var WO = (function() {
       '  var bgEl = document.getElementById("projBackground");' +
       '  if (!content) return;' +
       '  if (data.type === "text" || data.type === "slide" || data.type === "video") { var _ov = document.getElementById("fsOverlay"); if (_ov) _ov.remove(); }' +
+      '  function _showProjSlide(src) {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    el.innerHTML = "<img src=\\"" + src + "\\" alt=\\"Slide\\">";' +
+      '    el.style.display = "flex";' +
+      '  }' +
+      '  function _hideProjSlide() {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    el.style.display = "none";' +
+      '    el.innerHTML = "";' +
+      '  }' +
       '  function _applyBarrierToContent(b) {' +
       '    if (!b) return;' +
       '    if (typeof b === "object") {' +
@@ -48831,6 +49082,7 @@ var WO = (function() {
       '    _applyBarrierToContent(data.barrier);' +
       '    _fitProjectionText();' +
       '  } else if (data.type === "text") {' +
+      '    _hideProjSlide();' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
       '    style += "font-size:" + (s.fontSize || 6.5) + "vw;";' +
@@ -48843,10 +49095,12 @@ var WO = (function() {
       '    if (bgEl) bgEl.style.display = "block";' +
       '    _fitProjectionText();' +
       '  } else if (data.type === "slide") {' +
-      '    content.innerHTML = "<img class=\\"projection-slide\\" src=\\"" + data.data + "\\" alt=\\"Slide\\">";' +
+      '    content.innerHTML = "";' +
       '    content.style.padding = "0";' +
+      '    _showProjSlide(data.data);' +
       '    if (bgEl) bgEl.style.display = "none";' +
       '  } else if (data.type === "video") {' +
+      '    _hideProjSlide();' +
       '    content.style.padding = "0";' +
       '    if (bgEl) bgEl.style.display = "none";' +
       '    if (data.videoType === "youtube") {' +
@@ -48864,6 +49118,7 @@ var WO = (function() {
       '      }' +
       '    }' +
       '  } else if (data.type === "clear") {' +
+      '    _hideProjSlide();' +
       '    content.innerHTML = "<div class=\\"projection-ready\\">Waiting for content...</div>";' +
       '    content.style.padding = "60px";' +
       '  } else if (data.type === "blank") {' +
@@ -91334,9 +91589,13 @@ var WO = (function() {
     function store(rec) {
       savedBackgrounds.push(rec);
       saveBackgrounds();
+      // saveBackgrounds() shares a picture only as a side effect of migrating
+      // its base64 to Storage, and a document has no base64 to migrate -- it
+      // was uploaded already. Share it here, which is the only path it has.
+      if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(rec);
       if (typeof renderBackgroundLibrary === 'function') renderBackgroundLibrary();
       _lcdRenderMediaTray();
-      showToast('“' + rec.name + '” added', 'success');
+      showToast('“' + rec.name + '” added — everyone can use it now', 'success');
     }
 
     if (mediaType === 'document') {
@@ -101975,6 +102234,7 @@ var WO = (function() {
     // Local PPTX upload modal functions
     closeSlidesModal: closeSlidesModal,
     switchSlidesTab: switchSlidesTab,
+    slidesFolderPick: slidesFolderPick,
     handleSlidesFileSelect: handleSlidesFileSelect,
     removePendingFile: removePendingFile,
     confirmAddSlides: confirmAddSlides,
@@ -121645,6 +121905,23 @@ function filterLiturgyItems() {
   .wo-slides-modal-close { background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
   .wo-slides-modal-close:hover { background: rgba(255,255,255,0.3); }
   .wo-slides-modal-body { padding: 24px; }
+  /* The shared presentation folder inside Add Presentation. Rows rather than
+     tiles: a deck is known by its NAME, and a phone has the width for one
+     column of names and nothing else. */
+  .wo-slides-folder-hint { font-size: 0.82rem; color: #6b7280; margin: 0 0 12px; }
+  .wo-slides-folder-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+  .wo-slides-folder-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.86rem; color: #1f2933; transition: border-color .15s, background .15s; }
+  .wo-slides-folder-item:hover { border-color: #ea580c; background: #fff7ed; }
+  .wo-slides-folder-item > i { color: #ea580c; flex: 0 0 auto; font-size: 1rem; }
+  .wo-slides-folder-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wo-slides-folder-cat { flex: 0 0 auto; font-size: 0.66rem; letter-spacing: .04em; text-transform: uppercase;
+    color: #92400e; background: #fef3c7; border-radius: 99px; padding: 3px 9px; }
+  .wo-slides-folder-empty { text-align: center; padding: 26px 12px; color: #6b7280; }
+  .wo-slides-folder-empty > i { font-size: 2rem; color: #d1d5db; display: block; margin-bottom: 10px; }
+  .wo-slides-folder-empty p { margin: 0 0 6px; font-weight: 600; color: #374151; }
+  .wo-slides-folder-empty span { font-size: 0.8rem; }
   .wo-slides-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
   .wo-slides-tab { flex: 1; padding: 12px; border: 2px solid #e5e7eb; background: white; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 0.9rem; color: #6b7280; transition: all 0.2s; }
   .wo-slides-tab:hover { border-color: #f97316; color: #ea580c; }

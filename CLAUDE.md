@@ -381,7 +381,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      rail or on the projection opens it, Apply / Esc / the X / the backdrop
      close it, and **Barrier** sits beside Songbook in the console's own
      controls row. The **Media Tray** is white and keeps a band of its own.
-     See gotcha 105.
+     See gotcha 105. A **PowerPoint** is shared with everyone the moment it
+     is uploaded, goes into a section by a drag from the folder or by the
+     section's burger (the phone's only way), and is projected FULL SCREEN
+     rather than inside the safe-zone barrier. It cannot animate: see
+     gotcha 106 for why, and what enabling it would take.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
   reading taken out stays out (gotcha 48).
@@ -5709,6 +5713,92 @@ the anon key -- verify as `postgres`, not as the app.
     and the window's open/shut state machine rather than matching them. It
     replaces `tools/lcd-editor-rollup-harness.js`, whose whole subject is
     gone.
+
+106. **A PowerPoint is a shared file, a full-screen picture, and never an
+    animation.** From the operator (2026-11-22), on a marked-up screenshot of
+    the console: the presentation folder stored in Supabase and usable by
+    everyone; two ways into a section (drag from the folder, or the section's
+    burger); the projection full screen "just like how the slideshow mode in
+    PowerPoint looks like"; animations; a faster, sharper, more accurate
+    import; and a phone able to upload and place one.
+    - **ANIMATIONS ARE NOT POSSIBLE ON THIS PIPELINE, and the reason is worth
+      keeping.** Every deck goes `/api/convert-pptx` -> CloudConvert -> PDF ->
+      pdf.js -> JPEGs, and a flat image cannot animate. The only route that
+      could is `/api/convert-pptx-to-slides` (Drive -> Google Slides, embedded
+      by `pageId`), and probed on live on 2026-11-22 it answered *"The server
+      is not configured to convert presentations (Google OAuth credentials
+      missing)"* -- so it has never run in production, which is also why the
+      CloudConvert fallback is the only path anybody has seen. Enabling it
+      needs a Google refresh token carrying `drive.file` AND
+      `presentations.readonly` in Vercel, and even then it would give
+      slide-level transitions and entrance animations only: a Google Slides
+      embed is cross-origin, so builds that advance on a click inside one
+      slide cannot be driven from the console. Asked directly, the operator
+      chose to leave animations out for now.
+    - **The folder was shared in name only.** The FILE went to Supabase
+      Storage from the first day; the tray's index row did not. A document is
+      stored by `_lcdIngestTrayFile` with `url` / `path`, and
+      `_sbSaveBackgroundToSupabase` read `cloudUrl` / `storagePath` -- so it
+      returned before writing and every PowerPoint anybody added stayed on the
+      one laptop that added it. `_bgShared(bg)` is now the single place that
+      decides what a media record's address and path ARE, and both shapes go
+      through it.
+    - **The drawer has to travel with the file.** `lhc_backgrounds` carried no
+      category, and `_lcdItemCategory` answers `'background'` for a row
+      without one -- so a shared deck would have arrived in the one drawer
+      that cannot render it. `migrations/2026-11-22_lhc_backgrounds_category.sql`
+      adds it. Until it is run, PostgREST refuses the WHOLE row for an unknown
+      column and the whole SELECT for an unknown column, so both directions
+      fall back once and remember (`_bgCatColumn`): the file is shared without
+      its drawer rather than not shared at all. Verified against the live
+      database with the column genuinely absent -- the shared index still
+      loaded its four rows.
+    - **A slide was CLIPPED, not shrunk.** It was drawn inside
+      `.projection-content`, which is inset by the safe-zone barrier (5% a
+      side) and is `overflow: hidden`, while `.projection-slide` sized itself
+      against the VIEWPORT (`max-width: 100vw`). So the image was laid out at
+      full screen and then cut off by the inset box. Measured in the real
+      projection document: **81% of the screen visible, the outer 5% of every
+      edge gone** -- at 1920x1080 that is 96px off each side and 54px off top
+      and bottom, which is a deck's own margins and often its footer.
+      `#projSlide` is now a layer of its own at z-index 2, outside the
+      barrier: measured 99.9%. The barrier is for WORDS, which a livestream
+      overlay can cover; a deck is already laid out for a whole screen.
+      Measured again after switching to a text slide: the barrier comes back
+      and the layer empties. `#projBlank` is 99999, so Blank still covers it.
+      Every branch that REPLACES the words (`text`, `video`, `clear`) hides
+      the layer; `background`, `videoBackground`, `barrierUpdate` and
+      `alignUpdate` must NOT -- they arrive while a deck is on the wall.
+    - **The import rendered every page at a fixed `scale = 2`.** A 16:9 deck
+      exports as a 720x405pt PDF page, so that is a 1440px raster stretched
+      1.33x on a 1080p projector -- which is why an imported deck looks softer
+      than the same file shown from PowerPoint. `_lcdScaleForWidth` asks for
+      the projector's own pixels instead (`_LCD_PAGE_WIDTH` 1920), held
+      between 1.5 and 4 so a page already wider than the projector is not
+      enlarged and a tiny one cannot ask for a 10,000px canvas.
+    - **...which made the old loop dangerous.** It started every page at once
+      and held one canvas per page until the last finished; at the sharper
+      size a 30-page deck is ~250MB of canvas in the air, on the laptop that
+      is running the service. Pages now go through a pool of
+      `_LCD_PAGE_POOL` (3) and each canvas is released (`canvas.width =
+      canvas.height = 0`) the moment its JPEG is out. pdf.js decodes serially
+      anyway, so the pool costs no wall-clock time. A page that will not
+      render is counted and passed over rather than stranding the import on
+      its progress bar.
+    - **One folder, three ways in.** A deck imported straight into a section
+      used to exist only inside that order, so a month later nobody could find
+      it and the same file was uploaded again -- which is how Storage filled
+      with copies. `_woRememberInFolder` registers every upload in the shared
+      folder (documents only, once per storage path), so the burger, the tray
+      and a drag all put a file in the same place.
+    - **The burger is the phone's only way to the folder**, because the Media
+      Tray is `display: none` below 1201px -- the console gives that band to
+      the schedule (gotcha 105). Add presentation opens on the **Folder** tab
+      when there is something in it and on **Upload** when there is not, and
+      the window is moved to `<body>` so nothing can clip it.
+    `tools/lcd-pptx-harness.js` checks it, running `_bgShared`,
+    `_lcdScaleForWidth`, `_woSlidesFolderItems` and `_woRememberInFolder`
+    rather than matching them.
 
 106. **The Songbook's song list folds, and the column takes the width.**
     From the operator (2026-11-15), on two marked-up laptop screenshots:
