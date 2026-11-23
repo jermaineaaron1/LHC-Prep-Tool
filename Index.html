@@ -39621,6 +39621,13 @@ var WO = (function() {
               filename: _pd.fileName || 'Presentation',
               googleSlidesId: _pd.googleSlidesId || '',
               supabaseFiles: _pd.supabaseFiles || [],
+              // How this deck is played, and what it is played from. Without
+              // these a deck set to play live went back to pictures on the
+              // next reload, which looks exactly like the setting not working.
+              playMode: _pd.playMode || '',
+              liveUrl: _pd.liveUrl || '',
+              sourceUrl: _pd.sourceUrl || '',
+              sourcePath: _pd.sourcePath || '',
               localSlides: _pd.slides.map(function(s) {
                 // storagePath travels with the page so the uploaded copy can be
                 // cleaned up later, and so a reload does not mistake a restored
@@ -42757,7 +42764,11 @@ var WO = (function() {
                 // Carried so a converted deck keeps its per-page embed URLs, and
                 // so a later save does not lose the uploaded original.
                 googleSlidesId: item.content.googleSlidesId || undefined,
-                supabaseFiles: item.content.supabaseFiles || []
+                supabaseFiles: item.content.supabaseFiles || [],
+                playMode: item.content.playMode || '',
+                liveUrl: item.content.liveUrl || '',
+                sourceUrl: item.content.sourceUrl || '',
+                sourcePath: item.content.sourcePath || ''
               };
               renderLocalSlides(item.sectionId);
             }
@@ -47903,6 +47914,7 @@ var WO = (function() {
         '<i class="fa-solid fa-file-powerpoint"></i>' +
         '<span class="wo-ppt-banner-title">' + esc(displayName) + '</span>' +
         '<span class="wo-ppt-banner-count">' + count + ' slide' + (count === 1 ? '' : 's') + '</span>' +
+        _pptPlayChip(sectionId, slidesData) +
         '<button class="wo-ppt-banner-btn" onclick="event.stopPropagation();WO.openSermonRemote(\'' + esc(sectionId) + '\')" title="Remote"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
         '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removePptFile(\'' + esc(sectionId) + '\')" title="Remove the whole presentation"><i class="fa-solid fa-trash"></i></button>' +
       '</div>';
@@ -48062,6 +48074,74 @@ var WO = (function() {
       (slide && slide.pageId ? '&slide=id.' + slide.pageId : '');
   }
 
+  // HOW A DECK IS PLAYED. 'images' is the pipeline everything else in this
+  // file assumes: CloudConvert -> PDF -> pdf.js -> JPEG, which is reliable,
+  // works offline, and cannot animate because a flat picture cannot. The other
+  // two hand the real thing to something that CAN animate it:
+  //   'live'  -- the stored .pptx through Microsoft's own viewer, which plays
+  //              PowerPoint's transitions and entrance effects;
+  //   'link'  -- a Canva / Google Slides / Office share link, or an MP4, which
+  //              plays whatever that source plays. Canva's own PPTX export
+  //              flattens most of its animations, so for a Canva deck a share
+  //              link or an MP4 export is the faithful route, not the .pptx.
+  // Pictures are converted and kept WHATEVER the mode, because they are the
+  // only thing that still works when the internet drops mid-service.
+  var _PPT_MODES = { images: 1, live: 1, link: 1 };
+
+  function _pptPlayMode(deck) {
+    var m = deck && deck.playMode;
+    return (m && _PPT_MODES[m]) ? m : 'images';
+  }
+
+  // Microsoft's viewer, which fetches the file itself -- so the URL has to be
+  // publicly readable, which Supabase storage URLs are. view.aspx rather than
+  // embed.aspx: embed renders slides as flat pictures, and the whole point
+  // here is the slideshow that view.aspx offers.
+  function _pptOfficeUrl(fileUrl) {
+    if (!fileUrl || String(fileUrl).indexOf('http') !== 0) return '';
+    return 'https://view.officeapps.live.com/op/view.aspx?src=' + encodeURIComponent(fileUrl);
+  }
+
+  // The .pptx behind a deck. Decks imported before the original was kept
+  // have no sourceUrl of their own, and that is every deck already in a
+  // service -- but #522 files every upload in the shared folder, so the file
+  // is there under its own name. Matched on the name the deck was imported
+  // under, which is what the folder stores it as.
+  //
+  // `name` is compared, never the storage path: the path carries the upload's
+  // timestamp, so the same deck uploaded twice has two paths and one name.
+  function _pptSourceUrlFor(deck) {
+    if (!deck) return '';
+    if (deck.sourceUrl) return deck.sourceUrl;
+    var want = String(deck.fileName || '').trim().toLowerCase();
+    if (!want) return '';
+    var hit = null;
+    (savedBackgrounds || []).forEach(function(b) {
+      if (hit || !b || typeof _lcdIsDocItem !== 'function' || !_lcdIsDocItem(b)) return;
+      var n = String(b.name || b.fileName || '').trim().toLowerCase();
+      if (n && n === want && _bgShared(b).url) hit = _bgShared(b).url;
+    });
+    return hit || '';
+  }
+
+  // What to put on the wall for a deck, or '' when this mode has nothing to
+  // play. Pure but for the folder lookup above.
+  function _pptLiveSrc(deck) {
+    if (!deck) return '';
+    var mode = _pptPlayMode(deck);
+    if (mode === 'link') return deck.liveUrl || '';
+    if (mode === 'live') return _pptOfficeUrl(_pptSourceUrlFor(deck));
+    return '';
+  }
+
+  // Every live mode is somebody else's server, so none of them can work with
+  // the internet down. LHC_Net watches what actually happens to our own reads
+  // (gotcha 88) rather than asking navigator.onLine, which answers true on
+  // church wi-fi with a dead uplink.
+  function _pptLiveOk() {
+    try { return !(window.LHC_Net && window.LHC_Net.offline()); } catch (e) { return true; }
+  }
+
   // A presentation page drawn as an ordinary slide box. The layout in use
   // renders .wo-ppt-page; .wo-ppt-slide is the one it replaced, still read so
   // an order saved under it keeps working. A class test and nothing else, so
@@ -48093,6 +48173,114 @@ var WO = (function() {
   // that goes through updateLocalSlideDisplay(), which only knows the
   // per-slide-box layout this widget replaced, so arrowing through a deck
   // advanced the projection while the widget stayed frozen on page 1.
+  // "Plays as: Pictures". Named on the banner rather than hidden in a menu,
+  // because which one is in force decides what the congregation sees and the
+  // operator should not have to go looking for it.
+  var _PPT_MODE_LABEL = { images: 'Pictures', live: 'Live, with animations', link: 'Link or video' };
+
+  function _pptPlayChip(sectionId, deck) {
+    var mode = _pptPlayMode(deck);
+    var live = mode !== 'images';
+    return '<button class="wo-ppt-play-chip' + (live ? ' is-live' : '') + '"' +
+      ' onclick="event.stopPropagation();WO.pptPlayMenu(\'' + escapeJsArg(sectionId) + '\',this)"' +
+      ' title="How this presentation is played">' +
+      '<i class="fa-solid ' + (live ? 'fa-wand-magic-sparkles' : 'fa-images') + '"></i>' +
+      '<span>' + escapeHtml(_PPT_MODE_LABEL[mode]) + '</span>' +
+      '<i class="fa-solid fa-caret-down"></i></button>';
+  }
+
+  // The menu the chip opens. On <body> and fixed, placed from the button's
+  // own rect: inside the schedule it would be clipped by the section's
+  // overflow, which is what happened to Add Item's menu (gotcha 103).
+  function pptPlayMenu(sectionId, btn) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    var old = document.getElementById('woPptPlayMenu');
+    if (old) old.remove();
+    var mode = _pptPlayMode(deck);
+    var liveReady = !!_pptSourceUrlFor(deck);
+    var rows = [
+      { m: 'images', icon: 'fa-images', title: 'Pictures',
+        sub: 'Every slide as an image. Works offline. No animations.' },
+      { m: 'live', icon: 'fa-wand-magic-sparkles', title: 'Live, with animations',
+        sub: liveReady ? 'Plays the PowerPoint file itself, through Microsoft\'s viewer.'
+                       : 'Not available: this deck was added before the original file was kept. Add it again to use this.',
+        off: !liveReady },
+      { m: 'link', icon: 'fa-link', title: 'Link or video',
+        sub: 'A Canva or Google Slides link, or an MP4 export. Best for Canva.' }
+    ];
+    var html = '<div class="wo-pptplay-card">' +
+      '<div class="wo-pptplay-head">How this presentation plays</div>';
+    rows.forEach(function(r) {
+      html += '<button class="wo-pptplay-row' + (r.m === mode ? ' is-on' : '') + (r.off ? ' is-off' : '') + '"' +
+        (r.off ? ' disabled' : ' onclick="WO.pptSetPlayMode(\'' + escapeJsArg(sectionId) + '\',\'' + escapeJsArg(r.m) + '\')"') + '>' +
+        '<i class="fa-solid ' + r.icon + '"></i>' +
+        '<span class="wo-pptplay-t">' + escapeHtml(r.title) + '</span>' +
+        '<span class="wo-pptplay-s">' + escapeHtml(r.sub) + '</span>' +
+        (r.m === mode ? '<i class="fa-solid fa-check wo-pptplay-tick"></i>' : '') +
+        '</button>';
+    });
+    html += '<div class="wo-pptplay-foot">The pictures are kept whatever you choose, and go up by ' +
+            'themselves if the internet is down.</div></div>';
+    var menu = document.createElement('div');
+    menu.id = 'woPptPlayMenu';
+    menu.className = 'wo-pptplay-menu';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    var r = btn.getBoundingClientRect();
+    var w = 320, h = menu.offsetHeight || 260;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    menu.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 6) + 'px';
+    function away(e) { if (!menu.contains(e.target)) close(); }
+    function esc(e) { if (e.key === 'Escape') close(); }
+    function close() {
+      menu.remove();
+      document.removeEventListener('mousedown', away, true);
+      document.removeEventListener('keydown', esc, true);
+    }
+    menu.__close = close;
+    setTimeout(function() {
+      document.addEventListener('mousedown', away, true);
+      document.addEventListener('keydown', esc, true);
+    }, 0);
+  }
+
+  function pptSetPlayMode(sectionId, mode) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    var menu = document.getElementById('woPptPlayMenu');
+    if (menu && menu.__close) menu.__close();
+    if (mode === 'link') { _pptAskLiveUrl(sectionId); return; }
+    deck.playMode = mode;
+    renderLocalSlides(sectionId);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast(mode === 'live'
+      ? 'Plays with its animations. Project it, then press Start Slide Show on the projector.'
+      : 'This presentation will play as pictures.', 'success');
+  }
+
+  // A Canva / Google Slides / Office link, or an MP4. Asked for rather than
+  // guessed at: a Canva PPTX export is not the same thing as a Canva link, and
+  // only the link carries Canva's own animations.
+  function _pptAskLiveUrl(sectionId) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    // customPrompt answers a PROMISE here, not a callback.
+    window.customPrompt('Link or video',
+      'Paste a Canva or Google Slides share link, or the address of an MP4 export. ' +
+      'It is shown full screen, and plays whatever that link plays.',
+      deck.liveUrl || '').then(function(val) {
+        var url = (val || '').trim();
+        if (!url) return;
+        if (url.indexOf('http') !== 0) { showToast('That does not look like a link', 'warning'); return; }
+        deck.liveUrl = url;
+        deck.playMode = 'link';
+        renderLocalSlides(sectionId);
+        if (typeof autoSaveOrder === 'function') autoSaveOrder();
+        showToast('This presentation will play from that link.', 'success');
+      });
+  }
+
   function _updatePptWidgetUI(sectionId, idx) {
     var slidesData = currentSermonSlides[sectionId];
     if (!slidesData) return null;
@@ -48152,6 +48340,35 @@ var WO = (function() {
   }
 
   // Called when user clicks a slide thumbnail in the filmstrip
+  // Put the deck itself on the wall, animations and all. Returns false when
+  // it cannot, so every caller falls back to the pictures rather than leaving
+  // the congregation looking at nothing.
+  function _pptLiveProject(sectionId) {
+    var deck = currentSermonSlides[sectionId];
+    var liveSrc = _pptLiveSrc(deck);
+    if (!liveSrc) return false;
+    if (!_pptLiveOk()) {
+      if (!deck.__offlineSaid) {
+        deck.__offlineSaid = true;
+        showToast('No internet, so this presentation is showing as pictures.', 'warning', { duration: 6000 });
+      }
+      return false;
+    }
+    deck.__offlineSaid = false;
+    sendToProjectionWindow({ type: 'pptLive', src: liveSrc });
+    // Microsoft's viewer carries its own banner and toolbar until somebody
+    // presses Start Slide Show, and this is the screen the room can see
+    // (gotcha 75). The app cannot press it: the frame is another origin, so
+    // no script of ours can reach inside it. Said once per deck per session,
+    // with Blank offered, which is the cover while it is set up.
+    if (!deck.__liveSaid && _pptPlayMode(deck) === 'live') {
+      deck.__liveSaid = true;
+      showToast('Press Start Slide Show on the projector to play the animations. ' +
+                'Use Blank while you set it up.', 'info', { duration: 9000 });
+    }
+    return true;
+  }
+
   function projectPptPage(sectionId, idx, thumbEl) {
     var slidesData = currentSermonSlides[sectionId];
     if (!slidesData) return;
@@ -48161,6 +48378,16 @@ var WO = (function() {
     _pptActiveSection = sectionId;
     // A presentation page is not editable -- put the Slide Editor away.
     if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
+
+    // A deck set to play live goes up whole, animations and all, and the
+    // operator drives it inside the viewer. Pictures are still what the rail
+    // and the preview show, and still what goes up if this cannot.
+    if (_pptPlayMode(slidesData) !== 'images' && _pptLiveProject(sectionId)) {
+      _updatePptWidgetUI(sectionId, idx);
+      _selectedPptContainer = document.querySelector('.wo-ppt-page[data-ppt-section="' + sectionId + '"][data-ppt-idx="' + idx + '"]');
+      activeNavigationMode = 'ppt-local';
+      return;
+    }
 
     var slide = slidesData.slides[idx];
     var url = _pptSlideEmbedUrl(slidesData, slide);
@@ -48252,6 +48479,11 @@ var WO = (function() {
           currentSermonSlides[sectionId] = { slides: [], currentIndex: 0, fileName: fileName, supabaseFiles: [] };
         }
         currentSermonSlides[sectionId].fileName = fileName;
+        // The original file, kept so the deck can be played live later. It was
+        // thrown away here: the pictures were all that survived the import, so
+        // there was nothing left to hand a viewer that could animate it.
+        currentSermonSlides[sectionId].sourceUrl = supabaseUrl || '';
+        currentSermonSlides[sectionId].sourcePath = storagePath || '';
         extractPdfPages(pdfBlob, sectionId, function() {
           renderLocalSlides(sectionId);
           showToast('Presentation converted — slide navigation now syncs with the projection preview.', 'success');
@@ -49021,6 +49253,17 @@ var WO = (function() {
       if (typeof _applyBarrierToEl === 'function') _applyBarrierToEl(contentEl, data.barrier);
       contentEl.innerHTML = '<div class="wo-preview-inner">' + data.text + '</div>';
       box.appendChild(contentEl);
+    } else if (data.type === 'pptLive') {
+      // The operator's own copy of what the congregation has. Muted and with
+      // no controls: this panel is for watching, and two players sounding at
+      // once in the same room is worse than none.
+      clearContent();
+      var liveBox = document.createElement('div');
+      liveBox.className = 'lcd-program-live';
+      liveBox.innerHTML = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(data.src)
+        ? '<video muted playsinline autoplay><source src="' + escapeHtml(data.src) + '"></video>'
+        : '<iframe src="' + escapeHtml(data.src) + '" allow="autoplay"></iframe>';
+      box.appendChild(liveBox);
     } else if (data.type === 'slide') {
       clearContent();
       var img = document.createElement('img');
@@ -49103,6 +49346,10 @@ var WO = (function() {
       // background (0) and the words (1).
       '#projSlide { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; display: none; align-items: center; justify-content: center; background: #000; }' +
       '#projSlide img { width: 100%; height: 100%; object-fit: contain; display: block; }' +
+      // A live deck takes the same full-bleed layer as a slide picture, for the
+      // same reason: inside .projection-content it would be inset by the
+      // safe-zone barrier and clipped (gotcha 113).
+      '#projSlide iframe, #projSlide video { width: 100%; height: 100%; border: 0; display: block; background: #000; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
       '.projection-video { width: 100vw; height: 100vh; }' +
       '.projection-video iframe, .projection-video video { width: 100%; height: 100%; border: none; }' +
@@ -49224,11 +49471,35 @@ var WO = (function() {
       '    el.innerHTML = "<img src=\\"" + src + "\\" alt=\\"Slide\\">";' +
       '    el.style.display = "flex";' +
       '  }' +
+      '  function _showProjLive(src) {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    if (el.getAttribute("data-live") === src) { el.style.display = "flex"; return; }' +
+      '    el.setAttribute("data-live", src);' +
+      '    var _low = String(src).toLowerCase().split("?")[0];' +
+      '    var _vid = [".mp4", ".webm", ".ogg", ".mov"].some(function(x) {' +
+      '      return _low.lastIndexOf(x) === _low.length - x.length;' +
+      '    });' +
+      '    el.innerHTML = "";' +
+      '    if (_vid) {' +
+      '      var _v = document.createElement("video");' +
+      '      _v.autoplay = true; _v.controls = true; _v.playsInline = true; _v.src = src;' +
+      '      el.appendChild(_v);' +
+      '    } else {' +
+      '      var _f = document.createElement("iframe");' +
+      '      _f.src = src;' +
+      '      _f.setAttribute("allowfullscreen", "");' +
+      '      _f.setAttribute("allow", "autoplay; fullscreen");' +
+      '      el.appendChild(_f);' +
+      '    }' +
+      '    el.style.display = "flex";' +
+      '  }' +
       '  function _hideProjSlide() {' +
       '    var el = document.getElementById("projSlide");' +
       '    if (!el) return;' +
       '    el.style.display = "none";' +
       '    el.innerHTML = "";' +
+      '    el.removeAttribute("data-live");' +
       '  }' +
       '  function _applyBarrierToContent(b) {' +
       '    if (!b) return;' +
@@ -49260,6 +49531,11 @@ var WO = (function() {
       '    if (data.barrier) { _applyBarrierToContent(data.barrier); }' +
       '    if (bgEl) bgEl.style.display = "block";' +
       '    _fitProjectionText();' +
+      '  } else if (data.type === "pptLive") {' +
+      '    content.innerHTML = "";' +
+      '    content.style.padding = "0";' +
+      '    _showProjLive(data.src);' +
+      '    if (bgEl) bgEl.style.display = "none";' +
       '  } else if (data.type === "slide") {' +
       '    content.innerHTML = "";' +
       '    content.style.padding = "0";' +
@@ -95893,6 +96169,12 @@ var WO = (function() {
       if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
       var pptSid = _pp.sectionId, pptIdx = _pp.idx, pptData = _pp.data;
       pptData.currentIndex = pptIdx;
+      // Walking into a deck that plays live puts the deck itself up, not the
+      // picture of its first page.
+      if (_pptPlayMode(pptData) !== 'images' && _pptLiveProject(pptSid)) {
+        _updatePptWidgetUI(pptSid, pptIdx);
+        return;
+      }
       var screen2 = $('woPreviewScreen');
       if (screen2) {
         Array.from(screen2.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen2.removeChild(c); });
@@ -102460,6 +102742,8 @@ var WO = (function() {
     removePptPage: removePptPage,
     removePptFile: removePptFile,
     projectPptPage: projectPptPage,
+    pptPlayMenu: pptPlayMenu,
+    pptSetPlayMode: pptSetPlayMode,
     openSermonRemote: openSermonRemote,
     openProjectionWindow: openProjectionWindow,
     blankProjection: blankProjection,
@@ -122287,6 +122571,36 @@ function filterLiturgyItems() {
      rather than inside the 30px the box keeps for words. object-fit: contain
      still letterboxes it to the box's own shape, and the black ground makes
      those bars match the wall, where #projSlide does exactly this. */
+  /* A live deck in the Program box: same full bleed as a slide picture. */
+  .wo-preview-screen .lcd-program-live {
+    position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 1; background: #000; border-radius: 8px; overflow: hidden;
+  }
+  .wo-preview-screen .lcd-program-live iframe,
+  .wo-preview-screen .lcd-program-live video {
+    width: 100%; height: 100%; border: 0; display: block; object-fit: contain;
+  }
+  /* How a presentation plays, said on its banner. */
+  .wo-ppt-play-chip {
+    display: inline-flex; align-items: center; gap: 6px; margin-left: 8px;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid #d1d5db;
+    background: #fff; color: #374151; font-size: 0.72rem; font-weight: 600;
+    font-family: 'Poppins', sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .wo-ppt-play-chip:hover { border-color: #9ca3af; }
+  .wo-ppt-play-chip.is-live { background: linear-gradient(135deg, #7c3aed, #a855f7); border-color: transparent; color: #fff; }
+  .wo-pptplay-menu { position: fixed; z-index: 100060; width: 320px; max-width: calc(100vw - 16px); }
+  .wo-pptplay-card { background: #fff; border-radius: 12px; box-shadow: 0 14px 44px rgba(0,0,0,0.26); overflow: hidden; font-family: 'Poppins', sans-serif; }
+  .wo-pptplay-head { padding: 12px 16px 8px; font-size: 0.8rem; font-weight: 700; color: #111827; }
+  .wo-pptplay-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 2px 10px; width: 100%; padding: 10px 16px; border: 0; background: none; text-align: left; cursor: pointer; }
+  .wo-pptplay-row:hover:not(.is-off) { background: #f3f4f6; }
+  .wo-pptplay-row > i:first-child { grid-row: 1 / 3; color: #7c3aed; font-size: 0.95rem; margin-top: 2px; }
+  .wo-pptplay-t { font-size: 0.82rem; font-weight: 600; color: #111827; }
+  .wo-pptplay-s { grid-column: 2 / 4; font-size: 0.72rem; color: #6b7280; line-height: 1.35; }
+  .wo-pptplay-row.is-on .wo-pptplay-t { color: #7c3aed; }
+  .wo-pptplay-row.is-off { opacity: 0.55; cursor: default; }
+  .wo-pptplay-tick { color: #7c3aed; align-self: center; }
+  .wo-pptplay-foot { padding: 10px 16px 12px; border-top: 1px solid #f1f1f1; font-size: 0.7rem; color: #6b7280; line-height: 1.4; }
   .wo-preview-screen .wo-preview-slide-img.lcd-slide-bleed {
     position: absolute; top: 0; right: 0; bottom: 0; left: 0;
     width: 100%; height: 100%; max-width: none; max-height: none;
