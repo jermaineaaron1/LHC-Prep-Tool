@@ -175,6 +175,57 @@ if (rememberSrc) {
     t.savedBackgrounds.length === 0);
 }
 
+// A file ALREADY in the folder, expanded into a section, must not be filed
+// again. Expanding re-uploads it, so the new storage path defeats the
+// path-based dedupe above -- one drag out of the tray made a second identical
+// tile in the drawer (the operator, 2026-11-22).
+console.log('\nExpanding a file that is already in the folder does not file it twice');
+check('the import takes an opts, and only files an upload that did not come from there',
+  /function addSlidesFromFiles\(sectionId, files, opts\) \{/.test(SRC) &&
+  /if \(!opts\.fromFolder\) _woRememberInFolder\(result, _capFileName\);/.test(SRC));
+check('...and the folder\'s own expansion says so',
+  /addSlidesFromFiles\(sectionId, \[file\], \{ fromFolder: true \}\);/.test(fn('_lcdExpandDocIntoSection')));
+check('an upload from the burger or a dropped file still files itself',
+  /addSlidesFromFiles\(sectionId, pendingSlidesFiles\);/.test(SRC) &&
+  !/addSlidesFromFiles\(sectionId, pendingSlidesFiles, \{ fromFolder: true \}\)/.test(SRC));
+
+console.log('\nRemoving one asks in the app\'s own look, not the browser\'s');
+check('the Media Tray asks with lhcAskToast',
+  /window\.lhcAskToast\(\{/.test(fn('lcdDeleteMedia')) && !/window\.confirm\(/.test(fn('lcdDeleteMedia')));
+check('...and so does taking a presentation out of a section',
+  /window\.lhcAskToast\(\{/.test(fn('removePptFile')) && !/confirm\(/.test(fn('removePptFile')));
+check('the removal itself is split out, so the question does not block the page',
+  /\}\)\.then\(function\(yes\) \{ if \(yes\) _removePptNow\(sectionId, containerId, silent\); \}\);/.test(fn('removePptFile')) &&
+  /function _removePptNow\(sectionId, containerId, silent\) \{/.test(SRC));
+// `name` was left behind by that split and resolved to window.name -- the
+// empty string -- so the toast read '"" removed' and never threw.
+check('...and it still knows the name it reports',
+  /var name = \(data && data\.fileName\) \? data\.fileName : 'This presentation';/.test(fn('_removePptNow')));
+check('removing a presentation takes its stored file with it, which nothing else uses',
+  /if \(_goneDoc && _gone && typeof deleteFromSupabase === 'function'\) \{/.test(fn('deleteBackground')) &&
+  /var _p = _gone\.path \|\| _gone\.storagePath;/.test(fn('deleteBackground')) &&
+  // The CALL, not just the path it would be given: without this the setup
+  // reads as a cleanup that never happens.
+  /if \(_p\) \{ try \{ deleteFromSupabase\(_p\); \}/.test(fn('deleteBackground')));
+// The guard is on _goneDoc: a picture's file is referenced by slides in saved
+// orders, so that one is left exactly where it is.
+check('...and a picture, whose file saved orders still point at, is left alone',
+  /if \(_goneDoc && _gone/.test(fn('deleteBackground')) &&
+  !/if \(_gone && typeof deleteFromSupabase/.test(fn('deleteBackground')));
+check('the toast after a tray delete names what actually went',
+  /var _goneDoc = _lcdIsDocItem\(/.test(fn('deleteBackground')) &&
+  /showToast\(_goneDoc \? 'Presentation removed from the folder' : 'Background deleted', 'info'\);/.test(SRC));
+const toastSrc = SRC.match(/window\.lhcAskToast = function\(o\) \{[^]*?\n  \};/);
+const tst = toastSrc ? toastSrc[0] : '';
+check('only the action button answers yes -- Escape, Cancel and a tap away are no',
+  /done\(b\.getAttribute\('data-ask'\) === 'yes'\)/.test(tst) &&
+  /if \(e\.key === 'Escape'\) \{[^}]*done\(false\); \}/.test(tst) &&
+  /if \(el\.contains\(e\.target\)\) return;\r?\n\s*done\(false\);/.test(tst));
+check('...and the tap that dismissed it is swallowed, not passed to the tile underneath',
+  /document\.addEventListener\('click', eat, true\);/.test(tst));
+check('its CSS is at the top level, not inside a width band',
+  /\n\.lhc-asktoast \{\r?\n\s*position: fixed; z-index: 10062;/.test(SRC));
+
 // ---------------------------------------------------------------------------
 // 3. Full screen on the projector
 // ---------------------------------------------------------------------------

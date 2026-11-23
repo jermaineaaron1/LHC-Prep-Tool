@@ -2069,6 +2069,36 @@ const CASES = [
   // The operator asked for the folder shared, two ways into a section, a
   // full-screen projection, a faster and sharper import, and a phone that
   // can do it.
+  // ---- The follow-up round (2026-11-22) --------------------------------
+  ['lcd-pptx-harness.js', 'a removed presentation leaves its 24MB file in Storage',
+    s => s.replace("      if (_p) { try { deleteFromSupabase(_p); } catch (e) { console.warn('[LHC] could not delete the stored file:', e); } }", '')],
+  ['lcd-pptx-harness.js', 'expanding a file from the folder files a second copy of it',
+    s => s.replace("            if (!opts.fromFolder) _woRememberInFolder(result, _capFileName);",
+                   "            _woRememberInFolder(result, _capFileName);")],
+  ['lcd-pptx-harness.js', '...because the folder stops saying the file came from it',
+    s => s.replace("        addSlidesFromFiles(sectionId, [file], { fromFolder: true });",
+                   "        addSlidesFromFiles(sectionId, [file]);")],
+  ['lcd-pptx-harness.js', 'the Media Tray goes back to the browser\'s own dialog',
+    s => s.replace("      window.lhcAskToast({\r\n        title: isDoc ? 'Remove this presentation from the folder?' : 'Remove this from the media library?',",
+                   "      if (!window.confirm(msg)) return; deleteBackground(bgId); return; window.lhcAskToast({\r\n        title: isDoc ? 'Remove this presentation from the folder?' : 'Remove this from the media library?',")],
+  ['lcd-pptx-harness.js', 'taking a presentation out of a section blocks the page again',
+    s => s.replace("      }).then(function(yes) { if (yes) _removePptNow(sectionId, containerId, silent); });",
+                   "      }); if (!confirm('Remove it?')) return; _removePptNow(sectionId, containerId, silent);")],
+  ['lcd-pptx-harness.js', 'the split-out removal loses the name it reports',
+    s => s.replace("    var name = (data && data.fileName) ? data.fileName : 'This presentation';\r\n", "")],
+  ['lcd-pptx-harness.js', 'a presentation is reported as a deleted background again',
+    s => s.replace("    showToast(_goneDoc ? 'Presentation removed from the folder' : 'Background deleted', 'info');",
+                   "    showToast('Background deleted', 'info');")],
+  ['lcd-pptx-harness.js', 'a tap away from the question answers YES',
+    s => s.replace("      if (el.contains(e.target)) return;\r\n      done(false);", "      if (el.contains(e.target)) return;\r\n      done(true);")],
+  ['lcd-pptx-harness.js', '...and that tap reaches the tile underneath it',
+    s => s.replace("      document.addEventListener('click', eat, true);\r\n      setTimeout(function() { document.removeEventListener('click', eat, true); }, 700);", "")],
+  ['lcd-pptx-harness.js', 'the toast CSS goes back inside a phone-width media query',
+    s => s.replace("\r\n.lhc-asktoast {\r\n  position: fixed; z-index: 10062;",
+                   "\r\n@media (max-width: 640px) { .lhc-asktoast {\r\n  position: fixed; z-index: 10062;")],
+  ['lcd-editor-popup-harness.js', 'the tray is served last again, and falls below the fold',
+    s => s.replace("    var tray = Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));\r\n    var rowBudget = Math.round(avail - tray);",
+                   "    var tray = Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));\r\n    var rowBudget = Math.round(avail - Math.min(trayWant, LCD_TRAY_FLOOR));")],
   ['lcd-pptx-harness.js', 'a document is looked for under the field names it is NOT stored with',
     s => s.replace("    var url = bg.cloudUrl || bg.url ||\r\n      (typeof bg.data === 'string' && bg.data.indexOf('http') === 0 ? bg.data : '');\r\n    return { url: url, path: bg.storagePath || bg.path || '' };",
                    "    var url = bg.cloudUrl || (typeof bg.data === 'string' && bg.data.indexOf('http') === 0 ? bg.data : '');\r\n    return { url: url, path: bg.storagePath || '' };")],
@@ -2116,8 +2146,8 @@ const CASES = [
     s => s.replace('    var screen = Math.max(LCD_MIN_SCREEN_H, rowBudget - boxChrome);',
                    '    var screen = screenH;')],
   ['lcd-editor-popup-harness.js', 'the tray is handed whatever the row leaves, which is nothing',
-    s => s.replace('      tray: Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)))',
-                   '      tray: Math.max(0, Math.min(trayWant, avail - (boxChrome + screen)))')],
+    s => s.replace('    var tray = Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));',
+                   '    var tray = Math.max(0, Math.min(trayWant, avail - (boxChrome + LCD_MIN_SCREEN_H)));')],
   ['lcd-editor-popup-harness.js', 'the stylesheet keeps the old floor, so the +5px lands in the script alone',
     s => s.replace('margin-top: var(--lcd-space-3); min-height: 145px; }',
                    'margin-top: var(--lcd-space-3); min-height: 140px; }')],
@@ -2387,8 +2417,13 @@ const CASES = [
     s => s.replace("      var at = (r.secId ? r.secId + '|' : '') + (r.section || '');", '      var at = r.section;')],
   ['review-tidy-harness.js', 'a songbook\'s save blanks who made it again',
     s => s.replace("      createdBy:   row.created_by   || '',\r\n", '')],
+  // Targeted at the SONGBOOK's copy. window.lhcAskToast grew the same swallow
+  // in 2026-11-22 and sits earlier in the file, so a bare replace of the
+  // addEventListener line mutated that one instead and this harness -- which
+  // reads _sbmAskUnsaved -- never saw a thing.
   ['review-tidy-harness.js', 'a tap away from the unsaved toast reaches what is under it again',
-    s => s.replace("      document.addEventListener('click', eat, true);\r\n", '')],
+    s => s.replace("if (Date.now() <= until) { ev.stopPropagation(); ev.stopImmediatePropagation(); ev.preventDefault(); } };\r\n      document.addEventListener('click', eat, true);",
+                   "if (Date.now() <= until) { ev.stopPropagation(); ev.stopImmediatePropagation(); ev.preventDefault(); } };")],
   ['review-tidy-harness.js', 'the lyrics editor keeps its hold when it cannot open',
     s => s.replace('    if (!modal || !textarea) { sbLyricsEditorClosed(); return; }', '    if (!modal || !textarea) return;')],
   // The crash journal's replay by value (2026-11-13, gotcha 95).
