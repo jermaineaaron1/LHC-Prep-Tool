@@ -6427,9 +6427,39 @@ the anon key -- verify as `postgres`, not as the app.
       are the caller's** (gotcha 47). Without them the handler read
       `WO.pptPlayMenu(wo-section-doc9,this)` -- a bare identifier -- and the
       menu silently never opened.
-    `tools/lcd-pptx-harness.js` checks it, running the mode, the viewer URL,
-    the folder lookup and the live source, and building the projection
-    document to parse its script.
+    - **Google Slides is preferred where it exists** (the operator, asked
+      after seeing Microsoft's banner on the wall: "do the google slides route
+      instead"). `_pptLiveEngine` answers `'slides'` when the deck carries a
+      `googleSlidesId`, `'office'` when only the .pptx is to hand. Slides wins
+      for two reasons: `rm=minimal` puts **no third-party chrome** on the
+      wall, and a Slides deck is addressable per slide
+      (`/embed?...&slide=id.<pageId>`), so the rail still drives it -- where
+      Office's slideshow is client-side state with no URL to address. It is
+      **not** necessarily better fidelity: Google CONVERTS a .pptx on import,
+      which is lossy, where Microsoft RENDERS it; and Google's own help warns
+      some animations may not run in a browser. Which effects survive is
+      unverified on both routes.
+    - **An embedded deck must not go into `.projection-content`.** That box is
+      inset by the safe-zone barrier and clips what it holds, so the
+      `iframeEmbed` path -- the one the Google Slides route has always used --
+      lost the outer 5% on every edge. It goes through `_showProjLive` now,
+      the same full-bleed layer a picture uses. This was waiting for the day
+      the Slides token landed, with nothing exercising it.
+    - **The Slides route is one human step from working, and that step is not
+      ours.** `/api/convert-pptx-to-slides` and `/api/slide-page-ids` are
+      written; the OAuth consent screen was published on 2026-08-16 (so tokens
+      no longer die after 7 days -- the proof is `refresh_token_expires_in`
+      being ABSENT from the token response, not the console). What is missing
+      is a refresh token carrying `drive.file` AND `presentations.readonly`,
+      set as **`GOOGLE_SLIDES_REFRESH_TOKEN`** in Vercel, then a redeploy --
+      env vars only apply to new deployments. Use the dedicated variable, not
+      the shared `GOOGLE_REFRESH_TOKEN`: re-consenting the shared one once
+      took roster calendar sync down with it. Until then every import falls
+      back to CloudConvert, which is exactly today's behaviour, so nothing is
+      broken while it is outstanding. See HANDOFF.md section 2.
+    `tools/lcd-pptx-harness.js` checks it, running the mode, the engine, the
+    viewer and per-slide URLs, the folder lookup and the live source, and
+    building the projection document to parse its script.
 
 ## Quick Commands for Claude Code
 

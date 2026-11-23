@@ -48124,14 +48124,33 @@ var WO = (function() {
     return hit || '';
   }
 
-  // What to put on the wall for a deck, or '' when this mode has nothing to
-  // play. Pure but for the folder lookup above.
-  function _pptLiveSrc(deck) {
+  // Which engine a live deck will use, so the operator can be told and the
+  // projection can be driven the right way. Pure.
+  //   'slides' -- the deck has been converted to Google Slides. Preferred:
+  //               rm=minimal means NO third-party chrome on the wall, which
+  //               is the whole reason to want it, and Slides is addressable
+  //               per slide, so the rail still drives the deck.
+  //   'office' -- Microsoft's viewer, which renders the .pptx as it is but
+  //               shows its own banner until Start Slide Show is pressed.
+  //   ''       -- nothing to play.
+  // Google CONVERTS a .pptx (a lossy import); Microsoft RENDERS it. So Slides
+  // is the better experience and not necessarily the better fidelity.
+  function _pptLiveEngine(deck) {
+    if (!deck || _pptPlayMode(deck) !== 'live') return '';
+    if (deck.googleSlidesId) return 'slides';
+    return _pptSourceUrlFor(deck) ? 'office' : '';
+  }
+
+  // What to put on the wall, or '' when this mode has nothing to play. The
+  // slide is optional: Google Slides takes a page, Microsoft's viewer does not
+  // (its slideshow is client-side state with no URL of its own).
+  function _pptLiveSrc(deck, slide) {
     if (!deck) return '';
     var mode = _pptPlayMode(deck);
     if (mode === 'link') return deck.liveUrl || '';
-    if (mode === 'live') return _pptOfficeUrl(_pptSourceUrlFor(deck));
-    return '';
+    if (mode !== 'live') return '';
+    if (_pptLiveEngine(deck) === 'slides') return _pptSlideEmbedUrl(deck, slide) || '';
+    return _pptOfficeUrl(_pptSourceUrlFor(deck));
   }
 
   // Every live mode is somebody else's server, so none of them can work with
@@ -48198,14 +48217,20 @@ var WO = (function() {
     var old = document.getElementById('woPptPlayMenu');
     if (old) old.remove();
     var mode = _pptPlayMode(deck);
-    var liveReady = !!_pptSourceUrlFor(deck);
+    // Asked of a copy forced to 'live', so the answer is what WOULD happen if
+    // this row were chosen rather than what happens now.
+    var engine = _pptLiveEngine({ playMode: 'live', googleSlidesId: deck.googleSlidesId, fileName: deck.fileName, sourceUrl: deck.sourceUrl });
+    var liveReady = !!engine;
+    var liveWhy = engine === 'slides'
+      ? 'Plays as Google Slides: no Microsoft or Google bar on the screen, and the rail still moves it slide by slide.'
+      : (engine === 'office'
+        ? 'Plays the PowerPoint file itself, through Microsoft\'s viewer. You press Start Slide Show on the projector once.'
+        : 'Not available: this deck was added before the original file was kept, and it is not in the folder either. Add it again to use this.');
     var rows = [
       { m: 'images', icon: 'fa-images', title: 'Pictures',
         sub: 'Every slide as an image. Works offline. No animations.' },
       { m: 'live', icon: 'fa-wand-magic-sparkles', title: 'Live, with animations',
-        sub: liveReady ? 'Plays the PowerPoint file itself, through Microsoft\'s viewer.'
-                       : 'Not available: this deck was added before the original file was kept. Add it again to use this.',
-        off: !liveReady },
+        sub: liveWhy, off: !liveReady },
       { m: 'link', icon: 'fa-link', title: 'Link or video',
         sub: 'A Canva or Google Slides link, or an MP4 export. Best for Canva.' }
     ];
@@ -48343,9 +48368,10 @@ var WO = (function() {
   // Put the deck itself on the wall, animations and all. Returns false when
   // it cannot, so every caller falls back to the pictures rather than leaving
   // the congregation looking at nothing.
-  function _pptLiveProject(sectionId) {
+  function _pptLiveProject(sectionId, idx) {
     var deck = currentSermonSlides[sectionId];
-    var liveSrc = _pptLiveSrc(deck);
+    var slide = deck && deck.slides && typeof idx === 'number' ? deck.slides[idx] : null;
+    var liveSrc = _pptLiveSrc(deck, slide);
     if (!liveSrc) return false;
     if (!_pptLiveOk()) {
       if (!deck.__offlineSaid) {
@@ -48361,7 +48387,9 @@ var WO = (function() {
     // (gotcha 75). The app cannot press it: the frame is another origin, so
     // no script of ours can reach inside it. Said once per deck per session,
     // with Blank offered, which is the cover while it is set up.
-    if (!deck.__liveSaid && _pptPlayMode(deck) === 'live') {
+    // Only Microsoft's viewer needs this: Google Slides is already showing
+    // the slide, with no chrome of its own and nothing to press.
+    if (!deck.__liveSaid && _pptLiveEngine(deck) === 'office') {
       deck.__liveSaid = true;
       showToast('Press Start Slide Show on the projector to play the animations. ' +
                 'Use Blank while you set it up.', 'info', { duration: 9000 });
@@ -48382,7 +48410,7 @@ var WO = (function() {
     // A deck set to play live goes up whole, animations and all, and the
     // operator drives it inside the viewer. Pictures are still what the rail
     // and the preview show, and still what goes up if this cannot.
-    if (_pptPlayMode(slidesData) !== 'images' && _pptLiveProject(sectionId)) {
+    if (_pptPlayMode(slidesData) !== 'images' && _pptLiveProject(sectionId, idx)) {
       _updatePptWidgetUI(sectionId, idx);
       _selectedPptContainer = document.querySelector('.wo-ppt-page[data-ppt-section="' + sectionId + '"][data-ppt-idx="' + idx + '"]');
       activeNavigationMode = 'ppt-local';
@@ -49629,9 +49657,13 @@ var WO = (function() {
       '    window._textSettings = s;' +
       '  } else if (data.type === "iframeEmbed") {' +
       '    var _ov2 = document.getElementById("fsOverlay"); if (_ov2) _ov2.remove();' +
+      // Through the full-bleed layer, not into .projection-content: that box
+      // is inset by the safe-zone barrier and clips what it holds, so an
+      // embedded deck lost its outer 5% on every edge (gotcha 113).
+      '    content.innerHTML = "";' +
       '    content.style.padding = "0";' +
+      '    _showProjLive(data.src);' +
       '    if (bgEl) bgEl.style.display = "none";' +
-      '    content.innerHTML = "<div style=\\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;\\"><iframe src=\\"" + data.src + "\\" style=\\"width:100%;height:100%;border:none;\\" allowfullscreen allow=\\"autoplay; fullscreen\\"></iframe></div>";' +
       '  }' +
       '};' +
       // Also keep message listener as fallback
@@ -96171,7 +96203,7 @@ var WO = (function() {
       pptData.currentIndex = pptIdx;
       // Walking into a deck that plays live puts the deck itself up, not the
       // picture of its first page.
-      if (_pptPlayMode(pptData) !== 'images' && _pptLiveProject(pptSid)) {
+      if (_pptPlayMode(pptData) !== 'images' && _pptLiveProject(pptSid, pptIdx)) {
         _updatePptWidgetUI(pptSid, pptIdx);
         return;
       }
