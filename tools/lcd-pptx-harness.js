@@ -568,15 +568,18 @@ const liveSrc = fn('_pptLiveSrc');
 const officeUrl = fn('_pptOfficeUrl');
 const playMode = fn('_pptPlayMode');
 let pptApi = null;
-if (liveSrc && officeUrl && playMode && fn('_pptSourceUrlFor')) {
+if (liveSrc && officeUrl && playMode && fn('_pptSourceUrlFor') &&
+    fn('_pptLiveEngine') && fn('_pptSlideEmbedUrl')) {
   try {
     pptApi = new Function('folder', [
       'var savedBackgrounds = folder;',
       'function _lcdIsDocItem(b) { return !!(b && b.isDoc); }',
       'function _bgShared(b) { return { url: b.url || "", path: b.path || "" }; }',
       "var _PPT_MODES = { images: 1, live: 1, link: 1 };",
-      playMode, officeUrl, fn('_pptSourceUrlFor'), liveSrc,
-      'return { mode: _pptPlayMode, office: _pptOfficeUrl, src: _pptLiveSrc, find: _pptSourceUrlFor };'
+      playMode, officeUrl, fn('_pptSourceUrlFor'),
+      fn('_pptSlideEmbedUrl'), fn('_pptLiveEngine'), liveSrc,
+      'return { mode: _pptPlayMode, office: _pptOfficeUrl, src: _pptLiveSrc,' +
+      '         find: _pptSourceUrlFor, engine: _pptLiveEngine };'
     ].join('\n'))([
       { isDoc: true, name: 'Sermon.pptx', url: 'https://x.supabase.co/storage/v1/object/public/f/a/Sermon.pptx' }
     ]);
@@ -683,6 +686,76 @@ check('the banner handler quotes the section id it passes',
   fn('_pptPlayChip').slice(0, 300));
 check('...and so does the row that sets the mode',
   fn('pptPlayMenu').indexOf("WO.pptSetPlayMode(" + QB + "' + escapeJsArg(sectionId) + '" + QB + "," + QB + "' + escapeJsArg(r.m) + '" + QB + ")") > 0);
+
+// --- which engine plays it ---------------------------------------------------
+// The operator chose Google Slides over Microsoft's viewer, for one reason:
+// `rm=minimal` puts NO third-party chrome on the wall, where Office shows its
+// own banner until somebody presses Start Slide Show. Slides is also
+// addressable per slide, so the rail keeps driving the deck.
+//
+// Not necessarily better FIDELITY, and that is worth keeping straight: Google
+// CONVERTS a .pptx on import, which is lossy, where Microsoft RENDERS it as
+// it is. Google's own help also warns some animations may not run in a
+// browser. Which effects survive is unverified either way.
+if (pptApi && pptApi.engine) {
+  const slidesDeck = { playMode: 'live', googleSlidesId: 'g123' };
+  const officeDeck = { playMode: 'live', sourceUrl: 'https://x/a.pptx' };
+
+  check('a deck converted to Google Slides plays as Slides',
+    pptApi.engine(slidesDeck) === 'slides');
+  check('a deck with only its .pptx plays through the Microsoft viewer',
+    pptApi.engine(officeDeck) === 'office');
+  // The whole point of the operator's choice: when both are possible, the one
+  // with no chrome wins.
+  check('...and Slides wins when both are possible',
+    pptApi.engine({ playMode: 'live', googleSlidesId: 'g123', sourceUrl: 'https://x/a.pptx' }) === 'slides');
+  check('a deck with neither plays nothing live',
+    pptApi.engine({ playMode: 'live' }) === '');
+  check('and a deck not set to live has no engine at all',
+    pptApi.engine({ playMode: 'images', googleSlidesId: 'g123' }) === '' &&
+    pptApi.engine({ playMode: 'link', liveUrl: 'https://c/x' }) === '' &&
+    pptApi.engine(null) === '');
+
+  // Per slide, which is what Office cannot do: its slideshow is client-side
+  // state with no URL, so there is nothing to address.
+  const perSlide = pptApi.src(slidesDeck, { pageId: 'p7' });
+  check('a Slides deck is projected at the page being shown',
+    perSlide.indexOf('/presentation/d/g123/embed') > 0 && perSlide.indexOf('slide=id.p7') > 0,
+    perSlide);
+  check('...with the chrome stripped, which is why it was chosen',
+    perSlide.indexOf('rm=minimal') > 0 && perSlide.indexOf('start=false') > 0, perSlide);
+  check('...and still works when no page is given',
+    pptApi.src(slidesDeck).indexOf('/presentation/d/g123/embed') > 0);
+  // The Microsoft viewer takes no page, so handing it one must not break it.
+  check('the Microsoft viewer ignores a page it cannot use',
+    pptApi.src(officeDeck, { pageId: 'p7' }).indexOf('view.officeapps.live.com') > 0);
+}
+
+// An embedded deck must NOT go into .projection-content: that box is inset by
+// the safe-zone barrier and clips what it holds, so a Google Slides deck lost
+// its outer 5% on every edge. This was waiting for the day the token landed.
+// Scoped to the iframeEmbed BRANCH. `_showProjLive(data.src);` appears twice
+// -- the pptLive branch has it too -- so an unscoped match stayed true with
+// the line deleted from here, which the mutation run duly caught.
+const embedBranch = (function () {
+  const a = SRC.indexOf('data.type === "iframeEmbed"');
+  if (a < 0) return '';
+  const b = SRC.indexOf('bgEl.style.display = "none"', a);
+  return b < 0 ? SRC.slice(a, a + 900) : SRC.slice(a, b);
+})();
+check('the iframeEmbed branch exists to check', embedBranch.length > 0);
+check('an embedded deck is projected full bleed, not inside the barrier',
+  embedBranch.indexOf('_showProjLive(data.src);') > 0, embedBranch.slice(0, 300));
+check('...and that branch writes no iframe into the barrier box',
+  embedBranch.indexOf('<iframe') < 0, embedBranch.slice(0, 300));
+
+// Only the Microsoft route needs a button pressed. Saying it for Slides would
+// send the operator looking for a control that is not there.
+check('the Start Slide Show notice is for the Microsoft route only',
+  /_pptLiveEngine\(deck\) === 'office'/.test(fn('_pptLiveProject')));
+check('the menu says which engine a live deck will use',
+  /engine === 'slides'/.test(fn('pptPlayMenu')) &&
+  /no Microsoft or Google bar on the screen/.test(fn('pptPlayMenu')));
 
 // --- the projected document itself, built and parsed ------------------------
 // The projection window's whole script is a JS string inside Index.html, so

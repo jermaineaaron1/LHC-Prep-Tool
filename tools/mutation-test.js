@@ -2096,6 +2096,24 @@ const CASES = [
   ['lcd-pptx-harness.js', 'the toast CSS goes back inside a phone-width media query',
     s => s.replace("\r\n.lhc-asktoast {\r\n  position: fixed; z-index: 10062;",
                    "\r\n@media (max-width: 640px) { .lhc-asktoast {\r\n  position: fixed; z-index: 10062;")],
+  // ---- Google Slides is the engine of choice (2026-11-23) --------------
+  // The operator picked Slides over Microsoft's viewer: rm=minimal puts no
+  // third-party bar on the wall, and Slides is addressable per slide.
+  ['lcd-pptx-harness.js', 'Microsoft\'s viewer is preferred, so its banner is back on the wall',
+    s => s.replace('    if (deck.googleSlidesId) return \'slides\';',
+                   '    if (false) return \'slides\';')],
+  ['lcd-pptx-harness.js', 'a Slides deck is projected whole, losing the per-slide control it was chosen for',
+    s => s.replace('    if (_pptLiveEngine(deck) === \'slides\') return _pptSlideEmbedUrl(deck, slide) || \'\';',
+                   '    if (_pptLiveEngine(deck) === \'slides\') return _pptSlideEmbedUrl(deck, null) || \'\';')],
+  ['lcd-pptx-harness.js', 'the Start Slide Show notice is shown for Slides too, where there is no such button',
+    s => s.replace('    if (!deck.__liveSaid && _pptLiveEngine(deck) === \'office\') {',
+                   '    if (!deck.__liveSaid) {')],
+  ['lcd-pptx-harness.js', 'a deck that is not live still claims an engine',
+    s => s.replace('    if (!deck || _pptPlayMode(deck) !== \'live\') return \'\';',
+                   '    if (!deck) return \'\';')],
+  ['lcd-pptx-harness.js', 'an embedded deck goes back inside the barrier and loses its edges',
+    s => s.replace('      // embedded deck lost its outer 5% on every edge (gotcha 113).\r\n      \'    content.innerHTML = "";\' +\r\n      \'    content.style.padding = "0";\' +\r\n      \'    _showProjLive(data.src);\' +',
+                   '      // embedded deck lost its outer 5% on every edge (gotcha 113).\r\n      \'    content.style.padding = "0";\' +\r\n      \'    content.innerHTML = "<iframe></iframe>";\' +')],
   // ---- Playing a deck with its animations (2026-11-23) ----------------
   // The operator asked for .pptx and Canva decks to play WITH their
   // animations. The image pipeline cannot, so the file is handed to
@@ -2117,8 +2135,8 @@ const CASES = [
     s => s.replace('    if (!_pptLiveOk()) {',
                    '    if (false) {')],
   ['lcd-pptx-harness.js', 'a deck with no file of its own stops looking in the shared folder',
-    s => s.replace('    if (mode === \'live\') return _pptOfficeUrl(_pptSourceUrlFor(deck));',
-                   '    if (mode === \'live\') return _pptOfficeUrl(deck.sourceUrl || \'\');')],
+    s => s.replace('    return _pptOfficeUrl(_pptSourceUrlFor(deck));',
+                   '    return _pptOfficeUrl(deck.sourceUrl || \'\');')],
   ['lcd-pptx-harness.js', '...or finds the folder\'s copy even when the deck has its own',
     s => s.replace('    if (deck.sourceUrl) return deck.sourceUrl;',
                    '')],
