@@ -5800,6 +5800,64 @@ the anon key -- verify as `postgres`, not as the app.
     `_lcdScaleForWidth`, `_woSlidesFolderItems` and `_woRememberInFolder`
     rather than matching them.
 
+107. **The browser's confirm() goes, the folder gains a file only on upload,
+    and the Media Tray is served before the projection.** Three things the
+    operator reported after #522 went live (2026-11-22), two of them caused
+    by #522 itself.
+    - **`window.lhcAskToast(o)`** is the same question as `lhcAskDelete`
+      asked as a TOAST from the foot of the screen, which is what the
+      operator asked for on a screenshot of the browser's own dialog over the
+      console ("Toast"). It is general rather than scoped to one view: the
+      Songbook already had a toast of this shape (`_sbmAskUnsaved`) but it is
+      dressed in `.sbm` and lives inside the songbook modal. Resolves TRUE
+      only on the action button -- Escape, Cancel and a tap elsewhere all
+      resolve false, and that tap's click is swallowed, or the press carried
+      on to whatever was underneath (in the Media Tray, the very tile it was
+      asked about). The Media Tray's removal and taking a presentation out of
+      a section both use it; `removePptFile` is split so the question does
+      not block, with `_removePptNow` doing the work.
+    - **CSS at the top level, and watch which copy an anchor matches.** The
+      toast's rules first landed inside a `@media (max-width: 640px)` block,
+      because the anchor used (`  .lhc-ask-backdrop {`, two-space indent)
+      matched the PHONE copy of that rule rather than the top-level one at
+      column 0 -- and the assert passed, because there was exactly one at
+      that indentation. Everything rendered unstyled on a desk: plain text at
+      the foot of the page. When anchoring a CSS insert, check the
+      indentation says what you think it does, and that the insert is not
+      inside an `@media` (`.count('@media')` between the `<style>` and the
+      new rule).
+    - **A file already in the folder must not be filed again.** `#522`'s
+      `_woRememberInFolder` registers every upload, and expanding a tray
+      document RE-UPLOADS it (`_lcdExpandDocIntoSection` fetches the stored
+      copy and hands it to `addSlidesFromFiles`), so the new storage path
+      defeated the path-based dedupe and one drag out of the tray made a
+      second identical tile in the drawer. `addSlidesFromFiles` takes
+      `opts.fromFolder` now, which the folder's own expansion sets. The Media
+      Tray gains a file ONLY from an upload -- a local file or a link -- and
+      never from putting one into a section.
+    - **Splitting a function leaves its locals behind.** `_removePptNow` read
+      `name`, which lived in `removePptFile`. A bare `name` in a browser is
+      `window.name` -- the empty string -- so nothing threw and the toast
+      simply read '"" removed'. Anything split out of a function has to be
+      re-read for the locals it was standing on.
+    - **The tray is served FIRST.** `_lcdBandSplit` used to give the row the
+      band less the tray's FLOOR (145), let the projection grow into whatever
+      that allowed, and hand the tray the remainder -- measured at 1536x695,
+      the tray's bottom edge 180px below the fold with the console scrolling
+      196px. The tray's real need is reserved up front now and the projection
+      takes the rest, with `LCD_MIN_SCREEN_H` down from 300 to 200: asked
+      which should give on a short screen, the operator chose the projection
+      ("just a bit shorter"). Measured after: the tray 100px higher and the
+      scroll halved to 96px; in **Full Screen** -- where the app's 213px of
+      header above the console goes away -- the tray and all eight tiles are
+      fully on screen with nothing to scroll, which is the state the request
+      describes. In a window at 695px of viewport the two genuinely cannot
+      both fit: 200px of projection plus its 146px of chrome plus a 199px
+      tray plus the 41px topbar is 586px under a header that starts at 213.
+    `tools/lcd-pptx-harness.js` covers the toast, the dedupe and the split;
+    `tools/lcd-editor-popup-harness.js` covers the band, including that the
+    tray's share is reserved before the projection rather than left over.
+
 106. **The Songbook's song list folds, and the column takes the width.**
     From the operator (2026-11-15), on two marked-up laptop screenshots:
     "allow to collapse that song list so that more width space [is] given

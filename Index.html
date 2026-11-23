@@ -23546,6 +23546,89 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       setTimeout(function() { var b = bd.querySelector('.lhc-ask__no'); if (b) b.focus(); }, 30);
     });
   };
+  // The same question as lhcAskDelete, asked as a TOAST from the foot of the
+  // screen rather than a card in the middle (the operator, 2026-11-22, on a
+  // screenshot of the browser's own confirm() over the console: "Toast").
+  //
+  // General rather than scoped to one view, because the browser's confirm()
+  // is scattered through this file and every one of them looks the same: a
+  // bar saying "lhc-prep-tool.vercel.app says", a dialog that cannot be
+  // styled, and a default button that is OK. The Songbook already had a toast
+  // of this shape (_sbmAskUnsaved), but it is dressed in `.sbm` and lives
+  // inside the songbook modal, so it cannot serve the console.
+  //
+  // Resolves TRUE only on the action button. Escape, Cancel and a tap
+  // elsewhere all resolve false -- a destructive answer is never the one you
+  // get by dismissing the question.
+  window.lhcAskToast = function(o) {
+    o = o || {};
+    var was = document.getElementById('lhcAskToast');
+    // Asked again while it is up: nudge the one that is there rather than
+    // stack a second question behind it.
+    if (was && was.__ask && !was.__gone) {
+      was.classList.remove('is-nudge'); void was.offsetWidth; was.classList.add('is-nudge');
+      return was.__ask;
+    }
+    var resolveIt, ask = new Promise(function(r) { resolveIt = r; });
+    var el = document.createElement('div');
+    el.id = 'lhcAskToast';
+    el.className = 'lhc-asktoast' + (o.danger === false ? '' : ' is-danger');
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-labelledby', 'lhcAskToastT');
+    el.setAttribute('aria-describedby', 'lhcAskToastM');
+    el.innerHTML =
+      '<div class="lhc-asktoast__head">' +
+        '<div class="lhc-asktoast__icon" aria-hidden="true"><i class="fa-solid ' + (o.icon || 'fa-trash-can') + '"></i></div>' +
+        '<div class="lhc-asktoast__body">' +
+          '<div class="lhc-asktoast__t" id="lhcAskToastT">' + escapeHtml(o.title || 'Delete this?') + '</div>' +
+          (o.detail ? '<div class="lhc-asktoast__what">' + escapeHtml(o.detail) + '</div>' : '') +
+          '<div class="lhc-asktoast__m" id="lhcAskToastM">' + escapeHtml(o.message || 'This cannot be undone.') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="lhc-asktoast__acts">' +
+        '<button type="button" class="lhc-asktoast__no" data-ask="no">' + escapeHtml(o.cancelLabel || 'Cancel') + '</button>' +
+        '<button type="button" class="lhc-asktoast__yes" data-ask="yes">' +
+          '<i class="fa-solid ' + (o.okIcon || 'fa-trash-can') + '" aria-hidden="true"></i>' +
+          escapeHtml(o.okLabel || 'Delete') + '</button>' +
+      '</div>';
+    var done = function(v) {
+      if (el.__gone) return;
+      el.__gone = true;
+      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', away, true);
+      el.classList.add('is-out');
+      setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+      resolveIt(v);
+    };
+    var key = function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); done(false); }
+    };
+    // A tap elsewhere is Cancel, and that tap's click is swallowed: without
+    // it the press carried on to whatever was underneath -- in the Media
+    // Tray, the very tile it was asked about.
+    var away = function(e) {
+      if (el.contains(e.target)) return;
+      done(false);
+      var until = Date.now() + 700;
+      var eat = function(ev) {
+        document.removeEventListener('click', eat, true);
+        if (Date.now() <= until) { ev.stopPropagation(); ev.stopImmediatePropagation(); ev.preventDefault(); }
+      };
+      document.addEventListener('click', eat, true);
+      setTimeout(function() { document.removeEventListener('click', eat, true); }, 700);
+    };
+    el.__done = done; el.__ask = ask;
+    el.addEventListener('click', function(e) {
+      var b = e.target.closest && e.target.closest('[data-ask]');
+      if (b) done(b.getAttribute('data-ask') === 'yes');
+    });
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', away, true);
+    document.body.appendChild(el);
+    setTimeout(function() { var b = el.querySelector('.lhc-asktoast__no'); if (b) b.focus(); }, 30);
+    return ask;
+  };
+
   window.customConfirm = function(title, message) {
     return new Promise(function(resolve) {
       window._customConfirmResolve = resolve;
@@ -40456,11 +40539,13 @@ var WO = (function() {
   // min-height rules. Whichever is smaller wins, so they move together -- the
   // +5px asked for on 2026-11-15 is in all four or it is in none.
   var LCD_TRAY_FLOOR = 145;
-  // The floor under the projection preview. Below this it stops being
-  // readable at a glance, and the operator has the same words in the rail
-  // beside it -- so past this point the console scrolls instead, which is
-  // what it did before the Slide Editor left the row anyway.
-  var LCD_MIN_SCREEN_H = 300;
+  // The floor under the projection preview. 200, down from 300 on
+  // 2026-11-22: on a short screen the band cannot hold a big projection AND
+  // a tray showing its tiles, and asked which should give, the operator chose
+  // the projection ("just a bit shorter"). It is a confidence check -- the
+  // words are in the rail beside it and on the wall itself -- so it is the
+  // one that can afford to.
+  var LCD_MIN_SCREEN_H = 200;
   // Neither the row nor the tray may be squeezed out by the other.
   var LCD_OUTPUTS_MIN = 200;
 
@@ -40476,7 +40561,22 @@ var WO = (function() {
   // the projection takes the whole column, which is where the freed width
   // really pays.
   function _lcdBandSplit(avail, trayWant, boxChrome, screenH) {
-    var rowBudget = Math.round(avail - Math.max(0, Math.min(trayWant, LCD_TRAY_FLOOR)));
+    // THE TRAY IS SERVED FIRST (the operator, 2026-11-22: "Make the Media
+    // tray taller while the projection window just a bit shorter ... without
+    // the need to scroll down").
+    //
+    // It used to be served last: the row was given the band less the tray's
+    // FLOOR (145), the projection then grew to fill whatever that allowed,
+    // and the tray took what was left over -- which at 1536x695 put its
+    // bottom edge 180px below the fold. The tray's real need is reserved up
+    // front now, and the projection has the remainder.
+    //
+    // 0.42 of the band is the ceiling this has always used, and measured it
+    // is almost exactly the tray's own chrome plus one whole row of 16:9
+    // tiles. Half the band showed a second row starting and cost another
+    // 38px of scroll.
+    var tray = Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));
+    var rowBudget = Math.round(avail - tray);
     var screen = Math.max(LCD_MIN_SCREEN_H, rowBudget - boxChrome);
     var capped = screenH > 0 && screenH > screen;
     if (!capped) screen = screenH;
@@ -40486,11 +40586,7 @@ var WO = (function() {
       capped: capped,
       // +10 of slack below the box, as the row has always carried.
       rowH: Math.max(LCD_OUTPUTS_MIN, natural > LCD_OUTPUTS_MIN ? natural + 10 : rowBudget),
-      // 0.42 of the band is the ceiling this function has always used, and
-      // measured it is almost exactly the tray's own chrome plus one whole
-      // row of 16:9 tiles. Half the band showed a second row starting and
-      // cost another 38px of scroll.
-      tray: Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)))
+      tray: tray
     };
   }
 
@@ -46823,6 +46919,20 @@ var WO = (function() {
   }
 
   function deleteBackground(bgId) {
+    // Read before the filter: what it WAS decides what the toast says, and
+    // a presentation reported as "Background deleted" is the app saying it
+    // did something other than what was asked.
+    var _gone = savedBackgrounds.filter(function(b) { return b.id === bgId; })[0];
+    var _goneDoc = _lcdIsDocItem(_gone);
+    // A removed PRESENTATION takes its file with it. Nothing else references
+    // it -- the pages a section shows are its own images -- and a deck is
+    // ~24MB, which is how Storage once collected 49 orphaned files and
+    // 629MB. Documents only: a picture's file is referenced by slides in
+    // saved orders, so that one is left where it is.
+    if (_goneDoc && _gone && typeof deleteFromSupabase === 'function') {
+      var _p = _gone.path || _gone.storagePath;
+      if (_p) { try { deleteFromSupabase(_p); } catch (e) { console.warn('[LHC] could not delete the stored file:', e); } }
+    }
     savedBackgrounds = savedBackgrounds.filter(function(bg) { return bg.id !== bgId; });
     saveBackgrounds();
 
@@ -46858,7 +46968,7 @@ var WO = (function() {
     if (currentBackground && currentBackground.value === bgId) {
       clearBackground();
     }
-    showToast('Background deleted', 'info');
+    showToast(_goneDoc ? 'Presentation removed from the folder' : 'Background deleted', 'info');
   }
 
   function updateCurrentBackgroundPreview() {
@@ -47329,7 +47439,13 @@ var WO = (function() {
     if (typeof _lcdRenderMediaTray === 'function') _lcdRenderMediaTray();
   }
 
-  function addSlidesFromFiles(sectionId, files) {
+  // opts.fromFolder: this file is already IN the shared folder and is only
+  // being expanded into a section, so it must not be filed again. Without
+  // it, dragging a presentation out of the tray re-uploaded it under a new
+  // storage path and _woRememberInFolder filed that as a second entry --
+  // two identical tiles in the drawer after one drag.
+  function addSlidesFromFiles(sectionId, files, opts) {
+    opts = opts || {};
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
@@ -47381,7 +47497,7 @@ var WO = (function() {
             // which is how Storage filled with copies. Registering it here
             // means the burger, the tray and a drag all put a file in the
             // same shared place.
-            _woRememberInFolder(result, _capFileName);
+            if (!opts.fromFolder) _woRememberInFolder(result, _capFileName);
             if (_isPptx) {
               // result.path travels with it so the upload can be deleted once
               // Google has the deck -- see the cleanup in _onConverted.
@@ -47896,8 +48012,26 @@ var WO = (function() {
     var data = currentSermonSlides[sectionId];
     var n = (data && data.slides) ? data.slides.length : 0;
     var name = (data && data.fileName) ? data.fileName : 'this presentation';
-    if (!silent && n > 1 &&
-        !confirm('Remove “' + name + '” and all ' + n + ' of its slides from this section?')) return;
+    if (!silent && n > 1) {
+      window.lhcAskToast({
+        title: 'Take this presentation out of the section?',
+        detail: name,
+        message: 'All ' + n + ' of its slides go with it. The file stays in the presentation ' +
+                 'folder, so it can be added again, and Undo puts it back.',
+        icon: 'fa-file-powerpoint',
+        okLabel: 'Remove',
+        cancelLabel: 'Keep it'
+      }).then(function(yes) { if (yes) _removePptNow(sectionId, containerId, silent); });
+      return;
+    }
+    _removePptNow(sectionId, containerId, silent);
+  }
+
+  // The removal itself, split out so the question above can be asked
+  // without blocking the page the way confirm() did.
+  function _removePptNow(sectionId, containerId, silent) {
+    var data = currentSermonSlides[sectionId];
+    var name = (data && data.fileName) ? data.fileName : 'This presentation';
     if (typeof _lcdPushUndo === 'function' && !silent) _lcdPushUndo();
     // The stored slides go too. Removing only the element left the data behind,
     // so the next render put the whole presentation straight back.
@@ -91907,21 +92041,26 @@ var WO = (function() {
     var name = (bg && bg.name) ? bg.name : 'this media';
     // The library is shared, so the prompt has to say what this costs the
     // orders the operator cannot see, not just the one that is open.
+    var isDoc = _lcdIsDocItem(bg);
     _lcdFindMediaUsage(bgId).then(function(use) {
-      var msg = 'Remove ' + name + ' from the media library?\n\n' +
-                'It is shared by every order, so this deletes it for everyone.';
+      // A toast has one paragraph where the browser's dialog took eight
+      // lines. What has to survive the trim: that the library is SHARED,
+      // and what is using the file right now.
+      var msg = 'It is shared by every order, so this removes it for everyone, and it cannot be undone.';
       if (use.slides) {
-        msg += '\n\nIt is currently used on ' + use.slides + ' slide' + (use.slides === 1 ? '' : 's') +
-               ' across ' + use.orders.length + ' order' + (use.orders.length === 1 ? '' : 's') + ':\n' +
-               use.orders.slice(0, 6).map(function(o) {
-                 return '  • ' + o.title + ' (' + o.slides + ')';
-               }).join('\n') +
-               (use.orders.length > 6 ? '\n  • and ' + (use.orders.length - 6) + ' more' : '') +
-               '\n\nThose slides will lose their background.';
+        var where = use.orders.slice(0, 3).map(function(o) { return o.title; }).join(', ') +
+          (use.orders.length > 3 ? ' and ' + (use.orders.length - 3) + ' more' : '');
+        msg = 'Used on ' + use.slides + ' slide' + (use.slides === 1 ? '' : 's') +
+              ' in ' + where + ', which will lose ' + (isDoc ? 'those pages' : 'that background') + '. ' + msg;
       }
-      msg += '\n\nThis cannot be undone.';
-      if (!window.confirm(msg)) return;
-      deleteBackground(bgId);
+      window.lhcAskToast({
+        title: isDoc ? 'Remove this presentation from the folder?' : 'Remove this from the media library?',
+        detail: name,
+        message: msg,
+        icon: isDoc ? 'fa-file-powerpoint' : 'fa-image',
+        okLabel: 'Remove',
+        cancelLabel: 'Keep it'
+      }).then(function(yes) { if (yes) deleteBackground(bgId); });
     });
   }
 
@@ -92140,7 +92279,7 @@ var WO = (function() {
       .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
       .then(function(blob) {
         var file = new File([blob], bg.name || "document", { type: blob.type || "" });
-        addSlidesFromFiles(sectionId, [file]);
+        addSlidesFromFiles(sectionId, [file], { fromFolder: true });
       })
       .catch(function(err) {
         showToast("Could not load “" + bg.name + "”: " + (err && err.message ? err.message : "unknown error"), "error");
@@ -145046,6 +145185,85 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 </script>
 
 <style>
+/* ---- The same question as a toast, from the foot of the screen -------
+   window.lhcAskToast. z-index 10062: above the card-style ask's backdrop
+   (10060) so one can be raised over the other, and above the Songbook's
+   own warnings (10003-10004). Fixed to the VIEWPORT, so it reaches over
+   LCD Projection's Full Screen, which is itself position: fixed. */
+.lhc-asktoast {
+  position: fixed; z-index: 10062;
+  left: 50%; bottom: 24px; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 18px;
+  background: #15202e; color: #f4f6fa;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-left: 4px solid #f59e0b;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.5);
+  font-family: 'Poppins', sans-serif;
+  animation: lhcAskToastIn .18s ease-out;
+}
+/* Red down the edge when the action destroys something, amber when it is
+   only a question. The edge is the whole signal: the button says the rest. */
+.lhc-asktoast.is-danger { border-left-color: #ef4444; }
+.lhc-asktoast.is-out { animation: lhcAskToastOut .2s ease-in forwards; }
+.lhc-asktoast.is-nudge { animation: lhcAskToastNudge .32s ease-in-out; }
+@keyframes lhcAskToastIn {
+  from { transform: translateX(-50%) translateY(14px); opacity: 0; }
+  to { transform: translateX(-50%); opacity: 1; }
+}
+@keyframes lhcAskToastOut {
+  from { transform: translateX(-50%); opacity: 1; }
+  to { transform: translateX(-50%) translateY(14px); opacity: 0; }
+}
+@keyframes lhcAskToastNudge {
+  0%, 100% { transform: translateX(-50%); }
+  25% { transform: translateX(calc(-50% - 7px)); }
+  75% { transform: translateX(calc(-50% + 7px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lhc-asktoast, .lhc-asktoast.is-out, .lhc-asktoast.is-nudge { animation: none; }
+}
+.lhc-asktoast__head { display: flex; align-items: flex-start; gap: 13px; }
+.lhc-asktoast__icon {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(239,68,68,0.14); color: #fca5a5; font-size: 1rem;
+}
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__icon { background: rgba(245,158,11,0.14); color: #fcd34d; }
+.lhc-asktoast__body { flex: 1 1 auto; min-width: 0; }
+.lhc-asktoast__t { font-size: 0.95rem; font-weight: 700; line-height: 1.3; }
+/* The thing being acted on, said once and in full -- a file name is how the
+   operator knows they are answering about the right one. */
+.lhc-asktoast__what {
+  margin-top: 5px; font-size: 0.82rem; font-weight: 600; color: #fcd34d;
+  overflow-wrap: anywhere;
+}
+.lhc-asktoast__m { margin-top: 6px; font-size: 0.8rem; line-height: 1.5; color: #c7d0dd; }
+.lhc-asktoast__acts { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.lhc-asktoast__acts button {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 40px; padding: 0 16px; border-radius: 9px; cursor: pointer;
+  font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.07); color: #f4f6fa;
+}
+.lhc-asktoast__acts button:hover { background: rgba(255,255,255,0.13); }
+.lhc-asktoast__yes { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; }
+.lhc-asktoast__yes:hover { background: #b91c1c !important; }
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__yes { background: #0b6b3a !important; border-color: #0b6b3a !important; }
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__yes:hover { background: #095c31 !important; }
+.lhc-asktoast__acts button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+/* A phone gets the full width and buttons it can hit, stacked the way the
+   Songbook's own warning toast stacks them. */
+@media (max-width: 560px) {
+  .lhc-asktoast { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; }
+  @keyframes lhcAskToastIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes lhcAskToastOut { from { transform: none; opacity: 1; } to { transform: translateY(14px); opacity: 0; } }
+  @keyframes lhcAskToastNudge { 0%, 100% { transform: none; } 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+  .lhc-asktoast__acts button { flex: 1 1 auto; justify-content: center; }
+}
+
 /* The app's own delete question (window.lhcAskDelete). */
 .lhc-ask-backdrop {
   position: fixed; inset: 0; z-index: 10060; display: flex; align-items: center; justify-content: center; padding: 16px;
