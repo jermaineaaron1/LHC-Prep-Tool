@@ -48062,6 +48062,31 @@ var WO = (function() {
       (slide && slide.pageId ? '&slide=id.' + slide.pageId : '');
   }
 
+  // A presentation page drawn as an ordinary slide box. The layout in use
+  // renders .wo-ppt-page; .wo-ppt-slide is the one it replaced, still read so
+  // an order saved under it keeps working. A class test and nothing else, so
+  // the pure _wofsKeys can use it.
+  function _isPptPageEl(el) {
+    return !!(el && el.nodeType === 1 && el.classList &&
+      (el.classList.contains('wo-ppt-page') || el.classList.contains('wo-ppt-slide')));
+  }
+
+  // ...and WHICH page it is. Three projection paths each asked this question
+  // for themselves and all three asked it of .wo-ppt-slide alone, so every
+  // deck in the current layout projected an empty slide: selectSlideBox (the
+  // arrow keys walking into a deck), _doFullscreenOverlay (where Project
+  // starts) and _wofsRender (what the presenter overlay draws). One reader
+  // now, so they cannot drift apart again.
+  function _pptPageAt(el) {
+    if (!_isPptPageEl(el)) return null;
+    var sid = el.getAttribute('data-ppt-section') || el.getAttribute('data-section');
+    var idx = parseInt(el.getAttribute('data-ppt-idx'), 10);
+    if (!sid || isNaN(idx)) return null;
+    var data = currentSermonSlides[sid];
+    var slide = data && data.slides && data.slides[idx];
+    return slide ? { sectionId: sid, idx: idx, data: data, slide: slide } : null;
+  }
+
   // The filmstrip widget owns its own main view, nav counter and active
   // thumbnail, so every path that moves the current page has to move all three.
   // projectPptPage() did it inline, which left local-slide navigation behind:
@@ -48534,10 +48559,14 @@ var WO = (function() {
       var bgEl = $('woPreviewBg');
       if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
       screen.style.background = '#000';
-      screen.style.padding = '0';
+      // Put the padding BACK, rather than zeroing it inline as this did: the
+      // page is laid OVER the box now (lcd-slide-bleed), and four call sites
+      // zeroed this padding while none ever restored it, so the first text
+      // slide after a deck lost its margins in the preview too.
+      screen.style.padding = '';
 
       var img = document.createElement('img');
-      img.className = 'wo-preview-slide-img';
+      img.className = 'wo-preview-slide-img lcd-slide-bleed';
       img.src = slide.data;
       img.alt = 'Slide ' + (slideIndex + 1);
       screen.appendChild(img);
@@ -48995,7 +49024,10 @@ var WO = (function() {
     } else if (data.type === 'slide') {
       clearContent();
       var img = document.createElement('img');
-      img.className = 'wo-preview-slide-img';
+      // Full bleed, like the wall. This box is padded 30px for words; measured
+      // at 1158px, that inset drew a 1920x1080 page at 246x139 inside a
+      // 356x200 box -- 47.9% of it, a small card in the middle of the frame.
+      img.className = 'wo-preview-slide-img lcd-slide-bleed';
       img.src = data.data;
       box.appendChild(img);
     } else if (data.type === 'blank') {
@@ -95569,6 +95601,12 @@ var WO = (function() {
   }
 
   function lcdToggleSectionCollapse(sectionId) {
+    // Hold the scroll first, per gotcha 73: rewriting the rail clamps its
+    // scroller to the top and the watcher then reveals the SELECTED row, so
+    // folding a section away from the selection threw the operator back to
+    // whatever is live -- a presentation page most visibly, since a deck is
+    // the longest thing in the rail to fold.
+    if (typeof _lcdRailHoldScroll === 'function') _lcdRailHoldScroll();
     if (_lcdCollapsedSections[sectionId]) delete _lcdCollapsedSections[sectionId];
     else _lcdCollapsedSections[sectionId] = true;
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -95841,28 +95879,34 @@ var WO = (function() {
       }
     }
 
-    // PPT image slide — show slide image in preview instead of text
-    if (box.classList.contains('wo-ppt-slide')) {
-      var pptSid = box.getAttribute('data-section');
-      var pptIdx = parseInt(box.getAttribute('data-ppt-idx'), 10);
-      var pptData = pptSid && currentSermonSlides[pptSid];
-      if (pptData && pptData.slides && pptData.slides[pptIdx]) {
-        pptData.currentIndex = pptIdx;
-        var screen2 = $('woPreviewScreen');
-        if (screen2) {
-          Array.from(screen2.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen2.removeChild(c); });
-          var bg2 = $('woPreviewBg');
-          if (bg2) { bg2.innerHTML = ''; bg2.style.display = 'none'; }
-          screen2.style.background = '#000';
-          screen2.style.padding = '0';
-          var pptImg = document.createElement('img');
-          pptImg.className = 'wo-preview-slide-img';
-          pptImg.src = pptData.slides[pptIdx].data;
-          screen2.appendChild(pptImg);
-        }
-        sendToProjectionWindow({ type: 'slide', data: pptData.slides[pptIdx].data, slideNum: pptIdx + 1, totalSlides: pptData.slides.length });
-        _broadcastSermonState(pptSid);
+    // PPT image slide — show slide image in preview instead of text.
+    // Through _pptPageAt, so a page of the layout actually rendered reaches
+    // this. Asked for .wo-ppt-slide alone, a .wo-ppt-page fell through to the
+    // text branch below, which looks for .wo-slide-line, finds none and
+    // projects a blank: arrowing out of the liturgy and into a sermon deck
+    // put nothing at all on the wall.
+    var _pp = _pptPageAt(box);
+    if (_pp) {
+      // ...and a page has nothing for the Slide Editor to act on, so the
+      // window that was turned back on above goes away again, as it does
+      // when a page is clicked (gotcha 105).
+      if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
+      var pptSid = _pp.sectionId, pptIdx = _pp.idx, pptData = _pp.data;
+      pptData.currentIndex = pptIdx;
+      var screen2 = $('woPreviewScreen');
+      if (screen2) {
+        Array.from(screen2.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen2.removeChild(c); });
+        var bg2 = $('woPreviewBg');
+        if (bg2) { bg2.innerHTML = ''; bg2.style.display = 'none'; }
+        screen2.style.background = '#000';
+        screen2.style.padding = '';
+        var pptImg = document.createElement('img');
+        pptImg.className = 'wo-preview-slide-img lcd-slide-bleed';
+        pptImg.src = _pp.slide.data;
+        screen2.appendChild(pptImg);
       }
+      sendToProjectionWindow({ type: 'slide', data: _pp.slide.data, slideNum: pptIdx + 1, totalSlides: pptData.slides.length });
+      _broadcastSermonState(pptSid);
       return;
     }
 
@@ -97850,9 +97894,9 @@ var WO = (function() {
         var bgEl = $('woPreviewBg');
         if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
         screen.style.background = '#000';
-        screen.style.padding = '0';
+        screen.style.padding = '';
         var img = document.createElement('img');
-        img.className = 'wo-preview-slide-img';
+        img.className = 'wo-preview-slide-img lcd-slide-bleed';
         img.src = slidesData.slides[slidesData.currentIndex].data;
         screen.appendChild(img);
       }
@@ -98395,22 +98439,33 @@ var WO = (function() {
   }
 
   function _doFullscreenOverlay() {
-    // Start at the currently selected slide / PPT slide
+    // Start at the currently selected slide / PPT slide.
+    //
+    // Each of the three lookups below answers for one of the three layouts a
+    // presentation has been drawn in, and they are tried in turn rather than
+    // as an if/else chain. That is the whole bug the operator reported: with a
+    // page selected the first branch was ENTERED (mode is 'ppt-local'), found
+    // no { type: 'ppt' } entry -- _buildWofsSlides only makes those for the
+    // legacy .wo-local-slides container, which nothing renders any more -- and
+    // the selectedSlideBox fallback was an `else if`, so it never ran. The
+    // index stayed 0 and Project opened at the top of the liturgy.
     _wofsIdx = 0;
+    var at = -1;
     if (_selectedPptContainer && activeNavigationMode === 'ppt-local') {
-      var sid = _selectedPptContainer.getAttribute('data-section');
+      var sid = _selectedPptContainer.getAttribute('data-ppt-section') ||
+                _selectedPptContainer.getAttribute('data-section');
       var sd = sid && currentSermonSlides[sid];
       var curPptIdx = sd ? sd.currentIndex : 0;
-      // Find first matching PPT item in _wofsSlides
       for (var k = 0; k < _wofsSlides.length; k++) {
         if (_wofsSlides[k].type === 'ppt' && _wofsSlides[k].sectionId === sid && _wofsSlides[k].slideIndex === curPptIdx) {
-          _wofsIdx = k; break;
+          at = k; break;
         }
       }
-    } else if (selectedSlideBox) {
-      var idx = _wofsSlides.indexOf(selectedSlideBox);
-      if (idx >= 0) _wofsIdx = idx;
     }
+    // The current layout: the page is an element of the list in its own right.
+    if (at < 0 && selectedSlideBox) at = _wofsSlides.indexOf(selectedSlideBox);
+    if (at < 0 && _selectedPptContainer) at = _wofsSlides.indexOf(_selectedPptContainer);
+    if (at >= 0) _wofsIdx = at;
 
     var overlay = $('woFullscreenOverlay');
     overlay.classList.add('show');
@@ -98569,11 +98624,12 @@ var WO = (function() {
     clearTimeout(_wofsIndicatorTimer);
 
     // PPT image slide box (individual box approach — same as lyric slides)
-    if (box.nodeType === 1 && box.classList.contains('wo-ppt-slide')) {
-      var pptSid2 = box.getAttribute('data-section');
-      var pptIdx2 = parseInt(box.getAttribute('data-ppt-idx'), 10);
-      var pptD2 = currentSermonSlides[pptSid2];
-      var pptSlide2 = pptD2 && pptD2.slides && pptD2.slides[pptIdx2];
+    var _pp2 = _pptPageAt(box);
+    if (_pp2) {
+      var pptSid2 = _pp2.sectionId;
+      var pptIdx2 = _pp2.idx;
+      var pptD2 = _pp2.data;
+      var pptSlide2 = _pp2.slide;
       var fsOvl2 = $('woFullscreenOverlay');
       var fsCtx2 = $('woFullscreenContent');
       if (fsOvl2) fsOvl2.style.padding = '0';
@@ -98584,7 +98640,10 @@ var WO = (function() {
             '/embed?rm=minimal&start=false&loop=false&slide=id.' + pptSlide2.pageId;
           fsCtx2.innerHTML = '<iframe src="' + gUrl2 + '" style="width:100vw;height:100vh;border:none;display:block;" allowfullscreen allow="autoplay"></iframe>';
         } else {
-          fsCtx2.innerHTML = '<img src="' + pptSlide2.data + '" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="Slide ' + (pptIdx2 + 1) + '">';
+          // width/height rather than max-*: a page smaller than the screen
+          // would otherwise sit at its own size in the middle of it, which is
+          // the "small card" a projector at 1920 shows for a 1280 export.
+          fsCtx2.innerHTML = '<img src="' + pptSlide2.data + '" style="width:100vw;height:100vh;object-fit:contain;display:block;" alt="Slide ' + (pptIdx2 + 1) + '">';
         }
         if (pptD2) pptD2.currentIndex = pptIdx2;
         ind.textContent = (pptIdx2 + 1) + ' / ' + (pptD2 ? pptD2.slides.length : '?');
@@ -98611,7 +98670,7 @@ var WO = (function() {
         fsCtx.innerHTML = '<iframe src="' + gSlideUrl + '" style="width:100vw;height:100vh;border:none;display:block;" allowfullscreen allow="autoplay"></iframe>';
       } else {
         // Fallback: static image
-        fsCtx.innerHTML = '<img src="' + box.data + '" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="' + escapeHtml(box.name) + '">';
+        fsCtx.innerHTML = '<img src="' + box.data + '" style="width:100vw;height:100vh;object-fit:contain;display:block;" alt="' + escapeHtml(box.name) + '">';
       }
 
       ind.textContent = (box.slideIndex + 1) + ' / ' + box.total;
@@ -98669,8 +98728,12 @@ var WO = (function() {
     return (list || []).map(function(e) {
       if (!e) return '';
       if (e.type === 'ppt') return 'ppt:' + (e.sectionId || '') + ':' + e.slideIndex;
-      if (e.nodeType === 1 && e.classList && e.classList.contains('wo-ppt-slide')) {
-        return 'ppt:' + (e.getAttribute('data-section') || '') + ':' +
+      // A page carries no data-song-id / data-liturgy-id, so without this it
+      // keyed as 'box::<n>' -- every page in the order sharing the empty key
+      // with every other keyless box, and a rebuild landing on the wrong one.
+      if (_isPptPageEl(e)) {
+        return 'ppt:' + (e.getAttribute('data-ppt-section') ||
+                         e.getAttribute('data-section') || '') + ':' +
                e.getAttribute('data-ppt-idx');
       }
       var k = (e.getAttribute && (e.getAttribute('data-song-id') ||
@@ -98719,6 +98782,18 @@ var WO = (function() {
     _wofsSlides.forEach(function(item, i) {
       var isActive = (i === _wofsIdx);
       var cls = 'wofs-thumb' + (isActive ? ' active' : '');
+      // A presentation page is an element, but it has no .wo-slide-line to
+      // label it with, so it came out as a blank numbered thumb -- nineteen of
+      // them in a row for one sermon deck. The picture is the label, as it
+      // already is for the legacy entries below.
+      var _fp = _pptPageAt(item);
+      if (_fp) {
+        html += '<div class="' + cls + '" onclick="WO.wofsJumpTo(' + i + ')" title="Slide ' + (_fp.idx + 1) + '">' +
+          '<img src="' + escapeHtml(_fp.slide.data || '') + '" alt="Slide ' + (_fp.idx + 1) + '">' +
+          '<div class="wofs-thumb-overlay-num">' + (i + 1) + '</div>' +
+        '</div>';
+        return;
+      }
       if (item && item.nodeType === 1) {
         var content = item.querySelector('.wo-slide-content');
         var lines = content ? Array.from(content.querySelectorAll('.wo-slide-line')) : [];
@@ -122208,6 +122283,15 @@ function filterLiturgyItems() {
   .wo-local-slides { outline: none; }
   .wo-local-slides:focus { box-shadow: 0 0 0 3px rgba(11, 118, 68, 0.4); }
   .wo-preview-slide-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+  /* A presentation page is a whole screen, so it is laid OVER the preview box
+     rather than inside the 30px the box keeps for words. object-fit: contain
+     still letterboxes it to the box's own shape, and the black ground makes
+     those bars match the wall, where #projSlide does exactly this. */
+  .wo-preview-screen .wo-preview-slide-img.lcd-slide-bleed {
+    position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+    width: 100%; height: 100%; max-width: none; max-height: none;
+    object-fit: contain; background: #000; border-radius: 8px;
+  }
   .wo-slides-counter { color: white; font-weight: 600; font-size: 0.85rem; padding: 0 10px; min-width: 60px; text-align: center; }
   .wo-local-slides .wo-slides-header { background: linear-gradient(135deg, #0b7644, #088d4f); }
   .wo-delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; width: 22px; height: 22px; font-size: 0.7rem; cursor: pointer; position: absolute; top: 5px; right: 5px; opacity: 0; transition: opacity 0.2s; }
