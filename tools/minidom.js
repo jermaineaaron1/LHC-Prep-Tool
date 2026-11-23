@@ -26,6 +26,9 @@ function parseSel(sel) {
 
 function El(tag, cls, attrs) {
   this.tagName = (tag || 'div').toUpperCase();
+  // An element, as the DOM reports itself. App code checks this to tell a
+  // node from a plain object in the same list -- _wofsSlides holds both.
+  this.nodeType = 1;
   this.children = [];
   this.parentNode = null;
   this._attrs = Object.assign({}, attrs || {});
