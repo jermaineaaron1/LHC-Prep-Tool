@@ -546,6 +546,194 @@ check('...first of all, before the state it renders from even changes',
   holdAt > 0 && stateAt > 0 && holdAt < stateAt,
   'hold at ' + holdAt + ', state at ' + stateAt);
 
+// ---------------------------------------------------------------------------
+// 7. Playing a deck with its animations
+// ---------------------------------------------------------------------------
+// The operator, having been told twice that animations were impossible on the
+// image pipeline: "for all .pptx with animations (including canva), provide a
+// way to insert them and ensure good visibility and presentation as well as
+// the animations embedded."
+//
+// They are impossible on THAT pipeline -- CloudConvert -> PDF -> pdf.js -> JPEG,
+// and a flat picture cannot animate. So the deck is handed to something that
+// can: Microsoft's own viewer for a stored .pptx, or a Canva / Slides link or
+// an MP4. Measured against the church's real deck: the viewer renders it
+// straight from its Supabase URL and frames cleanly.
+//
+// Pictures are still converted and kept whatever the mode, and are what goes
+// up when the internet is down -- the operator chose that.
+console.log('\nA deck can play with its animations');
+
+const liveSrc = fn('_pptLiveSrc');
+const officeUrl = fn('_pptOfficeUrl');
+const playMode = fn('_pptPlayMode');
+let pptApi = null;
+if (liveSrc && officeUrl && playMode && fn('_pptSourceUrlFor')) {
+  try {
+    pptApi = new Function('folder', [
+      'var savedBackgrounds = folder;',
+      'function _lcdIsDocItem(b) { return !!(b && b.isDoc); }',
+      'function _bgShared(b) { return { url: b.url || "", path: b.path || "" }; }',
+      "var _PPT_MODES = { images: 1, live: 1, link: 1 };",
+      playMode, officeUrl, fn('_pptSourceUrlFor'), liveSrc,
+      'return { mode: _pptPlayMode, office: _pptOfficeUrl, src: _pptLiveSrc, find: _pptSourceUrlFor };'
+    ].join('\n'))([
+      { isDoc: true, name: 'Sermon.pptx', url: 'https://x.supabase.co/storage/v1/object/public/f/a/Sermon.pptx' }
+    ]);
+  } catch (e) { /* reported below */ }
+}
+check('the play-mode helpers lift out and run', !!pptApi);
+
+if (pptApi) {
+  // 'images' is the only safe default: it is the one mode that works with the
+  // internet down, and every deck already saved has no playMode at all.
+  check('a deck with nothing set plays as pictures',
+    pptApi.mode({}) === 'images' && pptApi.mode(null) === 'images');
+  check('...and so does a deck carrying a mode nobody recognises',
+    pptApi.mode({ playMode: 'magic' }) === 'images');
+  check('a deck set to live says so', pptApi.mode({ playMode: 'live' }) === 'live');
+
+  // view.aspx, not embed.aspx: embed renders flat pictures, which is what we
+  // already have. The point of this whole round is the slideshow.
+  const u = pptApi.office('https://x.supabase.co/storage/v1/object/public/f/a/S.pptx');
+  check('the viewer URL is the one with a slideshow in it',
+    u.indexOf('https://view.officeapps.live.com/op/view.aspx?src=') === 0, u);
+  check('...and the file is passed encoded, so a path with spaces survives',
+    pptApi.office('https://x/a b.pptx').indexOf(encodeURIComponent('https://x/a b.pptx')) > 0);
+  // Microsoft fetches the file itself, so anything not a public http(s) URL
+  // cannot work -- a data: URL most of all.
+  check('a file that is not a public address gets no viewer URL',
+    pptApi.office('') === '' && pptApi.office('data:application/x,AAA') === '' &&
+    pptApi.office(null) === '');
+
+  check('a deck playing as pictures asks for nothing live',
+    pptApi.src({ playMode: 'images', sourceUrl: 'https://x/a.pptx' }) === '');
+  check('a link plays exactly what it was given',
+    pptApi.src({ playMode: 'link', liveUrl: 'https://www.canva.com/design/abc/view' }) ===
+      'https://www.canva.com/design/abc/view');
+  check('a live deck plays its own file through the viewer',
+    pptApi.src({ playMode: 'live', sourceUrl: 'https://x/a.pptx' })
+      .indexOf('view.officeapps.live.com') > 0);
+  check('a live deck with no file to play asks for nothing',
+    pptApi.src({ playMode: 'live' }) === '');
+  // The join between the two: a deck that has no file of its own but whose
+  // name is in the shared folder must still play. Testing the lookup alone
+  // left this unguarded -- _pptLiveSrc could stop calling it and every check
+  // still passed, which is exactly what the mutation run found.
+  check('...but one whose file is only in the folder still plays',
+    pptApi.src({ playMode: 'live', fileName: 'Sermon.pptx' })
+      .indexOf('view.officeapps.live.com') > 0,
+    pptApi.src({ playMode: 'live', fileName: 'Sermon.pptx' }));
+
+  // Every deck already in a service was imported before the original was
+  // kept, so without this Live read "not available" for all of them.
+  check('a deck with no file of its own finds it in the shared folder by name',
+    pptApi.find({ fileName: 'Sermon.pptx' }).indexOf('/Sermon.pptx') > 0);
+  check('...matched whatever the case, as the folder stores it',
+    pptApi.find({ fileName: '  sermon.PPTX ' }).indexOf('/Sermon.pptx') > 0);
+  check('...and its own file still wins when it has one',
+    pptApi.find({ fileName: 'Sermon.pptx', sourceUrl: 'https://own/x.pptx' }) === 'https://own/x.pptx');
+  check('a deck whose file is not in the folder finds nothing',
+    pptApi.find({ fileName: 'Missing.pptx' }) === '' && pptApi.find({}) === '');
+}
+
+// The internet is the whole point of a live mode, and the one thing a service
+// cannot rely on. LHC_Net watches what happens to our own reads rather than
+// asking navigator.onLine, which answers true on wi-fi with a dead uplink
+// (gotcha 88).
+check('a live deck falls back to the pictures when the uplink is down',
+  /if \(!_pptLiveOk\(\)\) \{/.test(fn('_pptLiveProject')) &&
+  /return false;/.test(fn('_pptLiveProject')));
+check('...and the fallback is announced once, not on every slide',
+  /deck\.__offlineSaid = true;/.test(fn('_pptLiveProject')));
+check('...asked of LHC_Net, not of navigator.onLine',
+  /window\.LHC_Net && window\.LHC_Net\.offline\(\)/.test(fn('_pptLiveOk')) &&
+  !/navigator\.onLine/.test(fn('_pptLiveOk')));
+// The app cannot press Start Slide Show for the operator: the viewer is
+// another origin. Saying so is the whole of the fix.
+check('the operator is told to press Start Slide Show, since no script can',
+  /Start Slide Show on the projector/.test(fn('_pptLiveProject')));
+
+// Full bleed, for the same reason a slide picture is (gotcha 113): inside
+// .projection-content it would be inset by the safe-zone barrier and clipped.
+check('a live deck goes in the full-bleed layer, outside the barrier',
+  has(/'#projSlide iframe, #projSlide video \{ width: 100%; height: 100%; border: 0; display: block; background: #000; \}' \+/));
+check('the Program mirror shows the same thing, full bleed too',
+  /liveBox\.className = 'lcd-program-live';/.test(fn('_lcdMirrorToProgramOutput')) &&
+  has(/\.wo-preview-screen \.lcd-program-live \{/));
+// Two players sounding at once in one room is worse than none.
+check('...muted, because the operator is beside the congregation',
+  /<video muted playsinline autoplay>/.test(fn('_lcdMirrorToProgramOutput')));
+
+// The mode has to survive a reload, or it looks exactly like it did not work.
+check('how a deck plays is saved with the order',
+  has(/playMode: _pd\.playMode \|\| '',/) && has(/sourceUrl: _pd\.sourceUrl \|\| '',/));
+check('...and read back when the order opens',
+  has(/playMode: item\.content\.playMode \|\| '',/) &&
+  has(/sourceUrl: item\.content\.sourceUrl \|\| '',/));
+check('the original file is kept at import, so there is something to play',
+  /currentSermonSlides\[sectionId\]\.sourceUrl = supabaseUrl \|\| '';/.test(fn('_convertAndRenderPptx')));
+
+// gotcha 47: escapeJsArg escapes a value FOR a JS string; the quotes around it
+// are the caller's. Without them the handler read WO.pptPlayMenu(wo-section-9,
+// this) -- a bare identifier -- and the menu silently never opened.
+const QB = String.fromCharCode(92) + "'";   // the \' an inline handler needs
+check('the banner handler quotes the section id it passes',
+  fn('_pptPlayChip').indexOf("WO.pptPlayMenu(" + QB + "' + escapeJsArg(sectionId) + '" + QB + ",this)") > 0,
+  fn('_pptPlayChip').slice(0, 300));
+check('...and so does the row that sets the mode',
+  fn('pptPlayMenu').indexOf("WO.pptSetPlayMode(" + QB + "' + escapeJsArg(sectionId) + '" + QB + "," + QB + "' + escapeJsArg(r.m) + '" + QB + ")") > 0);
+
+// --- the projected document itself, built and parsed ------------------------
+// The projection window's whole script is a JS string inside Index.html, so
+// node --check never sees it. This round proved why that matters: a patch
+// spliced the builder's own `BS` variable into the string. It PARSED -- it is
+// just string + identifier -- and would have thrown ReferenceError on the
+// projector, in front of a congregation, with every check in this suite green.
+// So the document is built here the way createProjectionWindow builds it, and
+// the script inside it is parsed.
+(function () {
+  const START = 'var projectionHtml =';
+  const END = "'</scr' + 'ipt></body></html>';";
+  const a = SRC.indexOf(START);
+  const b = a < 0 ? -1 : SRC.indexOf(END, a);
+  if (a < 0 || b < 0) { check('the projection document can be located', false); return; }
+
+  const expr = SRC.slice(a + START.length, b + END.length).trim().replace(/;$/, '');
+  const scope = {
+    left: 0, top: 0, width: 1920, height: 1080,
+    _barrierConfig: { global: { top: 5, right: 5, bottom: 5, left: 5 } },
+    targetScreen: null
+  };
+  let html = null, buildErr = '';
+  try {
+    html = new Function(...Object.keys(scope), 'return (' + expr + ');')(...Object.values(scope));
+  } catch (e) { buildErr = e.message; }
+  check('the projection document builds from the string that makes it', !!html, buildErr);
+  if (!html) return;
+
+  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  check('...and carries a script', !!m);
+  if (!m) return;
+  const js = m[1];
+
+  let parseErr = '';
+  try { new Function(js); } catch (e) { parseErr = e.message; }
+  check('...whose script parses', !parseErr, parseErr);
+
+  // The bug itself: a name that only exists in the BUILDER, left behind in
+  // the built script, where it is a ReferenceError waiting to happen.
+  const leaked = ['BS', 'escapeHtml(', 'projectionHtml', 'sectionId'].filter(n => js.includes(n));
+  check('...with nothing left in it from the code that built it', leaked.length === 0, leaked.join(', '));
+
+  check('...and it knows how to show a picture, a live deck, and neither',
+    js.includes('_showProjSlide') && js.includes('_showProjLive') && js.includes('_hideProjSlide'));
+  // Every branch that REPLACES what is on the wall has to put the layer away,
+  // or a deck stays underneath the next thing projected.
+  check('text, video and clear all put the layer away',
+    (js.match(/_hideProjSlide\(\);/g) || []).length >= 3);
+})();
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {
   if (failed > 0) { console.log('(--expect-broken: failures were expected, and there were some)'); process.exit(0); }

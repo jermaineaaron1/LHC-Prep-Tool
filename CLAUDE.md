@@ -6376,6 +6376,61 @@ the anon key -- verify as `postgres`, not as the app.
     `_wofsKeys` and the slide-picking prefix of `_doFullscreenOverlay` itself
     rather than matching them; 14 of its checks fail on the source before it.
 
+116. **A deck CAN play with its animations -- by not going through the image
+    pipeline at all.** From the operator (2026-11-23), after being told twice
+    it was impossible: "for all .pptx with animations (including canva),
+    provide a way to insert them and ensure good visibility and presentation
+    as well as the animations embedded." It is impossible on the pipeline in
+    gotcha 113 -- CloudConvert to PDF to pdf.js to JPEG, and a flat picture
+    cannot animate. The answer is to hand the real file to something that can.
+    - **Microsoft's own viewer needs no key, no OAuth and no account.**
+      `view.officeapps.live.com/op/view.aspx?src=<public url>` renders a real
+      .pptx, and Supabase storage URLs are already public. Measured on the
+      church's own 19-page deck: it renders ("SLIDE 1 OF 19"), it **frames**
+      with no X-Frame-Options block, and it offers **Start Slide Show**, which
+      is PowerPoint's real slideshow. `view.aspx`, NOT `embed.aspx`: embed
+      renders slides as flat pictures, which is what we already have.
+    - **Nothing can press Start Slide Show for the operator.** The viewer is
+      another origin, so no script of ours reaches inside it, and slideshow
+      mode has no URL of its own -- it is client-side state. So Microsoft's
+      banner and toolbar ARE on the wall until somebody presses it, which is
+      the one thing gotcha 75 says must never happen. The operator is told,
+      once per deck per session, and told to use Blank as cover.
+    - **Opening the same file twice at once breaks it.** Office answers
+      *"PowerPoint stopped responding"* when a second session opens the same
+      document. Found while testing with the file open in another tab.
+    - **Canva's PPTX export flattens most of its own animations**, so for a
+      Canva deck the faithful route is a share LINK or an MP4 export, not the
+      .pptx. Hence mode `'link'`, which takes either and plays whatever that
+      source plays; an MP4 is given a `<video>`, anything else an iframe.
+    - **Pictures are still converted and kept whatever the mode**, and are
+      what goes up when the uplink is down (`_pptLiveOk` asks `LHC_Net`, not
+      `navigator.onLine`, which answers true on church wi-fi with a dead
+      uplink -- gotcha 88). The operator chose that fallback over a warning.
+    - **Every deck already in a service had no original to play**: the import
+      had the .pptx URL and threw it away. It is kept now
+      (`sourceUrl`/`sourcePath`), and for older decks `_pptSourceUrlFor`
+      finds the file in the shared folder BY NAME -- #522 files every upload
+      there. By name, never by storage path: the path carries the upload's
+      timestamp, so one deck uploaded twice has two paths and one name.
+    - **A live deck goes in the `#projSlide` full-bleed layer**, for the same
+      reason a picture does (gotcha 113): inside `.projection-content` it is
+      inset by the safe-zone barrier and clipped.
+    - **The generated projection document is a JS string, and `node --check`
+      cannot see it.** A patch spliced the builder's own `BS` variable into
+      that string; it PARSED -- string plus identifier is valid JS -- and was
+      a ReferenceError waiting on the projector, with the whole suite green.
+      The harness now BUILDS that document and parses the script inside it.
+      Write the generated code so it needs no backslashes at all: DOM calls
+      rather than `innerHTML`, double quotes inside single-quoted strings.
+    - `escapeJsArg` escapes a value FOR a JS string; **the quotes around it
+      are the caller's** (gotcha 47). Without them the handler read
+      `WO.pptPlayMenu(wo-section-doc9,this)` -- a bare identifier -- and the
+      menu silently never opened.
+    `tools/lcd-pptx-harness.js` checks it, running the mode, the viewer URL,
+    the folder lookup and the live source, and building the projection
+    document to parse its script.
+
 ## Quick Commands for Claude Code
 
 ```bash
