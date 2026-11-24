@@ -59795,7 +59795,12 @@ var WO = (function() {
           '<div class="sbm-lyrics' + (noChords ? ' sbm-lyrics--nochords' : '') + (cols ? ' sbm-lyrics--cols' : '') + '" style="font-family:' + escapeHtml(_sbmFontWords()) + ';">' + lyricsHtml + '</div></div>';
       }
       if (hasChoir && view === 'choir') {
-        var score = _sbChoirBodyHtml(s, false, !wide);
+        // Drawn as the song in front's score is (live): every line with words
+        // records and lists its takes, under that song (sbBindChoirRecorders
+        // binds each score to the song it names). It was the print variant,
+        // with no microphones, until the operator asked (2026-11-24). The
+        // section and instrument strips stay the song in front's (gotcha 53).
+        var score = _sbChoirBodyHtml(s, true, !wide);
         var lanes = (V && score) ? V.lanes(_sbVoiceRowsFor(s)) : [];
         out += '<div class="sbm-card sbm-card--follow" data-sbm-song="' + id + '"' + (lanes.length ? ' data-sbm-part="' + escapeHtml(_sbChoirPartFor(s, lanes) || '') + '"' : '') + '>' +
           '<div class="sbm-score sb-song-page--choir sbm-score--follow" data-choir-song="' + escapeHtml(_sbBaseSongId(s)) + '">' +
@@ -60091,7 +60096,9 @@ var WO = (function() {
     // render's binding went with the element it was on, which is how a
     // tap on a line's mic did nothing after the first change of view and
     // the takes a line already had were not drawn.
-    if (showScore && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();
+    // A medley's following songs record on their lines too: bound with it,
+    // even when the song in front shows its words and not a score.
+    if ((showScore || root.querySelector('.sbm-score--follow')) && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();
     _sbmLoadRecs(song);
     _sbmPaintPractice(song);
   }

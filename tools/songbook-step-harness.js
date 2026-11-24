@@ -372,6 +372,12 @@ console.log('\nThe wiring');
   check('the song in front is followed by the rest of its medley, on cards that name their song',
     has(/html \+= _sbmFollowHtml\(mdHere, wide\) \+ '<\/div>';/) && has(/class="sbm-card sbm-card--follow" data-sbm-song="/) &&
     has(/_sbmMarksMount\(\);\r?\n\s*_sbmFollowAfter\(\);/));
+  // From the operator (2026-11-24): "why can't I record in individual lines in
+  // the other songs of the medley?" Their scores were the print variant.
+  check("a following song's score records on its lines, under that song: drawn live and bound with the rest",
+    has(/var score = _sbChoirBodyHtml\(s, true, !wide\);/) && !has(/_sbChoirBodyHtml\(s, false, !wide\)/) &&
+    has(/class="sbm-score sb-song-page--choir sbm-score--follow" data-choir-song="' \+ escapeHtml\(_sbBaseSongId\(s\)\)/) &&
+    has(/if \(\(showScore \|\| root\.querySelector\('\.sbm-score--follow'\)\) && typeof sbBindChoirRecorders === 'function'\) sbBindChoirRecorders\(\);/));
   check('drawings are painted, drawn, rubbed out and undone on the song each card shows',
     has(/var song = _sbmCardSong\(card\), base = song \? _sbBaseSongId\(song\) : '';\r?\n\s*cv\.__base = base;/) &&
     has(/var song = _sbmCardSong\(live\.card\), base = song \? _sbBaseSongId\(song\) : '';/) &&
