@@ -475,6 +475,32 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
   check('kept as a change of those keys alone, laid over what is stored now (another device\'s keys stay)',
     /return _sbRecDsWrite\(base, function\(ds\) \{/.test(fn('_sbChoirOnlySave')) && /Object\.keys\(patch \|\| \{\}\)\.forEach/.test(fn('_sbChoirOnlySave')));
 
+  // -------------------------------------------------------------------------
+  // From the operator (2026-11-24), the pad of Silent Night's verse 3 opened by
+  // a double-click: "it's not saving". An A typed after "Jesus Lord at thy
+  // birth," ran past the first half's words into the second half's stretch of
+  // the one chord line, and the second half's save wrote over it.
+  console.log('\n12. A run\'s chords typed past its words (2026-11-24)');
+  const V3b = [
+    { part: 'both', text: 'Jesus Lord at thy birth,', section: 'Verse 3', sortOrder: 0, sustained: false },
+    { part: 'both', text: 'Jesus Lord at thy birth,', section: 'Verse 3', sortOrder: 1, sustained: false }
+  ];
+  const V3bLY = ['[Verse 3]', 'D      D#dim        Em   G      D           Em     C', 'Jesus Lord at thy birth, Jesus Lord at thy birth.'].join('\n');
+  const v3bPad = C.text(V3b, V3bLY, isChord, { parts: [] }).split('\n');
+  const j1 = v3bPad.indexOf('Jesus Lord at thy birth,'), j2 = v3bPad.indexOf('Jesus Lord at thy birth,', j1 + 1);
+  const v3bShown = C.read(v3bPad.join('\n'), isChord, [], []).chords;
+  const v3bTyped = v3bPad.slice();
+  v3bTyped[j1 - 1] = 'D      D#dim        Em     A';
+  v3bTyped[j2 - 1] = 'G      D           Em      A';
+  const sc9 = SC(V3bLY);
+  const r9 = await sc9.E('song_1', V3b, C.toSave(C.read(v3bTyped.join('\n'), isChord, [], []).chords, v3bShown, v3bShown, 0, XP), 'c1');
+  check('both halves keep the chords typed, the A after the first half\'s words included: the line is split in two',
+    sc9.out.lyrics && J(sc9.out.lyrics.split('\n')) === J(['[Verse 3]', 'D      D#dim        Em     A', 'Jesus Lord at thy birth,', 'G      D           Em      A', 'Jesus Lord at thy birth.']) && r9.orphans.length === 0,
+    J([sc9.out.lyrics, r9]));
+  const v3bAgain = sc9.out.lyrics ? C.text(V3b, sc9.out.lyrics, isChord, { parts: [] }).split('\n') : [];
+  check('...and the pad shows them as typed the next time it opens',
+    v3bAgain[v3bAgain.indexOf('Jesus Lord at thy birth,') - 1] === 'D      D#dim        Em     A' && v3bAgain[v3bAgain.lastIndexOf('Jesus Lord at thy birth,') - 1] === 'G      D           Em      A', J(v3bAgain));
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

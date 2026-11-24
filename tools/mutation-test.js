@@ -2718,6 +2718,11 @@ const CASES = [
     s => s.replace("        var score = _sbChoirBodyHtml(s, true, !wide);", "        var score = _sbChoirBodyHtml(s, false, !wide);")],
   ['songbook-step-harness.js', "a following song's microphones are not bound when the song in front shows words",
     s => s.replace("    if ((showScore || root.querySelector('.sbm-score--follow')) && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();", "    if (showScore && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();")],
+  // A run's chords typed past its words split the line (2026-11-24).
+  ['songbook-choir-pad-harness.js', "a run's chords typed past its words are taken by the next run again",
+    s => s.replace("    if (hit.to != null && V._runOverflows(cur, hit.to, chord, hit.from)) return V._runSplit(lines, hit, cur, chord);", "")],
+  ['voice-lines-harness.js', "a run's chord running into the next run's first chord is not seen",
+    s => s.replace("      if (st >= to || en >= next) return true;", "      if (st >= to) return true;")],
   // An upcoming order follows the Roster (2026-11-21).
   ['follow-roster-harness.js', 'a reading the Roster changed is left as it was',
     s => s.replace("      out.push({ role: role, act: 'replace', ids: ids, ref: r });", "")],

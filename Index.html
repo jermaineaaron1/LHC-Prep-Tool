@@ -17848,13 +17848,54 @@ window.lhcVoiceLines = {
   // withChord for a hit from chordFor: a whole line's chords, or -- a hit
   // for one run of a line (hit.from) -- that run's, the rest of the chord
   // line kept. A chord line left with nothing on it goes, as withChord's.
+  // A run's chords that will not fit before the next run's -- one typed past
+  // the end of its words ("Jesus Lord at thy birth, A" when the next words
+  // start a space later), or one running into the next run's first chord --
+  // split the lyric line there (_runSplit): written into the run's stretch
+  // they were taken by the next run on the next read, and the next run's own
+  // save wrote over them (2026-11-24). The words are the same words, on two
+  // lines.
   withChordAt: function(lyrics, hit, chord) {
     var V = window.lhcVoiceLines;
     if (!hit) return String(lyrics == null ? '' : lyrics);
     if (hit.from == null) return V.withChord(lyrics, hit.lyricAt, hit.chordAt, chord);
     var lines = String(lyrics == null ? '' : lyrics).split(/\r?\n/);
     var cur = (hit.chordAt != null && hit.chordAt >= 0 && hit.chordAt < lines.length) ? lines[hit.chordAt] : '';
+    if (hit.to != null && V._runOverflows(cur, hit.to, chord, hit.from)) return V._runSplit(lines, hit, cur, chord);
     return V.withChord(lyrics, hit.lyricAt, hit.chordAt, V.chordSplice(cur, hit.lo != null ? hit.lo : hit.from, hit.to, chord, hit.from));
+  },
+  // Whether a run's new chords, laid from its first column, reach the next
+  // run's stretch (pure): a chord starting at or past `to`, or one ending
+  // with no space before the next run's first chord.
+  _runOverflows: function(cur, to, chord, from) {
+    var m, re = /\S+/g, c = String(cur == null ? '' : cur), next = Infinity;
+    while ((m = re.exec(c))) { if (m.index >= to) { next = m.index; break; } }
+    var re2 = /\S+/g, nw = String(chord == null ? '' : chord);
+    while ((m = re2.exec(nw))) {
+      var st = m.index + (from || 0), en = st + m[0].length;
+      if (st >= to || en >= next) return true;
+    }
+    return false;
+  },
+  // The lyric line split where the run ends (pure, over the lines): the
+  // words up to the run's cut, with the chords before the run and the run's
+  // new chords over them; then the rest of the words, with the chords that
+  // were over them moved to start at their first word. Nothing else moves.
+  _runSplit: function(lines, hit, cur, chord) {
+    var V = window.lhcVoiceLines, out = lines.slice();
+    var lyric = String(out[hit.lyricAt] == null ? '' : out[hit.lyricAt]), to = hit.to;
+    var lo = hit.lo != null ? hit.lo : hit.from;
+    var rest = lyric.slice(to), lead = (/^\s*/.exec(rest) || [''])[0].length;
+    var leftChord = V.chordSplice(V.chordSlice(cur, 0, lo, 0), lo, null, chord, hit.from).replace(/\s+$/, '');
+    var rightChord = V.chordSlice(cur, to, null, to + lead).replace(/\s+$/, '');
+    var tail = [lyric.slice(0, to).replace(/\s+$/, '')];
+    if (rightChord.trim()) tail.push(rightChord);
+    tail.push(rest.slice(lead));
+    Array.prototype.splice.apply(out, [hit.lyricAt, 1].concat(tail));
+    var hasRow = hit.chordAt != null && hit.chordAt >= 0 && hit.chordAt < hit.lyricAt;
+    if (hasRow) { if (leftChord.trim()) out[hit.chordAt] = leftChord; else out.splice(hit.chordAt, 1); }
+    else if (leftChord.trim()) out.splice(hit.lyricAt, 0, leftChord);
+    return out.join('\n');
   },
 
   // A section take follows its section by NAME (song_recordings.section).
