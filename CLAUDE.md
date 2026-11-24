@@ -6504,6 +6504,19 @@ the anon key -- verify as `postgres`, not as the app.
       row's `data-chord-from` / `-lo` / `-to`, which `_chordRow` writes for a
       run). `withChord` for a run would write its few chords over the whole
       line's.
+    - **A run's chords that will not fit before the next run split the
+      line** (the same day, from the pad opened by a double-click on verse 3:
+      "it's not saving"). An A typed after "Jesus Lord at thy birth," lies
+      past the run's words, where the next run's words start a space later:
+      written into the run's stretch, it was the next run's on the next read,
+      and the next run's own save wrote over it. `withChordAt` asks
+      `_runOverflows` (a new chord starting at or past `to`, or ending with no
+      space before the next run's first chord) and then `_runSplit`s the
+      lyric line at the run's cut: the run's words with the chords before it
+      and its new ones, then the rest of the words with their chords moved to
+      start at their first word. Same words, two lines -- in Chords + Lyrics
+      and on the wall too, since the projected words changed
+      (`_sbSlidesFollow`). Each half is a whole line from then on.
     `tools/voice-lines-harness.js` checks the matching, slicing and splicing;
     `tools/songbook-choir-pad-harness.js` (section 10) saves Silent Night's
     verse 1 through the real `_sbmPadSaveChords`.

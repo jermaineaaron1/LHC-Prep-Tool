@@ -1248,6 +1248,28 @@ check('its chord row shows the chords and is not typed on there (the choir pad i
 check('  empty, it says where its chords are typed',
   /vl-chords--nolyric/.test(V._chordRow({ lyric: 'x', chord: '', lyricAt: -1, chordAt: -1, extra: 'k' }, 'x', true, true, {})), true);
 
+// A run's chords typed past the end of its words (2026-11-24): "Jesus Lord at
+// thy birth," with an A after it, where the next run's words start a space
+// later. Written into the run's stretch it was taken by the next run on the
+// next read and the next run's save wrote over it. Now the line is split.
+console.log('\na run whose chords will not fit before the next run splits the line');
+check('chords that fit: no split', V._runOverflows('D        D7       G Em    G', 24, 'C        C7       F Dm', 0), false);
+check('  a chord starting past the run\'s words: split', V._runOverflows('D        D7       G Em    G', 24, 'D        D7       G Em   A', 0), true);
+check('  a chord running into the next run\'s first chord: split', V._runOverflows('D        D7       G Em    G', 24, 'D        D7       G Em7sus4', 0), true);
+const spIdx2 = V.chordIndex(SPLIT, isChord), spCur2 = { at: 0 };
+const s1 = V.chordFor(spIdx2, spG[0], spCur2);
+check('the line is split there: this run\'s chords as typed, the rest moved to its first word',
+  V.withChordAt(SPLIT, s1, 'D        D7       G Em   A').split('\n'),
+  ['D        D7       G Em   A', 'Sleep in heavenly peace,', ' G       D         G', 'sleep in heavenly peace.']);
+check('  and each half is then a whole line with its own chords',
+  (function() {
+    const L = V.withChordAt(SPLIT, s1, 'D        D7       G Em   A'), ix = V.chordIndex(L, isChord), cu = { at: 0 };
+    return spG.map(g => { const h = V.chordFor(ix, g, cu); return [h.chord, h.from == null]; });
+  })(), [['D        D7       G Em   A', true], [' G       D         G', true]]);
+check('  a run with no chord line yet is split the same way',
+  V.withChordAt('Sleep in heavenly peace, sleep in heavenly peace.', V.chordFor(V.chordIndex('Sleep in heavenly peace, sleep in heavenly peace.', isChord), spG[0], { at: 0 }), 'D                  G     A').split('\n'),
+  ['D                  G     A', 'Sleep in heavenly peace,', 'sleep in heavenly peace.']);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');
