@@ -302,7 +302,11 @@ check('it lands on the same slide, not the same index',
   /_wofsKeys\(/.test(refresh) && /indexOf\(wasKey\)/.test(refresh), true);
 
 console.log('\nand a slide is found again by what it is');
-const _wofsKeys = new Function(extractFn('_wofsKeys') + '\nreturn _wofsKeys;')();
+// _wofsKeys asks _isPptPageEl which kind of box it is holding, so the slice
+// needs that one too -- a page carries no data-song-id and no data-liturgy-id,
+// and keyed as an ordinary box every page in the order shared one empty key.
+const _wofsKeys = new Function(
+  extractFn('_isPptPageEl') + '\n' + extractFn('_wofsKeys') + '\nreturn _wofsKeys;')();
 function box(attrs) {
   const el = new El('div', 'wo-slide-box');
   Object.keys(attrs).forEach(k => el.setAttribute(k, attrs[k]));
@@ -313,6 +317,19 @@ const lit  = { 'data-liturgy-id': 'lit_9' };
 check('each slide of an item is told from the next',
   _wofsKeys([box(song), box(song), box(lit)]),
   ['box:song_1:1', 'box:song_1:2', 'box:lit_9:1']);
+// A presentation page is named by its deck and its page number. Keyed as an
+// ordinary box it came out 'box::1', 'box::2', ... so a rebuild after another
+// device's change could land on any page of the deck but the right one.
+function pptPage(sectionId, idx) {
+  const el = new El('div', 'wo-slide-box wo-ppt-page');
+  el.setAttribute('data-section', sectionId);
+  el.setAttribute('data-ppt-section', sectionId);
+  el.setAttribute('data-ppt-idx', String(idx));
+  return el;
+}
+check('a presentation page is named by its deck and its page',
+  _wofsKeys([box(song), pptPage('sec-9', 0), pptPage('sec-9', 1)]),
+  ['box:song_1:1', 'ppt:sec-9:0', 'ppt:sec-9:1']);
 // A song sung in two sections is two copies with two ids (gotcha 55), so
 // the count restarts per item rather than running across the service.
 check('  and the count restarts for each item',

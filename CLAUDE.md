@@ -381,7 +381,11 @@ than a bash heredoc, which quietly eats a level of backslashes.
      rail or on the projection opens it, Apply / Esc / the X / the backdrop
      close it, and **Barrier** sits beside Songbook in the console's own
      controls row. The **Media Tray** is white and keeps a band of its own.
-     See gotcha 105.
+     See gotcha 105. A **PowerPoint** is shared with everyone the moment it
+     is uploaded, goes into a section by a drag from the folder or by the
+     section's burger (the phone's only way), and is projected FULL SCREEN
+     rather than inside the safe-zone barrier. It cannot animate: see
+     gotcha 113 for why, and what enabling it would take.
 - An upcoming order fills in the roster's readings it is missing when it is
   opened in the builder or LCD Projection, and remembers what it had, so a
   reading taken out stays out (gotcha 48).
@@ -6157,7 +6161,307 @@ the anon key -- verify as `postgres`, not as the app.
     builder's apply, `lhcDayPrayer.words`, `_spFilePrayer`, Remove's plan and
     the card's comparison.
 
-113. **A choir moment can be one RUN of a longer lyric line, and its chords
+113. **A PowerPoint is a shared file, a full-screen picture, and never an
+    animation.** From the operator (2026-11-22), on a marked-up screenshot of
+    the console: the presentation folder stored in Supabase and usable by
+    everyone; two ways into a section (drag from the folder, or the section's
+    burger); the projection full screen "just like how the slideshow mode in
+    PowerPoint looks like"; animations; a faster, sharper, more accurate
+    import; and a phone able to upload and place one.
+    - **ANIMATIONS ARE NOT POSSIBLE ON THIS PIPELINE, and the reason is worth
+      keeping.** Every deck goes `/api/convert-pptx` -> CloudConvert -> PDF ->
+      pdf.js -> JPEGs, and a flat image cannot animate. The only route that
+      could is `/api/convert-pptx-to-slides` (Drive -> Google Slides, embedded
+      by `pageId`), and probed on live on 2026-11-22 it answered *"The server
+      is not configured to convert presentations (Google OAuth credentials
+      missing)"* -- so it has never run in production, which is also why the
+      CloudConvert fallback is the only path anybody has seen. Enabling it
+      needs a Google refresh token carrying `drive.file` AND
+      `presentations.readonly` in Vercel, and even then it would give
+      slide-level transitions and entrance animations only: a Google Slides
+      embed is cross-origin, so builds that advance on a click inside one
+      slide cannot be driven from the console. Asked directly, the operator
+      chose to leave animations out for now.
+    - **The folder was shared in name only.** The FILE went to Supabase
+      Storage from the first day; the tray's index row did not. A document is
+      stored by `_lcdIngestTrayFile` with `url` / `path`, and
+      `_sbSaveBackgroundToSupabase` read `cloudUrl` / `storagePath` -- so it
+      returned before writing and every PowerPoint anybody added stayed on the
+      one laptop that added it. `_bgShared(bg)` is now the single place that
+      decides what a media record's address and path ARE, and both shapes go
+      through it.
+    - **The drawer has to travel with the file.** `lhc_backgrounds` carried no
+      category, and `_lcdItemCategory` answers `'background'` for a row
+      without one -- so a shared deck would have arrived in the one drawer
+      that cannot render it. `migrations/2026-11-22_lhc_backgrounds_category.sql`
+      adds it. Until it is run, PostgREST refuses the WHOLE row for an unknown
+      column and the whole SELECT for an unknown column, so both directions
+      fall back once and remember (`_bgCatColumn`): the file is shared without
+      its drawer rather than not shared at all. Verified against the live
+      database with the column genuinely absent -- the shared index still
+      loaded its four rows.
+    - **A slide was CLIPPED, not shrunk.** It was drawn inside
+      `.projection-content`, which is inset by the safe-zone barrier (5% a
+      side) and is `overflow: hidden`, while `.projection-slide` sized itself
+      against the VIEWPORT (`max-width: 100vw`). So the image was laid out at
+      full screen and then cut off by the inset box. Measured in the real
+      projection document: **81% of the screen visible, the outer 5% of every
+      edge gone** -- at 1920x1080 that is 96px off each side and 54px off top
+      and bottom, which is a deck's own margins and often its footer.
+      `#projSlide` is now a layer of its own at z-index 2, outside the
+      barrier: measured 99.9%. The barrier is for WORDS, which a livestream
+      overlay can cover; a deck is already laid out for a whole screen.
+      Measured again after switching to a text slide: the barrier comes back
+      and the layer empties. `#projBlank` is 99999, so Blank still covers it.
+      Every branch that REPLACES the words (`text`, `video`, `clear`) hides
+      the layer; `background`, `videoBackground`, `barrierUpdate` and
+      `alignUpdate` must NOT -- they arrive while a deck is on the wall.
+    - **The import rendered every page at a fixed `scale = 2`.** A 16:9 deck
+      exports as a 720x405pt PDF page, so that is a 1440px raster stretched
+      1.33x on a 1080p projector -- which is why an imported deck looks softer
+      than the same file shown from PowerPoint. `_lcdScaleForWidth` asks for
+      the projector's own pixels instead (`_LCD_PAGE_WIDTH` 1920), held
+      between 1.5 and 4 so a page already wider than the projector is not
+      enlarged and a tiny one cannot ask for a 10,000px canvas.
+    - **...which made the old loop dangerous.** It started every page at once
+      and held one canvas per page until the last finished; at the sharper
+      size a 30-page deck is ~250MB of canvas in the air, on the laptop that
+      is running the service. Pages now go through a pool of
+      `_LCD_PAGE_POOL` (3) and each canvas is released (`canvas.width =
+      canvas.height = 0`) the moment its JPEG is out. pdf.js decodes serially
+      anyway, so the pool costs no wall-clock time. A page that will not
+      render is counted and passed over rather than stranding the import on
+      its progress bar.
+    - **One folder, three ways in.** A deck imported straight into a section
+      used to exist only inside that order, so a month later nobody could find
+      it and the same file was uploaded again -- which is how Storage filled
+      with copies. `_woRememberInFolder` registers every upload in the shared
+      folder (documents only, once per storage path), so the burger, the tray
+      and a drag all put a file in the same place.
+    - **The burger is the phone's only way to the folder**, because the Media
+      Tray is `display: none` below 1201px -- the console gives that band to
+      the schedule (gotcha 105). Add presentation opens on the **Folder** tab
+      when there is something in it and on **Upload** when there is not, and
+      the window is moved to `<body>` so nothing can clip it.
+    `tools/lcd-pptx-harness.js` checks it, running `_bgShared`,
+    `_lcdScaleForWidth`, `_woSlidesFolderItems` and `_woRememberInFolder`
+    rather than matching them.
+
+114. **The browser's confirm() goes, the folder gains a file only on upload,
+    and the Media Tray is served before the projection.** Three things the
+    operator reported after #522 went live (2026-11-22), two of them caused
+    by #522 itself.
+    - **`window.lhcAskToast(o)`** is the same question as `lhcAskDelete`
+      asked as a TOAST from the foot of the screen, which is what the
+      operator asked for on a screenshot of the browser's own dialog over the
+      console ("Toast"). It is general rather than scoped to one view: the
+      Songbook already had a toast of this shape (`_sbmAskUnsaved`) but it is
+      dressed in `.sbm` and lives inside the songbook modal. Resolves TRUE
+      only on the action button -- Escape, Cancel and a tap elsewhere all
+      resolve false, and that tap's click is swallowed, or the press carried
+      on to whatever was underneath (in the Media Tray, the very tile it was
+      asked about). The Media Tray's removal and taking a presentation out of
+      a section both use it; `removePptFile` is split so the question does
+      not block, with `_removePptNow` doing the work.
+    - **CSS at the top level, and watch which copy an anchor matches.** The
+      toast's rules first landed inside a `@media (max-width: 640px)` block,
+      because the anchor used (`  .lhc-ask-backdrop {`, two-space indent)
+      matched the PHONE copy of that rule rather than the top-level one at
+      column 0 -- and the assert passed, because there was exactly one at
+      that indentation. Everything rendered unstyled on a desk: plain text at
+      the foot of the page. When anchoring a CSS insert, check the
+      indentation says what you think it does, and that the insert is not
+      inside an `@media` (`.count('@media')` between the `<style>` and the
+      new rule).
+    - **A file already in the folder must not be filed again.** `#522`'s
+      `_woRememberInFolder` registers every upload, and expanding a tray
+      document RE-UPLOADS it (`_lcdExpandDocIntoSection` fetches the stored
+      copy and hands it to `addSlidesFromFiles`), so the new storage path
+      defeated the path-based dedupe and one drag out of the tray made a
+      second identical tile in the drawer. `addSlidesFromFiles` takes
+      `opts.fromFolder` now, which the folder's own expansion sets. The Media
+      Tray gains a file ONLY from an upload -- a local file or a link -- and
+      never from putting one into a section.
+    - **Splitting a function leaves its locals behind.** `_removePptNow` read
+      `name`, which lived in `removePptFile`. A bare `name` in a browser is
+      `window.name` -- the empty string -- so nothing threw and the toast
+      simply read '"" removed'. Anything split out of a function has to be
+      re-read for the locals it was standing on.
+    - **The tray is served FIRST.** `_lcdBandSplit` used to give the row the
+      band less the tray's FLOOR (145), let the projection grow into whatever
+      that allowed, and hand the tray the remainder -- measured at 1536x695,
+      the tray's bottom edge 180px below the fold with the console scrolling
+      196px. The tray's real need is reserved up front now and the projection
+      takes the rest, with `LCD_MIN_SCREEN_H` down from 300 to 200: asked
+      which should give on a short screen, the operator chose the projection
+      ("just a bit shorter"). Measured after: the tray 100px higher and the
+      scroll halved to 96px; in **Full Screen** -- where the app's 213px of
+      header above the console goes away -- the tray and all eight tiles are
+      fully on screen with nothing to scroll, which is the state the request
+      describes. In a window at 695px of viewport the two genuinely cannot
+      both fit: 200px of projection plus its 146px of chrome plus a 199px
+      tray plus the 41px topbar is 586px under a header that starts at 213.
+    `tools/lcd-pptx-harness.js` covers the toast, the dedupe and the split;
+    `tools/lcd-editor-popup-harness.js` covers the band, including that the
+    tray's share is reserved before the projection rather than left over.
+
+115. **A presentation page is `.wo-ppt-page`, and the projection paths were
+    the last to be told.** From the operator (2026-11-23): Project on a chosen
+    page opened "all the way from the start of the liturgy"; folding a section
+    jumped the rail back to whatever is live; a page showed as "a small card at
+    the center" rather than full screen; and they asked for "a seamless
+    experience ... just like Easy Worship". Three of the four are one root
+    cause. A deck has been drawn as one `.wo-ppt-page` slide box per page for a
+    while, and every list, rail and menu was taught that (gotcha 73) -- but the
+    three paths that decide what goes on the WALL still asked about
+    `.wo-ppt-slide`, and `_buildWofsSlides` about the `.wo-local-slides`
+    container. Measured on a real 19-page deck: 19 `.wo-ppt-page`, **0** of
+    either. So a page was carried along as an anonymous slide box.
+    - **`_isPptPageEl` / `_pptPageAt` are the one reader** (`.wo-ppt-page`, and
+      `.wo-ppt-slide` for an order saved under it). `_isPptPageEl` is a class
+      test and nothing else, so the pure `_wofsKeys` can use it; `_pptPageAt`
+      adds the deck and the page from `currentSermonSlides`. Page **0** is a
+      page: the index is checked with `isNaN`, never `!idx`, or the first page
+      of every deck -- the one Project lands on most -- reads as missing.
+    - **Where Project starts.** `_doFullscreenOverlay` looked for a
+      `{ type: 'ppt' }` entry, which `_buildWofsSlides` makes only for the
+      legacy container, and the `selectedSlideBox` fallback sat behind an
+      `else if`. With a page selected the first branch was ENTERED, matched
+      nothing, and the fallback never ran: `_wofsIdx` stayed 0 -- the start of
+      the liturgy. The three lookups are tried in TURN now -- legacy entry,
+      then `selectedSlideBox`, then `_selectedPptContainer` -- and a page is
+      found because it is an element of `_wofsSlides` in its own right.
+    - **Arrowing into a deck put NOTHING on the wall.** `navigateRegularSlides`
+      walks `.wo-slide-box`, which a page is, and handed it to `selectSlideBox`,
+      whose ppt branch tested `.wo-ppt-slide` -- so a page fell through to the
+      text branch, found no `.wo-slide-line`, and projected an empty slide.
+      Measured: arrow right from the liturgy slide before the deck and the
+      Program box held no slide image at all. `_wofsRender` had the same test,
+      so the presenter overlay drew a blank too. That is most of what "seamless
+      like Easy Worship" was asking for.
+    - **`_wofsKeys` keyed every page alike.** A page carries no `data-song-id`
+      and no `data-liturgy-id`, so it came out `box::1`, `box::2`... sharing
+      the empty key with any other keyless box, and a rebuild after another
+      device's change (gotcha 82) landed on the wrong slide.
+    - **Full screen is `width`/`height`, not `max-width`/`max-height`.** A page
+      smaller than the screen sat at its own size in the middle of it -- the
+      "small card" for a deck exported at 1280. The real projection window was
+      already right (`#projSlide`, gotcha 113); what was wrong was the
+      presenter overlay and the Program box.
+    - **A page is laid OVER a preview box, not inside its padding.**
+      `.wo-preview-screen` keeps 30px for words. Measured at 1158px: a
+      1920x1080 page drew 246x139 in a 356x200 box -- **47.9%**, a small card
+      with the panel showing round it. `.lcd-slide-bleed` is absolute at inset
+      0 with `max-width/height: none` and a black ground, as `#projSlide` is:
+      **98.9%**, the rest being the box's own 1px border. Four call sites used
+      to zero that padding inline and none ever restored it, so the first TEXT
+      slide after a deck lost its margins too; the padding is given back now
+      and the class makes it irrelevant for an image.
+    - **Folding a section** (`lcdToggleSectionCollapse`) rewrote the rail
+      without `_lcdRailHoldScroll()` first, so the scroller clamped to the top
+      and the watcher revealed the selected row -- gotcha 73, which every other
+      editing path already obeys. Measured: scrolled to 5600 with the live page
+      deep in a deck, fold a 5-row section (51 rail rows -> 46), drift **0**.
+    - **The Slide Editor must not open over a page.** `selectSlideBox` turns it
+      back on for an in-system slide well before it finds out what it is
+      holding, so the ppt branch shuts it again, as `projectPptPage` always
+      did. A page has nothing for the editor to act on (gotcha 105).
+    - **The presenter filmstrip labels an element from its `.wo-slide-line`
+      text**, which a page has none of, so a 19-page deck was 19 blank
+      numbered thumbs. It shows the page's own picture now, as the legacy
+      entries beside it already did.
+    - Opening a .pptx without rasterising it is **not possible on this
+      pipeline**, for the same reason animations are not: see gotcha 113.
+    `tools/lcd-pptx-harness.js` checks it, running `_isPptPageEl`, `_pptPageAt`,
+    `_wofsKeys` and the slide-picking prefix of `_doFullscreenOverlay` itself
+    rather than matching them; 14 of its checks fail on the source before it.
+
+116. **A deck CAN play with its animations -- by not going through the image
+    pipeline at all.** From the operator (2026-11-23), after being told twice
+    it was impossible: "for all .pptx with animations (including canva),
+    provide a way to insert them and ensure good visibility and presentation
+    as well as the animations embedded." It is impossible on the pipeline in
+    gotcha 113 -- CloudConvert to PDF to pdf.js to JPEG, and a flat picture
+    cannot animate. The answer is to hand the real file to something that can.
+    - **Microsoft's own viewer needs no key, no OAuth and no account.**
+      `view.officeapps.live.com/op/view.aspx?src=<public url>` renders a real
+      .pptx, and Supabase storage URLs are already public. Measured on the
+      church's own 19-page deck: it renders ("SLIDE 1 OF 19"), it **frames**
+      with no X-Frame-Options block, and it offers **Start Slide Show**, which
+      is PowerPoint's real slideshow. `view.aspx`, NOT `embed.aspx`: embed
+      renders slides as flat pictures, which is what we already have.
+    - **Nothing can press Start Slide Show for the operator.** The viewer is
+      another origin, so no script of ours reaches inside it, and slideshow
+      mode has no URL of its own -- it is client-side state. So Microsoft's
+      banner and toolbar ARE on the wall until somebody presses it, which is
+      the one thing gotcha 75 says must never happen. The operator is told,
+      once per deck per session, and told to use Blank as cover.
+    - **Opening the same file twice at once breaks it.** Office answers
+      *"PowerPoint stopped responding"* when a second session opens the same
+      document. Found while testing with the file open in another tab.
+    - **Canva's PPTX export flattens most of its own animations**, so for a
+      Canva deck the faithful route is a share LINK or an MP4 export, not the
+      .pptx. Hence mode `'link'`, which takes either and plays whatever that
+      source plays; an MP4 is given a `<video>`, anything else an iframe.
+    - **Pictures are still converted and kept whatever the mode**, and are
+      what goes up when the uplink is down (`_pptLiveOk` asks `LHC_Net`, not
+      `navigator.onLine`, which answers true on church wi-fi with a dead
+      uplink -- gotcha 88). The operator chose that fallback over a warning.
+    - **Every deck already in a service had no original to play**: the import
+      had the .pptx URL and threw it away. It is kept now
+      (`sourceUrl`/`sourcePath`), and for older decks `_pptSourceUrlFor`
+      finds the file in the shared folder BY NAME -- #522 files every upload
+      there. By name, never by storage path: the path carries the upload's
+      timestamp, so one deck uploaded twice has two paths and one name.
+    - **A live deck goes in the `#projSlide` full-bleed layer**, for the same
+      reason a picture does (gotcha 113): inside `.projection-content` it is
+      inset by the safe-zone barrier and clipped.
+    - **The generated projection document is a JS string, and `node --check`
+      cannot see it.** A patch spliced the builder's own `BS` variable into
+      that string; it PARSED -- string plus identifier is valid JS -- and was
+      a ReferenceError waiting on the projector, with the whole suite green.
+      The harness now BUILDS that document and parses the script inside it.
+      Write the generated code so it needs no backslashes at all: DOM calls
+      rather than `innerHTML`, double quotes inside single-quoted strings.
+    - `escapeJsArg` escapes a value FOR a JS string; **the quotes around it
+      are the caller's** (gotcha 47). Without them the handler read
+      `WO.pptPlayMenu(wo-section-doc9,this)` -- a bare identifier -- and the
+      menu silently never opened.
+    - **Google Slides is preferred where it exists** (the operator, asked
+      after seeing Microsoft's banner on the wall: "do the google slides route
+      instead"). `_pptLiveEngine` answers `'slides'` when the deck carries a
+      `googleSlidesId`, `'office'` when only the .pptx is to hand. Slides wins
+      for two reasons: `rm=minimal` puts **no third-party chrome** on the
+      wall, and a Slides deck is addressable per slide
+      (`/embed?...&slide=id.<pageId>`), so the rail still drives it -- where
+      Office's slideshow is client-side state with no URL to address. It is
+      **not** necessarily better fidelity: Google CONVERTS a .pptx on import,
+      which is lossy, where Microsoft RENDERS it; and Google's own help warns
+      some animations may not run in a browser. Which effects survive is
+      unverified on both routes.
+    - **An embedded deck must not go into `.projection-content`.** That box is
+      inset by the safe-zone barrier and clips what it holds, so the
+      `iframeEmbed` path -- the one the Google Slides route has always used --
+      lost the outer 5% on every edge. It goes through `_showProjLive` now,
+      the same full-bleed layer a picture uses. This was waiting for the day
+      the Slides token landed, with nothing exercising it.
+    - **The Slides route is one human step from working, and that step is not
+      ours.** `/api/convert-pptx-to-slides` and `/api/slide-page-ids` are
+      written; the OAuth consent screen was published on 2026-08-16 (so tokens
+      no longer die after 7 days -- the proof is `refresh_token_expires_in`
+      being ABSENT from the token response, not the console). What is missing
+      is a refresh token carrying `drive.file` AND `presentations.readonly`,
+      set as **`GOOGLE_SLIDES_REFRESH_TOKEN`** in Vercel, then a redeploy --
+      env vars only apply to new deployments. Use the dedicated variable, not
+      the shared `GOOGLE_REFRESH_TOKEN`: re-consenting the shared one once
+      took roster calendar sync down with it. Until then every import falls
+      back to CloudConvert, which is exactly today's behaviour, so nothing is
+      broken while it is outstanding. See HANDOFF.md section 2.
+    `tools/lcd-pptx-harness.js` checks it, running the mode, the engine, the
+    viewer and per-slide URLs, the folder lookup and the live source, and
+    building the projection document to parse its script.
+
+117. **A choir moment can be one RUN of a longer lyric line, and its chords
     are the ones over that run.** From the operator (2026-11-24): on Silent
     Night's choir pad, chords typed over "Sleep in heavenly peace," and
     "Sleep in heavenly peace." were gone after Save, the words kept. The

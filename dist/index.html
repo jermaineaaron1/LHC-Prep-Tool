@@ -8652,8 +8652,15 @@
             </div>
             <div class="wo-slides-modal-body">
               <div class="wo-slides-tabs">
-                <button class="wo-slides-tab active" data-tab="upload" onclick="WO.switchSlidesTab('upload')">
-                  <i class="fa-solid fa-upload mr-1"></i> Slides
+                <!-- The folder first, because the deck is usually already in
+                     it: somebody put it there from another device, or from
+                     this one last Sunday. Uploading is the way in, not the
+                     way most imports start. -->
+                <button class="wo-slides-tab active" data-tab="folder" onclick="WO.switchSlidesTab('folder')">
+                  <i class="fa-solid fa-folder-open mr-1"></i> Folder
+                </button>
+                <button class="wo-slides-tab" data-tab="upload" onclick="WO.switchSlidesTab('upload')">
+                  <i class="fa-solid fa-upload mr-1"></i> Upload
                 </button>
                 <button class="wo-slides-tab" data-tab="url" onclick="WO.switchSlidesTab('url')">
                   <i class="fa-solid fa-link mr-1"></i> Embed URL
@@ -8663,7 +8670,14 @@
                 </button>
               </div>
 
-              <div class="wo-slides-tab-content" id="woSlidesTabUpload">
+              <!-- Every presentation anybody has added, on every device: the
+                   Media Tray's Presentations and Announcements drawers, which
+                   are shared through lhc_backgrounds. This is also the one
+                   route a phone has, since the tray itself is hidden below
+                   1201px. -->
+              <div class="wo-slides-tab-content" id="woSlidesTabFolder"></div>
+
+              <div class="wo-slides-tab-content" id="woSlidesTabUpload" style="display:none">
                 <div class="wo-slides-upload-area" id="woSlidesDropZone" onclick="document.getElementById('woSlidesFileInput').click()">
                   <i class="fa-solid fa-cloud-arrow-up"></i>
                   <p>Click to browse or drag & drop</p>
@@ -23649,6 +23663,89 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
       setTimeout(function() { var b = bd.querySelector('.lhc-ask__no'); if (b) b.focus(); }, 30);
     });
   };
+  // The same question as lhcAskDelete, asked as a TOAST from the foot of the
+  // screen rather than a card in the middle (the operator, 2026-11-22, on a
+  // screenshot of the browser's own confirm() over the console: "Toast").
+  //
+  // General rather than scoped to one view, because the browser's confirm()
+  // is scattered through this file and every one of them looks the same: a
+  // bar saying "lhc-prep-tool.vercel.app says", a dialog that cannot be
+  // styled, and a default button that is OK. The Songbook already had a toast
+  // of this shape (_sbmAskUnsaved), but it is dressed in `.sbm` and lives
+  // inside the songbook modal, so it cannot serve the console.
+  //
+  // Resolves TRUE only on the action button. Escape, Cancel and a tap
+  // elsewhere all resolve false -- a destructive answer is never the one you
+  // get by dismissing the question.
+  window.lhcAskToast = function(o) {
+    o = o || {};
+    var was = document.getElementById('lhcAskToast');
+    // Asked again while it is up: nudge the one that is there rather than
+    // stack a second question behind it.
+    if (was && was.__ask && !was.__gone) {
+      was.classList.remove('is-nudge'); void was.offsetWidth; was.classList.add('is-nudge');
+      return was.__ask;
+    }
+    var resolveIt, ask = new Promise(function(r) { resolveIt = r; });
+    var el = document.createElement('div');
+    el.id = 'lhcAskToast';
+    el.className = 'lhc-asktoast' + (o.danger === false ? '' : ' is-danger');
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-labelledby', 'lhcAskToastT');
+    el.setAttribute('aria-describedby', 'lhcAskToastM');
+    el.innerHTML =
+      '<div class="lhc-asktoast__head">' +
+        '<div class="lhc-asktoast__icon" aria-hidden="true"><i class="fa-solid ' + (o.icon || 'fa-trash-can') + '"></i></div>' +
+        '<div class="lhc-asktoast__body">' +
+          '<div class="lhc-asktoast__t" id="lhcAskToastT">' + escapeHtml(o.title || 'Delete this?') + '</div>' +
+          (o.detail ? '<div class="lhc-asktoast__what">' + escapeHtml(o.detail) + '</div>' : '') +
+          '<div class="lhc-asktoast__m" id="lhcAskToastM">' + escapeHtml(o.message || 'This cannot be undone.') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="lhc-asktoast__acts">' +
+        '<button type="button" class="lhc-asktoast__no" data-ask="no">' + escapeHtml(o.cancelLabel || 'Cancel') + '</button>' +
+        '<button type="button" class="lhc-asktoast__yes" data-ask="yes">' +
+          '<i class="fa-solid ' + (o.okIcon || 'fa-trash-can') + '" aria-hidden="true"></i>' +
+          escapeHtml(o.okLabel || 'Delete') + '</button>' +
+      '</div>';
+    var done = function(v) {
+      if (el.__gone) return;
+      el.__gone = true;
+      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', away, true);
+      el.classList.add('is-out');
+      setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+      resolveIt(v);
+    };
+    var key = function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); done(false); }
+    };
+    // A tap elsewhere is Cancel, and that tap's click is swallowed: without
+    // it the press carried on to whatever was underneath -- in the Media
+    // Tray, the very tile it was asked about.
+    var away = function(e) {
+      if (el.contains(e.target)) return;
+      done(false);
+      var until = Date.now() + 700;
+      var eat = function(ev) {
+        document.removeEventListener('click', eat, true);
+        if (Date.now() <= until) { ev.stopPropagation(); ev.stopImmediatePropagation(); ev.preventDefault(); }
+      };
+      document.addEventListener('click', eat, true);
+      setTimeout(function() { document.removeEventListener('click', eat, true); }, 700);
+    };
+    el.__done = done; el.__ask = ask;
+    el.addEventListener('click', function(e) {
+      var b = e.target.closest && e.target.closest('[data-ask]');
+      if (b) done(b.getAttribute('data-ask') === 'yes');
+    });
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', away, true);
+    document.body.appendChild(el);
+    setTimeout(function() { var b = el.querySelector('.lhc-asktoast__no'); if (b) b.focus(); }, 30);
+    return ask;
+  };
+
   window.customConfirm = function(title, message) {
     return new Promise(function(resolve) {
       window._customConfirmResolve = resolve;
@@ -39641,6 +39738,13 @@ var WO = (function() {
               filename: _pd.fileName || 'Presentation',
               googleSlidesId: _pd.googleSlidesId || '',
               supabaseFiles: _pd.supabaseFiles || [],
+              // How this deck is played, and what it is played from. Without
+              // these a deck set to play live went back to pictures on the
+              // next reload, which looks exactly like the setting not working.
+              playMode: _pd.playMode || '',
+              liveUrl: _pd.liveUrl || '',
+              sourceUrl: _pd.sourceUrl || '',
+              sourcePath: _pd.sourcePath || '',
               localSlides: _pd.slides.map(function(s) {
                 // storagePath travels with the page so the uploaded copy can be
                 // cleaned up later, and so a reload does not mistake a restored
@@ -40559,11 +40663,13 @@ var WO = (function() {
   // min-height rules. Whichever is smaller wins, so they move together -- the
   // +5px asked for on 2026-11-15 is in all four or it is in none.
   var LCD_TRAY_FLOOR = 145;
-  // The floor under the projection preview. Below this it stops being
-  // readable at a glance, and the operator has the same words in the rail
-  // beside it -- so past this point the console scrolls instead, which is
-  // what it did before the Slide Editor left the row anyway.
-  var LCD_MIN_SCREEN_H = 300;
+  // The floor under the projection preview. 200, down from 300 on
+  // 2026-11-22: on a short screen the band cannot hold a big projection AND
+  // a tray showing its tiles, and asked which should give, the operator chose
+  // the projection ("just a bit shorter"). It is a confidence check -- the
+  // words are in the rail beside it and on the wall itself -- so it is the
+  // one that can afford to.
+  var LCD_MIN_SCREEN_H = 200;
   // Neither the row nor the tray may be squeezed out by the other.
   var LCD_OUTPUTS_MIN = 200;
 
@@ -40579,7 +40685,22 @@ var WO = (function() {
   // the projection takes the whole column, which is where the freed width
   // really pays.
   function _lcdBandSplit(avail, trayWant, boxChrome, screenH) {
-    var rowBudget = Math.round(avail - Math.max(0, Math.min(trayWant, LCD_TRAY_FLOOR)));
+    // THE TRAY IS SERVED FIRST (the operator, 2026-11-22: "Make the Media
+    // tray taller while the projection window just a bit shorter ... without
+    // the need to scroll down").
+    //
+    // It used to be served last: the row was given the band less the tray's
+    // FLOOR (145), the projection then grew to fill whatever that allowed,
+    // and the tray took what was left over -- which at 1536x695 put its
+    // bottom edge 180px below the fold. The tray's real need is reserved up
+    // front now, and the projection has the remainder.
+    //
+    // 0.42 of the band is the ceiling this has always used, and measured it
+    // is almost exactly the tray's own chrome plus one whole row of 16:9
+    // tiles. Half the band showed a second row starting and cost another
+    // 38px of scroll.
+    var tray = Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)));
+    var rowBudget = Math.round(avail - tray);
     var screen = Math.max(LCD_MIN_SCREEN_H, rowBudget - boxChrome);
     var capped = screenH > 0 && screenH > screen;
     if (!capped) screen = screenH;
@@ -40589,11 +40710,7 @@ var WO = (function() {
       capped: capped,
       // +10 of slack below the box, as the row has always carried.
       rowH: Math.max(LCD_OUTPUTS_MIN, natural > LCD_OUTPUTS_MIN ? natural + 10 : rowBudget),
-      // 0.42 of the band is the ceiling this function has always used, and
-      // measured it is almost exactly the tray's own chrome plus one whole
-      // row of 16:9 tiles. Half the band showed a second row starting and
-      // cost another 38px of scroll.
-      tray: Math.min(trayWant, Math.max(LCD_TRAY_FLOOR, Math.round(avail * 0.42)))
+      tray: tray
     };
   }
 
@@ -42764,7 +42881,11 @@ var WO = (function() {
                 // Carried so a converted deck keeps its per-page embed URLs, and
                 // so a later save does not lose the uploaded original.
                 googleSlidesId: item.content.googleSlidesId || undefined,
-                supabaseFiles: item.content.supabaseFiles || []
+                supabaseFiles: item.content.supabaseFiles || [],
+                playMode: item.content.playMode || '',
+                liveUrl: item.content.liveUrl || '',
+                sourceUrl: item.content.sourceUrl || '',
+                sourcePath: item.content.sourcePath || ''
               };
               renderLocalSlides(item.sectionId);
             }
@@ -45248,7 +45369,10 @@ var WO = (function() {
     $('woSlidesFileList').innerHTML = '';
     $('woSlidesUrlInput').value = '';
     $('woSlidesModal').classList.add('show');
-    switchSlidesTab('upload');
+    // The folder when there is something in it, Upload when there is not:
+    // opening on an empty folder is a dead end, and opening on Upload when the
+    // deck is already there is the extra step this change exists to remove.
+    switchSlidesTab(_woSlidesFolderItems().length ? 'folder' : 'upload');
   }
 
   function openSlidesModalTab(sectionId, tab) {
@@ -45285,10 +45409,69 @@ var WO = (function() {
 
   function switchSlidesTab(tab) {
     document.querySelectorAll('.wo-slides-tab').forEach(function(t) { t.classList.remove('active'); });
-    document.querySelector('.wo-slides-tab[data-tab="' + tab + '"]').classList.add('active');
+    var btn = document.querySelector('.wo-slides-tab[data-tab="' + tab + '"]');
+    if (btn) btn.classList.add('active');
+    var folder = $('woSlidesTabFolder');
+    if (folder) folder.style.display = tab === 'folder' ? 'block' : 'none';
     $('woSlidesTabUpload').style.display = tab === 'upload' ? 'block' : 'none';
     $('woSlidesTabUrl').style.display = tab === 'url' ? 'block' : 'none';
     $('woSlidesTabVideo').style.display = tab === 'video' ? 'block' : 'none';
+    // Add Slides acts on files chosen in Upload; the folder adds on a click,
+    // so leaving the button there would be a second button that does nothing.
+    var addBtn = document.querySelector('.wo-slides-add-btn');
+    if (addBtn) addBtn.style.display = tab === 'folder' ? 'none' : '';
+    if (tab === 'folder') _woRenderSlidesFolder();
+  }
+
+  // ---- The shared presentation folder, inside the Add Presentation window --
+  // The same records the Media Tray's Presentations and Announcements drawers
+  // show (savedBackgrounds, shared through lhc_backgrounds), filtered to the
+  // documents that have a stored copy to expand from. Dragging one out of the
+  // tray already worked on a desk; this is the same thing for anyone who
+  // cannot reach the tray -- a phone, where .lcd-lower-row is display:none.
+  function _woSlidesFolderItems() {
+    return (savedBackgrounds || []).filter(function(b) {
+      if (!b || !_lcdIsDocItem(b)) return false;
+      return !!_bgShared(b).url;
+    }).reverse();
+  }
+
+  function _woRenderSlidesFolder() {
+    var box = $('woSlidesTabFolder');
+    if (!box) return;
+    var items = _woSlidesFolderItems();
+    if (!items.length) {
+      box.innerHTML =
+        '<div class="wo-slides-folder-empty">' +
+          '<i class="fa-solid fa-folder-open"></i>' +
+          '<p>No presentations in the folder yet</p>' +
+          '<span>Add one from <b>Upload</b> and it is saved for everyone, on every device.</span>' +
+        '</div>';
+      return;
+    }
+    box.innerHTML =
+      '<div class="wo-slides-folder-hint">Tap a presentation to add it to this section, one slide per page.</div>' +
+      '<div class="wo-slides-folder-list">' +
+      items.map(function(bg) {
+        var cat = _lcdItemCategory(bg);
+        return '<button type="button" class="wo-slides-folder-item" onclick="WO.slidesFolderPick(\'' + escapeJsArg(bg.id) + '\')">' +
+          '<i class="fa-solid ' + (/\.pptx?$/i.test(bg.name || '') ? 'fa-file-powerpoint' : 'fa-file-lines') + '"></i>' +
+          '<span class="wo-slides-folder-name">' + escapeHtml(bg.name || 'Untitled') + '</span>' +
+          '<span class="wo-slides-folder-cat">' + (cat === 'announcement' ? 'Announcements' : 'Presentations') + '</span>' +
+        '</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  function slidesFolderPick(bgId) {
+    var bg = (savedBackgrounds || []).filter(function(b) { return b && b.id === bgId; })[0];
+    var sectionId = currentSlidesSectionId;
+    if (!bg) { showToast('That file is no longer in the folder', 'warning'); _woRenderSlidesFolder(); return; }
+    closeSlidesModal();
+    if (!sectionId) { showToast('Open a section first, then add the presentation', 'warning'); return; }
+    // The same expansion the drag from the tray uses, with no drop target --
+    // which _lcdPptDropIndex reads as "the end of the section".
+    _lcdExpandDocIntoSection(sectionId, bg, {});
   }
 
   function handleSlidesFileSelect(files) {
@@ -45750,25 +45933,68 @@ var WO = (function() {
   // These sync the INDEX of them to a shared `lhc_backgrounds` table so
   // every user's Media Tray shows the same media. Fire-and-forget; the
   // local IndexedDB/localStorage cache still works if the table is absent.
+  // Whether this Supabase knows lhc_backgrounds.category yet. Null until a
+  // write has told us; false after one is refused for that column, so the
+  // retry happens once and every later write goes straight to the short row.
+  var _bgCatColumn = null;
+
+  // The one place that decides what a media record's address and path ARE.
+  // Pictures and video are stored with `cloudUrl` / `storagePath`; a document
+  // put in the tray by _lcdIngestTrayFile is stored with `url` / `path`, which
+  // this used to read as nothing at all -- so `bg.storagePath` was undefined,
+  // `bg.cloudUrl || bg.data` was the empty string a document carries, and the
+  // function returned before writing anything. Every PowerPoint anybody added
+  // to the Presentations drawer was therefore on that one device for good,
+  // while its FILE sat in shared Storage the whole time.
+  function _bgShared(bg) {
+    var url = bg.cloudUrl || bg.url ||
+      (typeof bg.data === 'string' && bg.data.indexOf('http') === 0 ? bg.data : '');
+    return { url: url, path: bg.storagePath || bg.path || '' };
+  }
+
   function _sbSaveBackgroundToSupabase(bg) {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb || !bg) return;
-    var url = bg.cloudUrl || bg.data;
+    var where = _bgShared(bg);
     // Only share cloud-backed media - never push a giant base64 data URL.
-    if (!bg.storagePath && (!url || url.indexOf('http') !== 0)) return;
+    if (!where.path && (!where.url || where.url.indexOf('http') !== 0)) return;
     var row = {
       id: bg.id,
       type: bg.type || 'image',
       name: bg.name || '',
-      url: url,
-      storage_path: bg.storagePath || '',
+      url: where.url,
+      storage_path: where.path,
       updated_at: new Date().toISOString()
     };
-    try {
-      sb.from('lhc_backgrounds').upsert(row, { onConflict: 'id' }).then(function(res) {
-        if (res && res.error) console.warn('[LHC] background sync error:', res.error.message);
-      });
-    } catch (e) { console.warn('[LHC] background sync failed:', e); }
+    // The drawer travels with the file, or a shared presentation arrives on
+    // the next device with no category and is read as a background -- the one
+    // drawer that cannot render it.
+    function send(withCategory) {
+      var payload = withCategory
+        ? Object.assign({ category: _lcdItemCategory(bg) }, row)
+        : row;
+      try {
+        sb.from('lhc_backgrounds').upsert(payload, { onConflict: 'id' }).then(function(res) {
+          if (!res || !res.error) { if (withCategory) _bgCatColumn = true; return; }
+          // Until migrations/2026-11-22_lhc_backgrounds_category.sql is run the
+          // column is not there, and PostgREST refuses the whole row -- so the
+          // file would be shared with nobody rather than shared without its
+          // drawer. Say it once, then write the short row from here on.
+          if (withCategory && /category/i.test(res.error.message || '')) {
+            if (_bgCatColumn !== false) {
+              console.info('[LHC] lhc_backgrounds.category not present yet — ' +
+                'shared media will arrive in the Backgrounds drawer until ' +
+                'migrations/2026-11-22_lhc_backgrounds_category.sql is run');
+            }
+            _bgCatColumn = false;
+            send(false);
+            return;
+          }
+          console.warn('[LHC] background sync error:', res.error.message);
+        });
+      } catch (e) { console.warn('[LHC] background sync failed:', e); }
+    }
+    send(_bgCatColumn !== false);
   }
 
   function _sbDeleteBackgroundFromSupabase(bgId) {
@@ -45787,29 +46013,49 @@ var WO = (function() {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb) return;
     try {
-      sb.from('lhc_backgrounds').select('id,type,name,url,storage_path').then(function(res) {
-        if (!res || res.error || !res.data) {
-          if (res && res.error) console.warn('[LHC] background load error:', res.error.message);
-          return;
-        }
-        var localIds = savedBackgrounds.map(function(b) { return b.id; });
-        var added = 0;
-        res.data.forEach(function(rowb) {
-          if (localIds.indexOf(rowb.id) === -1) {
-            savedBackgrounds.push({
-              id: rowb.id,
-              type: rowb.type,
-              name: rowb.name,
-              data: rowb.url,
-              cloudUrl: rowb.url,
-              storagePath: rowb.storage_path,
-              storageProvider: 'supabase'
-            });
-            added++;
+      // category is asked for separately, because selecting a column this
+      // Supabase does not have yet fails the WHOLE read -- and the shared
+      // media library is worth more than the drawer it arrives in.
+      function pull(withCategory) {
+        var cols = withCategory ? 'id,type,name,url,storage_path,category' : 'id,type,name,url,storage_path';
+        sb.from('lhc_backgrounds').select(cols).then(function(res) {
+          if (!res || res.error || !res.data) {
+            if (withCategory && res && res.error && /category/i.test(res.error.message || '')) {
+              _bgCatColumn = false;
+              pull(false);
+              return;
+            }
+            if (res && res.error) console.warn('[LHC] background load error:', res.error.message);
+            return;
           }
+          if (withCategory) _bgCatColumn = true;
+          var localIds = savedBackgrounds.map(function(b) { return b.id; });
+          var added = 0;
+          res.data.forEach(function(rowb) {
+            if (localIds.indexOf(rowb.id) === -1) {
+              savedBackgrounds.push({
+                id: rowb.id,
+                type: rowb.type,
+                name: rowb.name,
+                category: rowb.category || '',
+                data: rowb.type === 'document' ? '' : rowb.url,
+                // A document is expanded from `url` and deleted by `path`
+                // (_lcdExpandDocIntoSection, deleteFromSupabase). Restoring it
+                // under cloudUrl/storagePath alone left both undefined, so a
+                // shared deck said "That file has no stored copy to expand".
+                url: rowb.url,
+                path: rowb.storage_path,
+                cloudUrl: rowb.url,
+                storagePath: rowb.storage_path,
+                storageProvider: 'supabase'
+              });
+              added++;
+            }
+          });
+          if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
         });
-        if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
-      });
+      }
+      pull(_bgCatColumn !== false);
     } catch (e) { console.warn('[LHC] background load failed:', e); }
   }
 
@@ -46801,6 +47047,20 @@ var WO = (function() {
   }
 
   function deleteBackground(bgId) {
+    // Read before the filter: what it WAS decides what the toast says, and
+    // a presentation reported as "Background deleted" is the app saying it
+    // did something other than what was asked.
+    var _gone = savedBackgrounds.filter(function(b) { return b.id === bgId; })[0];
+    var _goneDoc = _lcdIsDocItem(_gone);
+    // A removed PRESENTATION takes its file with it. Nothing else references
+    // it -- the pages a section shows are its own images -- and a deck is
+    // ~24MB, which is how Storage once collected 49 orphaned files and
+    // 629MB. Documents only: a picture's file is referenced by slides in
+    // saved orders, so that one is left where it is.
+    if (_goneDoc && _gone && typeof deleteFromSupabase === 'function') {
+      var _p = _gone.path || _gone.storagePath;
+      if (_p) { try { deleteFromSupabase(_p); } catch (e) { console.warn('[LHC] could not delete the stored file:', e); } }
+    }
     savedBackgrounds = savedBackgrounds.filter(function(bg) { return bg.id !== bgId; });
     saveBackgrounds();
 
@@ -46836,7 +47096,7 @@ var WO = (function() {
     if (currentBackground && currentBackground.value === bgId) {
       clearBackground();
     }
-    showToast('Background deleted', 'info');
+    showToast(_goneDoc ? 'Presentation removed from the folder' : 'Background deleted', 'info');
   }
 
   function updateCurrentBackgroundPreview() {
@@ -47283,7 +47543,37 @@ var WO = (function() {
     screen.appendChild(wrap);
   }
 
-  function addSlidesFromFiles(sectionId, files) {
+  // A file this import just uploaded, added to the shared Media Tray folder
+  // (and so to lhc_backgrounds) unless it is already there by path.
+  function _woRememberInFolder(result, fileName) {
+    if (!result || !result.url || !fileName) return;
+    if (!/\.(pptx?|pdf|docx?|key|odp)$/i.test(fileName)) return;   // a picture or a video is not a presentation
+    var already = (savedBackgrounds || []).some(function(b) {
+      return b && (b.path === result.path || b.storagePath === result.path);
+    });
+    if (already) return;
+    var rec = {
+      id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      type: 'document',
+      category: 'presentation',
+      name: String(fileName).substring(0, 40),
+      url: result.url,
+      path: result.path,
+      data: ''
+    };
+    savedBackgrounds.push(rec);
+    if (typeof saveBackgrounds === 'function') saveBackgrounds();
+    if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(rec);
+    if (typeof _lcdRenderMediaTray === 'function') _lcdRenderMediaTray();
+  }
+
+  // opts.fromFolder: this file is already IN the shared folder and is only
+  // being expanded into a section, so it must not be filed again. Without
+  // it, dragging a presentation out of the tray re-uploaded it under a new
+  // storage path and _woRememberInFolder filed that as a second entry --
+  // two identical tiles in the drawer after one drag.
+  function addSlidesFromFiles(sectionId, files, opts) {
+    opts = opts || {};
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
@@ -47329,6 +47619,13 @@ var WO = (function() {
                 name: _capFileName
               });
             }
+            // One folder, three ways in. A deck imported straight into a
+            // section used to exist only inside that order, so next month
+            // nobody could find it and the same file was uploaded again --
+            // which is how Storage filled with copies. Registering it here
+            // means the burger, the tray and a drag all put a file in the
+            // same shared place.
+            if (!opts.fromFolder) _woRememberInFolder(result, _capFileName);
             if (_isPptx) {
               // result.path travels with it so the upload can be deleted once
               // Google has the deck -- see the cleanup in _onConverted.
@@ -47469,6 +47766,35 @@ var WO = (function() {
   var _lcdImportCancelled = {};
   var _lcdImportRetry = {};
 
+  // How wide a rendered page should be, in real pixels. 1920 is the church's
+  // projector; going beyond it buys nothing on the wall and costs memory and
+  // upload time per page.
+  var _LCD_PAGE_WIDTH = 1920;
+  // How many pages may be in the air at once. pdf.js decodes serially, so this
+  // is about how many canvases exist together, not about speed.
+  var _LCD_PAGE_POOL = 3;
+  // 0.92 was chosen for a 1440px raster. At 1920 the same artefacts are half
+  // the size on the wall, so this is left where it is: raising it grows every
+  // page's upload for a difference nobody can see from a pew.
+  var _LCD_PAGE_QUALITY = 0.92;
+
+  // Pure enough to reason about: the scale that makes this page come out
+  // _LCD_PAGE_WIDTH wide, held between 1.5 (a page already bigger than the
+  // projector) and 4 (a tiny page, where the old fixed 2 was too small and an
+  // unbounded scale would be a 10,000px canvas).
+  function _lcdScaleForWidth(pageWidthPt, targetPx) {
+    if (!(pageWidthPt > 0)) return 2;
+    return Math.max(1.5, Math.min(4, targetPx / pageWidthPt));
+  }
+
+  function _lcdPageScale(page) {
+    try {
+      return _lcdScaleForWidth(page.getViewport({ scale: 1 }).width, _LCD_PAGE_WIDTH);
+    } catch (e) {
+      return 2;
+    }
+  }
+
   function _lcdImportEl(sectionId) {
     var id = sectionId + '-pptx-loading';
     var el = document.getElementById(id);
@@ -47564,63 +47890,89 @@ var WO = (function() {
           done: 0, total: totalPages, cancellable: true
         });
 
-        // Process each page
-        for (var pageNum = 1; pageNum <= totalPages; pageNum++) {
-          (function(pn) {
-            pdf.getPage(pn).then(function(page) {
-              // Cancelled: stop before doing the expensive part. Pages already
-              // in flight finish harmlessly -- nothing is added to the deck.
+        // Render the pages A FEW AT A TIME, each at the projector's own
+        // resolution.
+        //
+        // It used to start every page at once at a fixed scale of 2. Both
+        // halves of that were wrong, and they were wrong together:
+        //
+        //  - A 16:9 deck exports as a 720x405pt PDF page, so scale 2 is a
+        //    1440x810 raster. On the church's 1080p projector that is then
+        //    stretched 1.33x, which is why imported slides look softer than
+        //    the same deck shown from PowerPoint. _lcdPageScale asks for the
+        //    real pixels instead.
+        //  - Starting all of them at once allocated one canvas per page and
+        //    held every one until the last finished. At the sharper size a
+        //    30-page deck would be ~250MB of canvas in the air at once, which
+        //    is how a tab dies mid-import on the laptop that runs the service.
+        //
+        // So: a small pool, and each canvas released the moment its JPEG is
+        // out. pdf.js serialises the decoding anyway, so the pool costs no
+        // wall-clock time -- it just stops the memory from piling up.
+        var _nextPage = 1;
+        function _renderNext() {
+          if (_lcdImportCancelled[sectionId]) return;
+          if (_nextPage > totalPages) return;
+          var pn = _nextPage++;
+          pdf.getPage(pn).then(function(page) {
+            // Cancelled: stop before doing the expensive part. Pages already
+            // in flight finish harmlessly -- nothing is added to the deck.
+            if (_lcdImportCancelled[sectionId]) return;
+            var viewport = page.getViewport({ scale: _lcdPageScale(page) });
+
+            var canvas = document.createElement('canvas');
+            var context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            return page.render({ canvasContext: context, viewport: viewport }).promise.then(function() {
+              var imageData = canvas.toDataURL('image/jpeg', _LCD_PAGE_QUALITY);
+              // Let the backing store go now rather than at the end of the
+              // import: on iOS and on low-memory laptops the canvas is the
+              // expensive part, not the JPEG.
+              canvas.width = canvas.height = 0;
+              if (typeof page.cleanup === 'function') { try { page.cleanup(); } catch (e) {} }
+
+              pageImages[pn - 1] = { type: 'image', data: imageData, name: 'Page ' + pn };
+
+              pagesProcessed++;
+              // Cancelled mid-import: stop reporting and keep the partly
+              // rendered pages out of the deck entirely, so the operator
+              // never ends up with half a presentation they did not ask for.
               if (_lcdImportCancelled[sectionId]) return;
-              // Render at 2x scale for better quality
-              var scale = 2;
-              var viewport = page.getViewport({ scale: scale });
-
-              // Create canvas to render page
-              var canvas = document.createElement('canvas');
-              var context = canvas.getContext('2d');
-              canvas.width = viewport.width;
-              canvas.height = viewport.height;
-
-              var renderContext = {
-                canvasContext: context,
-                viewport: viewport
-              };
-
-              page.render(renderContext).promise.then(function() {
-                // Convert canvas to image data URL
-                var imageData = canvas.toDataURL('image/jpeg', 0.92);
-
-                pageImages[pn - 1] = {
-                  type: 'image',
-                  data: imageData,
-                  name: 'Page ' + pn
-                };
-
-                pagesProcessed++;
-                // Cancelled mid-import: stop reporting and keep the partly
-                // rendered pages out of the deck entirely, so the operator
-                // never ends up with half a presentation they did not ask for.
-                if (_lcdImportCancelled[sectionId]) return;
-                _lcdImportSet(sectionId, {
-                  file: _impName, stage: 'Converting slides ' + pagesProcessed + ' of ' + totalPages,
-                  done: pagesProcessed, total: totalPages, cancellable: true
-                });
-                if (pagesProcessed === totalPages) {
-                  // All pages processed, add to slides. pageImages is indexed
-                  // by page number, so the original order survives the fact
-                  // that the render promises settle out of order.
-                  pageImages.forEach(function(img) {
-                    if (img) {
-                      currentSermonSlides[sectionId].slides.push(img);
-                    }
-                  });
-                  _lcdImportClear(sectionId);
-                  if (callback) callback();
-                }
+              _lcdImportSet(sectionId, {
+                file: _impName, stage: 'Converting slides ' + pagesProcessed + ' of ' + totalPages,
+                done: pagesProcessed, total: totalPages, cancellable: true
               });
+              if (pagesProcessed === totalPages) {
+                // pageImages is indexed by page number, so the original order
+                // survives the fact that the renders settle out of order.
+                pageImages.forEach(function(img) {
+                  if (img) currentSermonSlides[sectionId].slides.push(img);
+                });
+                _lcdImportClear(sectionId);
+                if (callback) callback();
+                return;
+              }
+              _renderNext();
             });
-          })(pageNum);
+          }).catch(function(e) {
+            console.warn('[PPT] page ' + pn + ' failed to render:', e);
+            // One bad page must not strand the whole import: count it and
+            // carry on, and the deck comes back with the pages that did read.
+            pagesProcessed++;
+            if (pagesProcessed === totalPages) {
+              pageImages.forEach(function(img) {
+                if (img) currentSermonSlides[sectionId].slides.push(img);
+              });
+              _lcdImportClear(sectionId);
+              if (callback) callback();
+              return;
+            }
+            _renderNext();
+          });
         }
+        for (var _p = 0; _p < Math.min(_LCD_PAGE_POOL, totalPages); _p++) _renderNext();
       }).catch(function(err) {
         console.error('Error loading PDF:', err);
         _lcdImportError(sectionId,
@@ -47679,6 +48031,7 @@ var WO = (function() {
         '<i class="fa-solid fa-file-powerpoint"></i>' +
         '<span class="wo-ppt-banner-title">' + esc(displayName) + '</span>' +
         '<span class="wo-ppt-banner-count">' + count + ' slide' + (count === 1 ? '' : 's') + '</span>' +
+        _pptPlayChip(sectionId, slidesData) +
         '<button class="wo-ppt-banner-btn" onclick="event.stopPropagation();WO.openSermonRemote(\'' + esc(sectionId) + '\')" title="Remote"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
         '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removePptFile(\'' + esc(sectionId) + '\')" title="Remove the whole presentation"><i class="fa-solid fa-trash"></i></button>' +
       '</div>';
@@ -47788,8 +48141,26 @@ var WO = (function() {
     var data = currentSermonSlides[sectionId];
     var n = (data && data.slides) ? data.slides.length : 0;
     var name = (data && data.fileName) ? data.fileName : 'this presentation';
-    if (!silent && n > 1 &&
-        !confirm('Remove “' + name + '” and all ' + n + ' of its slides from this section?')) return;
+    if (!silent && n > 1) {
+      window.lhcAskToast({
+        title: 'Take this presentation out of the section?',
+        detail: name,
+        message: 'All ' + n + ' of its slides go with it. The file stays in the presentation ' +
+                 'folder, so it can be added again, and Undo puts it back.',
+        icon: 'fa-file-powerpoint',
+        okLabel: 'Remove',
+        cancelLabel: 'Keep it'
+      }).then(function(yes) { if (yes) _removePptNow(sectionId, containerId, silent); });
+      return;
+    }
+    _removePptNow(sectionId, containerId, silent);
+  }
+
+  // The removal itself, split out so the question above can be asked
+  // without blocking the page the way confirm() did.
+  function _removePptNow(sectionId, containerId, silent) {
+    var data = currentSermonSlides[sectionId];
+    var name = (data && data.fileName) ? data.fileName : 'This presentation';
     if (typeof _lcdPushUndo === 'function' && !silent) _lcdPushUndo();
     // The stored slides go too. Removing only the element left the data behind,
     // so the next render put the whole presentation straight back.
@@ -47820,12 +48191,238 @@ var WO = (function() {
       (slide && slide.pageId ? '&slide=id.' + slide.pageId : '');
   }
 
+  // HOW A DECK IS PLAYED. 'images' is the pipeline everything else in this
+  // file assumes: CloudConvert -> PDF -> pdf.js -> JPEG, which is reliable,
+  // works offline, and cannot animate because a flat picture cannot. The other
+  // two hand the real thing to something that CAN animate it:
+  //   'live'  -- the stored .pptx through Microsoft's own viewer, which plays
+  //              PowerPoint's transitions and entrance effects;
+  //   'link'  -- a Canva / Google Slides / Office share link, or an MP4, which
+  //              plays whatever that source plays. Canva's own PPTX export
+  //              flattens most of its animations, so for a Canva deck a share
+  //              link or an MP4 export is the faithful route, not the .pptx.
+  // Pictures are converted and kept WHATEVER the mode, because they are the
+  // only thing that still works when the internet drops mid-service.
+  var _PPT_MODES = { images: 1, live: 1, link: 1 };
+
+  function _pptPlayMode(deck) {
+    var m = deck && deck.playMode;
+    return (m && _PPT_MODES[m]) ? m : 'images';
+  }
+
+  // Microsoft's viewer, which fetches the file itself -- so the URL has to be
+  // publicly readable, which Supabase storage URLs are. view.aspx rather than
+  // embed.aspx: embed renders slides as flat pictures, and the whole point
+  // here is the slideshow that view.aspx offers.
+  function _pptOfficeUrl(fileUrl) {
+    if (!fileUrl || String(fileUrl).indexOf('http') !== 0) return '';
+    return 'https://view.officeapps.live.com/op/view.aspx?src=' + encodeURIComponent(fileUrl);
+  }
+
+  // The .pptx behind a deck. Decks imported before the original was kept
+  // have no sourceUrl of their own, and that is every deck already in a
+  // service -- but #522 files every upload in the shared folder, so the file
+  // is there under its own name. Matched on the name the deck was imported
+  // under, which is what the folder stores it as.
+  //
+  // `name` is compared, never the storage path: the path carries the upload's
+  // timestamp, so the same deck uploaded twice has two paths and one name.
+  function _pptSourceUrlFor(deck) {
+    if (!deck) return '';
+    if (deck.sourceUrl) return deck.sourceUrl;
+    var want = String(deck.fileName || '').trim().toLowerCase();
+    if (!want) return '';
+    var hit = null;
+    (savedBackgrounds || []).forEach(function(b) {
+      if (hit || !b || typeof _lcdIsDocItem !== 'function' || !_lcdIsDocItem(b)) return;
+      var n = String(b.name || b.fileName || '').trim().toLowerCase();
+      if (n && n === want && _bgShared(b).url) hit = _bgShared(b).url;
+    });
+    return hit || '';
+  }
+
+  // Which engine a live deck will use, so the operator can be told and the
+  // projection can be driven the right way. Pure.
+  //   'slides' -- the deck has been converted to Google Slides. Preferred:
+  //               rm=minimal means NO third-party chrome on the wall, which
+  //               is the whole reason to want it, and Slides is addressable
+  //               per slide, so the rail still drives the deck.
+  //   'office' -- Microsoft's viewer, which renders the .pptx as it is but
+  //               shows its own banner until Start Slide Show is pressed.
+  //   ''       -- nothing to play.
+  // Google CONVERTS a .pptx (a lossy import); Microsoft RENDERS it. So Slides
+  // is the better experience and not necessarily the better fidelity.
+  function _pptLiveEngine(deck) {
+    if (!deck || _pptPlayMode(deck) !== 'live') return '';
+    if (deck.googleSlidesId) return 'slides';
+    return _pptSourceUrlFor(deck) ? 'office' : '';
+  }
+
+  // What to put on the wall, or '' when this mode has nothing to play. The
+  // slide is optional: Google Slides takes a page, Microsoft's viewer does not
+  // (its slideshow is client-side state with no URL of its own).
+  function _pptLiveSrc(deck, slide) {
+    if (!deck) return '';
+    var mode = _pptPlayMode(deck);
+    if (mode === 'link') return deck.liveUrl || '';
+    if (mode !== 'live') return '';
+    if (_pptLiveEngine(deck) === 'slides') return _pptSlideEmbedUrl(deck, slide) || '';
+    return _pptOfficeUrl(_pptSourceUrlFor(deck));
+  }
+
+  // Every live mode is somebody else's server, so none of them can work with
+  // the internet down. LHC_Net watches what actually happens to our own reads
+  // (gotcha 88) rather than asking navigator.onLine, which answers true on
+  // church wi-fi with a dead uplink.
+  function _pptLiveOk() {
+    try { return !(window.LHC_Net && window.LHC_Net.offline()); } catch (e) { return true; }
+  }
+
+  // A presentation page drawn as an ordinary slide box. The layout in use
+  // renders .wo-ppt-page; .wo-ppt-slide is the one it replaced, still read so
+  // an order saved under it keeps working. A class test and nothing else, so
+  // the pure _wofsKeys can use it.
+  function _isPptPageEl(el) {
+    return !!(el && el.nodeType === 1 && el.classList &&
+      (el.classList.contains('wo-ppt-page') || el.classList.contains('wo-ppt-slide')));
+  }
+
+  // ...and WHICH page it is. Three projection paths each asked this question
+  // for themselves and all three asked it of .wo-ppt-slide alone, so every
+  // deck in the current layout projected an empty slide: selectSlideBox (the
+  // arrow keys walking into a deck), _doFullscreenOverlay (where Project
+  // starts) and _wofsRender (what the presenter overlay draws). One reader
+  // now, so they cannot drift apart again.
+  function _pptPageAt(el) {
+    if (!_isPptPageEl(el)) return null;
+    var sid = el.getAttribute('data-ppt-section') || el.getAttribute('data-section');
+    var idx = parseInt(el.getAttribute('data-ppt-idx'), 10);
+    if (!sid || isNaN(idx)) return null;
+    var data = currentSermonSlides[sid];
+    var slide = data && data.slides && data.slides[idx];
+    return slide ? { sectionId: sid, idx: idx, data: data, slide: slide } : null;
+  }
+
   // The filmstrip widget owns its own main view, nav counter and active
   // thumbnail, so every path that moves the current page has to move all three.
   // projectPptPage() did it inline, which left local-slide navigation behind:
   // that goes through updateLocalSlideDisplay(), which only knows the
   // per-slide-box layout this widget replaced, so arrowing through a deck
   // advanced the projection while the widget stayed frozen on page 1.
+  // "Plays as: Pictures". Named on the banner rather than hidden in a menu,
+  // because which one is in force decides what the congregation sees and the
+  // operator should not have to go looking for it.
+  var _PPT_MODE_LABEL = { images: 'Pictures', live: 'Live, with animations', link: 'Link or video' };
+
+  function _pptPlayChip(sectionId, deck) {
+    var mode = _pptPlayMode(deck);
+    var live = mode !== 'images';
+    return '<button class="wo-ppt-play-chip' + (live ? ' is-live' : '') + '"' +
+      ' onclick="event.stopPropagation();WO.pptPlayMenu(\'' + escapeJsArg(sectionId) + '\',this)"' +
+      ' title="How this presentation is played">' +
+      '<i class="fa-solid ' + (live ? 'fa-wand-magic-sparkles' : 'fa-images') + '"></i>' +
+      '<span>' + escapeHtml(_PPT_MODE_LABEL[mode]) + '</span>' +
+      '<i class="fa-solid fa-caret-down"></i></button>';
+  }
+
+  // The menu the chip opens. On <body> and fixed, placed from the button's
+  // own rect: inside the schedule it would be clipped by the section's
+  // overflow, which is what happened to Add Item's menu (gotcha 103).
+  function pptPlayMenu(sectionId, btn) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    var old = document.getElementById('woPptPlayMenu');
+    if (old) old.remove();
+    var mode = _pptPlayMode(deck);
+    // Asked of a copy forced to 'live', so the answer is what WOULD happen if
+    // this row were chosen rather than what happens now.
+    var engine = _pptLiveEngine({ playMode: 'live', googleSlidesId: deck.googleSlidesId, fileName: deck.fileName, sourceUrl: deck.sourceUrl });
+    var liveReady = !!engine;
+    var liveWhy = engine === 'slides'
+      ? 'Plays as Google Slides: no Microsoft or Google bar on the screen, and the rail still moves it slide by slide.'
+      : (engine === 'office'
+        ? 'Plays the PowerPoint file itself, through Microsoft\'s viewer. You press Start Slide Show on the projector once.'
+        : 'Not available: this deck was added before the original file was kept, and it is not in the folder either. Add it again to use this.');
+    var rows = [
+      { m: 'images', icon: 'fa-images', title: 'Pictures',
+        sub: 'Every slide as an image. Works offline. No animations.' },
+      { m: 'live', icon: 'fa-wand-magic-sparkles', title: 'Live, with animations',
+        sub: liveWhy, off: !liveReady },
+      { m: 'link', icon: 'fa-link', title: 'Link or video',
+        sub: 'A Canva or Google Slides link, or an MP4 export. Best for Canva.' }
+    ];
+    var html = '<div class="wo-pptplay-card">' +
+      '<div class="wo-pptplay-head">How this presentation plays</div>';
+    rows.forEach(function(r) {
+      html += '<button class="wo-pptplay-row' + (r.m === mode ? ' is-on' : '') + (r.off ? ' is-off' : '') + '"' +
+        (r.off ? ' disabled' : ' onclick="WO.pptSetPlayMode(\'' + escapeJsArg(sectionId) + '\',\'' + escapeJsArg(r.m) + '\')"') + '>' +
+        '<i class="fa-solid ' + r.icon + '"></i>' +
+        '<span class="wo-pptplay-t">' + escapeHtml(r.title) + '</span>' +
+        '<span class="wo-pptplay-s">' + escapeHtml(r.sub) + '</span>' +
+        (r.m === mode ? '<i class="fa-solid fa-check wo-pptplay-tick"></i>' : '') +
+        '</button>';
+    });
+    html += '<div class="wo-pptplay-foot">The pictures are kept whatever you choose, and go up by ' +
+            'themselves if the internet is down.</div></div>';
+    var menu = document.createElement('div');
+    menu.id = 'woPptPlayMenu';
+    menu.className = 'wo-pptplay-menu';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    var r = btn.getBoundingClientRect();
+    var w = 320, h = menu.offsetHeight || 260;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    menu.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 6) + 'px';
+    function away(e) { if (!menu.contains(e.target)) close(); }
+    function esc(e) { if (e.key === 'Escape') close(); }
+    function close() {
+      menu.remove();
+      document.removeEventListener('mousedown', away, true);
+      document.removeEventListener('keydown', esc, true);
+    }
+    menu.__close = close;
+    setTimeout(function() {
+      document.addEventListener('mousedown', away, true);
+      document.addEventListener('keydown', esc, true);
+    }, 0);
+  }
+
+  function pptSetPlayMode(sectionId, mode) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    var menu = document.getElementById('woPptPlayMenu');
+    if (menu && menu.__close) menu.__close();
+    if (mode === 'link') { _pptAskLiveUrl(sectionId); return; }
+    deck.playMode = mode;
+    renderLocalSlides(sectionId);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast(mode === 'live'
+      ? 'Plays with its animations. Project it, then press Start Slide Show on the projector.'
+      : 'This presentation will play as pictures.', 'success');
+  }
+
+  // A Canva / Google Slides / Office link, or an MP4. Asked for rather than
+  // guessed at: a Canva PPTX export is not the same thing as a Canva link, and
+  // only the link carries Canva's own animations.
+  function _pptAskLiveUrl(sectionId) {
+    var deck = currentSermonSlides[sectionId];
+    if (!deck) return;
+    // customPrompt answers a PROMISE here, not a callback.
+    window.customPrompt('Link or video',
+      'Paste a Canva or Google Slides share link, or the address of an MP4 export. ' +
+      'It is shown full screen, and plays whatever that link plays.',
+      deck.liveUrl || '').then(function(val) {
+        var url = (val || '').trim();
+        if (!url) return;
+        if (url.indexOf('http') !== 0) { showToast('That does not look like a link', 'warning'); return; }
+        deck.liveUrl = url;
+        deck.playMode = 'link';
+        renderLocalSlides(sectionId);
+        if (typeof autoSaveOrder === 'function') autoSaveOrder();
+        showToast('This presentation will play from that link.', 'success');
+      });
+  }
+
   function _updatePptWidgetUI(sectionId, idx) {
     var slidesData = currentSermonSlides[sectionId];
     if (!slidesData) return null;
@@ -47885,6 +48482,38 @@ var WO = (function() {
   }
 
   // Called when user clicks a slide thumbnail in the filmstrip
+  // Put the deck itself on the wall, animations and all. Returns false when
+  // it cannot, so every caller falls back to the pictures rather than leaving
+  // the congregation looking at nothing.
+  function _pptLiveProject(sectionId, idx) {
+    var deck = currentSermonSlides[sectionId];
+    var slide = deck && deck.slides && typeof idx === 'number' ? deck.slides[idx] : null;
+    var liveSrc = _pptLiveSrc(deck, slide);
+    if (!liveSrc) return false;
+    if (!_pptLiveOk()) {
+      if (!deck.__offlineSaid) {
+        deck.__offlineSaid = true;
+        showToast('No internet, so this presentation is showing as pictures.', 'warning', { duration: 6000 });
+      }
+      return false;
+    }
+    deck.__offlineSaid = false;
+    sendToProjectionWindow({ type: 'pptLive', src: liveSrc });
+    // Microsoft's viewer carries its own banner and toolbar until somebody
+    // presses Start Slide Show, and this is the screen the room can see
+    // (gotcha 75). The app cannot press it: the frame is another origin, so
+    // no script of ours can reach inside it. Said once per deck per session,
+    // with Blank offered, which is the cover while it is set up.
+    // Only Microsoft's viewer needs this: Google Slides is already showing
+    // the slide, with no chrome of its own and nothing to press.
+    if (!deck.__liveSaid && _pptLiveEngine(deck) === 'office') {
+      deck.__liveSaid = true;
+      showToast('Press Start Slide Show on the projector to play the animations. ' +
+                'Use Blank while you set it up.', 'info', { duration: 9000 });
+    }
+    return true;
+  }
+
   function projectPptPage(sectionId, idx, thumbEl) {
     var slidesData = currentSermonSlides[sectionId];
     if (!slidesData) return;
@@ -47894,6 +48523,16 @@ var WO = (function() {
     _pptActiveSection = sectionId;
     // A presentation page is not editable -- put the Slide Editor away.
     if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
+
+    // A deck set to play live goes up whole, animations and all, and the
+    // operator drives it inside the viewer. Pictures are still what the rail
+    // and the preview show, and still what goes up if this cannot.
+    if (_pptPlayMode(slidesData) !== 'images' && _pptLiveProject(sectionId, idx)) {
+      _updatePptWidgetUI(sectionId, idx);
+      _selectedPptContainer = document.querySelector('.wo-ppt-page[data-ppt-section="' + sectionId + '"][data-ppt-idx="' + idx + '"]');
+      activeNavigationMode = 'ppt-local';
+      return;
+    }
 
     var slide = slidesData.slides[idx];
     var url = _pptSlideEmbedUrl(slidesData, slide);
@@ -47985,6 +48624,11 @@ var WO = (function() {
           currentSermonSlides[sectionId] = { slides: [], currentIndex: 0, fileName: fileName, supabaseFiles: [] };
         }
         currentSermonSlides[sectionId].fileName = fileName;
+        // The original file, kept so the deck can be played live later. It was
+        // thrown away here: the pictures were all that survived the import, so
+        // there was nothing left to hand a viewer that could animate it.
+        currentSermonSlides[sectionId].sourceUrl = supabaseUrl || '';
+        currentSermonSlides[sectionId].sourcePath = storagePath || '';
         extractPdfPages(pdfBlob, sectionId, function() {
           renderLocalSlides(sectionId);
           showToast('Presentation converted — slide navigation now syncs with the projection preview.', 'success');
@@ -48292,10 +48936,14 @@ var WO = (function() {
       var bgEl = $('woPreviewBg');
       if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
       screen.style.background = '#000';
-      screen.style.padding = '0';
+      // Put the padding BACK, rather than zeroing it inline as this did: the
+      // page is laid OVER the box now (lcd-slide-bleed), and four call sites
+      // zeroed this padding while none ever restored it, so the first text
+      // slide after a deck lost its margins in the preview too.
+      screen.style.padding = '';
 
       var img = document.createElement('img');
-      img.className = 'wo-preview-slide-img';
+      img.className = 'wo-preview-slide-img lcd-slide-bleed';
       img.src = slide.data;
       img.alt = 'Slide ' + (slideIndex + 1);
       screen.appendChild(img);
@@ -48750,10 +49398,24 @@ var WO = (function() {
       if (typeof _applyBarrierToEl === 'function') _applyBarrierToEl(contentEl, data.barrier);
       contentEl.innerHTML = '<div class="wo-preview-inner">' + data.text + '</div>';
       box.appendChild(contentEl);
+    } else if (data.type === 'pptLive') {
+      // The operator's own copy of what the congregation has. Muted and with
+      // no controls: this panel is for watching, and two players sounding at
+      // once in the same room is worse than none.
+      clearContent();
+      var liveBox = document.createElement('div');
+      liveBox.className = 'lcd-program-live';
+      liveBox.innerHTML = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(data.src)
+        ? '<video muted playsinline autoplay><source src="' + escapeHtml(data.src) + '"></video>'
+        : '<iframe src="' + escapeHtml(data.src) + '" allow="autoplay"></iframe>';
+      box.appendChild(liveBox);
     } else if (data.type === 'slide') {
       clearContent();
       var img = document.createElement('img');
-      img.className = 'wo-preview-slide-img';
+      // Full bleed, like the wall. This box is padded 30px for words; measured
+      // at 1158px, that inset drew a 1920x1080 page at 246x139 inside a
+      // 356x200 box -- 47.9% of it, a small card in the middle of the frame.
+      img.className = 'wo-preview-slide-img lcd-slide-bleed';
       img.src = data.data;
       box.appendChild(img);
     } else if (data.type === 'blank') {
@@ -48815,7 +49477,24 @@ var WO = (function() {
       // left and the rest off the right -- the word simply gone from the wall.
       // The old shrink-to-fit hid this by making the whole slide smaller.
       '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
-      '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
+      // A presentation slide gets a layer of its OWN, outside
+      // .projection-content and so outside the safe-zone barrier.
+      //
+      // It used to be drawn inside that box, which is inset by the barrier --
+      // 5% a side by default. A 16:9 deck on a 16:9 projector therefore came
+      // out at 90% of the screen with a black border all round, which is what
+      // "the slides seem to be reduced in size" is. The barrier exists to keep
+      // WORDS out of a livestream overlay's corner; a PowerPoint slide is
+      // already laid out for a whole screen and must not be inset again.
+      //
+      // Below #projBlank (99999) so Blank still covers it, above the
+      // background (0) and the words (1).
+      '#projSlide { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; display: none; align-items: center; justify-content: center; background: #000; }' +
+      '#projSlide img { width: 100%; height: 100%; object-fit: contain; display: block; }' +
+      // A live deck takes the same full-bleed layer as a slide picture, for the
+      // same reason: inside .projection-content it would be inset by the
+      // safe-zone barrier and clipped (gotcha 113).
+      '#projSlide iframe, #projSlide video { width: 100%; height: 100%; border: 0; display: block; background: #000; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
       '.projection-video { width: 100vw; height: 100vh; }' +
       '.projection-video iframe, .projection-video video { width: 100%; height: 100%; border: none; }' +
@@ -48824,6 +49503,7 @@ var WO = (function() {
       '#fsHintBtn:hover { background: rgba(255,255,255,0.15); color: #fff; }' +
       '</style></head><body>' +
       '<div id="projBackground"></div>' +
+      '<div id="projSlide"></div>' +
       '<div class="projection-content" id="projContent">' +
       '<div class="projection-ready">Waiting for content...</div>' +
       '</div>' +
@@ -48930,6 +49610,42 @@ var WO = (function() {
       '  var bgEl = document.getElementById("projBackground");' +
       '  if (!content) return;' +
       '  if (data.type === "text" || data.type === "slide" || data.type === "video") { var _ov = document.getElementById("fsOverlay"); if (_ov) _ov.remove(); }' +
+      '  function _showProjSlide(src) {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    el.innerHTML = "<img src=\\"" + src + "\\" alt=\\"Slide\\">";' +
+      '    el.style.display = "flex";' +
+      '  }' +
+      '  function _showProjLive(src) {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    if (el.getAttribute("data-live") === src) { el.style.display = "flex"; return; }' +
+      '    el.setAttribute("data-live", src);' +
+      '    var _low = String(src).toLowerCase().split("?")[0];' +
+      '    var _vid = [".mp4", ".webm", ".ogg", ".mov"].some(function(x) {' +
+      '      return _low.lastIndexOf(x) === _low.length - x.length;' +
+      '    });' +
+      '    el.innerHTML = "";' +
+      '    if (_vid) {' +
+      '      var _v = document.createElement("video");' +
+      '      _v.autoplay = true; _v.controls = true; _v.playsInline = true; _v.src = src;' +
+      '      el.appendChild(_v);' +
+      '    } else {' +
+      '      var _f = document.createElement("iframe");' +
+      '      _f.src = src;' +
+      '      _f.setAttribute("allowfullscreen", "");' +
+      '      _f.setAttribute("allow", "autoplay; fullscreen");' +
+      '      el.appendChild(_f);' +
+      '    }' +
+      '    el.style.display = "flex";' +
+      '  }' +
+      '  function _hideProjSlide() {' +
+      '    var el = document.getElementById("projSlide");' +
+      '    if (!el) return;' +
+      '    el.style.display = "none";' +
+      '    el.innerHTML = "";' +
+      '    el.removeAttribute("data-live");' +
+      '  }' +
       '  function _applyBarrierToContent(b) {' +
       '    if (!b) return;' +
       '    if (typeof b === "object") {' +
@@ -48948,6 +49664,7 @@ var WO = (function() {
       '    _applyBarrierToContent(data.barrier);' +
       '    _fitProjectionText();' +
       '  } else if (data.type === "text") {' +
+      '    _hideProjSlide();' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
       '    style += "font-size:" + (s.fontSize || 6.5) + "vw;";' +
@@ -48959,11 +49676,18 @@ var WO = (function() {
       '    if (data.barrier) { _applyBarrierToContent(data.barrier); }' +
       '    if (bgEl) bgEl.style.display = "block";' +
       '    _fitProjectionText();' +
-      '  } else if (data.type === "slide") {' +
-      '    content.innerHTML = "<img class=\\"projection-slide\\" src=\\"" + data.data + "\\" alt=\\"Slide\\">";' +
+      '  } else if (data.type === "pptLive") {' +
+      '    content.innerHTML = "";' +
       '    content.style.padding = "0";' +
+      '    _showProjLive(data.src);' +
+      '    if (bgEl) bgEl.style.display = "none";' +
+      '  } else if (data.type === "slide") {' +
+      '    content.innerHTML = "";' +
+      '    content.style.padding = "0";' +
+      '    _showProjSlide(data.data);' +
       '    if (bgEl) bgEl.style.display = "none";' +
       '  } else if (data.type === "video") {' +
+      '    _hideProjSlide();' +
       '    content.style.padding = "0";' +
       '    if (bgEl) bgEl.style.display = "none";' +
       '    if (data.videoType === "youtube") {' +
@@ -48981,6 +49705,7 @@ var WO = (function() {
       '      }' +
       '    }' +
       '  } else if (data.type === "clear") {' +
+      '    _hideProjSlide();' +
       '    content.innerHTML = "<div class=\\"projection-ready\\">Waiting for content...</div>";' +
       '    content.style.padding = "60px";' +
       '  } else if (data.type === "blank") {' +
@@ -49049,9 +49774,13 @@ var WO = (function() {
       '    window._textSettings = s;' +
       '  } else if (data.type === "iframeEmbed") {' +
       '    var _ov2 = document.getElementById("fsOverlay"); if (_ov2) _ov2.remove();' +
+      // Through the full-bleed layer, not into .projection-content: that box
+      // is inset by the safe-zone barrier and clips what it holds, so an
+      // embedded deck lost its outer 5% on every edge (gotcha 113).
+      '    content.innerHTML = "";' +
       '    content.style.padding = "0";' +
+      '    _showProjLive(data.src);' +
       '    if (bgEl) bgEl.style.display = "none";' +
-      '    content.innerHTML = "<div style=\\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;\\"><iframe src=\\"" + data.src + "\\" style=\\"width:100%;height:100%;border:none;\\" allowfullscreen allow=\\"autoplay; fullscreen\\"></iframe></div>";' +
       '  }' +
       '};' +
       // Also keep message listener as fallback
@@ -91452,9 +92181,13 @@ var WO = (function() {
     function store(rec) {
       savedBackgrounds.push(rec);
       saveBackgrounds();
+      // saveBackgrounds() shares a picture only as a side effect of migrating
+      // its base64 to Storage, and a document has no base64 to migrate -- it
+      // was uploaded already. Share it here, which is the only path it has.
+      if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(rec);
       if (typeof renderBackgroundLibrary === 'function') renderBackgroundLibrary();
       _lcdRenderMediaTray();
-      showToast('“' + rec.name + '” added', 'success');
+      showToast('“' + rec.name + '” added — everyone can use it now', 'success');
     }
 
     if (mediaType === 'document') {
@@ -91766,21 +92499,26 @@ var WO = (function() {
     var name = (bg && bg.name) ? bg.name : 'this media';
     // The library is shared, so the prompt has to say what this costs the
     // orders the operator cannot see, not just the one that is open.
+    var isDoc = _lcdIsDocItem(bg);
     _lcdFindMediaUsage(bgId).then(function(use) {
-      var msg = 'Remove ' + name + ' from the media library?\n\n' +
-                'It is shared by every order, so this deletes it for everyone.';
+      // A toast has one paragraph where the browser's dialog took eight
+      // lines. What has to survive the trim: that the library is SHARED,
+      // and what is using the file right now.
+      var msg = 'It is shared by every order, so this removes it for everyone, and it cannot be undone.';
       if (use.slides) {
-        msg += '\n\nIt is currently used on ' + use.slides + ' slide' + (use.slides === 1 ? '' : 's') +
-               ' across ' + use.orders.length + ' order' + (use.orders.length === 1 ? '' : 's') + ':\n' +
-               use.orders.slice(0, 6).map(function(o) {
-                 return '  • ' + o.title + ' (' + o.slides + ')';
-               }).join('\n') +
-               (use.orders.length > 6 ? '\n  • and ' + (use.orders.length - 6) + ' more' : '') +
-               '\n\nThose slides will lose their background.';
+        var where = use.orders.slice(0, 3).map(function(o) { return o.title; }).join(', ') +
+          (use.orders.length > 3 ? ' and ' + (use.orders.length - 3) + ' more' : '');
+        msg = 'Used on ' + use.slides + ' slide' + (use.slides === 1 ? '' : 's') +
+              ' in ' + where + ', which will lose ' + (isDoc ? 'those pages' : 'that background') + '. ' + msg;
       }
-      msg += '\n\nThis cannot be undone.';
-      if (!window.confirm(msg)) return;
-      deleteBackground(bgId);
+      window.lhcAskToast({
+        title: isDoc ? 'Remove this presentation from the folder?' : 'Remove this from the media library?',
+        detail: name,
+        message: msg,
+        icon: isDoc ? 'fa-file-powerpoint' : 'fa-image',
+        okLabel: 'Remove',
+        cancelLabel: 'Keep it'
+      }).then(function(yes) { if (yes) deleteBackground(bgId); });
     });
   }
 
@@ -91999,7 +92737,7 @@ var WO = (function() {
       .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
       .then(function(blob) {
         var file = new File([blob], bg.name || "document", { type: blob.type || "" });
-        addSlidesFromFiles(sectionId, [file]);
+        addSlidesFromFiles(sectionId, [file], { fromFolder: true });
       })
       .catch(function(err) {
         showToast("Could not load “" + bg.name + "”: " + (err && err.message ? err.message : "unknown error"), "error");
@@ -95289,6 +96027,12 @@ var WO = (function() {
   }
 
   function lcdToggleSectionCollapse(sectionId) {
+    // Hold the scroll first, per gotcha 73: rewriting the rail clamps its
+    // scroller to the top and the watcher then reveals the SELECTED row, so
+    // folding a section away from the selection threw the operator back to
+    // whatever is live -- a presentation page most visibly, since a deck is
+    // the longest thing in the rail to fold.
+    if (typeof _lcdRailHoldScroll === 'function') _lcdRailHoldScroll();
     if (_lcdCollapsedSections[sectionId]) delete _lcdCollapsedSections[sectionId];
     else _lcdCollapsedSections[sectionId] = true;
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -95561,28 +96305,40 @@ var WO = (function() {
       }
     }
 
-    // PPT image slide — show slide image in preview instead of text
-    if (box.classList.contains('wo-ppt-slide')) {
-      var pptSid = box.getAttribute('data-section');
-      var pptIdx = parseInt(box.getAttribute('data-ppt-idx'), 10);
-      var pptData = pptSid && currentSermonSlides[pptSid];
-      if (pptData && pptData.slides && pptData.slides[pptIdx]) {
-        pptData.currentIndex = pptIdx;
-        var screen2 = $('woPreviewScreen');
-        if (screen2) {
-          Array.from(screen2.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen2.removeChild(c); });
-          var bg2 = $('woPreviewBg');
-          if (bg2) { bg2.innerHTML = ''; bg2.style.display = 'none'; }
-          screen2.style.background = '#000';
-          screen2.style.padding = '0';
-          var pptImg = document.createElement('img');
-          pptImg.className = 'wo-preview-slide-img';
-          pptImg.src = pptData.slides[pptIdx].data;
-          screen2.appendChild(pptImg);
-        }
-        sendToProjectionWindow({ type: 'slide', data: pptData.slides[pptIdx].data, slideNum: pptIdx + 1, totalSlides: pptData.slides.length });
-        _broadcastSermonState(pptSid);
+    // PPT image slide — show slide image in preview instead of text.
+    // Through _pptPageAt, so a page of the layout actually rendered reaches
+    // this. Asked for .wo-ppt-slide alone, a .wo-ppt-page fell through to the
+    // text branch below, which looks for .wo-slide-line, finds none and
+    // projects a blank: arrowing out of the liturgy and into a sermon deck
+    // put nothing at all on the wall.
+    var _pp = _pptPageAt(box);
+    if (_pp) {
+      // ...and a page has nothing for the Slide Editor to act on, so the
+      // window that was turned back on above goes away again, as it does
+      // when a page is clicked (gotcha 105).
+      if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
+      var pptSid = _pp.sectionId, pptIdx = _pp.idx, pptData = _pp.data;
+      pptData.currentIndex = pptIdx;
+      // Walking into a deck that plays live puts the deck itself up, not the
+      // picture of its first page.
+      if (_pptPlayMode(pptData) !== 'images' && _pptLiveProject(pptSid, pptIdx)) {
+        _updatePptWidgetUI(pptSid, pptIdx);
+        return;
       }
+      var screen2 = $('woPreviewScreen');
+      if (screen2) {
+        Array.from(screen2.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen2.removeChild(c); });
+        var bg2 = $('woPreviewBg');
+        if (bg2) { bg2.innerHTML = ''; bg2.style.display = 'none'; }
+        screen2.style.background = '#000';
+        screen2.style.padding = '';
+        var pptImg = document.createElement('img');
+        pptImg.className = 'wo-preview-slide-img lcd-slide-bleed';
+        pptImg.src = _pp.slide.data;
+        screen2.appendChild(pptImg);
+      }
+      sendToProjectionWindow({ type: 'slide', data: _pp.slide.data, slideNum: pptIdx + 1, totalSlides: pptData.slides.length });
+      _broadcastSermonState(pptSid);
       return;
     }
 
@@ -97570,9 +98326,9 @@ var WO = (function() {
         var bgEl = $('woPreviewBg');
         if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
         screen.style.background = '#000';
-        screen.style.padding = '0';
+        screen.style.padding = '';
         var img = document.createElement('img');
-        img.className = 'wo-preview-slide-img';
+        img.className = 'wo-preview-slide-img lcd-slide-bleed';
         img.src = slidesData.slides[slidesData.currentIndex].data;
         screen.appendChild(img);
       }
@@ -98115,22 +98871,33 @@ var WO = (function() {
   }
 
   function _doFullscreenOverlay() {
-    // Start at the currently selected slide / PPT slide
+    // Start at the currently selected slide / PPT slide.
+    //
+    // Each of the three lookups below answers for one of the three layouts a
+    // presentation has been drawn in, and they are tried in turn rather than
+    // as an if/else chain. That is the whole bug the operator reported: with a
+    // page selected the first branch was ENTERED (mode is 'ppt-local'), found
+    // no { type: 'ppt' } entry -- _buildWofsSlides only makes those for the
+    // legacy .wo-local-slides container, which nothing renders any more -- and
+    // the selectedSlideBox fallback was an `else if`, so it never ran. The
+    // index stayed 0 and Project opened at the top of the liturgy.
     _wofsIdx = 0;
+    var at = -1;
     if (_selectedPptContainer && activeNavigationMode === 'ppt-local') {
-      var sid = _selectedPptContainer.getAttribute('data-section');
+      var sid = _selectedPptContainer.getAttribute('data-ppt-section') ||
+                _selectedPptContainer.getAttribute('data-section');
       var sd = sid && currentSermonSlides[sid];
       var curPptIdx = sd ? sd.currentIndex : 0;
-      // Find first matching PPT item in _wofsSlides
       for (var k = 0; k < _wofsSlides.length; k++) {
         if (_wofsSlides[k].type === 'ppt' && _wofsSlides[k].sectionId === sid && _wofsSlides[k].slideIndex === curPptIdx) {
-          _wofsIdx = k; break;
+          at = k; break;
         }
       }
-    } else if (selectedSlideBox) {
-      var idx = _wofsSlides.indexOf(selectedSlideBox);
-      if (idx >= 0) _wofsIdx = idx;
     }
+    // The current layout: the page is an element of the list in its own right.
+    if (at < 0 && selectedSlideBox) at = _wofsSlides.indexOf(selectedSlideBox);
+    if (at < 0 && _selectedPptContainer) at = _wofsSlides.indexOf(_selectedPptContainer);
+    if (at >= 0) _wofsIdx = at;
 
     var overlay = $('woFullscreenOverlay');
     overlay.classList.add('show');
@@ -98289,11 +99056,12 @@ var WO = (function() {
     clearTimeout(_wofsIndicatorTimer);
 
     // PPT image slide box (individual box approach — same as lyric slides)
-    if (box.nodeType === 1 && box.classList.contains('wo-ppt-slide')) {
-      var pptSid2 = box.getAttribute('data-section');
-      var pptIdx2 = parseInt(box.getAttribute('data-ppt-idx'), 10);
-      var pptD2 = currentSermonSlides[pptSid2];
-      var pptSlide2 = pptD2 && pptD2.slides && pptD2.slides[pptIdx2];
+    var _pp2 = _pptPageAt(box);
+    if (_pp2) {
+      var pptSid2 = _pp2.sectionId;
+      var pptIdx2 = _pp2.idx;
+      var pptD2 = _pp2.data;
+      var pptSlide2 = _pp2.slide;
       var fsOvl2 = $('woFullscreenOverlay');
       var fsCtx2 = $('woFullscreenContent');
       if (fsOvl2) fsOvl2.style.padding = '0';
@@ -98304,7 +99072,10 @@ var WO = (function() {
             '/embed?rm=minimal&start=false&loop=false&slide=id.' + pptSlide2.pageId;
           fsCtx2.innerHTML = '<iframe src="' + gUrl2 + '" style="width:100vw;height:100vh;border:none;display:block;" allowfullscreen allow="autoplay"></iframe>';
         } else {
-          fsCtx2.innerHTML = '<img src="' + pptSlide2.data + '" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="Slide ' + (pptIdx2 + 1) + '">';
+          // width/height rather than max-*: a page smaller than the screen
+          // would otherwise sit at its own size in the middle of it, which is
+          // the "small card" a projector at 1920 shows for a 1280 export.
+          fsCtx2.innerHTML = '<img src="' + pptSlide2.data + '" style="width:100vw;height:100vh;object-fit:contain;display:block;" alt="Slide ' + (pptIdx2 + 1) + '">';
         }
         if (pptD2) pptD2.currentIndex = pptIdx2;
         ind.textContent = (pptIdx2 + 1) + ' / ' + (pptD2 ? pptD2.slides.length : '?');
@@ -98331,7 +99102,7 @@ var WO = (function() {
         fsCtx.innerHTML = '<iframe src="' + gSlideUrl + '" style="width:100vw;height:100vh;border:none;display:block;" allowfullscreen allow="autoplay"></iframe>';
       } else {
         // Fallback: static image
-        fsCtx.innerHTML = '<img src="' + box.data + '" style="max-width:100vw;max-height:100vh;object-fit:contain;display:block;" alt="' + escapeHtml(box.name) + '">';
+        fsCtx.innerHTML = '<img src="' + box.data + '" style="width:100vw;height:100vh;object-fit:contain;display:block;" alt="' + escapeHtml(box.name) + '">';
       }
 
       ind.textContent = (box.slideIndex + 1) + ' / ' + box.total;
@@ -98389,8 +99160,12 @@ var WO = (function() {
     return (list || []).map(function(e) {
       if (!e) return '';
       if (e.type === 'ppt') return 'ppt:' + (e.sectionId || '') + ':' + e.slideIndex;
-      if (e.nodeType === 1 && e.classList && e.classList.contains('wo-ppt-slide')) {
-        return 'ppt:' + (e.getAttribute('data-section') || '') + ':' +
+      // A page carries no data-song-id / data-liturgy-id, so without this it
+      // keyed as 'box::<n>' -- every page in the order sharing the empty key
+      // with every other keyless box, and a rebuild landing on the wrong one.
+      if (_isPptPageEl(e)) {
+        return 'ppt:' + (e.getAttribute('data-ppt-section') ||
+                         e.getAttribute('data-section') || '') + ':' +
                e.getAttribute('data-ppt-idx');
       }
       var k = (e.getAttribute && (e.getAttribute('data-song-id') ||
@@ -98439,6 +99214,18 @@ var WO = (function() {
     _wofsSlides.forEach(function(item, i) {
       var isActive = (i === _wofsIdx);
       var cls = 'wofs-thumb' + (isActive ? ' active' : '');
+      // A presentation page is an element, but it has no .wo-slide-line to
+      // label it with, so it came out as a blank numbered thumb -- nineteen of
+      // them in a row for one sermon deck. The picture is the label, as it
+      // already is for the legacy entries below.
+      var _fp = _pptPageAt(item);
+      if (_fp) {
+        html += '<div class="' + cls + '" onclick="WO.wofsJumpTo(' + i + ')" title="Slide ' + (_fp.idx + 1) + '">' +
+          '<img src="' + escapeHtml(_fp.slide.data || '') + '" alt="Slide ' + (_fp.idx + 1) + '">' +
+          '<div class="wofs-thumb-overlay-num">' + (i + 1) + '</div>' +
+        '</div>';
+        return;
+      }
       if (item && item.nodeType === 1) {
         var content = item.querySelector('.wo-slide-content');
         var lines = content ? Array.from(content.querySelectorAll('.wo-slide-line')) : [];
@@ -102093,6 +102880,7 @@ var WO = (function() {
     // Local PPTX upload modal functions
     closeSlidesModal: closeSlidesModal,
     switchSlidesTab: switchSlidesTab,
+    slidesFolderPick: slidesFolderPick,
     handleSlidesFileSelect: handleSlidesFileSelect,
     removePendingFile: removePendingFile,
     confirmAddSlides: confirmAddSlides,
@@ -102104,6 +102892,8 @@ var WO = (function() {
     removePptPage: removePptPage,
     removePptFile: removePptFile,
     projectPptPage: projectPptPage,
+    pptPlayMenu: pptPlayMenu,
+    pptSetPlayMode: pptSetPlayMode,
     openSermonRemote: openSermonRemote,
     openProjectionWindow: openProjectionWindow,
     blankProjection: blankProjection,
@@ -121763,6 +122553,23 @@ function filterLiturgyItems() {
   .wo-slides-modal-close { background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
   .wo-slides-modal-close:hover { background: rgba(255,255,255,0.3); }
   .wo-slides-modal-body { padding: 24px; }
+  /* The shared presentation folder inside Add Presentation. Rows rather than
+     tiles: a deck is known by its NAME, and a phone has the width for one
+     column of names and nothing else. */
+  .wo-slides-folder-hint { font-size: 0.82rem; color: #6b7280; margin: 0 0 12px; }
+  .wo-slides-folder-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+  .wo-slides-folder-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.86rem; color: #1f2933; transition: border-color .15s, background .15s; }
+  .wo-slides-folder-item:hover { border-color: #ea580c; background: #fff7ed; }
+  .wo-slides-folder-item > i { color: #ea580c; flex: 0 0 auto; font-size: 1rem; }
+  .wo-slides-folder-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wo-slides-folder-cat { flex: 0 0 auto; font-size: 0.66rem; letter-spacing: .04em; text-transform: uppercase;
+    color: #92400e; background: #fef3c7; border-radius: 99px; padding: 3px 9px; }
+  .wo-slides-folder-empty { text-align: center; padding: 26px 12px; color: #6b7280; }
+  .wo-slides-folder-empty > i { font-size: 2rem; color: #d1d5db; display: block; margin-bottom: 10px; }
+  .wo-slides-folder-empty p { margin: 0 0 6px; font-weight: 600; color: #374151; }
+  .wo-slides-folder-empty span { font-size: 0.8rem; }
   .wo-slides-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
   .wo-slides-tab { flex: 1; padding: 12px; border: 2px solid #e5e7eb; background: white; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 0.9rem; color: #6b7280; transition: all 0.2s; }
   .wo-slides-tab:hover { border-color: #f97316; color: #ea580c; }
@@ -121910,6 +122717,45 @@ function filterLiturgyItems() {
   .wo-local-slides { outline: none; }
   .wo-local-slides:focus { box-shadow: 0 0 0 3px rgba(11, 118, 68, 0.4); }
   .wo-preview-slide-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+  /* A presentation page is a whole screen, so it is laid OVER the preview box
+     rather than inside the 30px the box keeps for words. object-fit: contain
+     still letterboxes it to the box's own shape, and the black ground makes
+     those bars match the wall, where #projSlide does exactly this. */
+  /* A live deck in the Program box: same full bleed as a slide picture. */
+  .wo-preview-screen .lcd-program-live {
+    position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 1; background: #000; border-radius: 8px; overflow: hidden;
+  }
+  .wo-preview-screen .lcd-program-live iframe,
+  .wo-preview-screen .lcd-program-live video {
+    width: 100%; height: 100%; border: 0; display: block; object-fit: contain;
+  }
+  /* How a presentation plays, said on its banner. */
+  .wo-ppt-play-chip {
+    display: inline-flex; align-items: center; gap: 6px; margin-left: 8px;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid #d1d5db;
+    background: #fff; color: #374151; font-size: 0.72rem; font-weight: 600;
+    font-family: 'Poppins', sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .wo-ppt-play-chip:hover { border-color: #9ca3af; }
+  .wo-ppt-play-chip.is-live { background: linear-gradient(135deg, #7c3aed, #a855f7); border-color: transparent; color: #fff; }
+  .wo-pptplay-menu { position: fixed; z-index: 100060; width: 320px; max-width: calc(100vw - 16px); }
+  .wo-pptplay-card { background: #fff; border-radius: 12px; box-shadow: 0 14px 44px rgba(0,0,0,0.26); overflow: hidden; font-family: 'Poppins', sans-serif; }
+  .wo-pptplay-head { padding: 12px 16px 8px; font-size: 0.8rem; font-weight: 700; color: #111827; }
+  .wo-pptplay-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 2px 10px; width: 100%; padding: 10px 16px; border: 0; background: none; text-align: left; cursor: pointer; }
+  .wo-pptplay-row:hover:not(.is-off) { background: #f3f4f6; }
+  .wo-pptplay-row > i:first-child { grid-row: 1 / 3; color: #7c3aed; font-size: 0.95rem; margin-top: 2px; }
+  .wo-pptplay-t { font-size: 0.82rem; font-weight: 600; color: #111827; }
+  .wo-pptplay-s { grid-column: 2 / 4; font-size: 0.72rem; color: #6b7280; line-height: 1.35; }
+  .wo-pptplay-row.is-on .wo-pptplay-t { color: #7c3aed; }
+  .wo-pptplay-row.is-off { opacity: 0.55; cursor: default; }
+  .wo-pptplay-tick { color: #7c3aed; align-self: center; }
+  .wo-pptplay-foot { padding: 10px 16px 12px; border-top: 1px solid #f1f1f1; font-size: 0.7rem; color: #6b7280; line-height: 1.4; }
+  .wo-preview-screen .wo-preview-slide-img.lcd-slide-bleed {
+    position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+    width: 100%; height: 100%; max-width: none; max-height: none;
+    object-fit: contain; background: #000; border-radius: 8px;
+  }
   .wo-slides-counter { color: white; font-weight: 600; font-size: 0.85rem; padding: 0 10px; min-width: 60px; text-align: center; }
   .wo-local-slides .wo-slides-header { background: linear-gradient(135deg, #0b7644, #088d4f); }
   .wo-delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; width: 22px; height: 22px; font-size: 0.7rem; cursor: pointer; position: absolute; top: 5px; right: 5px; opacity: 0; transition: opacity 0.2s; }
@@ -144887,6 +145733,85 @@ html.sbm-preview #sbmLiveBanner, html.sbm-preview #toastNotification, html.sbm-p
 </script>
 
 <style>
+/* ---- The same question as a toast, from the foot of the screen -------
+   window.lhcAskToast. z-index 10062: above the card-style ask's backdrop
+   (10060) so one can be raised over the other, and above the Songbook's
+   own warnings (10003-10004). Fixed to the VIEWPORT, so it reaches over
+   LCD Projection's Full Screen, which is itself position: fixed. */
+.lhc-asktoast {
+  position: fixed; z-index: 10062;
+  left: 50%; bottom: 24px; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 18px;
+  background: #15202e; color: #f4f6fa;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-left: 4px solid #f59e0b;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.5);
+  font-family: 'Poppins', sans-serif;
+  animation: lhcAskToastIn .18s ease-out;
+}
+/* Red down the edge when the action destroys something, amber when it is
+   only a question. The edge is the whole signal: the button says the rest. */
+.lhc-asktoast.is-danger { border-left-color: #ef4444; }
+.lhc-asktoast.is-out { animation: lhcAskToastOut .2s ease-in forwards; }
+.lhc-asktoast.is-nudge { animation: lhcAskToastNudge .32s ease-in-out; }
+@keyframes lhcAskToastIn {
+  from { transform: translateX(-50%) translateY(14px); opacity: 0; }
+  to { transform: translateX(-50%); opacity: 1; }
+}
+@keyframes lhcAskToastOut {
+  from { transform: translateX(-50%); opacity: 1; }
+  to { transform: translateX(-50%) translateY(14px); opacity: 0; }
+}
+@keyframes lhcAskToastNudge {
+  0%, 100% { transform: translateX(-50%); }
+  25% { transform: translateX(calc(-50% - 7px)); }
+  75% { transform: translateX(calc(-50% + 7px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lhc-asktoast, .lhc-asktoast.is-out, .lhc-asktoast.is-nudge { animation: none; }
+}
+.lhc-asktoast__head { display: flex; align-items: flex-start; gap: 13px; }
+.lhc-asktoast__icon {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(239,68,68,0.14); color: #fca5a5; font-size: 1rem;
+}
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__icon { background: rgba(245,158,11,0.14); color: #fcd34d; }
+.lhc-asktoast__body { flex: 1 1 auto; min-width: 0; }
+.lhc-asktoast__t { font-size: 0.95rem; font-weight: 700; line-height: 1.3; }
+/* The thing being acted on, said once and in full -- a file name is how the
+   operator knows they are answering about the right one. */
+.lhc-asktoast__what {
+  margin-top: 5px; font-size: 0.82rem; font-weight: 600; color: #fcd34d;
+  overflow-wrap: anywhere;
+}
+.lhc-asktoast__m { margin-top: 6px; font-size: 0.8rem; line-height: 1.5; color: #c7d0dd; }
+.lhc-asktoast__acts { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.lhc-asktoast__acts button {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 40px; padding: 0 16px; border-radius: 9px; cursor: pointer;
+  font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.07); color: #f4f6fa;
+}
+.lhc-asktoast__acts button:hover { background: rgba(255,255,255,0.13); }
+.lhc-asktoast__yes { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; }
+.lhc-asktoast__yes:hover { background: #b91c1c !important; }
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__yes { background: #0b6b3a !important; border-color: #0b6b3a !important; }
+.lhc-asktoast:not(.is-danger) .lhc-asktoast__yes:hover { background: #095c31 !important; }
+.lhc-asktoast__acts button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+/* A phone gets the full width and buttons it can hit, stacked the way the
+   Songbook's own warning toast stacks them. */
+@media (max-width: 560px) {
+  .lhc-asktoast { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; }
+  @keyframes lhcAskToastIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes lhcAskToastOut { from { transform: none; opacity: 1; } to { transform: translateY(14px); opacity: 0; } }
+  @keyframes lhcAskToastNudge { 0%, 100% { transform: none; } 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+  .lhc-asktoast__acts button { flex: 1 1 auto; justify-content: center; }
+}
+
 /* The app's own delete question (window.lhcAskDelete). */
 .lhc-ask-backdrop {
   position: fixed; inset: 0; z-index: 10060; display: flex; align-items: center; justify-content: center; padding: 16px;

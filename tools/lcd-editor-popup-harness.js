@@ -88,13 +88,33 @@ if (splitSrc) {
   // because the column it now has to itself is 757px wide.
   const tight = split(474, 237, 146, 426);
   check('a 16:9 screen too tall for the band is capped, not allowed to push the tray off',
-    tight.capped === true && tight.screen === 300, JSON.stringify(tight));
+    tight.capped === true && tight.screen === Number(MINH[1]), JSON.stringify(tight));
   check('...and the tray still gets a band of its own',
     tight.tray >= 145 && tight.tray <= Math.round(474 * 0.42), JSON.stringify(tight));
+  // The rule the 2026-11-22 round turned around: the tray is served FIRST.
+  // Reserving only its floor let the projection grow into the rest and put
+  // the tray 180px below the fold.
+  check('...which is reserved BEFORE the projection, not left over after it',
+    tight.tray === Math.min(237, Math.max(145, Math.round(474 * 0.42))) &&
+    tight.screen === Math.max(Number(MINH[1]), (474 - tight.tray) - 146),
+    JSON.stringify(tight));
   check('...which is enough for its chrome AND a row of tiles (measured: 122px + 58px)',
     tight.tray >= 180, 'tray=' + tight.tray);
   check('...and the row is the box: its chrome plus the capped screen',
-    tight.rowH === 146 + 300 + 10, JSON.stringify(tight));
+    tight.rowH === 146 + Number(MINH[1]) + 10, JSON.stringify(tight));
+  // Where the band DOES stretch to both, they fit inside it -- which is what
+  // puts the tray and its first row of tiles above the fold.
+  const fits = split(820, 237, 146, 426);
+  check('on a band that can hold both, the row and the tray fit inside it',
+    fits.tray + fits.rowH <= 820 + 10, JSON.stringify(fits));
+  // Measured on a band big enough that LCD_MIN_SCREEN_H does not bind, so
+  // the arithmetic is visible: serving the tray first gives the projection
+  // the band LESS THE TRAY'S OWN SHARE (437 here), where serving it last
+  // gave it the band less the tray's FLOOR (529) and pushed the tray off.
+  const big = split(820, 237, 146, 900);
+  check('the projection gets the band less the tray\'s whole share, not less its floor',
+    big.capped === true && big.screen === (820 - big.tray) - 146,
+    JSON.stringify(big) + ' expected screen ' + ((820 - big.tray) - 146));
 
   // A tall screen -- Full Screen, or any 1080p window. Nothing binds and the
   // projection takes the whole column, which is where the freed width pays.
