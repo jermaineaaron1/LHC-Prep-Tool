@@ -375,6 +375,66 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
   check('opening the pad lets the song go whatever goes wrong', /_sbOverviewOpenNow\(base, sid, title, sectionName, run, anchor\); \}\)\n\s*\.catch\(function\(e\) \{\n\s*_sbEditRelease\(base\);/.test(fn('_sbOverviewOpen')));
   check('Esc while a word is being composed is the keyboard\'s', /if \(ev\.isComposing\) return;/.test(fn('_sbmPadKey')));
 
+  // -------------------------------------------------------------------------
+  // From the operator (2026-11-24), on the choir pad of Silent Night: the
+  // chords typed over "Sleep in heavenly peace," and "Sleep in heavenly
+  // peace." were gone after Save, the words kept. The lyrics hold the two as
+  // ONE line under one chord line; the choir sings them as two moments, so
+  // neither matched a line and both were dropped as having "no lyric line to
+  // sit over". Each is now its run of that line, its chords the ones over it.
+  console.log('\n10. A moment that is one run of a longer lyric line (2026-11-24)');
+  const SN = [
+    { part: 'women', text: 'Silent night, Holy night, All is calm all is bright', section: 'Verse 1', sortOrder: 0, sustained: false },
+    { part: 'men', text: 'Round yon virgin mother and child, Holy infant so tender and mild', section: 'Verse 1', sortOrder: 1, sustained: false },
+    { part: 'both', text: 'Sleep in heavenly peace,', section: 'Verse 1', sortOrder: 2, sustained: false },
+    { part: 'both', text: 'Sleep in heavenly peace.', section: 'Verse 1', sortOrder: 3, sustained: false }
+  ];
+  const SNLY = ['[Verse 1]',
+    'G                         D        D7   G',
+    'Silent night, Holy night, All is calm all is bright',
+    'C                G                 C              G',
+    'Round yon virgin mother and child, Holy infant so tender and mild',
+    'D        D7       G Em    G       D         G',
+    'Sleep in heavenly peace, sleep in heavenly peace.'].join('\n');
+  const snPad = C.text(SN, SNLY, isChord, { parts: [] }).split('\n');
+  const atL = w => snPad.indexOf(w);
+  check('the pad shows each half its own chords, from the one chord line over both',
+    snPad[atL('Sleep in heavenly peace,') - 1] === 'D        D7       G Em' && snPad[atL('Sleep in heavenly peace.') - 1] === ' G       D         G', J(snPad));
+  const snShown = C.read(snPad.join('\n'), isChord, [], []).chords;
+  const snSave = async (pad, lyrics) => { const sc = SC(lyrics); const r = await sc.E('song_1', SN, C.toSave(C.read(pad.join('\n'), isChord, [], []).chords, snShown, snShown, 0, XP), 'c1'); return { lyrics: sc.out.lyrics, r }; };
+  const typed = snPad.slice();
+  typed[atL('Sleep in heavenly peace,') - 1] = 'C        C7       F Dm';
+  typed[atL('Sleep in heavenly peace.') - 1] = ' F       C         F';
+  const s1 = await snSave(typed, SNLY);
+  check('chords typed over both halves are saved, each into its own stretch of the one chord line',
+    s1.lyrics !== null && s1.lyrics.split('\n')[5] === 'C        C7       F Dm    F       C         F' && s1.r.orphans.length === 0, J(s1));
+  check('...and nothing else in the song changes', s1.lyrics && J(s1.lyrics.split('\n').filter((l, i) => i !== 5)) === J(SNLY.split('\n').filter((l, i) => i !== 5)));
+  const typed2 = snPad.slice();
+  typed2[atL('Sleep in heavenly peace.') - 1] = 'G       D7        G';
+  const s2 = await snSave(typed2, SNLY);
+  check('one half changed: the other half\'s chords stay where they were',
+    s2.lyrics && s2.lyrics.split('\n')[5] === 'D        D7       G Em   G       D7        G', J(s2.lyrics && s2.lyrics.split('\n')[5]));
+  const s3 = await snSave(snPad, SNLY);
+  check('nothing changed: nothing written', s3.lyrics === null && s3.r.orphans.length === 0, J(s3));
+  const gone = snPad.slice(); gone.splice(atL('Sleep in heavenly peace,') - 1, 1);
+  const s4 = await snSave(gone, SNLY);
+  check('a half\'s chord line taken away: its chords come out, the other half\'s stay',
+    s4.lyrics && s4.lyrics.split('\n')[5] === ' '.repeat(26) + 'G       D         G', J(s4.lyrics && s4.lyrics.split('\n')[5]));
+  // the same line with no chords at all yet: a chord line is made for it
+  const BARE = SNLY.split('\n').filter((l, i) => i !== 5).join('\n');
+  const barePad = C.text(SN, BARE, isChord, { parts: [] }).split('\n');
+  const bareShown = C.read(barePad.join('\n'), isChord, [], []).chords;
+  const withNew = barePad.slice();
+  withNew.splice(withNew.indexOf('Sleep in heavenly peace,'), 0, 'D        D7       G');
+  withNew.splice(withNew.indexOf('Sleep in heavenly peace.'), 0, 'G        D         G');
+  const sc5 = SC(BARE);
+  const r5 = await sc5.E('song_1', SN, C.toSave(C.read(withNew.join('\n'), isChord, [], []).chords, bareShown, bareShown, 0, XP), 'c1');
+  const ed = (SRC.match(/\n  editChords: function\(root, rowEl\) \{[^]*?\n  \},/) || [''])[0];
+  check('the printed page\'s chord editor reads the run from the row and writes only its stretch',
+    /getAttribute\('data-chord-from'\)/.test(ed) && /getAttribute\('data-chord-lo'\)/.test(ed) && /getAttribute\('data-chord-to'\)/.test(ed) &&
+    (ed.match(/withChordAt\((cw|song)\.lyrics \|\| '', at, next\)/g) || []).length === 2 && !/\.withChord\(/.test(ed), ed.slice(0, 300));
+  check('chords added to both halves of a line that had none: one chord line made, each half in its place',
+    sc5.out.lyrics && J(sc5.out.lyrics.split('\n').slice(5, 7)) === J(['D        D7       G      G        D         G', 'Sleep in heavenly peace, sleep in heavenly peace.']) && r5.orphans.length === 0, J([sc5.out.lyrics, r5]));
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

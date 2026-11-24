@@ -6157,6 +6157,45 @@ the anon key -- verify as `postgres`, not as the app.
     builder's apply, `lhcDayPrayer.words`, `_spFilePrayer`, Remove's plan and
     the card's comparison.
 
+113. **A choir moment can be one RUN of a longer lyric line, and its chords
+    are the ones over that run.** From the operator (2026-11-24): on Silent
+    Night's choir pad, chords typed over "Sleep in heavenly peace," and
+    "Sleep in heavenly peace." were gone after Save, the words kept. The
+    lyrics hold the two as ONE line under one chord line; the choir sings
+    them as two moments. `chordFor` matched a moment only to a WHOLE line
+    (`_sameWords`), so neither matched, the score showed no chords there, and
+    `_sbmPadSaveChords` dropped what was typed as having "no lyric line to sit
+    over" (a toast nobody reads as "not saved"). Live that day: six moments of
+    Silent Night and two of Holy Holy Holy.
+    - **Matching** (`lhcVoiceLines.chordFor`): a whole line first, anywhere
+      ahead, exactly as before -- so every moment that had a line keeps it (run
+      over the live songs: 129 the same, 8 gained, none changed). Only failing
+      that, a line that STARTS with the moment's words (`_wordsRun`: letters
+      and numbers as `_sameWords` compares, never stopping inside a word --
+      "peace" is not "peaceful", "love" not "love's"); the next moment is then
+      offered the rest of that line (`cursor.rest`), after the echo rule
+      (different parts on the same words share). Whole-line-first matters: in
+      Do You Hear What I Hear "He will Bring us Good-ness and" is a line of its
+      own just after the whole "...and Light!".
+    - **A run's hit** (`_chordRun`) carries `from` (its first word's column,
+      where its chords count from), `lo` (where its chords start: 0, or where
+      the run before it stopped) and `to` (its `cut`, after the punctuation
+      that ends it; null for the last run, which takes any chord past the
+      line's end). A chord over the space before a word is that word's.
+      `chordSlice` reads a run's chords, `chordSplice` writes them, the rest
+      of the chord line left where it was (one the new chords would run into
+      moves a space on).
+    - **Every writer goes through `withChordAt(lyrics, hit, chord)`**, never
+      `withChord` with a hit's line numbers: the pads' save (`_sbmPadSaveChords`,
+      its `wrote` guard keyed by line AND run), a chord line taken away there,
+      and the printed page's chord row (`lhcVoiceEdit.editChords`, from the
+      row's `data-chord-from` / `-lo` / `-to`, which `_chordRow` writes for a
+      run). `withChord` for a run would write its few chords over the whole
+      line's.
+    `tools/voice-lines-harness.js` checks the matching, slicing and splicing;
+    `tools/songbook-choir-pad-harness.js` (section 10) saves Silent Night's
+    verse 1 through the real `_sbmPadSaveChords`.
+
 ## Quick Commands for Claude Code
 
 ```bash

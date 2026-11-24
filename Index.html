@@ -16137,6 +16137,14 @@ window.lhcVoiceEdit = {
       return;
     }
     var chordAt = parseInt(rowEl.getAttribute('data-chord-at'), 10);
+    // One run of a longer lyric line: only its chords are written.
+    var fromA = rowEl.getAttribute('data-chord-from'), loA = rowEl.getAttribute('data-chord-lo'), toA = rowEl.getAttribute('data-chord-to');
+    var at = { lyricAt: lyricAt, chordAt: chordAt };
+    if (fromA != null && fromA !== '') {
+      at.from = parseInt(fromA, 10);
+      at.lo = (loA == null || loA === '') ? at.from : parseInt(loA, 10);
+      at.to = (toA == null || toA === '') ? null : parseInt(toA, 10);
+    }
     var original = rowEl.classList.contains('vl-chords--empty') ? '' : cell.textContent;
 
     var inp = document.createElement('input');
@@ -16161,7 +16169,7 @@ window.lhcVoiceEdit = {
       if (cw) {
         E._busy = true;
         inp.disabled = true;
-        var mine = window.lhcVoiceLines.withChord(cw.lyrics || '', lyricAt, chordAt, next);
+        var mine = window.lhcVoiceLines.withChordAt(cw.lyrics || '', at, next);
         Promise.resolve(cw.save(mine)).then(function() {
           if (typeof root.__vlEditSaved === 'function') root.__vlEditSaved();
           showToast(next.trim() ? 'Chords saved' : 'Chords cleared', 'success');
@@ -16177,7 +16185,7 @@ window.lhcVoiceEdit = {
       if (!song) { cell.innerHTML = shown; showToast('Could not find that song', 'error'); return; }
       E._busy = true;
       inp.disabled = true;
-      var updated = window.lhcVoiceLines.withChord(song.lyrics || '', lyricAt, chordAt, next);
+      var updated = window.lhcVoiceLines.withChordAt(song.lyrics || '', at, next);
       // updateLyrics, not update(): the lyrics column alone, and it
       // announces the change so an open order repaints with it.
       SBQ_SONGS.updateLyrics(songId, updated).then(function() {
@@ -17675,13 +17683,110 @@ window.lhcVoiceLines = {
     var part = V.partKey((V.leadLine(g) || {}).part);
     if (cursor && cursor.last && cursor.lastPart && part !== cursor.lastPart &&
         V._sameWords(want, cursor.last.lyric)) return cursor.last;
-    for (var i = (cursor && cursor.at) || 0; i < index.length; i++) {
+    // The rest of a line whose start a moment before took (below): this
+    // moment may be its next run of words -- the lyrics' "Sleep in heavenly
+    // peace, sleep in heavenly peace." sung as two moments. After the echo
+    // above, which shares the run it echoes and leaves the rest waiting.
+    var rest = cursor && cursor.rest;
+    if (rest) {
+      cursor.rest = null;
+      var more = V._wordsRun(rest.row.lyric, rest.from, want);
+      if (more) return V._chordRun(rest.row, rest, more, cursor, part);
+    }
+    var from0 = (cursor && cursor.at) || 0;
+    for (var i = from0; i < index.length; i++) {
       if (V._sameWords(want, index[i].lyric)) {
-        if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; }
+        if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; cursor.rest = null; }
         return index[i];
       }
     }
+    // A moment that is the START of a line of the lyrics: the choir splits a
+    // line the congregation's words hold whole. Its chords are the ones over
+    // its own words (from, to), and the next moment is offered the rest of
+    // the line. Only when no line ahead is the moment's words exactly, so a
+    // moment that had its line before has it still ("He will Bring us
+    // Good-ness and" is a line of its own after the whole "...and Light!").
+    // Without this every chord typed over such a moment had "no lyric line
+    // to sit over" and was dropped on save (2026-11-24).
+    for (var j = from0; j < index.length; j++) {
+      var run = V._wordsRun(index[j].lyric, 0, want);
+      if (run) { if (cursor) cursor.at = j + 1; return V._chordRun(index[j], { from: 0, lo: 0 }, run, cursor, part); }
+    }
     return null;
+  },
+
+  // Where a moment's words run in a line of the lyrics from column `from`
+  // (pure): { end } the column after its last letter, { cut } the column
+  // after the punctuation that ends it ("peace," keeps its comma), { next }
+  // the column the next word starts at (the line's length when nothing
+  // follows) -- or null when the line there does not start with those words,
+  // or they stop inside a word ("peace" is not the start of "peaceful", nor
+  // "love" of "love's"). Letters and numbers only, as _sameWords compares.
+  _wordsRun: function(line, from, want) {
+    var s = String(line == null ? '' : line), w = String(want == null ? '' : want).toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!w) return null;
+    var k = 0, end = -1;
+    for (var i = from || 0; i < s.length && k < w.length; i++) {
+      var ch = s.charAt(i).toLowerCase();
+      if (!/[a-z0-9]/.test(ch)) continue;
+      if (ch !== w.charAt(k)) return null;
+      k++;
+      if (k === w.length) end = i + 1;
+    }
+    if (k < w.length) return null;
+    var nx = s.charAt(end);
+    if (/[a-z0-9]/i.test(nx) || (/['\u2019]/.test(nx) && /[a-z]/i.test(s.charAt(end + 1)))) return null;
+    var cut = end;
+    while (cut < s.length && !/\s/.test(s.charAt(cut)) && !/[a-z0-9]/i.test(s.charAt(cut))) cut++;
+    var next = cut;
+    while (next < s.length && !/[a-z0-9]/i.test(s.charAt(next))) next++;
+    return { end: end, cut: cut, next: next };
+  },
+  // The hit for one run of a lyric line: its words; the chords over it --
+  // those that start from `lo` (0, or where the run before it stopped) to
+  // its own cut, or past the line's end for the last run -- moved so its
+  // first word is column 0; and where it is (from, lo, to; to null for the
+  // last run). A chord over the space before a word is that word's.
+  _chordRun: function(row, at, run, cursor, part) {
+    var V = window.lhcVoiceLines, line = String(row.lyric == null ? '' : row.lyric);
+    var last = run.next >= line.length, to = last ? null : run.cut;
+    var hit = { lyric: line.slice(at.from, run.end), chord: V.chordSlice(row.chord, at.lo, to, at.from),
+      lyricAt: row.lyricAt, chordAt: row.chordAt, from: at.from, lo: at.lo, to: to };
+    if (cursor) { cursor.last = hit; cursor.lastPart = part; cursor.rest = last ? null : { row: row, from: run.next, lo: run.cut }; }
+    return hit;
+  },
+  // The chords of a chord line that start in columns lo..to (pure), moved
+  // left by `from` (lo when not given; none before column 0); to null is to
+  // the end and past it.
+  chordSlice: function(chord, lo, to, from) {
+    var c = String(chord == null ? '' : chord), out = '', m, re = /\S+/g, o = (from == null) ? lo : from;
+    while ((m = re.exec(c))) {
+      if (m.index < lo || (to != null && m.index >= to)) continue;
+      var at = Math.max(0, m.index - o);
+      if (out.length && at <= out.length) at = out.length + 1;
+      while (out.length < at) out += ' ';
+      out += m[0];
+    }
+    return out;
+  },
+  // A chord line with the chords that start in lo..to replaced by `chord`,
+  // moved right by `from` (lo when not given) (pure). The other chords stay
+  // where they are; one the new chords would run into moves on to a space
+  // past them.
+  chordSplice: function(line, lo, to, chord, from) {
+    var toks = [], m, re = /\S+/g, c = String(line == null ? '' : line), o = (from == null) ? lo : from;
+    while ((m = re.exec(c))) if (m.index < lo || (to != null && m.index >= to)) toks.push({ at: m.index, t: m[0], o: toks.length });
+    var nw = String(chord == null ? '' : chord), re2 = /\S+/g;
+    while ((m = re2.exec(nw))) toks.push({ at: m.index + o, t: m[0], o: toks.length });
+    toks.sort(function(a, b) { return (a.at - b.at) || (a.o - b.o); });
+    var out = '';
+    toks.forEach(function(k) {
+      var at = k.at;
+      if (out.length && at <= out.length) at = out.length + 1;
+      while (out.length < at) out += ' ';
+      out += k.t;
+    });
+    return out;
   },
 
   // Put a chord line back above its lyric, and change nothing else.
@@ -17700,6 +17805,17 @@ window.lhcVoiceLines = {
       lines.splice(lyricAt, 0, text);                      // a new row above
     }
     return lines.join('\n');
+  },
+  // withChord for a hit from chordFor: a whole line's chords, or -- a hit
+  // for one run of a line (hit.from) -- that run's, the rest of the chord
+  // line kept. A chord line left with nothing on it goes, as withChord's.
+  withChordAt: function(lyrics, hit, chord) {
+    var V = window.lhcVoiceLines;
+    if (!hit) return String(lyrics == null ? '' : lyrics);
+    if (hit.from == null) return V.withChord(lyrics, hit.lyricAt, hit.chordAt, chord);
+    var lines = String(lyrics == null ? '' : lyrics).split(/\r?\n/);
+    var cur = (hit.chordAt != null && hit.chordAt >= 0 && hit.chordAt < lines.length) ? lines[hit.chordAt] : '';
+    return V.withChord(lyrics, hit.lyricAt, hit.chordAt, V.chordSplice(cur, hit.lo != null ? hit.lo : hit.from, hit.to, chord, hit.from));
   },
 
   // A section take follows its section by NAME (song_recordings.section).
@@ -18173,6 +18289,7 @@ window.lhcVoiceLines = {
     var attrs = editable
       ? ' data-chord-lyric-at="' + V._esc(String(hit ? hit.lyricAt : '')) + '"' +
         ' data-chord-at="' + V._esc(String(hit ? hit.chordAt : -1)) + '"' +
+        (hit && hit.from != null ? ' data-chord-from="' + hit.from + '" data-chord-lo="' + (hit.lo != null ? hit.lo : hit.from) + '" data-chord-to="' + (hit.to == null ? '' : hit.to) + '"' : '') +
         ' data-chord-over="' + V._esc(over || '') + '"'
       : '';
     // The untransposed text, so a repaint transposes the ORIGINAL rather
@@ -59529,13 +59646,14 @@ var WO = (function() {
       if (!hit) { orphans.push(want); return; }
       var cur = String(hit.chord || '').replace(/\s+$/, ''), next = String(chords[k].chord || '').replace(/\s+$/, '');
       // Two moments by different parts with the same words share one line
-      // of the lyrics. Once one has been written, the other -- an unchanged
-      // copy -- does not put the old chord back.
-      if (wrote[hit.lyricAt]) return;
+      // of the lyrics (or one run of it). Once one has been written, the
+      // other -- an unchanged copy -- does not put the old chord back.
+      var run = '@' + (hit.from || 0);
+      if (wrote[hit.lyricAt + run]) return;
       if (cur === next) return;
       var inserted = !(hit.chordAt != null && hit.chordAt >= 0);
-      lyrics = V.withChord(lyrics, hit.lyricAt, hit.chordAt, next);
-      wrote[inserted ? hit.lyricAt + 1 : hit.lyricAt] = true;   // a new chord row pushes its lyric down one
+      lyrics = V.withChordAt(lyrics, hit, next);
+      wrote[(inserted ? hit.lyricAt + 1 : hit.lyricAt) + run] = true;   // a new chord row pushes its lyric down one
       changed = true;
     });
     // Chord lines taken away on the pad: that moment's chords go from the
@@ -59550,7 +59668,7 @@ var WO = (function() {
         if (!h || !(h.chordAt != null && h.chordAt >= 0)) continue;
         if (!(V._sameWords ? V._sameWords(c.words, V.leadText(groups[y])) : c.words === V.leadText(groups[y]))) continue;
         if (String(h.chord || '').replace(/\s+$/, '') !== gone) continue;
-        lyrics = V.withChord(lyrics, h.lyricAt, h.chordAt, '');
+        lyrics = V.withChordAt(lyrics, h, '');
         changed = true;
         break;
       }
