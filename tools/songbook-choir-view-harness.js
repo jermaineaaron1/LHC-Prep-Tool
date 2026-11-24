@@ -80,7 +80,7 @@ check('"Both" is "Chords + Lyrics", sized by its name so it is not cut short',
   has(/\.sbm-seg--view \.sbm-seg__btn \{ flex: 1 1 auto; padding: 0 8px; \}/));
 check('...it is the words alone: the score shows in Choir and nowhere else',
   has(/var showLyrics = view !== 'choir';\r?\n\s*var showScore = hasChoir && view === 'choir';/) && !has(/var showScore = hasChoir && view !== 'lyrics';/));
-check('...a medley\'s following song too', has(/if \(hasChoir && view === 'choir'\) \{\r?\n\s*var score = _sbChoirBodyHtml\(s, false, !wide\);/));
+check('...a medley\'s following song too (drawn live since 2026-11-24, so its lines record)', has(/if \(hasChoir && view === 'choir'\) \{(?:\r?\n\s*\/\/[^\n]*)*\r?\n\s*var score = _sbChoirBodyHtml\(s, true, !wide\);/));
 
 console.log('\nDeleting a take');
 check('the app asks, in its own look, naming what goes', has(/window\.lhcAskDelete = function\(o\) \{/) && has(/class="lhc-ask__yes"/) && has(/\.lhc-ask-backdrop \{/));

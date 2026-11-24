@@ -1821,6 +1821,14 @@ the anon key -- verify as `postgres`, not as the app.
     its own; in the Both view only the score has strips. A medley's follow
     cards are another song's, so neither strips nor the section badges' pen,
     microphone and takes are drawn on them (`:not(.sbm-score--follow)`).
+    Their LINES do record (the operator, 2026-11-24: "why can't I record in
+    individual lines in the other songs of the medley?"): `_sbmFollowHtml`
+    draws a follow score live (`_sbChoirBodyHtml(s, true, ...)`, once the
+    print variant with no microphones), and `_sbmRender` runs
+    `sbBindChoirRecorders` whenever a follow score is on the page, which binds
+    each score to the song its `data-choir-song` names -- so a take recorded
+    there is that song's, listed on its badge and in its Tracks once it is
+    the song in front.
 
 42. **A new function in these IIFEs can silently steal an old one's
     name.** `function foo(){}` twice in one scope is not an error in
