@@ -14927,7 +14927,8 @@ function renderLyricsPreviewContent() {
     // rather than reached for, so the pure module stays sliceable.
     var _vlChords = window.lhcVoiceLines.chordIndex(
       currentLyricsPreviewSong.lyrics || '',
-      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
+      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null,
+      (currentLyricsPreviewSong.display_style || {}).choirChords);
     var _vlXpose = (typeof currentTransposeValue === 'number') ? currentTransposeValue : 0;
     container.innerHTML = _vlRows.length
       ? (window.lhcVoiceRec ? window.lhcVoiceRec.songBarHtml() : '') +
@@ -15146,7 +15147,8 @@ function _lpRenderVoiceLivePreview() {
   // written, not only once they are saved.
   var _pvChords = (currentLyricsPreviewSong && window.lhcVoiceLines.chordIndex)
     ? window.lhcVoiceLines.chordIndex(currentLyricsPreviewSong.lyrics || '',
-        (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null)
+        (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null,
+        (currentLyricsPreviewSong.display_style || {}).choirChords)
     : null;
   preview.innerHTML = window.lhcVoiceLines.html(rows, { chords: _pvChords });
 }
@@ -17648,7 +17650,9 @@ window.lhcVoiceLines = {
   //
   // isChord is injected -- the detector lives in the app, not in here, and
   // a pure function that reached for a global could not be sliced out.
-  chordIndex: function(lyrics, isChord) {
+  // extra: the song's display_style.choirChords -- the chords of moments the
+  // lyrics do not have (choirOnlyKey), which chordFor falls back on.
+  chordIndex: function(lyrics, isChord, extra) {
     var rows = [];
     var lines = String(lyrics == null ? '' : lyrics).split(/\r?\n/);
     for (var i = 0; i < lines.length; i++) {
@@ -17670,6 +17674,7 @@ window.lhcVoiceLines = {
       }
       rows.push({ lyric: line, chord: '', lyricAt: i, chordAt: -1 });
     }
+    rows.extra = (extra && typeof extra === 'object') ? extra : null;
     return rows;
   },
 
@@ -17682,7 +17687,7 @@ window.lhcVoiceLines = {
   chordFor: function(index, g, cursor) {
     var V = window.lhcVoiceLines;
     var want = V.leadText(g);
-    if (!want || !index || !index.length) return null;
+    if (!want || !index || (!index.length && !index.extra)) return null;
     // Different PARTS singing the same words are one line of the song,
     // even when written as separate moments -- which is what happens
     // when a blank line is left between them. They must not each eat the
@@ -17726,7 +17731,27 @@ window.lhcVoiceLines = {
       var run = V._wordsRun(index[j].lyric, 0, want);
       if (run) { if (cursor) cursor.at = j + 1; return V._chordRun(index[j], { from: 0, lo: 0 }, run, cursor, part); }
     }
+    // A moment the lyrics do not have at all -- the choir's "Jesus Lord is
+    // Holy. (Holy)" after the verse -- keeps its chords on the song
+    // (display_style.choirChords), by its section and words (2026-11-24).
+    // Its hit has no line (lyricAt -1) and says where it is kept (extra).
+    if (index.extra) {
+      var key = V.choirOnlyKey(g, cursor);
+      return { lyric: want, chord: String(index.extra[key] || ''), lyricAt: -1, chordAt: -1, extra: key };
+    }
     return null;
+  },
+  // The key a moment the lyrics do not have keeps its chords under (pure):
+  // its section and words, letters and numbers only, and which time those
+  // words come in that section among such moments --
+  // "verse 3|jesuslordisholyholy#1". Its words changed, it has none.
+  choirOnlyKey: function(g, cursor) {
+    var V = window.lhcVoiceLines;
+    var n = function(t) { return String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+    var base = String((g && g.section) || '').trim().toLowerCase().replace(/\s+/g, ' ') + '|' + n(V.leadText(g));
+    var seen = cursor ? (cursor.only = cursor.only || {}) : {};
+    seen[base] = (seen[base] || 0) + 1;
+    return base + '#' + seen[base];
   },
 
   // Where a moment's words run in a line of the lyrics from column `from`
@@ -18299,7 +18324,11 @@ window.lhcVoiceLines = {
     // Asked for, but there is no lyric line these words match, so there
     // is nowhere in songs.lyrics to put a chord. Say why on hover rather
     // than show an affordance that declines.
-    var orphan = !!wanted && !hit;
+    // A moment the lyrics do not have keeps its chords on the song: shown
+    // here, typed on the choir pad (chordFor, choirOnlyKey).
+    var choirOnly = !!(hit && hit.extra != null);
+    if (choirOnly) editable = false;
+    var orphan = !!wanted && (!hit || (choirOnly && !raw.trim()));
     var attrs = editable
       ? ' data-chord-lyric-at="' + V._esc(String(hit ? hit.lyricAt : '')) + '"' +
         ' data-chord-at="' + V._esc(String(hit ? hit.chordAt : -1)) + '"' +
@@ -18313,7 +18342,7 @@ window.lhcVoiceLines = {
     var empty = !chord.trim();
     return '<div class="vl-chords' + (empty ? ' vl-chords--empty' : '') +
       (editable ? ' vl-chords--edit' : '') + (orphan ? ' vl-chords--nolyric' : '') + '"' + attrs +
-      (orphan ? ' title="These words are not in the song’s lyrics, so there is nowhere to put a chord. Edit the lyrics to match, or use the Lyrics tab."'
+      (orphan ? ' title="These words are not in the song’s lyrics, so their chords are typed on the choir pad (Edit, in the Songbook)."'
               : steps ? ' title="Showing a transposed key. Press Ori to edit the chords."' : '') + '>' +
       '<span class="vl-who vl-who--chord" aria-hidden="true"></span>' +
       '<span class="vl-chord-text">' +
@@ -55983,7 +56012,8 @@ var WO = (function() {
   }
   function _sbmLiveSongsOf(rows) {
     return JSON.stringify((rows || []).map(function(r) {
-      return [r.id || '', r.title || '', r.key || '', _sbmLivePlain(r.lyrics), r.voice_layout || ''];
+      var cc = (r.choirChords && typeof r.choirChords === 'object') ? Object.keys(r.choirChords).sort().map(function(k) { return k + '=' + r.choirChords[k]; }).join('\n') : '';
+      return [r.id || '', r.title || '', r.key || '', _sbmLivePlain(r.lyrics), r.voice_layout || '', cc];
     }).sort(function(a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; }));
   }
   function _sbmLiveLinesOf(rows) {
@@ -56018,7 +56048,7 @@ var WO = (function() {
       latest('song_marks', 'created_at'),
       latest('song_recordings', 'created_at'),
       lines,
-      hashOf(sup.from('songs').select('id,title,key,lyrics,voice_layout').in('id', ids), _sbmLiveSongsOf),
+      hashOf(sup.from('songs').select('id,title,key,lyrics,voice_layout,choirChords:display_style->choirChords').in('id', ids), _sbmLiveSongsOf),
       book
     ]).then(function(a) { return { marks: a[0], recs: a[1], lines: a[2].lines, parts: a[2].parts, songs: a[3], book: a[4] }; });
   }
@@ -60222,7 +60252,7 @@ var WO = (function() {
   // sung), at[] is given the line each moment starts on.
   function _sbmPadText(rows, lyrics, sectionName, isChord, run, opts) {
     var V = window.lhcVoiceLines, o = opts || {}, lineOf = o.line || _sbmPadLine;
-    var index = V.chordIndex(lyrics || '', isChord || null), cursor = {};
+    var index = V.chordIndex(lyrics || '', isChord || null, o.choirOnly || null), cursor = {};
     var out = [], want = (sectionName == null) ? null : String(sectionName).trim().toLowerCase();
     var wantRun = (want === null) ? null : (run || 1), runs = {}, lastSec = null, header = null;
     V.group(rows).forEach(function(g, gi) {
@@ -60351,6 +60381,14 @@ var WO = (function() {
     if ((!lib && !copy) || !chords || !chords.length) return Promise.resolve({ written: false, orphans: [] });
     var isChord = _sbmIsChord();
     var lyrics = _sbChoirChordWords(copy, base), changed = false, orphans = [];
+    // A moment the lyrics do not have keeps its chords on the song
+    // (choirOnlyKey); written as a change of those keys alone (patch).
+    var extra = Object.assign({}, _sbChoirOnly(base)), patch = {}, extraChanged = false;
+    var keep = function(key, chord) {
+      if (String(chord).trim()) extra[key] = chord; else delete extra[key];
+      patch[key] = String(chord).trim() ? chord : '';
+      extraChanged = true;
+    };
     var groups = V.group(rows), ci = 0, used = {}, wrote = {};
     // The choir pad's chords say which moment they are over (m); matched by
     // that, a deleted line or a refrain sung three times cannot take another
@@ -60370,10 +60408,11 @@ var WO = (function() {
       if (k === -1) return;
       used[k] = true;
       ci = k + 1;
-      var index = V.chordIndex(lyrics, isChord), cursor = {}, hit = null;
+      var index = V.chordIndex(lyrics, isChord, extra), cursor = {}, hit = null;
       for (var y = 0; y < groups.length; y++) { var h = V.chordFor(index, groups[y], cursor); if (groups[y] === g) { hit = h; break; } }
       if (!hit) { orphans.push(want); return; }
       var cur = String(hit.chord || '').replace(/\s+$/, ''), next = String(chords[k].chord || '').replace(/\s+$/, '');
+      if (hit.extra != null) { if (cur !== next) keep(hit.extra, next); return; }
       // Two moments by different parts with the same words share one line
       // of the lyrics (or one run of it). Once one has been written, the
       // other -- an unchanged copy -- does not put the old chord back.
@@ -60391,20 +60430,23 @@ var WO = (function() {
     chords.forEach(function(c, x) {
       if (c.drop == null || used[x]) return;
       used[x] = true;
-      var idx2 = V.chordIndex(lyrics, isChord), cur2 = {}, gone = String(c.drop || '').replace(/\s+$/, '');
+      var idx2 = V.chordIndex(lyrics, isChord, extra), cur2 = {}, gone = String(c.drop || '').replace(/\s+$/, '');
       for (var y = 0; y < groups.length; y++) {
         var h = V.chordFor(idx2, groups[y], cur2);
-        if (!h || !(h.chordAt != null && h.chordAt >= 0)) continue;
+        if (!h || !(h.extra != null || (h.chordAt != null && h.chordAt >= 0))) continue;
         if (!(V._sameWords ? V._sameWords(c.words, V.leadText(groups[y])) : c.words === V.leadText(groups[y]))) continue;
         if (String(h.chord || '').replace(/\s+$/, '') !== gone) continue;
+        if (h.extra != null) { keep(h.extra, ''); break; }
         lyrics = V.withChordAt(lyrics, h, '');
         changed = true;
         break;
       }
     });
     chords.forEach(function(c, x) { if (!used[x]) orphans.push(c.words); });
-    if (!changed) return Promise.resolve({ written: false, orphans: orphans });
-    return _sbChoirChordSave(copy, base, lyrics).then(function() { return { written: true, orphans: orphans }; });
+    if (!changed && !extraChanged) return Promise.resolve({ written: false, orphans: orphans });
+    var p = changed ? _sbChoirChordSave(copy, base, lyrics) : Promise.resolve();
+    if (extraChanged) p = p.then(function() { return _sbChoirOnlySave(base, patch); });
+    return p.then(function() { return { written: true, orphans: orphans }; });
   }
   // opts.parts: the song's part names (labelOf); opts.mapChords(chords):
   // the chord lines as they are to be stored (the choir notepad shows them
@@ -60609,7 +60651,7 @@ var WO = (function() {
   function _sbCpText(rows, lyrics, isChord, opts) {
     var V = window.lhcVoiceLines, o = opts || {}, known = o.parts || V.lanes(rows), sections = [];
     (rows || []).forEach(function(r) { var s = String(r.section || '').trim(); if (s && sections.indexOf(s) < 0) sections.push(s); });
-    var index = V.chordIndex(lyrics || '', isChord || null), cursor = {};
+    var index = V.chordIndex(lyrics || '', isChord || null, o.choirOnly || null), cursor = {};
     var out = [], lastSec = null, cur = null, started = false;
     V.group(rows || []).forEach(function(g, gi) {
       var hit = V.chordFor(index, g, cursor);
@@ -61217,9 +61259,10 @@ var WO = (function() {
     var steps = copy ? _sbmStepsOf(copy) : 0;
     var fn = (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null;
     var at = [];
-    var text = _sbCpText(rows, lyrics, isChord, { parts: parts, at: at,
+    var only = _sbChoirOnly(base);
+    var text = _sbCpText(rows, lyrics, isChord, { parts: parts, at: at, choirOnly: only,
       chord: (steps && fn) ? function(c) { return V._transposeAligned(c, steps, fn); } : null });
-    var stored = (steps && fn) ? _sbCpText(rows, lyrics, isChord, { parts: parts }) : text;
+    var stored = (steps && fn) ? _sbCpText(rows, lyrics, isChord, { parts: parts, choirOnly: only }) : text;
     var R = _sbCpRead(text, isChord, parts, sections);
     var shownChords = R.chords, storedChords = (stored === text) ? R.chords : _sbCpRead(stored, isChord, parts, sections).chords;
     var focus = null, gi = _sbmEdMomentAt(rows, anchor);
@@ -61261,7 +61304,7 @@ var WO = (function() {
     var nk = String(name || '').trim().toLowerCase();
     var run = f ? ed.sections.slice(0, f.si + 1).filter(function(x) { return String(x.name || '').trim().toLowerCase() === nk; }).length : null;
     _sbmCloseSheet();
-    _sbmPadOpen({ base: ed.base, title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord, run),
+    _sbmPadOpen({ base: ed.base, title: ed.title, sectionName: f ? (name || 'Untitled section') : null, text: _sbmPadText(rowsAll, lyrics, name, isChord, run, { choirOnly: _sbChoirOnly(ed.base) }),
       roles: _sbmPadRoles(rowsAll), colours: ed.pendingColours || _sbPartColours(ed.base), saveLabel: 'Apply',
       onSave: function(t, colours) {
         if (_sbmEd !== ed) return Promise.resolve();   // the editor was closed underneath
@@ -77902,9 +77945,10 @@ var WO = (function() {
     var lyrics = _sbChoirChordWords(song, base), parts = V.lanes(rows), steps = _sbmStepsOf(song);   // gotcha 89
     var fn = (typeof transposeChordLinePrint === 'function') ? transposeChordLinePrint : null;
     var lineOf = function(ln) { return _sbChNpLine(ln, parts); }, at = [];
-    var text = _sbmPadText(rows, lyrics, null, isChord, null, { line: lineOf, parts: parts, at: at,
+    var only = _sbChoirOnly(base);
+    var text = _sbmPadText(rows, lyrics, null, isChord, null, { line: lineOf, parts: parts, at: at, choirOnly: only,
       chord: (steps && fn) ? function(c) { return V._transposeAligned(c, steps, fn); } : null });
-    var storedText = (steps && fn) ? _sbmPadText(rows, lyrics, null, isChord, null, { line: lineOf, parts: parts }) : text;
+    var storedText = (steps && fn) ? _sbmPadText(rows, lyrics, null, isChord, null, { line: lineOf, parts: parts, choirOnly: only }) : text;
     var lines = text.split('\n');
     var wrap = card.querySelector('.sb-choir'), score = card.querySelector('.vl-score');
     if (!wrap || !score) { _sbEditRelease(base); return; }
@@ -78491,6 +78535,25 @@ var WO = (function() {
   function _sbCopyById(sid) {
     return (sid && typeof songOrderSections !== 'undefined') ? (songOrderSections.find(function(x) { return x && x.id === sid; }) || null) : null;
   }
+  // The chords of moments the song's lyrics do not have (choirOnlyKey ->
+  // chord line), kept in display_style.choirChords: no migration, and the
+  // song form, which writes display_style, lays only its own keys over it.
+  function _sbChoirOnly(base) {
+    var lib = (window.STATE && STATE.songs) ? STATE.songs.find(function(x) { return x && x.id === base; }) : null;
+    var ds = lib && lib.display_style;
+    if (typeof ds === 'string') { try { ds = JSON.parse(ds); } catch (e) { ds = null; } }
+    var m = ds && ds.choirChords;
+    return (m && typeof m === 'object') ? m : {};
+  }
+  // patch: { key: chord line, '' to take it away }, laid over what is stored
+  // now (_sbRecDsWrite reads it fresh), so another device's keys stay.
+  function _sbChoirOnlySave(base, patch) {
+    return _sbRecDsWrite(base, function(ds) {
+      var m = Object.assign({}, (ds.choirChords && typeof ds.choirChords === 'object') ? ds.choirChords : {});
+      Object.keys(patch || {}).forEach(function(k) { if (patch[k]) m[k] = patch[k]; else delete m[k]; });
+      if (Object.keys(m).length) ds.choirChords = m; else delete ds.choirChords;
+    });
+  }
   function _sbChoirChordWords(song, base) {
     if (song && String(song.customLyrics || '').trim()) return String(song.customLyrics);
     var b = base || (song ? _sbBaseSongId(song) : '');
@@ -78516,7 +78579,8 @@ var WO = (function() {
     // reached the choir view.
     var chords = window.lhcVoiceLines.chordIndex(
       _sbChoirChordWords(song),
-      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null);
+      (typeof isChordLineGlobal === 'function') ? isChordLineGlobal : null,
+      _sbChoirOnly(_sbBaseSongId(song)));
     // Whatever key this song is currently showing in. Read on render as
     // well as repainted on the button, or reopening a transposed songbook
     // would show the singers one key and the musicians another.

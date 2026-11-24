@@ -105,6 +105,8 @@ const WANTED = [
   [/^  function _sbCopyById\(/, '_sbCopyById'],
   [/^  function _sbChoirChordWords\(/, '_sbChoirChordWords'],
   [/^  function _sbChoirChordSave\(/, '_sbChoirChordSave'],
+  [/^  function _sbChoirOnly\(/, '_sbChoirOnly'],
+  [/^  function _sbChoirOnlySave\(/, '_sbChoirOnlySave'],
   [/^  function _sbmIsChord\(/, '_sbmIsChord']
 ];
 

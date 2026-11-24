@@ -97,7 +97,7 @@ if (fpSrc.every(Boolean)) {
     .every(x => F.hash(F.lines([ln()])) !== F.hash(F.lines([x]))));
 }
 check('the fingerprint reads the words, not the times',
-  has(/select\('song_id,sort_order,part,section,text,sustained'\)/) && has(/select\('id,title,key,lyrics,voice_layout'\)/) &&
+  has(/select\('song_id,sort_order,part,section,text,sustained'\)/) && has(/select\('id,title,key,lyrics,voice_layout,choirChords:display_style->choirChords'\)/) &&
   !has(/select\('id,last_edited,display_style,voice_layout'\)/) && !has(/latest\('song_voice_lines', 'updated_at'\)/));
 check('a change shows only once it has lasted a few seconds',
   has(/if \(!L\.pendingAt\) \{\r?\n\s*L\.pendingAt = Date\.now\(\);/) && has(/if \(Date\.now\(\) - L\.pendingAt >= 7000\) _sbmLiveBanner\(true\);/) &&
