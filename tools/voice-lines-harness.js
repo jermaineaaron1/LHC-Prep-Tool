@@ -1173,6 +1173,56 @@ const marginHtml = V.html(numbered);
 check('the margin shows the same numbers', (marginHtml.match(/vl-no__n">(\d+)</g) || []).map(x => x.match(/(\d+)/)[1]), ['1', '2', '3', '1', '2']);
 check('  and the song-wide count beneath', (marginHtml.match(/vl-no__all">(\d+)</g) || []).map(x => x.match(/(\d+)/)[1]), ['1', '2', '3', '4', '5']);
 
+// A moment that is ONE RUN of a longer lyric line (2026-11-24). Silent
+// Night's lyrics hold "Sleep in heavenly peace, sleep in heavenly peace."
+// on one line under one chord line; the choir sings it as two moments. Each
+// matched nothing, so the score showed no chords there and every chord typed
+// over them was dropped on save.
+console.log('\na moment that is one run of a longer lyric line');
+check('a run: where the words end, where the punctuation after them ends, where the next word starts',
+  V._wordsRun('Sleep in heavenly peace, sleep in heavenly peace.', 0, 'Sleep in heavenly peace,'), { end: 23, cut: 24, next: 25 });
+check('  "peace" is not the start of "peaceful"', V._wordsRun('Sleep in peaceful rest', 0, 'Sleep in peace'), null);
+check('  nor "love" of "love\'s"', V._wordsRun("Son of God love's pure light", 0, 'Son of God love'), null);
+check('  words not at the start are not a run', V._wordsRun('Sleep in heavenly peace', 0, 'heavenly peace'), null);
+check('a slice: the chords that start in lo..to, moved to start at from',
+  [V.chordSlice('D        D7       G Em    G       D         G', 0, 24, 0), V.chordSlice('D        D7       G Em    G       D         G', 24, null, 25)],
+  ['D        D7       G Em', ' G       D         G']);
+check('  a chord over the space before a word is that word\'s', V.chordSlice('G    G   C', 4, null, 5), 'G   C');
+check('a splice: only that stretch replaced, the rest where it was',
+  V.chordSplice('D        D7       G Em    G       D         G', 24, null, 'A       E         A', 25),
+  'D        D7       G Em   A       E         A');
+check('  a new chord that would run into the next moves on a space past it', V.chordSplice('      G', 0, 6, 'Cmaj7sus4', 0), 'Cmaj7sus4 G');
+const SPLIT = ['D        D7       G Em    G       D         G', 'Sleep in heavenly peace, sleep in heavenly peace.'].join('\n');
+const spIdx = V.chordIndex(SPLIT, isChord), spCur = { at: 0 };
+const spG = V.group([row('both', 'Sleep in heavenly peace,', 0), row('both', 'Sleep in heavenly peace.', 1)]);
+const h1 = V.chordFor(spIdx, spG[0], spCur), h2 = V.chordFor(spIdx, spG[1], spCur);
+check('chordFor: each half of the line is a hit, with its own chords',
+  [h1 && h1.chord, h1 && [h1.lyricAt, h1.from, h1.lo, h1.to], h2 && h2.chord, h2 && [h2.lyricAt, h2.from, h2.lo, h2.to]],
+  ['D        D7       G Em', [1, 0, 0, 24], ' G       D         G', [1, 25, 24, null]]);
+check('withChordAt: the second half\'s chords written into its own stretch',
+  V.withChordAt(SPLIT, h2, 'A       E         A').split('\n')[0], 'D        D7       G Em   A       E         A');
+check('the chord row says which run it is, for the printed page\'s editor',
+  /data-chord-from="25" data-chord-lo="24" data-chord-to=""/.test(V._chordRow(h2, 'Sleep in heavenly peace.', true, true, {})), true);
+check('  and a whole line\'s row says nothing of runs', /data-chord-from/.test(V._chordRow({ lyricAt: 1, chordAt: 0, chord: 'C' }, 'x', true, true, {})), false);
+check('  and a whole line\'s hit is withChord as before',
+  V.withChordAt('C\nwords here', { lyricAt: 1, chordAt: 0 }, 'G'), 'G\nwords here');
+// A line that matched before keeps its line: a run is taken only when no
+// line ahead is the moment's words exactly ("He will Bring us Good-ness and"
+// is a line of its own after the whole "...and Light!" in Do You Hear What I
+// Hear).
+const DY = ['slee-ping in the night', 'C', 'He will bring us good-ness and Light!', 'F', 'He will Bring us Good-ness and', 'G', 'Light!'].join('\n');
+const dyIdx = V.chordIndex(DY, isChord), dyCur = { at: 0 };
+const dyG = V.group([row('both', 'slee-ping in the night', 0), row('both', 'He will Bring us Good-ness and', 1), row('both', 'Light!', 2)]);
+check('a line the words match exactly ahead beats a run of a nearer line',
+  dyG.map(g => { const h = V.chordFor(dyIdx, g, dyCur); return h ? [h.chord, h.lyricAt, h.from == null] : null; }),
+  [['', 0, true], ['F', 4, true], ['G', 6, true]]);
+check('different parts echoing a run share it, and the next run is still taken',
+  (function() {
+    const ix = V.chordIndex(['C          G', 'Gloria, gloria in excelsis'].join('\n'), isChord), cu = { at: 0 };
+    const gs = V.group([row('women', 'Gloria,', 0), row('men', 'Gloria,', 1), row('both', 'gloria in excelsis', 2)]);
+    return gs.map(g => { const h = V.chordFor(ix, g, cu); return h ? [h.chord, h.from] : null; });
+  })(), [['C', 0], ['C', 0], ['   G', 8]]);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');

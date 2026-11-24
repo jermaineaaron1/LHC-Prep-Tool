@@ -89,7 +89,7 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
   check('the printed page\'s chord row writes where its page reads (lyricAt counts in those words)',
     /root\.__vlEditChordWords = \(opts && typeof opts\.chordWords === 'function'\) \? opts\.chordWords : null;/.test(LF) &&
     /var cw = \(typeof root\.__vlEditChordWords === 'function'\) \? root\.__vlEditChordWords\(\) : null;/.test(LF) &&
-    /window\.lhcVoiceLines\.withChord\(cw\.lyrics \|\| '', lyricAt, chordAt, next\)/.test(LF) &&
+    /window\.lhcVoiceLines\.withChordAt\(cw\.lyrics \|\| '', at, next\)/.test(LF) &&   // at: the line, or one run of it (2026-11-24)
     /chordWords: function\(\) \{\n\s*var copy = _sbCopyById\(pageSid\);/.test(fn('sbBindChoirRecorders')));
 
   console.log('\n   ...the pad\'s save, through a copy');

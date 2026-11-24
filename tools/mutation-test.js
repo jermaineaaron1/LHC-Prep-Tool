@@ -234,7 +234,7 @@ const CASES = [
     s => s.replace("var n = function(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); };",
                    "var n = function(s) { return String(s == null ? '' : s); };")],
   ['voice-lines-harness.js', 'a repeated line always takes the first chord line',
-    s => s.replace('if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; }', '')],
+    s => s.replace('if (cursor) { cursor.at = i + 1; cursor.last = index[i]; cursor.lastPart = part; cursor.rest = null; }', '')],
   // The two sides of one judgement: different parts on the same words are
   // one line and share a chord; the SAME part on the same words is a
   // refrain repeated and takes the next. Breaking it either way is
@@ -2683,6 +2683,21 @@ const CASES = [
     s => s.replace("var sid = escapeJsArg(song.id || ''), choir = _sbSongHasChoir(song);", "var sid = escapeJsArg(song.id || ''), choir = true;")],
   ['liturgy-book-doc-harness.js', 'closing the Songbook no longer brings the book back',
     s => s.replace("    // Opened from the Liturgy Book: back to the book.\r\n    _lb2AfterSongbook();", "")],
+  // A choir moment that is one run of a longer lyric line (2026-11-24).
+  ['voice-lines-harness.js', 'a moment that is part of a lyric line matches nothing again',
+    s => s.replace("      if (run) { if (cursor) cursor.at = j + 1; return V._chordRun(index[j], { from: 0, lo: 0 }, run, cursor, part); }", "")],
+  ['songbook-choir-pad-harness.js', 'chords over a run are saved as the whole line\'s chord line',
+    s => s.replace("      lyrics = V.withChordAt(lyrics, hit, next);", "      lyrics = V.withChord(lyrics, hit.lyricAt, hit.chordAt, next);")],
+  ['songbook-choir-pad-harness.js', 'a run\'s chord line taken away takes the whole line\'s chords',
+    s => s.replace("        lyrics = V.withChordAt(lyrics, h, '');", "        lyrics = V.withChord(lyrics, h.lyricAt, h.chordAt, '');")],
+  ['voice-lines-harness.js', 'a run of a nearer line beats a line ahead the words match exactly',
+    s => s.replace("      if (V._sameWords(want, index[i].lyric)) {", "      var rr = V._wordsRun(index[i].lyric, 0, want); if (rr && !V._sameWords(want, index[i].lyric)) { if (cursor) cursor.at = i + 1; return V._chordRun(index[i], { from: 0, lo: 0 }, rr, cursor, part); } if (V._sameWords(want, index[i].lyric)) {")],
+  ['voice-lines-harness.js', '"peace" is taken for the start of "peaceful"',
+    s => s.replace("    if (/[a-z0-9]/i.test(nx) || (/['\\u2019]/.test(nx) && /[a-z]/i.test(s.charAt(end + 1)))) return null;", "")],
+  ['voice-lines-harness.js', 'a chord over the space before a word goes to the word before',
+    s => s.replace("    var last = run.next >= line.length, to = last ? null : run.cut;", "    var last = run.next >= line.length, to = last ? null : run.next;")],
+  ['songbook-choir-pad-harness.js', 'the printed page\'s chord editor writes a run over the whole chord line',
+    s => s.replace("        var mine = window.lhcVoiceLines.withChordAt(cw.lyrics || '', at, next);", "        var mine = window.lhcVoiceLines.withChord(cw.lyrics || '', lyricAt, chordAt, next);")],
   // An upcoming order follows the Roster (2026-11-21).
   ['follow-roster-harness.js', 'a reading the Roster changed is left as it was',
     s => s.replace("      out.push({ role: role, act: 'replace', ids: ids, ref: r });", "")],
