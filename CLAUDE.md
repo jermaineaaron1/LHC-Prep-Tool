@@ -6500,6 +6500,41 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/songbook-choir-pad-harness.js` (section 10) saves Silent Night's
     verse 1 through the real `_sbmPadSaveChords`.
 
+118. **A choir moment the lyrics do not have keeps its chords on the song,
+    in `display_style.choirChords`.** From the operator (2026-11-24), on the
+    pad of Silent Night's verse 3: "please enable to add chords above the
+    lyrics if there isn't any as of yet", at "Jesus Lord is Holy. (Holy)" --
+    sung by the choir, never in the lyrics, so a chord typed over it had no
+    lyric line (gotcha 89's one set of chords) and was dropped on Save.
+    - **Where:** `display_style.choirChords = { key: chord line }`, no
+      migration. The key is `lhcVoiceLines.choirOnlyKey(g, cursor)`: the
+      section and the lead words in letters and numbers, and which time those
+      words come in that section among such moments --
+      `verse 3|jesuslordisholyholy#1`. Words changed, the chords stay behind
+      under the old key (as a take does, gotcha 19). Kept in the song's key
+      (the pad moves typed chords back by the copy's steps first), for every
+      copy, as the choir lines are.
+    - **Read:** `chordIndex(lyrics, isChord, extra)` hangs the map on the
+      index (`index.extra`), and `chordFor` falls back on it LAST -- a whole
+      line, then a run (gotcha 117), then this -- with a hit that has no
+      line (`lyricAt -1`) and says its key (`extra`). Handed in by
+      `_sbChoirBodyHtml` (the reading view, Book Mode, print, the Liturgy
+      Book), the pads (`opts.choirOnly` to `_sbCpText` / `_sbmPadText`, from
+      `_sbOverviewOpenNow`, `_sbChNpOpen` and the structured editor), and the
+      song library's Choir parts tab and parts preview. Without it a call is
+      as before: no hit.
+    - **Written** only by the pads' save (`_sbmPadSaveChords`: a changed
+      chord line, or one taken away), as a PATCH of those keys laid over what
+      is stored now (`_sbChoirOnlySave` through `_sbRecDsWrite`, which reads
+      `display_style` fresh), so another device's keys stay; the song form
+      lays only its own keys over `display_style`. The printed page's chord
+      row shows such chords but is not typed on (`_chordRow`: no line to
+      write; its hover says the choir pad). Other devices notice: the live
+      fingerprint reads `choirChords:display_style->choirChords`
+      (`_sbmLiveSongsOf`).
+    `tools/voice-lines-harness.js` and `tools/songbook-choir-pad-harness.js`
+    (section 11) check it.
+
 ## Quick Commands for Claude Code
 
 ```bash

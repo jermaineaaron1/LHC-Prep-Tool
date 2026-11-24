@@ -220,6 +220,7 @@ const env = new Function('ctx', 'window', secVar + '\n' + NAMES.map(fn).join('\n
   function _sbLinesSig(r) { return 'sig' + (r || []).length; }
   function _sbCopyById(id) { return ctx.copy; }
   function _sbChoirChordWords() { return ctx.lyrics; }
+  function _sbChoirOnly() { return ctx.only || {}; }
   function _sbmIsChord() { return ctx.isChord; }
   function _sbmStepsOf() { return ctx.steps; }
   var transposeChordLinePrint = ctx.XP;
@@ -325,6 +326,8 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
       function _sbmIsChord() { return window.isChord; }
       function _sbChoirChordWords() { return window.STATE.songs[0].lyrics; }
       function _sbChoirChordSave(copy, base, l) { out.lyrics = l; return Promise.resolve(); }
+      function _sbChoirOnly() { return out.only || {}; }
+      function _sbChoirOnlySave(base, patch) { out.patch = patch; return Promise.resolve(); }
       ${fn('_sbmPadSaveChords')}
       return _sbmPadSaveChords;`)({ lhcVoiceLines: V, STATE: { songs: [{ id: 'song_1', lyrics }] }, isChord }, out);
     return { E, out };
@@ -435,6 +438,43 @@ check('...or at the section whose pen was pressed', ctx.opened.text.split('\n')[
     (ed.match(/withChordAt\((cw|song)\.lyrics \|\| '', at, next\)/g) || []).length === 2 && !/\.withChord\(/.test(ed), ed.slice(0, 300));
   check('chords added to both halves of a line that had none: one chord line made, each half in its place',
     sc5.out.lyrics && J(sc5.out.lyrics.split('\n').slice(5, 7)) === J(['D        D7       G      G        D         G', 'Sleep in heavenly peace, sleep in heavenly peace.']) && r5.orphans.length === 0, J([sc5.out.lyrics, r5]));
+  // -------------------------------------------------------------------------
+  // From the operator (2026-11-24), on the pad of Silent Night's verse 3:
+  // "please enable to add chords above the lyrics if there isn't any as of
+  // yet", pointing at "Jesus Lord is Holy. (Holy)" -- a line the choir sings
+  // and the lyrics never had, so its chords had nowhere to go and were dropped.
+  console.log('\n11. Chords for a line the lyrics do not have (2026-11-24)');
+  const V3 = [
+    { part: 'both', text: 'Jesus Lord at thy birth,', section: 'Verse 3', sortOrder: 0, sustained: false },
+    { part: 'both', text: 'Jesus Lord is Holy.  (Holy)', section: 'Verse 3', sortOrder: 1, sustained: false }
+  ];
+  const V3LY = ['[Verse 3]', 'G    D7          G', 'Jesus Lord at thy birth,'].join('\n');
+  const KEY3 = 'verse 3|jesuslordisholyholy#1';
+  const v3Pad = C.text(V3, V3LY, isChord, { parts: [], choirOnly: {} }).split('\n');
+  check('the pad shows no chords over it yet', v3Pad[v3Pad.indexOf('Jesus Lord is Holy.  (Holy)') - 1] === '', J(v3Pad));
+  const v3Shown = C.read(v3Pad.join('\n'), isChord, [], []).chords;
+  const v3Typed = v3Pad.slice(); v3Typed.splice(v3Typed.indexOf('Jesus Lord is Holy.  (Holy)'), 0, 'G      C       D  G');
+  const sc6 = SC(V3LY); sc6.out.only = {};
+  const r6 = await sc6.E('song_1', V3, C.toSave(C.read(v3Typed.join('\n'), isChord, [], []).chords, v3Shown, v3Shown, 0, XP), 'c1');
+  check('chords typed over it are kept on the song, the lyrics untouched, nothing reported as having nowhere to sit',
+    sc6.out.lyrics === null && J(sc6.out.patch) === J({ [KEY3]: 'G      C       D  G' }) && r6.written && r6.orphans.length === 0, J([sc6.out, r6]));
+  const only3 = { [KEY3]: 'G      C       D  G' };
+  const v3Pad2 = C.text(V3, V3LY, isChord, { parts: [], choirOnly: only3 }).split('\n');
+  check('...and the pad shows them over it the next time', v3Pad2[v3Pad2.indexOf('Jesus Lord is Holy.  (Holy)') - 1] === 'G      C       D  G', J(v3Pad2));
+  const v3Shown2 = C.read(v3Pad2.join('\n'), isChord, [], []).chords;
+  const sc7 = SC(V3LY); sc7.out.only = only3;
+  await sc7.E('song_1', V3, C.toSave(v3Shown2, v3Shown2, v3Shown2, 0, XP), 'c1');
+  check('...nothing changed: nothing written', sc7.out.lyrics === null && sc7.out.patch === undefined, J(sc7.out));
+  const v3Gone = v3Pad2.slice(); v3Gone.splice(v3Gone.indexOf('Jesus Lord is Holy.  (Holy)') - 1, 1);
+  const sc8 = SC(V3LY); sc8.out.only = only3;
+  await sc8.E('song_1', V3, C.toSave(C.read(v3Gone.join('\n'), isChord, [], []).chords, v3Shown2, v3Shown2, 0, XP), 'c1');
+  check('...their chord line taken away: they go from the song', J(sc8.out.patch) === J({ [KEY3]: '' }) && sc8.out.lyrics === null, J(sc8.out));
+  check('every view that draws the score or the pads is handed what is kept',
+    /_sbChoirOnly\(_sbBaseSongId\(song\)\)/.test(fn('_sbChoirBodyHtml')) && /choirOnly: only/.test(fn('_sbOverviewOpenNow')) && /choirOnly: only/.test(fn('_sbChNpOpen')) &&
+    /chordIndex\(lyrics \|\| '', isChord \|\| null, o\.choirOnly \|\| null\)/.test(fn('_sbmPadText')) && /chordIndex\(lyrics \|\| '', isChord \|\| null, o\.choirOnly \|\| null\)/.test(fn('_sbCpText')));
+  check('kept as a change of those keys alone, laid over what is stored now (another device\'s keys stay)',
+    /return _sbRecDsWrite\(base, function\(ds\) \{/.test(fn('_sbChoirOnlySave')) && /Object\.keys\(patch \|\| \{\}\)\.forEach/.test(fn('_sbChoirOnlySave')));
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

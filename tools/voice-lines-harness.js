@@ -886,7 +886,7 @@ check('a matched moment is editable', /vl-chords--edit/.test(hKnown), true);
 check('an unmatched one is not', /vl-chords--edit/.test(hOrphan), false);
 check('  and is marked as having no lyric', /vl-chords--nolyric/.test(hOrphan), true);
 check('  and offers no "+ chords"', /\+ chords/.test(hOrphan), false);
-check('  and says why on hover', /there is nowhere to put a chord/.test(hOrphan), true);
+check('  and says why on hover', /their chords are typed on the choir pad/.test(hOrphan), true);
 // Print asks for no editing at all, and must get neither.
 const hPrint = V.html([row('both', 'words the song does not have', 0)], { chords: orphanIdx, compact: true });
 check('print shows no hint either', /vl-chord-hint/.test(hPrint), false);
@@ -1222,6 +1222,31 @@ check('different parts echoing a run share it, and the next run is still taken',
     const gs = V.group([row('women', 'Gloria,', 0), row('men', 'Gloria,', 1), row('both', 'gloria in excelsis', 2)]);
     return gs.map(g => { const h = V.chordFor(ix, g, cu); return h ? [h.chord, h.from] : null; });
   })(), [['C', 0], ['C', 0], ['   G', 8]]);
+
+// A moment the lyrics do not have at all (2026-11-24): Silent Night's choir
+// sings "Jesus Lord is Holy. (Holy)" after verse 3, which the lyrics never
+// had. Its chords are kept on the song (display_style.choirChords) by its
+// section and words, and chordFor falls back on them.
+console.log('\na moment the lyrics do not have keeps its chords on the song');
+const ONLY_LY = ['G    D7', 'Jesus Lord at thy birth'].join('\n');
+const onlyRows = [row('both', 'Jesus Lord at thy birth', 0, { section: 'Verse 3' }), row('both', 'Jesus Lord is Holy.  (Holy)', 1, { section: 'Verse 3' })];
+const og = V.group(onlyRows);
+check('its key: the section, the words in letters and numbers, which time', V.choirOnlyKey(og[1], {}), 'verse 3|jesuslordisholyholy#1');
+const oc = {};
+const ohits = og.map(g => V.chordFor(V.chordIndex(ONLY_LY, isChord, { 'verse 3|jesuslordisholyholy#1': 'G   D   G' }), g, oc));
+check('chordFor: a line of the lyrics still wins; the other takes the chords kept for it',
+  ohits.map(h => h && [h.chord, h.lyricAt, h.extra || null]),
+  [['G    D7', 1, null], ['G   D   G', -1, 'verse 3|jesuslordisholyholy#1']]);
+check('  nothing kept yet: an empty hit, to type on', (function() { const c = {}; V.chordFor(V.chordIndex(ONLY_LY, isChord, {}), og[0], c); const h = V.chordFor(V.chordIndex(ONLY_LY, isChord, {}), og[1], c); return [h.chord, h.extra]; })(), ['', 'verse 3|jesuslordisholyholy#1']);
+check('  no store handed in: no hit, as before', (function() { const c = {}; V.chordFor(V.chordIndex(ONLY_LY, isChord), og[0], c); return V.chordFor(V.chordIndex(ONLY_LY, isChord), og[1], c); })(), null);
+check('  the same words twice in a section are kept apart',
+  (function() { const c = {}, gs = V.group([row('both', 'Holy', 0, { section: 'Tag' }), row('both', 'Holy', 1, { section: 'Tag' })]), ix = V.chordIndex('', isChord, {}); return gs.map(g => V.chordFor(ix, g, c).extra); })(),
+  ['tag|holy#1', 'tag|holy#2']);
+const onlyRow = V._chordRow(ohits[1], 'Jesus Lord is Holy.  (Holy)', true, true, {});
+check('its chord row shows the chords and is not typed on there (the choir pad is where)',
+  [/G   D   G/.test(onlyRow), /vl-chords--edit/.test(onlyRow), /data-chord-lyric-at/.test(onlyRow)], [true, false, false]);
+check('  empty, it says where its chords are typed',
+  /vl-chords--nolyric/.test(V._chordRow({ lyric: 'x', chord: '', lyricAt: -1, chordAt: -1, extra: 'k' }, 'x', true, true, {})), true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

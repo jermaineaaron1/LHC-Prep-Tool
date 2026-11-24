@@ -82,7 +82,7 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
     /var lyrics = _sbChoirChordWords\(song, base\), parts = V\.lanes\(rows\)/.test(fn('_sbChNpOpen')));
   check('...and write to them: the pad (with its copy), Edit Parts, the notepad\'s Undo',
     /function _sbmPadSaveChords\(base, rows, chords, sid\)/.test(LF) && /var lyrics = _sbChoirChordWords\(copy, base\)/.test(fn('_sbmPadSaveChords')) &&
-    /return _sbChoirChordSave\(copy, base, lyrics\)/.test(fn('_sbmPadSaveChords')) &&
+    /_sbChoirChordSave\(copy, base, lyrics\)/.test(fn('_sbmPadSaveChords')) &&
     /_sbmPadSaveChords\(base, _sbVoiceLines\[base\], chords, sid\)/.test(fn('_sbmPadSaveSong')) &&
     (LF.match(/ed\.pendingChords, ed\.sid\)/g) || []).length === 2 &&
     /return _sbChoirChordSave\(N\.song, base, N\.lyrics\);/.test(fn('_sbChNpUndo')));
@@ -104,6 +104,8 @@ const settle = async () => { for (let i = 0; i < 12; i++) await tick(); };
       ${fn('_sbCopyById')}
       ${fn('_sbChoirChordWords')}
       ${fn('_sbChoirChordSave')}
+      ${fn('_sbChoirOnly')}
+      function _sbChoirOnlySave() { return Promise.resolve(); }
       ${fn('_sbmPadSaveChords')}
       return _sbmPadSaveChords;`);
     const V = (() => {
