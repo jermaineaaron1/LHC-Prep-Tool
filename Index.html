@@ -28522,7 +28522,7 @@ window.ALTAR_SWATCHES = Object.keys(window.LITURGICAL_COLOURS).reduce(function (
         reader.readAsDataURL(file);
       } else if (typeof uploadToSupabase === 'function') {
         // Audio / video → upload to Supabase Storage
-        uploadToSupabase(file, 'orders/media').then(function(result) {
+        uploadToSupabase(file, 'orders/media', { once: true }).then(function(result) {
           if (result && result.url) {
             var isAudio = mimeType.startsWith('audio/');
             var mediaInfo = {
@@ -31730,29 +31730,174 @@ function getSupabaseClient() {
 }
 
 // Upload a file to Supabase Storage — returns Promise with { url, path } or { error }
-function uploadToSupabase(file, folder) {
+// opts.once (gotcha 119): the file is stored under a name made from its
+// CONTENT -- folder/c_<sha-256>.<ext> -- so a picture, video or deck added
+// again, on any device and for any order, is the file already there: the
+// upload is refused as existing and answers with the same address, marked
+// `existed`. Only the LCD's media asks for it. Such a file may be shared by
+// several tray records and orders, so nothing deletes one without asking
+// lhcDeleteUnlessShared. Every other caller keeps a copy of its own under
+// "<time>_<name>", because their clean-ups delete what they uploaded.
+function uploadToSupabase(file, folder, opts) {
   var sb = getSupabaseClient();
   if (!sb) return Promise.resolve({ error: 'Supabase SDK not loaded' });
 
-  var safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  var safeName = String((file && file.name) || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   var filePath = (folder || 'uploads') + '/' + Date.now() + '_' + safeName;
+  if (!(opts && opts.once)) return _lhcUploadAt(sb, file, filePath, false);
+  return _lhcContentPath(file, folder).then(function(onePath) {
+    return onePath ? _lhcUploadAt(sb, file, onePath, true) : _lhcUploadAt(sb, file, filePath, false);
+  });
+}
 
-  return sb.storage.from(LHC_SUPABASE_BUCKET).upload(filePath, file, {
-    cacheControl: '3600',
+function _lhcUploadAt(sb, file, filePath, once) {
+  var bucket = sb.storage.from(LHC_SUPABASE_BUCKET);
+  return bucket.upload(filePath, file, {
+    // A file named by its content never changes, so a browser may keep it
+    // for a year -- which also spares the egress quota (2026-11-06).
+    cacheControl: once ? '31536000' : '3600',
     upsert: false,
     contentType: file.type || 'application/octet-stream'
   }).then(function(response) {
+    var existed = false;
     if (response.error) {
-      console.error('Supabase upload error:', response.error);
-      return { error: response.error.message || 'Upload failed' };
+      if (!(once && _lhcAlreadyStored(response.error))) {
+        console.error('Supabase upload error:', response.error);
+        return { error: response.error.message || 'Upload failed' };
+      }
+      existed = true;
     }
-    var publicUrlResponse = sb.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(filePath);
+    var publicUrlResponse = bucket.getPublicUrl(filePath);
     var publicUrl = publicUrlResponse.data ? publicUrlResponse.data.publicUrl : null;
     if (publicUrl) {
-      return { url: publicUrl, path: filePath };
+      return existed ? { url: publicUrl, path: filePath, existed: true } : { url: publicUrl, path: filePath };
     }
     return { error: 'Could not generate public URL' };
   });
+}
+
+// Whether a refused upload was refused only because that name is stored
+// already (pure). Storage answers 400 with statusCode "409" and "The resource
+// already exists"; a newer client carries the 409 as its status.
+function _lhcAlreadyStored(err) {
+  if (!err) return false;
+  if (String(err.statusCode) === '409' || err.status === 409) return true;
+  return /already exists|duplicate/i.test(String(err.message || err.error || ''));
+}
+
+// A file's extension for its stored name (pure): its own, else its type's.
+// "jpeg" is always "jpg": a picture read back from the tray's base64 is
+// named for its type, and one uploaded straight for its file, and the same
+// picture must come to the same name either way.
+function _lhcFileExt(name, type) {
+  var m = /\.([a-z0-9]{1,8})$/i.exec(String(name || ''));
+  var t = m ? m[1].toLowerCase() : (String(type || '').split(';')[0].split('/')[1] || '').toLowerCase();
+  t = t.replace(/^jpeg$/, 'jpg').replace(/^svg\+xml$/, 'svg').replace(/^quicktime$/, 'mov').replace(/[^a-z0-9]/g, '');
+  return t.slice(0, 8) || 'bin';
+}
+
+// The name made from a file's content (pure). 32 hex characters of its
+// SHA-256 are 128 bits: two different files never share one.
+function _lhcOncePath(folder, hex, ext) {
+  return (folder || 'uploads') + '/c_' + String(hex).slice(0, 32) + '.' + (ext || 'bin');
+}
+function _lhcIsOncePath(path) {
+  return /(^|\/)c_[0-9a-f]{32}\.[a-z0-9]{1,8}$/.test(String(path || ''));
+}
+
+// SHA-256 of the file, then the name made from it; null where the browser
+// cannot hash (no crypto.subtle off https), and the upload keeps a name of
+// its own as before.
+function _lhcContentPath(file, folder) {
+  try {
+    var subtle = window.crypto && window.crypto.subtle;
+    if (!subtle || !file) return Promise.resolve(null);
+    var read = typeof file.arrayBuffer === 'function' ? file.arrayBuffer() : new Promise(function(res, rej) {
+      var fr = new FileReader();
+      fr.onload = function() { res(fr.result); };
+      fr.onerror = rej;
+      fr.readAsArrayBuffer(file);
+    });
+    return read.then(function(buf) { return subtle.digest('SHA-256', buf); }).then(function(d) {
+      var b = new Uint8Array(d), hex = '';
+      for (var i = 0; i < b.length; i++) hex += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+      return _lhcOncePath(folder, hex, _lhcFileExt(file.name, file.type));
+    }).catch(function() { return null; });
+  } catch (e) { return Promise.resolve(null); }
+}
+
+// Delete a stored file unless something still uses it. A file stored by its
+// content (opts.once) may be shared by several tray records and orders, so it
+// goes through the reference check an order's own uploads go through -- which
+// keeps it whenever any table cannot be read. Anything else is its caller's
+// own copy and goes at once, as it always did.
+function lhcDeleteUnlessShared(path) {
+  if (!path) return Promise.resolve(false);
+  if (!_lhcIsOncePath(path)) { deleteFromSupabase(path); return Promise.resolve(true); }
+  var sb = getSupabaseClient();
+  if (!sb) return Promise.resolve(false);
+  return _deleteUnreferencedUploads(sb, [path]).then(function(r) {
+    return !!(r && r.deleted && r.deleted.length);
+  }).catch(function() { return false; });
+}
+
+// LCD pictures are kept at the size a projector shows them (gotcha 119). The
+// scale (pure) is the smallest that still COVERS a 1920x1080 screen -- a
+// background is drawn to cover, so a portrait photograph keeps its whole
+// width -- and never more than 1.
+var LHC_PROJ_W = 1920, LHC_PROJ_H = 1080;
+var LHC_PROJ_KEEP_UNDER = 600 * 1024;
+function _lhcCoverScale(w, h) {
+  if (!(w > 0) || !(h > 0)) return 1;
+  return Math.min(1, Math.max(LHC_PROJ_W / w, LHC_PROJ_H / h));
+}
+
+// A picture for the projector: scaled to that size and saved as JPEG at 0.85
+// -- a PNG or WebP with see-through parts stays a PNG -- and used only when it
+// comes out smaller. Not a picture, an animated GIF, an SVG, a picture the
+// browser cannot decode (HEIC on some), or one already within the size and
+// small: the file as it came. Never rejects.
+function lhcProjectorPicture(file) {
+  var type = String((file && file.type) || '');
+  if (!/^image\//.test(type) || /gif|svg/.test(type)) return Promise.resolve(file);
+  return new Promise(function(resolve) {
+    var url = null, img = new Image();
+    function done(f) {
+      try { if (url) URL.revokeObjectURL(url); } catch (e) {}
+      resolve(f);
+    }
+    img.onload = function() {
+      try {
+        var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        var sc = _lhcCoverScale(w, h);
+        if (sc >= 1 && file.size <= LHC_PROJ_KEEP_UNDER) { done(file); return; }
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * sc));
+        c.height = Math.max(1, Math.round(h * sc));
+        var cx = c.getContext('2d');
+        cx.drawImage(img, 0, 0, c.width, c.height);
+        var png = /png|webp/.test(type) && _lhcHasAlpha(cx, c.width, c.height);
+        c.toBlob(function(blob) {
+          if (!blob || blob.size >= file.size) { done(file); return; }
+          var name = String(file.name || 'picture').replace(/\.[^.]+$/, '') + (png ? '.png' : '.jpg');
+          var out;
+          try { out = new File([blob], name, { type: png ? 'image/png' : 'image/jpeg' }); }
+          catch (e) { out = blob; out.name = name; }
+          done(out);
+        }, png ? 'image/png' : 'image/jpeg', 0.85);
+      } catch (e) { done(file); }
+    };
+    img.onerror = function() { done(file); };
+    try { url = URL.createObjectURL(file); img.src = url; } catch (e) { done(file); }
+  });
+}
+
+function _lhcHasAlpha(cx, w, h) {
+  try {
+    var d = cx.getImageData(0, 0, w, h).data;
+    for (var i = 3; i < d.length; i += 4) { if (d[i] < 255) return true; }
+    return false;
+  } catch (e) { return true; }
 }
 
 // Delete a file from Supabase Storage
@@ -45733,7 +45878,7 @@ var WO = (function() {
     var sb = getSupabaseClient();
     if (sb) {
       showToast('Uploading video to cloud...', 'info');
-      uploadToSupabase(file, 'orders/videos').then(function(result) {
+      uploadToSupabase(file, 'orders/videos', { once: true }).then(function(result) {
         if (result && result.url) {
           renderVideoElement(result.url, file.name, file.type, result.path);
           showToast('Video uploaded to cloud!', 'success');
@@ -45920,6 +46065,29 @@ var WO = (function() {
     });
   }
 
+  // The device's two copies of the library, merged (pure): IndexedDB's first,
+  // then what only localStorage has. IndexedDB used to win outright, and it
+  // still held the base64 of every big picture after the picture was
+  // uploaded -- the upload rewrote localStorage only -- so every reload took
+  // it for a picture never uploaded and uploaded it again (gotcha 119). An
+  // IndexedDB copy with no stored path whose localStorage copy has one is
+  // that stale copy: the localStorage one is taken, and its id is in `stale`.
+  function _bgMergeLocal(idb, ls) {
+    var byId = {}, seen = {}, out = [], stale = [];
+    (ls || []).forEach(function(b) { if (b && b.id) byId[b.id] = b; });
+    (idb || []).forEach(function(b) {
+      if (!b) return;
+      var mine = byId[b.id];
+      if (mine && !b.storagePath && mine.storagePath) { out.push(mine); stale.push(b.id); }
+      else out.push(b);
+      seen[b.id] = true;
+    });
+    (ls || []).forEach(function(b) {
+      if (b && !seen[b.id]) { out.push(b); seen[b.id] = true; }
+    });
+    return { list: out, stale: stale };
+  }
+
   function loadBackgrounds() {
     // Load from IndexedDB first (for large files like videos)
     loadBackgroundsFromIDB().then(function(idbBackgrounds) {
@@ -45929,13 +46097,12 @@ var WO = (function() {
         if (stored) {
           var lsBackgrounds = JSON.parse(stored);
 
-          // Merge: IDB takes priority, add LS items that aren't in IDB
-          var idbIds = idbBackgrounds.map(function(b) { return b.id; });
-          lsBackgrounds.forEach(function(bg) {
-            if (idbIds.indexOf(bg.id) === -1) {
-              idbBackgrounds.push(bg);
-            }
-          });
+          // Merge: IDB takes priority, add LS items that aren't in IDB --
+          // except a stale IDB copy, the base64 of a picture localStorage
+          // already holds uploaded (gotcha 119), which is dropped.
+          var merged = _bgMergeLocal(idbBackgrounds, lsBackgrounds);
+          idbBackgrounds = merged.list;
+          merged.stale.forEach(function(id) { deleteBackgroundFromIDB(id).catch(function() {}); });
         }
       } catch(e) {
         console.warn('Failed to load from localStorage:', e);
@@ -46022,6 +46189,16 @@ var WO = (function() {
     return { url: url, path: bg.storagePath || bg.path || '' };
   }
 
+  // The tray record that already holds this stored file, if any. Uploaded by
+  // content (gotcha 119), a picture or deck added twice is one file, and stays
+  // one tile.
+  function _bgByPath(path) {
+    if (!path) return null;
+    return (savedBackgrounds || []).filter(function(b) {
+      return b && (b.storagePath === path || b.path === path);
+    })[0] || null;
+  }
+
   function _sbSaveBackgroundToSupabase(bg) {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb || !bg) return;
@@ -46071,7 +46248,7 @@ var WO = (function() {
     var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sb || !bgId) return;
     try {
-      sb.from('lhc_backgrounds').delete().eq('id', bgId).then(function(res) {
+      return sb.from('lhc_backgrounds').delete().eq('id', bgId).then(function(res) {
         if (res && res.error) console.warn('[LHC] background delete error:', res.error.message);
       });
     } catch (e) { console.warn('[LHC] background delete failed:', e); }
@@ -46120,6 +46297,17 @@ var WO = (function() {
                 storageProvider: 'supabase'
               });
               added++;
+            } else if (rowb.storage_path && rowb.url) {
+              // This device still holds the picture as base64 waiting to go
+              // up, when it is stored already -- a copy kept before its upload
+              // landed (gotcha 119). It takes the stored address instead of
+              // uploading the picture once more.
+              var mine = savedBackgrounds.filter(function(b) { return b && b.id === rowb.id; })[0];
+              if (mine && !mine.storagePath && typeof mine.data === 'string' &&
+                  mine.data.indexOf('data:') === 0 && !_bgMigrating[mine.id]) {
+                _bgMigrated(mine, { url: rowb.url, path: rowb.storage_path }, true);
+                added++;
+              }
             }
           });
           if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
@@ -46128,6 +46316,9 @@ var WO = (function() {
       pull(_bgCatColumn !== false);
     } catch (e) { console.warn('[LHC] background load failed:', e); }
   }
+
+  // The pictures whose base64 is on its way to Storage, by id (gotcha 119).
+  var _bgMigrating = {};
 
   function saveBackgrounds() {
     console.log('saveBackgrounds called with', savedBackgrounds.length, 'items');
@@ -46164,10 +46355,15 @@ var WO = (function() {
       });
     });
 
-    // Upload local base64 backgrounds to Supabase (migrate from local to cloud)
+    // Upload local base64 backgrounds to Supabase (migrate from local to cloud).
+    // Once a picture (gotcha 119): every call used to start a NEW upload of
+    // every picture still waiting, and a tray drop is a call per picture, so
+    // 31 pictures dropped on 2026-11-25 left 464 copies in Storage. The ones
+    // on their way are in _bgMigrating, and the upload is by content, so even
+    // another device's try lands on the same file.
     if (typeof uploadToSupabase === 'function') {
       savedBackgrounds.forEach(function(bg) {
-        if (!bg.storagePath && bg.data && bg.data.indexOf('data:') === 0) {
+        if (!bg.storagePath && bg.data && bg.data.indexOf('data:') === 0 && !_bgMigrating[bg.id]) {
           // Convert base64 data URL to blob for Supabase upload
           try {
             var parts = bg.data.split(',');
@@ -46180,19 +46376,12 @@ var WO = (function() {
             blob.name = (bg.name || bg.id) + '.' + ext;
 
             var folder = bg.type === 'video' ? 'orders/videos' : 'orders/images';
-            uploadToSupabase(blob, folder).then(function(result) {
-              if (result && result.url) {
-                bg.data = result.url;
-                bg.cloudUrl = result.url;
-                bg.storagePath = result.path;
-                bg.storageProvider = 'supabase';
-                delete bg.driveFileId;
-                console.log('Migrated', bg.id, 'to Supabase');
-                _sbSaveBackgroundToSupabase(bg);
-                // Re-save to persist the cloud URL
-                try { localStorage.setItem(BG_STORAGE_KEY, JSON.stringify(savedBackgrounds.filter(function(b) { return !b.data || b.data.length < 500 * 1024; }))); } catch(e) {}
-              }
+            _bgMigrating[bg.id] = true;
+            uploadToSupabase(blob, folder, { once: true }).then(function(result) {
+              delete _bgMigrating[bg.id];
+              if (result && result.url) _bgMigrated(bg, result, false);
             }).catch(function(err) {
+              delete _bgMigrating[bg.id];
               console.warn('Could not migrate background to Supabase:', err);
             });
           } catch(e) {
@@ -46201,6 +46390,31 @@ var WO = (function() {
         }
       });
     }
+  }
+
+  // A picture's base64 is a stored file now: the record takes its address,
+  // is shared (unless the address came FROM the shared index, `known`), and
+  // the device's copies are made to agree. The IndexedDB copy still held the
+  // base64 with no path and loadBackgrounds() prefers it, so it is taken out
+  // once localStorage holds the record -- or written over where localStorage
+  // is full. A record deleted while its upload was out is not brought back.
+  function _bgMigrated(bg, result, known) {
+    if (savedBackgrounds.indexOf(bg) === -1) return;
+    bg.data = result.url;
+    bg.cloudUrl = result.url;
+    bg.storagePath = result.path;
+    bg.storageProvider = 'supabase';
+    delete bg.driveFileId;
+    console.log('Migrated', bg.id, 'to Supabase');
+    if (!known) _sbSaveBackgroundToSupabase(bg);
+    var kept = false;
+    try {
+      localStorage.setItem(BG_STORAGE_KEY, JSON.stringify(savedBackgrounds.filter(function(b) { return !b.data || b.data.length < 500 * 1024; })));
+      kept = true;
+    } catch(e) {}
+    try {
+      (kept ? deleteBackgroundFromIDB(bg.id) : saveBackgroundToIDB(bg)).catch(function() {});
+    } catch(e) {}
   }
 
   // Section-independent background functions
@@ -46667,6 +46881,21 @@ var WO = (function() {
 
     var mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
 
+    // A picture is brought to the size a projector shows (gotcha 119) BEFORE
+    // the size limit is asked: a phone's 12MB photograph is well under 5MB
+    // once it is 1920 pixels wide, and was turned away for a size it would
+    // no longer have.
+    (isImage ? lhcProjectorPicture(file) : Promise.resolve(file)).then(function(sized) {
+      _bgUploadOne(sized, mediaType);
+    });
+
+    // Clear the input
+    var inp = $('woBgFileInput');
+    if (inp) inp.value = '';
+  }
+
+  function _bgUploadOne(file, mediaType) {
+    var isVideo = mediaType === 'video', isAudio = mediaType === 'audio';
     // Check file size (warn if over 5MB for images, 50MB for videos, 15MB for audio)
     var maxSize = isVideo ? 50 * 1024 * 1024 : (isAudio ? 15 * 1024 * 1024 : 5 * 1024 * 1024);
     if (file.size > maxSize) {
@@ -46680,8 +46909,13 @@ var WO = (function() {
     var supabaseFolder = isVideo ? 'orders/videos' : (isAudio ? 'orders/audio' : 'orders/images');
 
     if (typeof uploadToSupabase === 'function') {
-      uploadToSupabase(file, supabaseFolder).then(function(result) {
+      uploadToSupabase(file, supabaseFolder, { once: true }).then(function(result) {
         if (result && result.url) {
+          var same = _bgByPath(result.path);
+          if (same) {
+            showToast('“' + (same.name || file.name) + '” is already in the Media Tray', 'info');
+            return;
+          }
           var bg = {
             id: 'bg_' + Date.now(),
             type: mediaType,
@@ -46709,9 +46943,6 @@ var WO = (function() {
     } else {
       handleBackgroundUploadLocal(file, mediaType);
     }
-
-    // Clear the input
-    $('woBgFileInput').value = '';
   }
 
   // Fallback: store background as local base64
@@ -47127,9 +47358,15 @@ var WO = (function() {
     // ~24MB, which is how Storage once collected 49 orphaned files and
     // 629MB. Documents only: a picture's file is referenced by slides in
     // saved orders, so that one is left where it is.
+    // A deck stored by its content (gotcha 119) may be an order's too, or a
+    // second tile's: that one goes only once nothing uses it, asked after this
+    // record has left the shared index (below). One stored the old way is this
+    // tile's own, and goes now.
+    var _goneFile = '';
     if (_goneDoc && _gone && typeof deleteFromSupabase === 'function') {
       var _p = _gone.path || _gone.storagePath;
-      if (_p) { try { deleteFromSupabase(_p); } catch (e) { console.warn('[LHC] could not delete the stored file:', e); } }
+      if (_p && typeof _lhcIsOncePath === 'function' && _lhcIsOncePath(_p)) _goneFile = _p;
+      else if (_p) { try { deleteFromSupabase(_p); } catch (e) { console.warn('[LHC] could not delete the stored file:', e); } }
     }
     savedBackgrounds = savedBackgrounds.filter(function(bg) { return bg.id !== bgId; });
     saveBackgrounds();
@@ -47151,7 +47388,10 @@ var WO = (function() {
     });
 
     // Remove from the shared Supabase media index (deletes for all users)
-    _sbDeleteBackgroundFromSupabase(bgId);
+    var _rowGone = _sbDeleteBackgroundFromSupabase(bgId);
+    if (_goneFile && !_bgByPath(_goneFile)) {
+      Promise.resolve(_rowGone).then(function() { return lhcDeleteUnlessShared(_goneFile); }).catch(function() {});
+    }
 
     // Also delete from cloud (Drive + Sheets)
     if (typeof callGAS === 'function') {
@@ -47647,6 +47887,16 @@ var WO = (function() {
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
+    // Pictures go in at the size a projector shows them (gotcha 119); the
+    // rest as they came.
+    files = Array.prototype.slice.call(files || []);
+    if (!opts._sized && files.some(function(f) { return f && /^image\//.test(f.type || '') && !/gif|svg/.test(f.type || ''); })) {
+      Promise.all(files.map(function(f) { return lhcProjectorPicture(f); })).then(function(sized) {
+        addSlidesFromFiles(sectionId, sized, Object.assign({}, opts, { _sized: true }));
+      });
+      return;
+    }
+
     _hidePptAttachRow(sectionId);
     var placeholder = container.querySelector('.wo-content-placeholder');
     if (placeholder) placeholder.parentElement.remove();
@@ -47680,7 +47930,7 @@ var WO = (function() {
         var _isPptx = /\.(pptx?|ppt)$/i.test(file.name);
         var _capFileName = file.name;
         var _uploadFolder = _isPptx ? 'orders/presentations' : 'orders/documents';
-        uploadToSupabase(file, _uploadFolder).then(function(result) {
+        uploadToSupabase(file, _uploadFolder, { once: true }).then(function(result) {
           if (result && result.url) {
             if (currentSermonSlides[sectionId]) {
               currentSermonSlides[sectionId].supabaseFiles.push({
@@ -48732,7 +48982,9 @@ var WO = (function() {
       // the uploaded file itself and deleting it would break the one thing that
       // still works.
       if (storagePath) {
-        deleteFromSupabase(storagePath);
+        // Stored by its content (gotcha 119), the deck is also the folder's
+        // tile and maybe another order's: it goes only if nothing uses it.
+        lhcDeleteUnlessShared(storagePath);
         var _deck = currentSermonSlides[sectionId];
         if (_deck && Array.isArray(_deck.supabaseFiles)) {
           _deck.supabaseFiles = _deck.supabaseFiles.filter(function(f) {
@@ -48916,7 +49168,7 @@ var WO = (function() {
       // so the section and the index have to do the disambiguating.
       blob.name = sectionId + '_' + (idx + 1) + '_' + (slide.name || 'slide') + '.' + ext;
 
-      uploadToSupabase(blob, 'orders/documents').then(function(result) {
+      uploadToSupabase(blob, 'orders/documents', { once: true }).then(function(result) {
         if (result && result.url) {
           slide.data = result.url;
           slide.storagePath = result.path;
@@ -74909,6 +75161,9 @@ var WO = (function() {
   // An upload joins the tray, so it is there for every future service.
   function _sbAddToMediaTray(url, file, storagePath) {
     try {
+      // One tile a stored file: a picture uploaded again is the same file
+      // (gotcha 119), and the tray has it already.
+      if (storagePath && typeof _bgByPath === 'function' && _bgByPath(storagePath)) return;
       var isVid = (file && /^video/i.test(file.type || '')) || _sbIsVideoUrl(url);
       var bg = {
         id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
@@ -75410,7 +75665,7 @@ var WO = (function() {
         if (msg) showToast(msg, 'warning');
       });
     }
-    uploadToSupabase(f, 'backgrounds').then(function(res) {
+    lhcProjectorPicture(f).then(function(pf) { return uploadToSupabase(pf, 'backgrounds', { once: true }); }).then(function(res) {
       if (res && res.url) {
         _sbAddToMediaTray(res.url, f, res.path);
         sbProjSetBg(res.url);
@@ -76205,7 +76460,7 @@ var WO = (function() {
         if (msg) showToast(msg, 'warning');
       });
     }
-    uploadToSupabase(f, 'backgrounds').then(function(res) {
+    lhcProjectorPicture(f).then(function(pf) { return uploadToSupabase(pf, 'backgrounds', { once: true }); }).then(function(res) {
       _sbAslBgEl = el; _sbAslBgLevel = level;
       if (res && res.url) {
         _sbAddToMediaTray(res.url, f, res.path);
@@ -92305,9 +92560,13 @@ var WO = (function() {
     if (mediaType === 'document') {
       if (typeof uploadToSupabase !== 'function') { showToast('Document upload is unavailable', 'error'); return; }
       showToast('Uploading “' + file.name + '”…', 'info');
-      uploadToSupabase(file, category === 'presentation' ? 'orders/presentations' : 'orders/documents')
+      uploadToSupabase(file, category === 'presentation' ? 'orders/presentations' : 'orders/documents', { once: true })
         .then(function(result) {
           if (!result || !result.url) { showToast('Could not upload ' + file.name, 'error'); return; }
+          // The same deck added again is the same stored file (gotcha 119),
+          // already a tile here.
+          var same = _bgByPath(result.path);
+          if (same) { showToast('“' + (same.name || file.name) + '” is already in the folder', 'info'); return; }
           store({ id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
                   type: 'document', category: category, name: file.name.substring(0, 40),
                   url: result.url, path: result.path, data: '' });
@@ -92322,7 +92581,10 @@ var WO = (function() {
               data: ev.target.result });
     };
     reader.onerror = function() { showToast('Could not read ' + file.name, 'error'); };
-    reader.readAsDataURL(file);
+    // A picture goes in at the size a projector shows it (gotcha 119).
+    (mediaType === 'image' ? lhcProjectorPicture(file) : Promise.resolve(file)).then(function(sized) {
+      reader.readAsDataURL(sized);
+    });
   }
 
   function _lcdRenderMediaTray() {
@@ -92740,7 +93002,10 @@ var WO = (function() {
       apply(bg);
     };
     reader.onerror = function() { showToast('Could not read ' + file.name, 'error'); };
-    reader.readAsDataURL(file);
+    // A picture goes in at the size a projector shows it (gotcha 119).
+    (mediaType === 'image' ? lhcProjectorPicture(file) : Promise.resolve(file)).then(function(sized) {
+      reader.readAsDataURL(sized);
+    });
     return true;
   }
 
