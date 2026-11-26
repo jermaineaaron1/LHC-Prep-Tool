@@ -209,7 +209,7 @@ function uploadKit(sb, win) {
       uploads: ups, shared, idbDel, idbPut,
       ls: { setItem(k, v) { store[k] = v; }, getItem(k) { return store[k] || null; } }
     };
-    const body = fn('saveBackgrounds') + '\n' + fn('_bgMigrated');
+    const body = fn('saveBackgrounds') + '\n' + fn('_bgMigrated') + '\n' + fn('_bgKeepLocal');
     const migVar = line(/\n  var _bgMigrating = \{\};/) || '\n  var _bgMigrating = {};';
     let S = null;
     try {
@@ -293,11 +293,38 @@ function uploadKit(sb, win) {
       const r2 = M([{ id: 'a', storagePath: 'x', data: 'https://x' }], [{ id: 'a', data: 'old' }]);
       check('...and otherwise IndexedDB wins, as it always did', r2.list.length === 1 && r2.list[0].storagePath === 'x' && r2.stale.length === 0, J(r2));
     } else check('_bgMergeLocal exists', false);
+    // What the shared index says, and a record moved to the index's copy.
+    const saysSrc = fn('_bgIndexSays'), repSrc = fn('_bgRepoint');
+    if (saysSrc && repSrc) {
+      const Q = new Function(saysSrc + '\nreturn _bgIndexSays;')();
+      const row = { id: 'a', url: 'https://x/c_new.jpg', storage_path: 'orders/images/c_new.jpg' };
+      check('the index heals three cases and leaves the rest',
+        J([Q({ id: 'a', data: 'data:image/jpeg;base64,AA' }, row, {}),
+           Q({ id: 'a', data: 'https://x/old.jpg', storagePath: 'orders/images/old.jpg' }, row, {}),
+           Q({ id: 'a', type: 'document', data: '', url: 'https://x/old.pptx', path: 'orders/presentations/old.pptx' }, row, {}),
+           Q({ id: 'a', data: 'https://x/c_new.jpg', storagePath: 'orders/images/c_new.jpg' }, row, {}),
+           Q({ id: 'a', data: 'data:image/jpeg;base64,AA' }, row, { a: true }),
+           Q({ id: 'a', data: 'https://x/old.jpg', storagePath: 'orders/images/old.jpg' }, { id: 'a', url: '', storage_path: '' }, {})]) ===
+        J(['stored', 'moved', 'moved', null, null, null]));
+      const kept = [];
+      const R = new Function('kept', 'function _bgKeepLocal(b) { kept.push(b.id); }\n' + repSrc + '\nreturn _bgRepoint;')(kept);
+      const pic = { id: 'p', type: 'image', data: 'https://x/old.jpg', cloudUrl: 'https://x/old.jpg', storagePath: 'orders/images/old.jpg' };
+      const deck = { id: 'd', type: 'document', data: '', url: 'https://x/old.pptx', path: 'orders/presentations/old.pptx' };
+      R(pic, { url: 'https://x/c_p.jpg', storage_path: 'orders/images/c_p.jpg' });
+      R(deck, { url: 'https://x/c_d.pptx', storage_path: 'orders/presentations/c_d.pptx' });
+      check('a picture moved to the index\'s copy is drawn from it; a deck is expanded and deleted by it; both kept on the device',
+        pic.data === 'https://x/c_p.jpg' && pic.storagePath === 'orders/images/c_p.jpg' && !('url' in pic) &&
+        deck.data === '' && deck.url === 'https://x/c_d.pptx' && deck.path === 'orders/presentations/c_d.pptx' &&
+        J(kept) === J(['p', 'd']), J([pic, deck, kept]));
+    } else check('_bgIndexSays and _bgRepoint exist', false);
+    check('loading the shared index asks it of every record the device already has',
+      /var said = _bgIndexSays\(mine, rowb, _bgMigrating\);/.test(fn('loadBackgroundsFromSupabase')) &&
+      /else if \(said === 'moved'\) \{ _bgRepoint\(mine, rowb\); added\+\+; \}/.test(fn('loadBackgroundsFromSupabase')));
     check('loadBackgrounds merges through it and deletes what it names',
       /var merged = _bgMergeLocal\(idbBackgrounds, lsBackgrounds\);/.test(fn('loadBackgrounds')) &&
       /merged\.stale\.forEach\(function\(id\) \{ deleteBackgroundFromIDB\(id\)/.test(fn('loadBackgrounds')));
     check('the shared index heals a device still holding a stored picture\'s base64, without sharing it again',
-      /_bgMigrated\(mine, \{ url: rowb\.url, path: rowb\.storage_path \}, true\);/.test(fn('loadBackgroundsFromSupabase')) &&
+      /if \(said === 'stored'\) \{ _bgMigrated\(mine, \{ url: rowb\.url, path: rowb\.storage_path \}, true\); added\+\+; \}/.test(fn('loadBackgroundsFromSupabase')) &&
       /if \(!known\) _sbSaveBackgroundToSupabase\(bg\);/.test(fn('_bgMigrated')));
   }
 

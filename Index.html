@@ -46297,17 +46297,19 @@ var WO = (function() {
                 storageProvider: 'supabase'
               });
               added++;
-            } else if (rowb.storage_path && rowb.url) {
-              // This device still holds the picture as base64 waiting to go
-              // up, when it is stored already -- a copy kept before its upload
-              // landed (gotcha 119). It takes the stored address instead of
-              // uploading the picture once more.
+            } else {
+              // This device has the record already; the shared index says
+              // where its file is (gotcha 119). Still holding the picture as
+              // base64 waiting to go up, when it is stored already -- a copy
+              // kept before its upload landed -- it takes the stored address
+              // instead of uploading it once more. Pointing at another stored
+              // copy than the index -- a copy since found unused and deleted,
+              // or one an earlier upload left -- it takes the index's, which
+              // is the one every device shows.
               var mine = savedBackgrounds.filter(function(b) { return b && b.id === rowb.id; })[0];
-              if (mine && !mine.storagePath && typeof mine.data === 'string' &&
-                  mine.data.indexOf('data:') === 0 && !_bgMigrating[mine.id]) {
-                _bgMigrated(mine, { url: rowb.url, path: rowb.storage_path }, true);
-                added++;
-              }
+              var said = _bgIndexSays(mine, rowb, _bgMigrating);
+              if (said === 'stored') { _bgMigrated(mine, { url: rowb.url, path: rowb.storage_path }, true); added++; }
+              else if (said === 'moved') { _bgRepoint(mine, rowb); added++; }
             }
           });
           if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
@@ -46407,6 +46409,38 @@ var WO = (function() {
     delete bg.driveFileId;
     console.log('Migrated', bg.id, 'to Supabase');
     if (!known) _sbSaveBackgroundToSupabase(bg);
+    _bgKeepLocal(bg);
+  }
+
+  // What the shared index says about a record this device already has (pure):
+  // 'stored' -- the device still holds it as base64 waiting to upload, and it
+  // is stored; 'moved' -- the device points at another stored copy than the
+  // index; null -- nothing to change, or an upload of it is on its way.
+  function _bgIndexSays(mine, row, busy) {
+    if (!mine || !row || !row.storage_path || !row.url) return null;
+    if (busy && busy[mine.id]) return null;
+    if (!mine.storagePath && typeof mine.data === 'string' && mine.data.indexOf('data:') === 0) return 'stored';
+    var own = mine.storagePath || mine.path || '';
+    if (own && own !== row.storage_path) return 'moved';
+    return null;
+  }
+
+  // A record takes the index's address. A picture or video is drawn from
+  // `data`; a document is expanded from `url` and deleted by `path`, so each
+  // keeps the fields it is read by.
+  function _bgRepoint(bg, row) {
+    if (bg.type === 'document' || bg.url || bg.path) { bg.url = row.url; bg.path = row.storage_path; }
+    if (bg.type !== 'document') bg.data = row.url;
+    bg.cloudUrl = row.url;
+    bg.storagePath = row.storage_path;
+    bg.storageProvider = 'supabase';
+    _bgKeepLocal(bg);
+  }
+
+  // The device's copies made to agree after a record changes: localStorage
+  // rewritten, and the IndexedDB copy -- which loadBackgrounds() prefers --
+  // taken out, or written over where localStorage is full.
+  function _bgKeepLocal(bg) {
     var kept = false;
     try {
       localStorage.setItem(BG_STORAGE_KEY, JSON.stringify(savedBackgrounds.filter(function(b) { return !b.data || b.data.length < 500 * 1024; })));

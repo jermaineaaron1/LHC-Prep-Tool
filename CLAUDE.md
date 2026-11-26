@@ -6577,6 +6577,16 @@ the anon key -- verify as `postgres`, not as the app.
       (pure) drops one at load; the shared index heals a device that still
       holds one (`loadBackgroundsFromSupabase`, `_bgMigrated(..., true)`: not
       shared again). A record deleted while its upload was out stays deleted.
+    - **The shared index says where a tile's file is.** A device keeps its own
+      copy of every tray record, and one that loaded during the repeated
+      uploads may point at a copy nothing else uses. `_bgIndexSays` (pure)
+      compares each record the device has with its `lhc_backgrounds` row on
+      every load: 'stored' (base64 still waiting, above) or 'moved' (another
+      stored path than the index's), and `_bgRepoint` takes the index's --
+      `data` for a picture or video, `url` / `path` for a document -- through
+      `_bgKeepLocal`, the same localStorage-then-IndexedDB rule. The index's
+      path is always referenced (by the index), so it is never one a
+      clean-up deletes; that is what made deleting unused copies safe.
     - **`uploadToSupabase(file, folder, { once: true })`** stores the file as
       `folder/c_<32 hex of its SHA-256>.<ext>` (`_lhcContentPath`,
       `crypto.subtle`; `_lhcFileExt`, where jpeg is always jpg), `upsert:
@@ -6617,9 +6627,12 @@ the anon key -- verify as `postgres`, not as the app.
       imported into a section (`addSlidesFromFiles` runs again on them,
       `_sized`) and the Songbook projection's backgrounds. Measured in the
       browser: a 4000x3000 photograph of 2.4MB went in as 1920x1440, 162KB.
-    - Not done, on purpose: files already stored keep their old names; the
-      464 unused copies stay until somebody says to delete them (a separate
-      yes); videos are not re-encoded; a deck's pages rendered in another
+    - Not done, on purpose: files already stored keep their old names;
+      unused copies are deleted only on the operator's word, after a read of
+      the bucket and of all 41 tables the app uses (the operator, 2026-11-26:
+      "keep one copy of the images and videos while removing the unnecessary
+      copies" -- a video both of whose copies are in use keeps both); videos
+      are not re-encoded; a deck's pages rendered in another
       browser may differ byte for byte and be stored again. Moving the media
       out of Supabase (Cloudflare R2 has no egress fees) was weighed and left
       for when the 100 GB of the Pro plan is in sight.

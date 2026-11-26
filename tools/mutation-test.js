@@ -2739,6 +2739,10 @@ const CASES = [
     s => s.replace("      Promise.resolve(_rowGone).then(function() { return lhcDeleteUnlessShared(_goneFile); }).catch(function() {});", "")],
   ['lcd-media-storage-harness.js', 'the same deck added to the folder twice is two tiles',
     s => s.replace("          if (same) { showToast(", "          if (false) { showToast(")],
+  ['lcd-media-storage-harness.js', 'a device keeps pointing at a copy the shared index has moved off',
+    s => s.replace("    if (own && own !== row.storage_path) return 'moved';", "")],
+  ['lcd-media-storage-harness.js', '...or is told to and does nothing',
+    s => s.replace("              else if (said === 'moved') { _bgRepoint(mine, rowb); added++; }", "")],
   // A run's chords typed past its words split the line (2026-11-24).
   ['songbook-choir-pad-harness.js', "a run's chords typed past its words are taken by the next run again",
     s => s.replace("    if (hit.to != null && V._runOverflows(cur, hit.to, chord, hit.from)) return V._runSplit(lines, hit, cur, chord);", "")],
