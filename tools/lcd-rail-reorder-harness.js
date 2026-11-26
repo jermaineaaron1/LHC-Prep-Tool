@@ -1,0 +1,452 @@
+'use strict';
+// Harness for dragging subsections and song structures in the LCD rail.
+//
+// WHY THIS EXISTS
+// From the operator (2026-11-26), on a marked-up screenshot of the rail with
+// three things circled -- a liturgy heading, a song heading, and the VERSE
+// badge inside that song -- and written across it: "Drag and drop reorder".
+// Their words: "I want to be able to drag and drop to reorder subsections,
+// and make sure these changes reflect the liturgy library and the songbook
+// too. Allow to drag and reorder sections, subsections and song structures
+// (verse, chorus, etc.)".
+//
+// Sections and single slides already dragged. The two that did not were the
+// two they circled: the item heading (.lcd-rail-item-group) was a plain div
+// with no id and no drag, and the part badge (.lcd-rail-part) was clickable
+// only.
+//
+// THE FOUR FACTS THIS GUARDS
+//
+// 1. A PART IS A RUN, NOT A STORED THING. _lcdSlideParts reads the slides'
+//    own headers and carries each one down over the slides that finish the
+//    verse (gotcha 73). So moving a part means moving its whole run of
+//    boxes; the header rides on the run's first box, which is where it
+//    lives. Move one box and the header stays behind on a different verse.
+//
+// 2. THE WORDS ARE A SEPARATE DOCUMENT FROM THE SLIDES (gotcha 84). The
+//    Songbook, the printed sheet and the band read customLyrics; the wall
+//    reads slides. Writing the moved slides back into the words is the
+//    obvious fix and is WRONG: the slides are built with the chord lines
+//    taken out (_sbProjectionWords), so a write-back deletes every chord in
+//    the song. Moving whole labelled BLOCKS of the words carries the chords
+//    along inside them, untouched.
+//
+// 3. WITHIN ONE SECTION THIS APP LISTS SONGS BEFORE THE OTHER PARTS --
+//    _lbdSecOrder, the schedule's own rebuild on load, the Liturgy Book, the
+//    export, the share message. A song dropped among its section's liturgy
+//    would look right until the next load and then snap back, so the drag
+//    refuses it. Moving to a DIFFERENT section is fine and lands last.
+//
+// 4. A READING IS ORDERED BY ITS TEMPLATE SLOT, not by where it stands.
+//    _lbdSecOrder places scripture by _lbdSlotLabels before anything else,
+//    so a reading is deliberately not draggable -- same silent-revert trap.
+//
+// USAGE
+//   node tools/lcd-rail-reorder-harness.js                 # ../Index.html
+//   node tools/lcd-rail-reorder-harness.js path/to/file.html
+//   node tools/lcd-rail-reorder-harness.js <file> --expect-broken
+//
+// --expect-broken is the negative control, for source from before the change
+// (`git show 43b39ff:Index.html > x`).
+//
+// Exit code 0 = all checks passed, 1 = something failed.
+
+const fs = require('fs');
+const path = require('path');
+
+const args = process.argv.slice(2);
+const EXPECT_BROKEN = args.includes('--expect-broken');
+const INDEX = args.find(a => !a.startsWith('--')) || path.join(__dirname, '..', 'Index.html');
+
+if (!fs.existsSync(INDEX)) {
+  console.error('No such file: ' + INDEX);
+  process.exit(1);
+}
+
+const SRC = fs.readFileSync(INDEX, 'utf8');
+const has = re => re.test(SRC);
+const fn = name => {
+  const m = SRC.match(new RegExp('\\n  function ' + name + '\\([^)]*\\) \\{[^]*?\\n  \\}'));
+  return m ? m[0] : '';
+};
+
+let passed = 0, failed = 0;
+function check(name, ok, detail) {
+  if (ok) { passed++; console.log('  ok   ' + name); }
+  else {
+    failed++;
+    console.log('  FAIL ' + name);
+    if (detail) console.log('       ' + String(detail).slice(0, 400).replace(/\n/g, '\n       '));
+  }
+}
+function section(t) { console.log('\n' + t); }
+
+// ---------------------------------------------------------------------------
+// 1. The pure helpers, RUN rather than matched.
+// ---------------------------------------------------------------------------
+section('1. The words split the way the slides were');
+
+const PURE = [
+  '_lcdSlideParts', '_lcdIsLyricMarker', '_lcdLyricBlocks', '_lcdBlocksText',
+  '_lcdMoveBlock', '_lcdPartRuns', '_lcdRunDest', '_lcdItemDropOk'
+];
+const slices = PURE.map(fn);
+check('every pure helper is in the source', slices.every(Boolean),
+  PURE.filter((n, i) => !slices[i]).join(', ') || '');
+
+let P = null;
+if (slices.every(Boolean)) {
+  // eslint-disable-next-line no-new-func
+  P = new Function(slices.join('\n') + '\nreturn {' + PURE.map(n => n + ': ' + n).join(', ') + '};')();
+}
+check('they load and run', !!P);
+
+if (P) {
+  // -- the marker rule is parseLyricsIntoSlides' own ------------------------
+  check('a bracketed marker opens a block', P._lcdIsLyricMarker('[Verse 1]') === 'Verse 1');
+  check('a bare Chorus line does too', P._lcdIsLyricMarker('Chorus') === 'Chorus');
+  check('...with its colon dropped, as the slide parser drops it',
+    P._lcdIsLyricMarker('Verse 2:') === 'Verse 2');
+  check('a line of lyric is not a marker',
+    P._lcdIsLyricMarker('Amazing grace how sweet the sound') === '');
+  check('a chord line is not a marker', P._lcdIsLyricMarker('G    C    D') === '');
+
+  const SONG = [
+    '[Verse 1]',
+    'G        C',
+    'Make a joyful noise',
+    '',
+    '[Chorus]',
+    'D        G',
+    'Sing to the Lord',
+    '',
+    '[Verse 2]',
+    'Am       F',
+    'Lift up your voice'
+  ].join('\n');
+
+  const blocks = P._lcdLyricBlocks(SONG);
+  check('a song splits into its labelled blocks',
+    blocks.length === 3 && blocks.map(b => b.label).join('|') === 'Verse 1|Chorus|Verse 2',
+    JSON.stringify(blocks.map(b => b.label)));
+  check('...and round-trips byte for byte when nothing moves',
+    P._lcdBlocksText(blocks) === SONG,
+    JSON.stringify(P._lcdBlocksText(blocks)));
+
+  const moved = P._lcdMoveBlock(blocks, 2, 0);
+  const movedText = P._lcdBlocksText(moved);
+  check('Verse 2 moved to the front lands there',
+    moved.map(b => b.label).join('|') === 'Verse 2|Verse 1|Chorus',
+    JSON.stringify(moved.map(b => b.label)));
+  // THE POINT OF THE WHOLE APPROACH: the chords are inside the block.
+  check('...and its chord line travels with it',
+    /\[Verse 2\]\nAm       F\nLift up your voice/.test(movedText), JSON.stringify(movedText));
+  check('...and no chord is lost from the song',
+    ['G        C', 'D        G', 'Am       F'].every(c => movedText.indexOf(c) !== -1),
+    JSON.stringify(movedText));
+  check('...and the song still has every one of its lines',
+    movedText.split('\n').filter(Boolean).sort().join('|') ===
+    SONG.split('\n').filter(Boolean).sort().join('|'));
+
+  const down = P._lcdMoveBlock(blocks, 0, 2);
+  check('a block moved to the last place lands last',
+    down && down.map(b => b.label).join('|') === 'Chorus|Verse 2|Verse 1',
+    down && JSON.stringify(down.map(b => b.label)));
+
+  check('a move that goes nowhere answers null', P._lcdMoveBlock(blocks, 1, 1) === null);
+  check('an index off the end answers null rather than guessing',
+    P._lcdMoveBlock(blocks, 0, 9) === null && P._lcdMoveBlock(blocks, 9, 0) === null);
+
+  // -- a preamble before the first marker keeps its place -------------------
+  const PRE = ['A line before any marker', '', '[Verse 1]', 'one', '', '[Chorus]', 'two'].join('\n');
+  const pb = P._lcdLyricBlocks(PRE);
+  check('words before the first marker are their own unlabelled block',
+    pb.length === 3 && pb[0].label === '' && pb[1].label === 'Verse 1', JSON.stringify(pb.map(b => b.label)));
+  const pmoved = P._lcdMoveBlock(pb, 1, 0);
+  check('...and stay at the top when a part is moved to the front',
+    pmoved && pmoved[0].label === '' && pmoved[1].label === 'Chorus',
+    pmoved && JSON.stringify(pmoved.map(b => b.label)));
+
+  // -- the runs the rail shows, from the slides' own headers ----------------
+  // One header, carried down over the slides that finish the verse: three
+  // slides, one run. This is fact 1, run rather than described.
+  const runs = P._lcdPartRuns(['Verse 1', '', '', 'Chorus', '', 'Verse 2']);
+  check('a header carried down over its slides is ONE run',
+    runs.length === 3 && runs.map(r => r.label).join('|') === 'Verse 1|Chorus|Verse 2',
+    JSON.stringify(runs));
+  check('...and each run knows how many slides it covers',
+    runs[0].size === 3 && runs[1].size === 2 && runs[2].size === 1,
+    JSON.stringify(runs.map(r => r.size)));
+  check('an unlabelled opening run is not offered as a draggable part',
+    P._lcdPartRuns(['', '', 'Chorus']).length === 1);
+
+  // -- a song whose slides and words disagree is left alone -----------------
+  check('three labelled runs pair with three labelled blocks',
+    P._lcdPartRuns(['Verse 1', '', 'Chorus', 'Verse 2']).length === blocks.length);
+  check('...and a song with a hand-typed extra heading does not',
+    P._lcdPartRuns(['Verse 1', 'Reprise', 'Chorus', 'Verse 2']).length !== blocks.length);
+}
+
+// ---------------------------------------------------------------------------
+section('2. Where a dropped run lands');
+
+if (P) {
+  // Dropping B on A's top edge in [A,B,C] puts B first. Off by one here puts
+  // a verse one place from where it was let go, silently.
+  check('dropped above the first, it lands first', P._lcdRunDest(1, 0, false) === 0);
+  // Dropping B below A in [A,B,C] is exactly where B already stands, so
+  // the drop is a no-op rather than a move to the front.
+  check('dropped below the one above it, nothing moves', P._lcdRunDest(1, 0, true) === 1);
+  check('dropped below the last, it lands last', P._lcdRunDest(0, 2, true) === 2);
+  check('dropped above the last, it lands second', P._lcdRunDest(0, 2, false) === 1);
+  check('dropped on itself, nothing moves', P._lcdRunDest(1, 1, false) === 1);
+}
+
+// ---------------------------------------------------------------------------
+section('3. Which subsection drops are allowed (fact 3)');
+
+if (P) {
+  const song = (id, sec) => ({ kind: 'song', id: id, sec: sec });
+  const lit = (id, sec) => ({ kind: 'liturgy', id: id, sec: sec });
+
+  check('a song onto another song in its own section is allowed',
+    P._lcdItemDropOk(song('a', 's1'), song('b', 's1')) === true);
+  check('a liturgy onto another liturgy in its own section is allowed',
+    P._lcdItemDropOk(lit('a', 's1'), lit('b', 's1')) === true);
+  // The whole reason this rule exists: it would snap back on the next load.
+  check('a song onto a liturgy IN THE SAME SECTION is refused',
+    P._lcdItemDropOk(song('a', 's1'), lit('b', 's1')) === false);
+  check('a liturgy onto a song in the same section is refused too',
+    P._lcdItemDropOk(lit('b', 's1'), song('a', 's1')) === false);
+  check('any kind onto any kind in ANOTHER section is allowed',
+    P._lcdItemDropOk(song('a', 's1'), lit('b', 's2')) === true &&
+    P._lcdItemDropOk(lit('b', 's2'), song('a', 's1')) === true);
+  check('onto itself is refused', P._lcdItemDropOk(song('a', 's1'), song('a', 's1')) === false);
+  check('a missing id is refused rather than thrown on',
+    P._lcdItemDropOk(null, song('a', 's1')) === false &&
+    P._lcdItemDropOk(song('a', 's1'), null) === false);
+}
+
+// ---------------------------------------------------------------------------
+section('4. The rail offers the handles');
+
+check('a part badge is draggable and says which item and run it is',
+  has(/<div class="lcd-rail-part" draggable="true"/) &&
+  has(/data-run-item="/) && has(/data-run-size="/) && has(/data-run-sec="/));
+check('an item heading is draggable, with its kind, id and section',
+  has(/data-item-kind="/) && has(/data-item-id="/) && has(/data-item-sec="/));
+// Fact 4: a reading's place is its template slot, so it must NOT get a handle.
+check('only a song or a liturgy gets one -- a reading does not (fact 4)',
+  /var _drag = \(kind === 'song' \|\| kind === 'liturgy'\) && groupId && sectionId;/.test(SRC));
+check('...and the scripture heading builder was left alone',
+  !/lcd-rail-scr-group[^]{0,400}draggable/.test(SRC));
+check('both new drags are wired on every render, beside the two that existed',
+  /_lcdWireRailDrag\(rail\);\s*\r?\n\s*_lcdWirePartDrag\(rail\);\s*\r?\n\s*_lcdWireItemDrag\(rail\);/.test(SRC));
+
+// ---------------------------------------------------------------------------
+section('5. A run moves whole, and the model follows');
+
+const runDrop = fn('_lcdRunDrop');
+check('_lcdRunDrop is in the source', !!runDrop);
+// Fact 1: the whole run, not the heading row's own box.
+check('it moves the run\'s boxes, not one box',
+  /var moving = _lcdRunBoxes\(from\), onto = _lcdRunBoxes\(row\);/.test(runDrop), runDrop.slice(0, 200));
+check('it refuses a run from another item', /_lcdSameRunItem\(from, row\)/.test(runDrop));
+// Backgrounds are keyed by a slide's place in its section (gotcha 94), so a
+// reorder that does not re-pin them swaps each moved slide's background.
+check('the section\'s backgrounds are captured before the move',
+  /_lcdCaptureSectionBgs\(sectionId\)/.test(runDrop));
+check('...and restored after it', /_lcdRestoreSectionBgs\(sectionId, bgs\)/.test(runDrop));
+check('a song\'s slides array is rebuilt from the new DOM order',
+  /if \(songId\) _lcdReorderSongSlides\(songId, sectionId\);/.test(runDrop));
+// gotcha 73: replacing the rail clamps its scroller to the top.
+check('the rail\'s scroll is held before it is drawn again (gotcha 73)',
+  runDrop.indexOf('_lcdRailHoldScroll()') > 0 &&
+  runDrop.indexOf('_lcdRailHoldScroll()') < runDrop.indexOf('_lcdRenderCompactRail()'),
+  runDrop.slice(-400));
+check('the move is one undo step', /_lcdPushUndo\(\);/.test(runDrop));
+
+const words = fn('_lcdMoveSongWords');
+check('_lcdMoveSongWords is in the source', !!words);
+// Fact 2, in the code rather than only in the comment.
+check('it moves lyric BLOCKS, never the slides\' text (fact 2)',
+  /_lcdLyricBlocks\(words\)/.test(words) && /_lcdMoveBlock\(blocks, from, to\)/.test(words) &&
+  !/slides\s*\.\s*map[^]{0,200}customLyrics\s*=/.test(words), words.slice(0, 300));
+check('a song whose words and slides disagree is left exactly as it was',
+  /labelled\.length !== runs\.length\) return 'mismatch'/.test(words), words);
+// _sbSetCopyWords is the one path that writes a copy's words: it keeps
+// richLyrics in step, re-splits the slides only when the projected words
+// changed, and tells the other devices (gotchas 84, 93).
+check('the write goes through the Songbook\'s own save, not a raw assignment',
+  /_sbSetCopyWords\(song, _lcdBlocksText\(moved\)\)/.test(words));
+check('the operator is told when the words could not follow',
+  /this song is not written in the parts the rail shows/.test(SRC));
+
+// ---------------------------------------------------------------------------
+section('6. A subsection reorder reaches the model');
+
+const reorder = fn('_lcdItemReorder');
+check('_lcdItemReorder is in the source', !!reorder);
+check('a song reorder writes songOrderSections, a liturgy writes allItems',
+  /if \(from\.kind === 'song'\) _lcdWriteSongOrder\(container, from\.sec\);\s*\r?\n\s*else _lcdWriteItemOrder\(container, from\.sec\);/.test(reorder),
+  reorder.slice(-500));
+check('it re-pins the section\'s backgrounds',
+  /_lcdCaptureSectionBgs\(from\.sec\)/.test(reorder) && /_lcdRestoreSectionBgs\(from\.sec, bgs\)/.test(reorder));
+check('the rail\'s scroll is held before the redraw here too',
+  reorder.indexOf('_lcdRailHoldScroll()') > 0 &&
+  reorder.indexOf('_lcdRailHoldScroll()') < reorder.indexOf('_lcdRenderCompactRail()'));
+
+const songOrder = fn('_lcdWriteSongOrder');
+check('_lcdWriteSongOrder is in the source', !!songOrder);
+// gotcha 42: a medley is a SET carried as one unit; _woWriteSeq puts a
+// sublist back into the slots its songs held, leaving every other song alone.
+check('it writes through _woWriteSeq, so songs outside the section do not move',
+  /_woWriteSeq\(songOrderSections, seqOld, seqNew\)/.test(songOrder), songOrder);
+check('...inside _woSongsChange, which knows the LCD is in the page (gotcha 44)',
+  /_woSongsChange\(function\(\) \{/.test(songOrder));
+check('a list it cannot match one-for-one is abandoned, not half-written',
+  /if \(seqNew\.length !== seqOld\.length\) return;/.test(songOrder));
+
+const itemOrder = fn('_lcdWriteItemOrder');
+check('_lcdWriteItemOrder is in the source', !!itemOrder);
+check('it rewrites only this section\'s slots in allItems',
+  /slots\.forEach\(function\(at, k\) \{ all\[at\] = seqNew\[k\]; \}\);/.test(itemOrder), itemOrder);
+check('...and abandons a mismatch rather than writing part of it',
+  /if \(seqNew\.length !== mine\.length \|\| !slots\.length\) return;/.test(itemOrder));
+
+// ---------------------------------------------------------------------------
+section('7. Moving a subsection to another section');
+
+const toSec = fn('_lcdItemToSection');
+check('_lcdItemToSection is in the source', !!toSec);
+check('it refuses a section the order does not have',
+  /if \(!document\.getElementById\(toSec \+ '-boxes'\)\) return;/.test(toSec));
+
+const songTo = fn('_lcdSongToSection');
+check('_lcdSongToSection is in the source', !!songTo);
+// gotcha 55: a song sung in two sections is two copies, so moving one into a
+// section that already sings it would make two copies in one section.
+check('a section that already sings the song refuses the move (gotcha 55)',
+  /_woSongCopyIn\(song\.songId \|\| song\.id, toSec\)/.test(songTo), songTo.slice(0, 400));
+// remote: true is what stops the removal recording the song as deliberately
+// taken OUT of the service -- this is a move.
+check('it leaves by the schedule\'s own path, as a move not a removal',
+  /removeSongFromSection\(null, from\.sec, from\.id, \{ remote: true \}\)/.test(songTo));
+check('...and clears the taken-out flag, so the next save does not drop it',
+  /delete _woSongsTakenOutOfSections\[song\.id\]/.test(songTo));
+check('all three records of where a song belongs are updated',
+  /song\.sectionId = toSec;/.test(songTo) && /song\.serviceSections = refs;/.test(songTo) &&
+  /addSongToServiceSection\(toSec, song, true, true\)/.test(songTo), songTo);
+
+const litTo = fn('_lcdLiturgyToSection');
+check('_lcdLiturgyToSection is in the source', !!litTo);
+// gotcha 37: the LCD draws a liturgy once per order; a second copy in one
+// section is dropped from the next save, so it is refused up front.
+check('a duplicate liturgy in the target section is refused (gotcha 37)',
+  /x\.itemType === 'liturgy' && x\.sourceId === it\.sourceId && x\.sectionId === toSec/.test(litTo));
+// A liturgy's id names its section -- both collectors build it that way.
+check('its id is rebuilt for the new section',
+  /var newId = _lbdPfx\(\) \+ 'liturgy_' \+ it\.sourceId \+ '_' \+ toSec;/.test(litTo));
+// Without this the template's gap-fill puts the default liturgy back in the
+// section it just left.
+check('the section it left is noted as cleared of it',
+  /_lbdNoteCleared\(from\.sec, it\.sourceId\)/.test(litTo));
+check('...and the section it joins is un-cleared',
+  /_lbdClearClearedFor\(toSec\)/.test(litTo));
+check('both sections\' backgrounds are re-pinned, with one write',
+  /_lcdRestoreSectionBgs\(from\.sec, bgsFrom, \{ noSave: true \}\)/.test(litTo) &&
+  /_lcdRestoreSectionBgs\(toSec, bgsTo\)/.test(litTo));
+
+check('a section heading takes an item dropped on it',
+  /if \(_lcdDragItem\) \{[^]{0,400}_lcdItemToSection\(moving, targetSectionId\)/.test(SRC));
+check('...and shows a marker while it is hovered',
+  /if \(_lcdDragItem\) \{[^]{0,400}hdr\.classList\.add\('lcd-rail-drop-below'\)/.test(SRC));
+
+// ---------------------------------------------------------------------------
+section('8. The handles look like handles');
+
+const cursorAt = SRC.indexOf('.lcd-rail-item-group[draggable="true"] { cursor: grab; }');
+check('the item heading shows a grab cursor', cursorAt > 0);
+check('the part badge does too',
+  has(/\.lcd-rail-part\[draggable="true"\] \{ cursor: grab; \}/));
+if (cursorAt > 0) {
+  // A rule that lands inside an @media block styles nothing on a desk, and
+  // the assert that found "exactly one match" would still have passed.
+  const head = SRC.slice(0, cursorAt);
+  const m = head.lastIndexOf('@media');
+  const depth = m < 0 ? 0 : (head.slice(m).split('{').length - head.slice(m).split('}').length);
+  check('...at the top level of the sheet, not inside an @media block', depth === 0, 'depth ' + depth);
+}
+
+// ---------------------------------------------------------------------------
+// 9. The three faults a real browser found, and nothing else would have.
+// ---------------------------------------------------------------------------
+section('9. What only driving it in a browser showed');
+
+// (a) A reorder rebuilt each slide with content/richHtml/background and DROPPED
+// its header, so every part heading in the song vanished from the model. The
+// rail went on showing them because it reads the DOM, and so does
+// collectOrderItems -- invisible until the part drag asked the model which runs
+// a song has and was told "none", and so left the words alone.
+const reSlides = fn('_lcdReorderSongSlides');
+check('_lcdReorderSongSlides is in the source', !!reSlides);
+check('a reordered slide keeps its header',
+  /header: _h \|\| s\.header \|\| ''/.test(reSlides), reSlides);
+check('...read from the box, the one element every path writes a heading to',
+  /_lcdOwnHeader\(box\)/.test(reSlides), reSlides);
+
+// (b) Moving the run's boxes AND the words applied the move TWICE: the words
+// change runs _sbSetCopyWords -> _sbSlidesFollow -> refreshSongSlidesInOrder,
+// which re-splits the slides from the new words. Measured on a 7-part song: it
+// came out with 9 parts, two of them doubled.
+const drop2 = fn('_lcdRunDrop');
+// indexOf returns -1 when the call is GONE, and -1 is less than any real
+// index -- so an ordering test alone passes on source that never calls it.
+// The mutation run caught exactly that here. Require both, then order them.
+const iWords = drop2.indexOf('_lcdMoveSongWords(songId, iFrom, dest)');
+const iMove = drop2.indexOf('insertAdjacentElement');
+check('the words are actually asked to move', iWords > 0, drop2.slice(-900));
+check('...and the boxes are actually moved when they could not', iMove > 0);
+check('the boxes move ONLY when the words could not (one reorder, not two)',
+  /if \(wordsMoved !== 'ok'\) \{/.test(drop2) && iWords > 0 && iMove > 0, drop2.slice(-900));
+check('...so the words are asked before anything is moved',
+  iWords > 0 && iMove > 0 && iWords < iMove);
+
+// (c) refreshSongSlidesInOrder keeps each slide's old header BY POSITION where
+// the new parse gives none -- right for a heading the operator typed, wrong
+// once the words have moved, because the old order's headings survive onto the
+// new one.
+const words2 = fn('_lcdMoveSongWords');
+check('the stale positional headers are cleared before the re-split',
+  /\[song\.savedSlides, song\.slides\]\.forEach/.test(words2), words2.slice(-700));
+check('...only after the count check has made that safe',
+  words2.indexOf("return 'mismatch'") < words2.indexOf('song.savedSlides, song.slides'));
+check('refreshSongSlidesInOrder still keeps a typed heading otherwise',
+  has(/header: slide\.header \|\| was\.header \|\| ''/));
+
+// (d) A liturgy is known by TWO ids: the DOM carries the SOURCE id, allItems
+// carries "<order>__liturgy_<source>_<section>". Matching one against the other
+// found nothing, so a reorder moved the boxes and wrote nothing to the model --
+// the rail looked right and the Builder showed the old order.
+const litItem = fn('_lcdLitItem');
+check('_lcdLitItem resolves a liturgy by its SOURCE id and section', !!litItem &&
+  /x\.sourceId === sourceId && x\.sectionId === sectionId/.test(litItem), litItem);
+const itemOrder2 = fn('_lcdWriteItemOrder');
+check('the within-section write matches by source id, not by item id',
+  /it\.sourceId === id/.test(itemOrder2), itemOrder2);
+const litTo2 = fn('_lcdLiturgyToSection');
+check('the cross-section move resolves through it too',
+  /var it = _lcdLitItem\(from\.id, from\.sec\);/.test(litTo2), litTo2.slice(0, 300));
+// Rewriting data-liturgy-id to the model's id would make every later lookup miss.
+check('the DOM keeps the source id; only data-section moves',
+  !/nd\.setAttribute\('data-liturgy-id'/.test(litTo2) &&
+  /nd\.setAttribute\('data-section', toSec\)/.test(litTo2), litTo2);
+check('...and renumbering groups by the source id the DOM carries',
+  /renumberSlideBoxes\(toSec, it\.sourceId, 'liturgy'\)/.test(litTo2));
+
+console.log('\n' + passed + ' passed, ' + failed + ' failed');
+if (EXPECT_BROKEN) {
+  if (failed > 0) { console.log('(--expect-broken: failures were expected, and there were some)'); process.exit(0); }
+  console.log('(--expect-broken: expected failures, found none)'); process.exit(1);
+}
+process.exit(failed ? 1 : 0);

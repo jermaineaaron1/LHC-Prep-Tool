@@ -6641,6 +6641,100 @@ the anon key -- verify as `postgres`, not as the app.
     waiting pictures, `_bgMergeLocal`, the delete guard and
     `lhcProjectorPicture` with a stand-in canvas.
 
+117. **The rail drags four things, and two of them are a reading of the
+    slides rather than a stored thing.** From the operator (2026-11-26), on a
+    marked-up rail with a liturgy heading, a song heading and a VERSE badge
+    circled: "drag and drop to reorder subsections, and make sure these
+    changes reflect the liturgy library and the songbook too ... sections,
+    subsections and song structures (verse, chorus, etc.)". Sections
+    (`_lcdWireSectionDrag`) and single slides within one item
+    (`_lcdWireRailDrag`) already dragged; the two circled did not.
+    - **A part is a RUN of slides** (gotcha 73), so moving one moves its whole
+      run of boxes -- `_lcdRunBoxes` reads them from the live DOM, not from
+      `data-run-size` alone. The heading rides on the run's FIRST box, which
+      is where `_lcdSlideParts` carries it down from; move one box and the
+      heading stays behind on somebody else's verse. `_lcdWirePartDrag` binds
+      `.lcd-rail-part[data-run-item]`, same item only -- across items it would
+      be another song's verse, across sections a move of the item itself.
+      `_lcdRunDest` (pure) says where a dropped run lands.
+    - **The words are a separate document from the slides** (gotcha 84), so a
+      verse moved on the wall would leave the band's order unchanged. Writing
+      the slides back is the obvious fix and is WRONG: the slides are built
+      with the chord lines taken out (`_sbProjectionWords`), so a write-back
+      deletes every chord in the song. `_lcdLyricBlocks` splits the words at
+      their section markers -- `parseLyricsIntoSlides`' own rule, `[X]` alone
+      on a line or a bare Verse / Chorus line -- and `_lcdMoveBlock` moves a
+      whole labelled block, chords riding along inside it. Written through
+      `_sbSetCopyWords`, the one path that writes a copy's words. A song whose
+      labelled blocks and labelled runs do not COUNT THE SAME (a heading the
+      operator typed on a slide) is refused and left exactly as it was, with a
+      toast saying so -- gotcha 54's rule.
+    - **Within one section this app lists songs before the other parts**:
+      `_lbdSecOrder`, the schedule's own rebuild on load (songs from
+      `serviceSections` first, then `allItems`), the Liturgy Book, the export,
+      the share message. Nothing stores a mixed order, so a song dropped among
+      its section's liturgy would look right until the next load and then snap
+      back. `_lcdItemDropOk` (pure) refuses it; a drop on another section, or
+      on a section heading, moves the item there and lands it LAST, as
+      `lbdMoveItemToSection` does.
+    - **A reading is ordered by its template slot**, not by where it stands:
+      `_lbdSecOrder` places scripture by `_lbdSlotLabels` before anything else.
+      So `.lcd-rail-scr-group` gets no handle -- the same silent-revert trap.
+      A presentation deck is keyed by section and is not offered either.
+    - **The model, not the DOM, is what the other views read.** A song's place
+      is `songOrderSections` (gotcha 44), written through `_woWriteSeq` inside
+      `_woSongsChange` so a medley travels as one unit (gotcha 42) and songs
+      outside the section keep their slots; a liturgy's is its index in
+      `allItems`, and only that section's slots are rewritten. Either list that
+      cannot be matched one-for-one is abandoned rather than half-written. A
+      liturgy moved to another section has its id rebuilt
+      (`liturgy_<sourceId>_<sectionId>`, both collectors build it that way) on
+      the item AND on the DOM nodes, with `_lbdNoteCleared` on the section it
+      left or the template's gap-fill puts the default back. A song moved out
+      goes by `removeSongFromSection(..., {remote: true})` -- without `remote`
+      it records the song as deliberately taken OUT of the service and the
+      next save drops it.
+    - **ONE reorder, not two.** For a song whose words can follow, the boxes
+      are NOT moved: `_sbSetCopyWords` runs `_sbSlidesFollow` ->
+      `refreshSongSlidesInOrder`, which re-splits the slides from the new
+      words, so moving the boxes as well applies the move twice. Measured on a
+      7-part song: it came out with 9 parts, "Verse 2" and "Bridge" each
+      appearing twice. The DOM move is only for a liturgy, or a song whose
+      words cannot be paired up.
+    - **A liturgy is known by TWO ids and they are not the same one.** The
+      DOM's `data-liturgy-id` is the SOURCE id (`lit-1782130451636-...`); the
+      row in `allItems` is keyed `<order>__liturgy_<source>_<section>`.
+      Matching one against the other finds nothing and writes nothing, which is
+      how a reorder came to move the boxes and leave the model untouched -- the
+      rail right, the Builder still showing the old order. Everything that
+      starts from a rail handle resolves through `_lcdLitItem(sourceId,
+      sectionId)`, and a cross-section move rewrites the item's own id but
+      NEVER the DOM attribute, which stays the source id.
+    - Every drop re-pins the section's backgrounds (gotcha 94) and calls
+      `_lcdRailHoldScroll()` BEFORE the rail is drawn again (gotcha 73).
+    - **Two pre-existing faults this surfaced, both fixed here.**
+      `_lcdReorderSongSlides` rebuilt each slide with content, richHtml and
+      background and DROPPED its `header`, so any slide reorder wiped every
+      part heading from the model; the rail went on showing them because it
+      reads the DOM (`_lcdOwnHeader`), and so does `collectOrderItems`, so
+      nothing looked wrong until the part drag asked the model which runs a
+      song has and was told "none". And `refreshSongSlidesInOrder` keeps each
+      slide's old header BY POSITION where the new parse gives none
+      (`slide.header || was.header`) -- right for a heading the operator typed
+      (gotcha 73), wrong once the words have MOVED, because the old order's
+      headings survive onto the new one. `_lcdMoveSongWords` therefore clears
+      them first, which is safe THERE and nowhere else: the count check has
+      already established that every heading the song has comes from a marker
+      in the words.
+    - Known limit, stated rather than discovered: a per-slide BACKGROUND does
+      not travel with a moved part. Both the re-split and `_lcdRestoreSectionBgs`
+      key a background by its place, so it stays with the position. Most songs
+      take a section-level background, where this does not show.
+    `tools/lcd-rail-reorder-harness.js` checks it, running `_lcdLyricBlocks`,
+    `_lcdMoveBlock`, `_lcdPartRuns`, `_lcdRunDest` and `_lcdItemDropOk`
+    themselves rather than matching them -- including that a moved verse keeps
+    every chord in the song.
+
 ## Quick Commands for Claude Code
 
 ```bash

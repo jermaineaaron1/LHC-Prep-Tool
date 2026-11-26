@@ -93852,6 +93852,71 @@ var WO = (function() {
     [/intro|instrumental|interlude|vamp|turnaround/, 'intro'],
     [/ending|outro|coda|tag|final|last time/, 'ending']
   ];
+  // ---- Words, split the way the slides were (gotcha 73) ---------------
+  //
+  // A part moved in the rail moves its SLIDES. For a song that is only half
+  // the job: the Songbook, the printed sheet and the band read the WORDS,
+  // which are a separate document (gotcha 84), so a verse moved on the wall
+  // would leave the song in the old order everywhere a musician looks.
+  //
+  // Writing the slides back into the words is the obvious fix and is wrong:
+  // the slides are built from the words with the chord lines taken out
+  // (_sbProjectionWords), so a write-back deletes every chord in the song.
+  // Moving whole LABELLED BLOCKS of the words instead carries the chords
+  // along inside them, untouched, and lets the existing words-to-slides path
+  // rebuild the slides (gotcha 84 again).
+  //
+  // The split is parseLyricsIntoSlides' own rule, and must stay that: a
+  // marker is "[Anything]" alone on its line, or a bare Verse / Chorus /
+  // Bridge line. Anything before the first marker is the preamble and keeps
+  // its place, labelled ''.
+  function _lcdIsLyricMarker(line) {
+    var t = String(line == null ? '' : line).trim();
+    if (/^\[(.+)\]$/.test(t)) return t.replace(/^\[|\]$/g, '').trim();
+    if (/^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude|refrain)(\s*\d*)?:?$/i.test(t)) {
+      return t.replace(/:$/, '');
+    }
+    return '';
+  }
+  function _lcdLyricBlocks(text) {
+    var lines = String(text == null ? '' : text).split('\n');
+    var blocks = [{ label: '', lines: [] }];
+    for (var i = 0; i < lines.length; i++) {
+      var lab = _lcdIsLyricMarker(lines[i]);
+      if (lab) blocks.push({ label: lab, lines: [lines[i]] });
+      else blocks[blocks.length - 1].lines.push(lines[i]);
+    }
+    // A song whose words start at a marker has an empty preamble; dropping it
+    // keeps the join below from putting a blank line at the top of the song.
+    if (blocks.length > 1 && !blocks[0].lines.join('').trim()) blocks.shift();
+    return blocks;
+  }
+  function _lcdBlocksText(blocks) {
+    return (blocks || []).map(function(b) { return b.lines.join('\n'); }).join('\n');
+  }
+  // The k-th LABELLED block moved to the j-th labelled place. The preamble
+  // never moves. Returns null when either index is out of range, so a caller
+  // that cannot say where a part went leaves the words alone.
+  function _lcdMoveBlock(blocks, from, to) {
+    var at = [], i;
+    for (i = 0; i < (blocks || []).length; i++) if (blocks[i] && blocks[i].label) at.push(i);
+    if (from < 0 || to < 0 || from >= at.length || to >= at.length || from === to) return null;
+    var out = blocks.slice();
+    var moved = out.splice(at[from], 1)[0];
+    // Recomputed after the splice: taking one out shifts every later slot.
+    var after = [];
+    for (i = 0; i < out.length; i++) if (out[i] && out[i].label) after.push(i);
+    out.splice(to >= after.length ? out.length : after[to], 0, moved);
+    return out;
+  }
+  // A group's labelled runs, in order, read from its boxes' OWN headers --
+  // the same reading _lcdSlideParts does, kept beside it so the two cannot
+  // drift. [{ label, start, size }], unlabelled runs left out, because only a
+  // labelled run has a heading in the rail to drag.
+  function _lcdPartRuns(headers) {
+    return _lcdSlideParts(headers).runs.filter(function(r) { return !!r.label; });
+  }
+
   function _lcdPartKind(label) {
     var h = String(label || '').trim().toLowerCase();
     if (!h) return '';
@@ -93958,7 +94023,17 @@ var WO = (function() {
     var allBtn = (groupId && sectionId)
       ? '<button class="lcd-rail-allslides" onclick="event.stopPropagation(); WO.lcdItemAllSlides(\'' + escapeJsArg(kind) + '\', \'' + escapeJsArg(groupId) + '\', \'' + escapeJsArg(sectionId) + '\')" title="Edit the slides of ' + escapeHtml(title).replace(/"/g, '&quot;') + ' as one text block"><i class="fa-solid fa-align-left"></i></button>'
       : '';
-    return '<div class="lcd-rail-item-group ' + kind + '" title="' + escapeHtml(title).replace(/"/g, '&quot;') + '">' +
+    // Songs and liturgy are draggable; a reading is not. A reading's place in
+    // its section is the template's reading slot (_lbdSecOrder orders
+    // scripture by slot before anything else), so a rail reorder would be
+    // undone the next time anything drew the order -- the silent revert this
+    // whole change exists to avoid.
+    var _drag = (kind === 'song' || kind === 'liturgy') && groupId && sectionId;
+    return '<div class="lcd-rail-item-group ' + kind + '"' +
+      (_drag ? ' draggable="true" data-item-kind="' + kind +
+               '" data-item-id="' + escapeHtml(groupId).replace(/"/g, '&quot;') +
+               '" data-item-sec="' + escapeHtml(sectionId).replace(/"/g, '&quot;') + '"' : '') +
+      ' title="' + escapeHtml(title).replace(/"/g, '&quot;') + '">' +
       '<i class="fa-solid ' + icon + '"></i>' +
       '<span class="lcd-rail-item-group-name">' + escapeHtml(title) + '</span>' +
       '<span class="lcd-rail-item-group-count" title="' + count + ' slide' + (count === 1 ? '' : 's') + '">' + count + '</span>' +
@@ -93972,7 +94047,14 @@ var WO = (function() {
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
     _lcdRailRowMap[rowId] = box;
     var tip = part.label + ' \u2014 ' + part.of + ' slide' + (part.of === 1 ? '' : 's');
-    return '<div class="lcd-rail-part" data-part="' + _lcdPartKind(part.label) + '" id="' + rowId +
+    // The item the run belongs to, and how long it is: everything the drag
+    // needs to pick the run's boxes up again without re-reading the rail.
+    var _pItem = box.getAttribute('data-song-id') || box.getAttribute('data-liturgy-id') || '';
+    var _pSec = box.getAttribute('data-section') || '';
+    return '<div class="lcd-rail-part" draggable="true" data-part="' + _lcdPartKind(part.label) + '" id="' + rowId +
+        '" data-run-item="' + escapeHtml(_pItem).replace(/"/g, '&quot;') +
+        '" data-run-sec="' + escapeHtml(_pSec).replace(/"/g, '&quot;') +
+        '" data-run-size="' + part.of +
         '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')" title="' + escapeHtml(tip).replace(/"/g, '&quot;') + '">' +
       '<span class="lcd-rail-part-name">' + escapeHtml(part.label) + '</span>' +
       '<span class="lcd-rail-part-count">' + part.of + '</span>' +
@@ -94762,6 +94844,8 @@ var WO = (function() {
     _lcdScrollRailToSelected();
     _lcdEnsureScheduleHeader(root, totalSlides);
     _lcdWireRailDrag(rail);
+    _lcdWirePartDrag(rail);
+    _lcdWireItemDrag(rail);
     _lcdWireSectionDrag(rail);
     _lcdWireLibraryDrop(rail);
     // If a change lands on the slide the operator currently has open -- e.g.
@@ -96362,8 +96446,479 @@ var WO = (function() {
     song.slides = boxes.map(function(box, i) {
       var origIdx = parseInt(box.getAttribute('data-slide-idx') || '0', 10);
       var s = old[origIdx] || { content: '', background: '' };
-      return { index: i, content: s.content, richHtml: s.richHtml, background: s.background };
+      // The HEADER travels with the slide. Leaving it out here wiped every
+      // part heading in the song on any reorder: the rail went on showing
+      // them because it reads the DOM (_lcdOwnHeader), and so does
+      // collectOrderItems, so nothing looked wrong -- but the model had lost
+      // the only record of which slide opens which verse, which is what the
+      // part drag asks when it decides whether the words can follow.
+      // Read from the box, the one element every path writes a heading to.
+      var _h = (typeof _lcdOwnHeader === 'function') ? _lcdOwnHeader(box) : '';
+      return { index: i, content: s.content, richHtml: s.richHtml, background: s.background,
+               header: _h || s.header || '' };
     });
+  }
+
+  // ---- Drag-to-reorder a song structure inside its own item -----------
+  //
+  // A part is a RUN of slides, not a stored thing: _lcdSlideParts reads the
+  // headers and carries each one down over the slides that finish the verse
+  // (gotcha 73). So moving a part is moving its run of boxes as a block --
+  // the header travels on the run's first box, which is where it lives.
+  //
+  // Only inside its own item. Across items it would be a different song's
+  // verse, and across sections it would be a move of the item itself, which
+  // is what the item drag does.
+  var _lcdDragRunId = null;
+  var _lcdRunDropBelow = false;
+  function _lcdWirePartDrag(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-part[data-run-item]')).forEach(function(row) {
+      row.addEventListener('dragstart', function(e) { _lcdRunDragStart(e, row); });
+      row.addEventListener('dragover', function(e) { _lcdRunDragOver(e, row); });
+      row.addEventListener('drop', function(e) { _lcdRunDrop(e, row); });
+      row.addEventListener('dragend', _lcdRunDragEnd);
+    });
+  }
+  function _lcdRunRow(id) {
+    if (!id) return null;
+    var el = document.getElementById(id);
+    return (el && el.classList.contains('lcd-rail-part')) ? el : null;
+  }
+  function _lcdSameRunItem(a, b) {
+    if (!a || !b) return false;
+    var ak = a.getAttribute('data-run-item'), bk = b.getAttribute('data-run-item');
+    return !!ak && ak === bk && a.getAttribute('data-run-sec') === b.getAttribute('data-run-sec');
+  }
+  // The boxes of the run whose heading this is: the start box from the row
+  // map, then its next siblings belonging to the same item. Read from the
+  // live DOM rather than from data-run-size alone, so a run that changed
+  // under us moves what is really there.
+  function _lcdRunBoxes(row) {
+    var start = _lcdRailRowMap[row.id];
+    if (!start || !start.nodeType || !start.parentNode) return [];
+    var key = row.getAttribute('data-run-item');
+    var size = parseInt(row.getAttribute('data-run-size') || '1', 10);
+    if (!(size > 0)) size = 1;
+    var out = [start], el = start.nextElementSibling;
+    while (out.length < size && el && el.classList.contains('wo-slide-box') &&
+           (el.getAttribute('data-song-id') === key || el.getAttribute('data-liturgy-id') === key)) {
+      out.push(el);
+      el = el.nextElementSibling;
+    }
+    return out;
+  }
+  // The labelled-run heading rows of one item, in the order they stand.
+  function _lcdItemRunRows(parent, key) {
+    var rail = document.getElementById('lcdCompactRail');
+    if (!rail) return [];
+    return Array.from(rail.querySelectorAll('.lcd-rail-part[data-run-item]')).filter(function(r) {
+      var b = _lcdRailRowMap[r.id];
+      return r.getAttribute('data-run-item') === key && b && b.parentNode === parent;
+    });
+  }
+  function _lcdRunDragStart(e, row) {
+    _lcdDragRunId = row.id;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', 'railrun:' + row.id); } catch (x) {}
+    }
+    if (e.stopPropagation) e.stopPropagation();
+  }
+  function _lcdRunDragOver(e, row) {
+    var from = _lcdRunRow(_lcdDragRunId);
+    if (!from || from === row || !_lcdSameRunItem(from, row)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var rect = row.getBoundingClientRect();
+    _lcdRunDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    row.classList.add(_lcdRunDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+  function _lcdRunDragEnd() {
+    _lcdDragRunId = null;
+    _lcdClearDropMarkers();
+  }
+  function _lcdRunDrop(e, row) {
+    if (e.preventDefault) e.preventDefault();
+    var from = _lcdRunRow(_lcdDragRunId), below = _lcdRunDropBelow;
+    _lcdRunDragEnd();
+    if (!from || from === row || !_lcdSameRunItem(from, row)) return;
+    var moving = _lcdRunBoxes(from), onto = _lcdRunBoxes(row);
+    if (!moving.length || !onto.length) return;
+    var parent = moving[0].parentNode;
+    if (!parent || onto[0].parentNode !== parent) return;
+    // Which labelled run moved where, counted BEFORE anything is touched:
+    // the words are reordered by the same permutation, and after the move
+    // the old positions are gone.
+    var key = from.getAttribute('data-run-item');
+    var sectionId = from.getAttribute('data-run-sec') || '';
+    var runs = _lcdItemRunRows(parent, key);
+    var iFrom = runs.indexOf(from), iTo = runs.indexOf(row);
+    if (iFrom < 0 || iTo < 0) return;
+    var dest = _lcdRunDest(iFrom, iTo, below);
+    if (dest === iFrom) return;
+    var songId = moving[0].getAttribute('data-song-id') || '';
+    var liturgyId = moving[0].getAttribute('data-liturgy-id') || '';
+    _lcdPushUndo();
+    // ONE reorder, not two. For a song whose words can follow, the WORDS are
+    // the source: _sbSetCopyWords re-splits the slides from them
+    // (_sbSlidesFollow -> refreshSongSlidesInOrder, gotcha 84), so moving the
+    // boxes here as well would apply the move twice. Measured on a 7-part
+    // song: it came out with 9 parts, two of them doubled.
+    var bgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
+    var wordsMoved = songId ? _lcdMoveSongWords(songId, iFrom, dest) : 'na';
+    if (wordsMoved !== 'ok') {
+      // A liturgy, or a song whose words and slides cannot be paired up: the
+      // slides are all there is, so the run of boxes moves.
+      var at = below ? onto[onto.length - 1] : onto[0];
+      if (below) {
+        for (var i = moving.length - 1; i >= 0; i--) at.insertAdjacentElement('afterend', moving[i]);
+      } else {
+        moving.forEach(function(b) { at.insertAdjacentElement('beforebegin', b); });
+      }
+      if (songId) _lcdReorderSongSlides(songId, sectionId);
+      var groupId = liturgyId || songId;
+      if (groupId && typeof renumberSlideBoxes === 'function') {
+        renumberSlideBoxes(sectionId, groupId, liturgyId ? 'liturgy' : 'song');
+      }
+    }
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, bgs);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lcdRailHoldScroll();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (wordsMoved === 'mismatch') {
+      showToast('Slides moved. The words were left as they are: this song is not written in the parts the rail shows.', 'info', { duration: 6000 });
+    } else {
+      showToast(wordsMoved === 'ok' ? 'Part moved, words and all' : 'Part moved', 'success');
+    }
+  }
+  // Where a run dropped on another lands, as an index among the runs after
+  // it has been lifted out. Pure, because off-by-one here silently puts a
+  // verse one place from where it was dropped.
+  function _lcdRunDest(from, to, below) {
+    var dest = to + (below ? 1 : 0);
+    if (dest > from) dest--;
+    return dest;
+  }
+  // A song's words put in the slides' new order: the k-th labelled block of
+  // the lyrics moved to the j-th labelled place, chords and all. Answers
+  // 'ok', 'mismatch' (the words are not written in the parts the rail shows,
+  // so they are left exactly as they were) or 'none'.
+  function _lcdMoveSongWords(songId, from, to) {
+    var song = songOrderSections.find(function(s) { return s && s.id === songId; });
+    if (!song) return 'none';
+    var words = (song.customLyrics != null && String(song.customLyrics).trim())
+      ? song.customLyrics : (song.lyrics || '');
+    if (!String(words).trim()) return 'none';
+    var blocks = _lcdLyricBlocks(words);
+    var labelled = blocks.filter(function(b) { return !!b.label; });
+    // Refuse rather than guess (gotcha 54): a song whose words have a
+    // different number of parts from its slides -- headings the operator
+    // typed on the slides, say -- cannot be paired up, and moving the wrong
+    // block would scramble the song for the band.
+    var runs = _lcdPartRuns((song.slides || []).map(function(s) { return String((s && s.header) || '').trim(); }));
+    if (!labelled.length || labelled.length !== runs.length) return 'mismatch';
+    var moved = _lcdMoveBlock(blocks, from, to);
+    if (!moved) return 'mismatch';
+    // The re-split keeps each slide's old header BY POSITION where the new
+    // words give none (refreshSongSlidesInOrder: `slide.header || was.header`).
+    // That rule exists to save a heading the operator typed (gotcha 73) and
+    // is wrong once the words have MOVED: the headings of the old order
+    // survive onto the new one, and a 7-part song comes out with 9. Clearing
+    // them is safe HERE and nowhere else, because the count check above has
+    // already established that every heading this song has comes from a
+    // marker in the words, so the parse puts all of them back.
+    [song.savedSlides, song.slides].forEach(function(list) {
+      if (Array.isArray(list)) list.forEach(function(sl) { if (sl) sl.header = ''; });
+    });
+    // Through the Songbook's own save, which is the one path that writes a
+    // copy's words: it keeps richLyrics in step, re-splits the slides only
+    // when the projected words really changed, and tells the other devices.
+    if (typeof _sbSetCopyWords === 'function') _sbSetCopyWords(song, _lcdBlocksText(moved));
+    else song.customLyrics = _lcdBlocksText(moved);
+    return 'ok';
+  }
+
+  // ---- Drag-to-reorder a subsection: a song, or a liturgy -------------
+  //
+  // Dropped on a sibling in the SAME section it lands exactly there. Dropped
+  // on an item in another section, or on a section heading, it moves to that
+  // section and lands last -- which is what lbdMoveItemToSection does, and
+  // what the order's own shape allows: within a section this app lists the
+  // songs and then the other parts, everywhere (_lbdSecOrder, the schedule's
+  // own rebuild, the Liturgy Book, the export). So a song cannot be dropped
+  // among the liturgy of its own section, and the drag refuses it rather
+  // than letting it snap back on the next load.
+  var _lcdDragItem = null;
+  var _lcdItemDropBelow = false;
+  function _lcdWireItemDrag(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-item-group[data-item-id]')).forEach(function(row) {
+      row.addEventListener('dragstart', function(e) { _lcdItemDragStart(e, row); });
+      row.addEventListener('dragover', function(e) { _lcdItemDragOver(e, row); });
+      row.addEventListener('drop', function(e) { _lcdItemDrop(e, row); });
+      row.addEventListener('dragend', _lcdItemDragEnd);
+    });
+  }
+  function _lcdItemOf(row) {
+    if (!row || !row.getAttribute) return null;
+    var id = row.getAttribute('data-item-id');
+    if (!id) return null;
+    return { kind: row.getAttribute('data-item-kind'), id: id, sec: row.getAttribute('data-item-sec') || '' };
+  }
+  function _lcdItemDragStart(e, row) {
+    _lcdDragItem = _lcdItemOf(row);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', 'railitem:' + (_lcdDragItem ? _lcdDragItem.id : '')); } catch (x) {}
+    }
+    if (e.stopPropagation) e.stopPropagation();
+  }
+  function _lcdItemDragEnd() {
+    _lcdDragItem = null;
+    _lcdClearDropMarkers();
+  }
+  // May this item be dropped on that one? Pure, and the one place the rule
+  // lives, so the hover marker and the drop can never disagree.
+  function _lcdItemDropOk(from, to) {
+    if (!from || !to || !from.id || !to.id) return false;
+    if (from.id === to.id && from.sec === to.sec) return false;
+    if (from.sec === to.sec) return from.kind === to.kind;
+    return true; // another section: it lands last among its own kind there
+  }
+  function _lcdItemDragOver(e, row) {
+    var to = _lcdItemOf(row);
+    if (!_lcdItemDropOk(_lcdDragItem, to)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var rect = row.getBoundingClientRect();
+    _lcdItemDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    row.classList.add(_lcdItemDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+  function _lcdItemDrop(e, row) {
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var from = _lcdDragItem, to = _lcdItemOf(row), below = _lcdItemDropBelow;
+    _lcdItemDragEnd();
+    if (!_lcdItemDropOk(from, to)) return;
+    if (from.sec !== to.sec) { _lcdItemToSection(from, to.sec); return; }
+    _lcdItemReorder(from, to, below);
+  }
+  // A liturgy is known by two ids and they are NOT the same one: the DOM's
+  // data-liturgy-id is the SOURCE id ("lit-1782130451636-..."), while the
+  // item in allItems is keyed "<order>__liturgy_<source>_<section>". Matching
+  // one against the other finds nothing and writes nothing, which is how a
+  // reorder came to move the boxes and leave the model untouched. Everything
+  // that starts from a rail handle resolves through here.
+  function _lcdLitItem(sourceId, sectionId) {
+    var all = (currentOrderData && Array.isArray(currentOrderData.allItems)) ? currentOrderData.allItems : [];
+    for (var i = 0; i < all.length; i++) {
+      var x = all[i];
+      if (x && x.itemType === 'liturgy' && x.sourceId === sourceId && x.sectionId === sectionId) return x;
+    }
+    return null;
+  }
+
+  // The DOM block one item owns inside its section: its banner, the slides
+  // under it, and the "Add Slide" row that trails them.
+  function _lcdItemNodes(container, kind, id) {
+    if (!container) return [];
+    var attr = (kind === 'song') ? 'data-song-id' : 'data-liturgy-id';
+    var kids = Array.prototype.slice.call(container.children), out = [], started = false;
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (!started) {
+        var isBanner = (kind === 'song')
+          ? (el.classList.contains('wo-song-banner') && !el.classList.contains('scripture-banner'))
+          : el.classList.contains('wo-liturgy-banner-bar');
+        if (isBanner && el.getAttribute(attr) === id) { started = true; out.push(el); }
+        continue;
+      }
+      if (el.classList.contains('wo-slide-box') && el.getAttribute(attr) === id) { out.push(el); continue; }
+      if (el.classList.contains('wo-add-slide-row')) out.push(el);
+      break;
+    }
+    return out;
+  }
+  // The ids of one section's items of a kind, in the order they stand in the
+  // schedule. Pure over the container, so the harness can run it.
+  function _lcdSectionItemIds(container, kind) {
+    if (!container) return [];
+    var attr = (kind === 'song') ? 'data-song-id' : 'data-liturgy-id';
+    var out = [];
+    Array.prototype.slice.call(container.children).forEach(function(el) {
+      var isBanner = (kind === 'song')
+        ? (el.classList.contains('wo-song-banner') && !el.classList.contains('scripture-banner'))
+        : el.classList.contains('wo-liturgy-banner-bar');
+      if (!isBanner) return;
+      var id = el.getAttribute(attr);
+      if (id && out.indexOf(id) === -1) out.push(id);
+    });
+    return out;
+  }
+  function _lcdItemReorder(from, to, below) {
+    var container = document.getElementById(from.sec + '-boxes');
+    if (!container) return;
+    var moving = _lcdItemNodes(container, from.kind, from.id);
+    var onto = _lcdItemNodes(container, to.kind, to.id);
+    if (!moving.length || !onto.length) return;
+    _lcdPushUndo();
+    var bgs = _lcdCaptureSectionBgs(from.sec);
+    var at = below ? onto[onto.length - 1] : onto[0];
+    if (below) {
+      for (var i = moving.length - 1; i >= 0; i--) at.insertAdjacentElement('afterend', moving[i]);
+    } else {
+      moving.forEach(function(nd) { at.insertAdjacentElement('beforebegin', nd); });
+    }
+    _lcdRestoreSectionBgs(from.sec, bgs);
+    // The model, so the Liturgy Builder, the Liturgy Book, the export and the
+    // next load all read the same order. The schedule's DOM only carries the
+    // non-song items; a song's place is songOrderSections (gotcha 44).
+    if (from.kind === 'song') _lcdWriteSongOrder(container, from.sec);
+    else _lcdWriteItemOrder(container, from.sec);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lcdRailHoldScroll();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast(from.kind === 'song' ? 'Song moved' : 'Liturgy moved', 'success');
+  }
+  // songOrderSections put in the schedule's order for this section, with a
+  // medley carried as one unit, and every song outside this section left
+  // exactly where it was (_woWriteSeq).
+  function _lcdWriteSongOrder(container, sectionId) {
+    var ids = _lcdSectionItemIds(container, 'song');
+    var list = _woSectionList();
+    var seqOld = songOrderSections.filter(function(s) {
+      return s && s.itemType !== 'blank' && _woSongSectionIds(s, list).indexOf(sectionId) !== -1;
+    });
+    var seqNew = ids.map(function(id) {
+      return seqOld.filter(function(s) { return s.id === id; })[0];
+    }).filter(Boolean);
+    if (seqNew.length !== seqOld.length) return;
+    _woSongsChange(function() {
+      songOrderSections = _woWriteSeq(songOrderSections, seqOld, seqNew);
+    });
+  }
+  // allItems put in the schedule's order for this section's non-song items.
+  // Only those items move; everything else keeps its index, so a reorder in
+  // one section cannot disturb another.
+  function _lcdWriteItemOrder(container, sectionId) {
+    if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
+    var ids = _lcdSectionItemIds(container, 'liturgy');
+    var all = currentOrderData.allItems;
+    var slots = [], mine = [];
+    all.forEach(function(it, i) {
+      if (it && it.itemType === 'liturgy' && it.sectionId === sectionId) { slots.push(i); mine.push(it); }
+    });
+    // By SOURCE id: that is what the banner carries.
+    var seqNew = ids.map(function(id) {
+      return mine.filter(function(it) { return it.sourceId === id; })[0];
+    }).filter(Boolean);
+    if (seqNew.length !== mine.length || !slots.length) return;
+    slots.forEach(function(at, k) { all[at] = seqNew[k]; });
+  }
+
+  // A subsection moved to another section. It lands LAST among its own kind
+  // there, which is what lbdMoveItemToSection does and all the order's shape
+  // allows: within a section the songs come first and the other parts after.
+  function _lcdItemToSection(from, toSec) {
+    if (!from || !toSec || from.sec === toSec) return;
+    if (!document.getElementById(toSec + '-boxes')) return;
+    if (from.kind === 'song') return _lcdSongToSection(from, toSec);
+    return _lcdLiturgyToSection(from, toSec);
+  }
+  function _lcdSongToSection(from, toSec) {
+    var song = songOrderSections.find(function(s) { return s && s.id === from.id; });
+    if (!song) return;
+    // A song already sung in the target section is a COPY of its own there
+    // (gotcha 55), so moving this one in would make two in one section.
+    if (typeof _woSongCopyIn === 'function') {
+      var dup = _woSongCopyIn(song.songId || song.id, toSec);
+      if (dup && dup.id !== song.id) {
+        showToast('That section already sings ' + (song.title || 'this song'), 'info');
+        return;
+      }
+    }
+    _lcdPushUndo();
+    // Out of the old section by the schedule's own path (gotcha 44), which
+    // takes the banner, the slides and the Add Slide row and re-pins the
+    // backgrounds. remote: true stops it recording the song as deliberately
+    // taken OUT of the service -- this is a move, not a removal.
+    if (typeof removeSongFromSection === 'function') removeSongFromSection(null, from.sec, from.id, { remote: true });
+    _woSongsChange(function() {
+      song.sectionId = toSec;
+      var refs = Array.isArray(song.serviceSections) ? song.serviceSections.slice() : [];
+      refs = refs.filter(function(r) { return r !== from.sec; });
+      if (refs.indexOf(toSec) === -1) refs.push(toSec);
+      song.serviceSections = refs;
+      if (typeof _woSongsTakenOutOfSections === 'object' && _woSongsTakenOutOfSections) {
+        delete _woSongsTakenOutOfSections[song.id];
+      }
+    });
+    if (typeof addSongToServiceSection === 'function') addSongToServiceSection(toSec, song, true, true);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lcdRailHoldScroll();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast('Song moved to ' + _lcdSectionName(toSec), 'success');
+  }
+  function _lcdLiturgyToSection(from, toSec) {
+    if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
+    var all = currentOrderData.allItems;
+    var it = _lcdLitItem(from.id, from.sec);
+    if (!it) return;
+    // The LCD draws a liturgy once per order (gotcha 37), so a second copy of
+    // the same source in one section is refused rather than silently dropped
+    // from the next save.
+    if (all.some(function(x) { return x && x !== it && x.itemType === 'liturgy' && x.sourceId === it.sourceId && x.sectionId === toSec; })) {
+      showToast('That section already has ' + (it.title || 'this liturgy'), 'info');
+      return;
+    }
+    var fromC = document.getElementById(from.sec + '-boxes');
+    var toC = document.getElementById(toSec + '-boxes');
+    if (!fromC || !toC) return;
+    var nodes = _lcdItemNodes(fromC, 'liturgy', from.id);
+    if (!nodes.length) return;
+    _lcdPushUndo();
+    var bgsFrom = _lcdCaptureSectionBgs(from.sec);
+    var bgsTo = _lcdCaptureSectionBgs(toSec);
+    // A liturgy's id names its section -- both collectors build it that way
+    // -- so it changes with the move, and the row stored under the old id is
+    // pruned by the save.
+    var newId = _lbdPfx() + 'liturgy_' + it.sourceId + '_' + toSec;
+    _lbdNoteCleared(from.sec, it.sourceId);
+    it.sectionId = toSec;
+    it.id = newId;
+    _lbdClearClearedFor(toSec);
+    // Last among that section's non-song items, which is where it is drawn.
+    var at = all.indexOf(it);
+    if (at >= 0) all.splice(at, 1);
+    var last = -1;
+    for (var k = 0; k < all.length; k++) {
+      if (all[k] && all[k].itemType !== 'song' && all[k].sectionId === toSec) last = k;
+    }
+    all.splice(last < 0 ? all.length : last + 1, 0, it);
+    // The placeholder a section grows when it empties would sit above the
+    // moved liturgy, so it goes before the nodes arrive.
+    var ph = toC.querySelector('.wo-content-box .wo-content-placeholder');
+    if (ph && toC.children.length === 1) toC.innerHTML = '';
+    // data-liturgy-id stays the SOURCE id -- it is not the model's id and
+    // rewriting it would make every later lookup miss. Only the section moves.
+    nodes.forEach(function(nd) {
+      if (nd.getAttribute && nd.getAttribute('data-section')) nd.setAttribute('data-section', toSec);
+      toC.appendChild(nd);
+    });
+    _lcdRestoreSectionBgs(from.sec, bgsFrom, { noSave: true });
+    _lcdRestoreSectionBgs(toSec, bgsTo);
+    // renumberSlideBoxes groups by the DOM's attribute, so the source id.
+    if (typeof renumberSlideBoxes === 'function') renumberSlideBoxes(toSec, it.sourceId, 'liturgy');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lcdRailHoldScroll();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast('Liturgy moved to ' + _lcdSectionName(toSec), 'success');
+  }
+  function _lcdSectionName(sectionId) {
+    var list = (typeof _woSectionList === 'function') ? _woSectionList() : [];
+    var hit = list.filter(function(s) { return s && s.id === sectionId; })[0];
+    return (hit && hit.title) ? hit.title : 'the section';
   }
 
   // ---- Drag-to-reorder whole sections in the compact rail -------------
@@ -96384,6 +96939,16 @@ var WO = (function() {
     if (e.stopPropagation) e.stopPropagation();
   }
   function lcdSectionDragOver(e, hdr) {
+    // A subsection dragged onto a section heading moves into that section.
+    if (_lcdDragItem) {
+      var sid = hdr.getAttribute('data-section-id');
+      if (!sid || sid === _lcdDragItem.sec) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      _lcdClearDropMarkers();
+      hdr.classList.add('lcd-rail-drop-below');
+      return;
+    }
     if (!_lcdDragSectionId) return;
     var tid = hdr.getAttribute('data-section-id');
     if (tid === _lcdDragSectionId) return;
@@ -96400,6 +96965,12 @@ var WO = (function() {
   }
   function lcdSectionDrop(e, targetSectionId) {
     if (e.preventDefault) e.preventDefault();
+    if (_lcdDragItem) {
+      var moving = _lcdDragItem;
+      _lcdItemDragEnd();
+      if (targetSectionId && targetSectionId !== moving.sec) _lcdItemToSection(moving, targetSectionId);
+      return;
+    }
     var draggedId = _lcdDragSectionId;
     var below = _lcdSectionDropBelow;
     lcdSectionDragEnd();
@@ -122665,6 +123236,10 @@ function filterLiturgyItems() {
   .lcd-rail-add-section:hover { background: rgba(193,153,63,0.26); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
   .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
+  .lcd-rail-item-group[draggable="true"] { cursor: grab; }
+  .lcd-rail-item-group[draggable="true"]:active { cursor: grabbing; }
+  .lcd-rail-part[draggable="true"] { cursor: grab; }
+  .lcd-rail-part[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-ppt-row { align-items: center; }
   /* Removing one page from the schedule side, where the operator actually
      works. Revealed on hover so a long presentation is not a column of Xs. */
