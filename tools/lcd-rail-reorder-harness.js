@@ -259,10 +259,11 @@ check('the section\'s backgrounds are captured before the move',
 check('...and restored after it', /_lcdRestoreSectionBgs\(sectionId, bgs\)/.test(runDrop));
 check('a song\'s slides array is rebuilt from the new DOM order',
   /if \(songId\) _lcdReorderSongSlides\(songId, sectionId\);/.test(runDrop));
-// gotcha 73: replacing the rail clamps its scroller to the top.
-check('the rail\'s scroll is held before it is drawn again (gotcha 73)',
-  runDrop.indexOf('_lcdRailHoldScroll()') > 0 &&
-  runDrop.indexOf('_lcdRailHoldScroll()') < runDrop.indexOf('_lcdRenderCompactRail()'),
+// Superseded by the operator's second round: the rail no longer pins the
+// scroll where it WAS -- the part that moved is elsewhere now -- but is
+// brought to what moved, AFTER the redraw. Section 10 guards the helper.
+check('the rail ends on the part that moved, after the redraw',
+  runDrop.indexOf('_lcdRailFocusOn(') > runDrop.indexOf('_lcdRenderCompactRail()'),
   runDrop.slice(-400));
 check('the move is one undo step', /_lcdPushUndo\(\);/.test(runDrop));
 
@@ -292,9 +293,8 @@ check('a song reorder writes songOrderSections, a liturgy writes allItems',
   reorder.slice(-500));
 check('it re-pins the section\'s backgrounds',
   /_lcdCaptureSectionBgs\(from\.sec\)/.test(reorder) && /_lcdRestoreSectionBgs\(from\.sec, bgs\)/.test(reorder));
-check('the rail\'s scroll is held before the redraw here too',
-  reorder.indexOf('_lcdRailHoldScroll()') > 0 &&
-  reorder.indexOf('_lcdRailHoldScroll()') < reorder.indexOf('_lcdRenderCompactRail()'));
+check('the rail ends on the subsection that moved, after the redraw',
+  reorder.indexOf('_lcdRailFocusOn(') > reorder.indexOf('_lcdRenderCompactRail()'));
 
 const songOrder = fn('_lcdWriteSongOrder');
 check('_lcdWriteSongOrder is in the source', !!songOrder);
@@ -443,6 +443,104 @@ check('the DOM keeps the source id; only data-section moves',
   /nd\.setAttribute\('data-section', toSec\)/.test(litTo2), litTo2);
 check('...and renumbering groups by the source id the DOM carries',
   /renumberSlideBoxes\(toSec, it\.sourceId, 'liturgy'\)/.test(litTo2));
+
+// ---------------------------------------------------------------------------
+// 10. The operator's second round (2026-11-27).
+// ---------------------------------------------------------------------------
+section('10. Latching on, keeping your place, and adding a section');
+
+// (a) "make it that they don't have to reach all the way to the subsection
+// header to recognise the request" -- anywhere inside a subsection latches on
+// to it, and which SIDE is read from the subsection's whole block, so the
+// answer does not change as the pointer crosses a row boundary.
+check('the drop side is delegated to the rail, not bound per heading',
+  has(/rail\.addEventListener\('dragover', _lcdItemRailOver\)/) &&
+  has(/rail\.addEventListener\('drop', _lcdItemRailDrop\)/));
+check('...and bound once, since the rail outlives a render',
+  has(/if \(rail\.__lcdItemDrop\) return;/));
+const atEl = fn('_lcdItemAtEl');
+check('a heading, a part badge or ANY slide row resolves to its subsection',
+  /closest\('\.lcd-rail-item-group\[data-item-id\]'\)/.test(atEl) &&
+  /closest\('\.lcd-rail-part\[data-run-item\]'\)/.test(atEl) &&
+  /closest\('\.lcd-rail-slide-row'\)/.test(atEl), atEl);
+const forBox = fn('_lcdItemForBox');
+check('a reading is still no drop target (its place is the template slot)',
+  /data-source'\) === 'scripture'\) return null/.test(forBox), forBox);
+const blockRows = fn('_lcdItemBlockRows');
+check('the block is the heading and everything under it to the next heading',
+  /lcd-rail-item-group/.test(blockRows) && /lcd-rail-section-header/.test(blockRows) &&
+  /nextElementSibling/.test(blockRows), blockRows);
+const over = fn('_lcdItemRailOver');
+check('the side is read from the block, not from the row under the pointer',
+  /rows\[0\]\.getBoundingClientRect\(\)\.top/.test(over) &&
+  /rows\[rows\.length - 1\]\.getBoundingClientRect\(\)\.bottom/.test(over), over);
+check('...and the marker is drawn on the block edge the drop will land at',
+  /\(_lcdItemDropBelow \? rows\[rows\.length - 1\] : rows\[0\]\)/.test(over), over);
+if (P && P._lcdItemSide) {
+  check('above the middle of the block means before it', P._lcdItemSide(10, 0, 100) === false);
+  check('below it means after it', P._lcdItemSide(90, 0, 100) === true);
+  check('...measured on the block, so a row low in a tall block is still "before"',
+    P._lcdItemSide(40, 0, 100) === false);
+}
+
+// (b) "I want the focus to remain at the sections that I have changed
+// positions. Where I dragged and dropped." _lcdRailHoldScroll pins the scroll
+// where it WAS, which is a different thing: the moved section is elsewhere now.
+const focus = fn('_lcdRailFocusOn');
+check('_lcdRailFocusOn is in the source', !!focus);
+check('it brings the moved row into the middle and holds it',
+  /scrollIntoView\(\{ block: 'center' \}\)/.test(focus) && /sc\.scrollTop/.test(focus), focus);
+// Without this the watcher reveals the PROJECTING slide instead.
+check('...against _lcdWatchSelectedRow, which would reveal the live slide',
+  /_lcdSkipRevealUntil = Date\.now\(\) \+ 2000;/.test(focus));
+check('it retries, because the render is not always synchronous',
+  /tries\+\+ < 20/.test(focus));
+// A save refreshes the rail ~120ms later and REPLACES the nodes, so a held
+// reference goes stale: each tick finds the row again.
+// Scoped to the PIN TICK. `try { now = find(); } catch` appears twice in
+// this function -- the tick and the cleanup -- so an unscoped match stayed
+// true with it deleted from the tick (gotcha 82). The mutation run caught it.
+const pinTick = (function () {
+  const a = focus.indexOf('].forEach(function(ms) {');
+  if (a < 0) return '';
+  const b = focus.indexOf('}, ms);', a);
+  return b < 0 ? focus.slice(a) : focus.slice(a, b);
+})();
+check('the pin tick exists to check', pinTick.length > 0, focus.slice(0, 300));
+check('each tick finds the row again rather than holding a reference',
+  pinTick.indexOf('find()') > 0 && pinTick.indexOf('var now = el') < 0, pinTick);
+check('the renderer re-applies the mark, because it is what replaced the node',
+  has(/if \(_lcdJustMoved && Date\.now\(\) < _lcdJustMoved\.until\) \{/));
+['lcdSectionDrop', '_lcdItemReorder', '_lcdSongToSection', '_lcdLiturgyToSection', '_lcdRunDrop']
+  .forEach(function(name) {
+    const body = fn(name);
+    check(name + ' ends on what it moved, not where the rail was',
+      /_lcdRailFocusOn\(/.test(body) && !/_lcdRailHoldScroll\(\)/.test(body), body.slice(-300));
+  });
+check('a single slide reorder keeps its place too',
+  /_lcdRailFocusOn\(function\(\) \{/.test(fn('lcdRailDrop')));
+
+// (c) "Adding a section should also add it in the liturgy builder and should
+// have the consistent form and presentation just like normal."
+const addSec = fn('addNewSection');
+check('Add New Section offers the Builder\'s own list of kinds',
+  /_LBD_SEC_KINDS\.map/.test(addSec) && /_lbdOpenMenu\(at, 'Add a section'/.test(addSec), addSec);
+const make = fn('_lcdMakeSection');
+check('_lcdMakeSection is in the source', !!make);
+// It already reached the Builder in-session (both write sectionLayout). What
+// it did not do was SAVE, so a section added and then reloaded was gone.
+check('the new section is written into the layout the Builder reads',
+  /_captureCurrentLayout\(\)/.test(make), make);
+check('...and SAVED, or it was gone on the next load',
+  /autoSaveOrder\(\)/.test(make), make);
+check('...and the rail is drawn again and brought to it',
+  /_lcdRenderCompactRail\(\)/.test(make) && /_lcdRailFocusOn\(_lcdFindSectionRow\(sectionId\)\)/.test(make));
+// lbdAddSection goes through _lbdChange, which must not run with the schedule
+// in the page (gotcha 35), so the LCD cannot simply call it.
+check('it does NOT call the Builder\'s own adder, which needs _lbdChange',
+  !/lbdAddSection\(/.test(make), make);
+check('both Add New Section buttons hand the menu something to hang off',
+  (SRC.match(/WO\.addNewSection\(this\)/g) || []).length === 2);
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {

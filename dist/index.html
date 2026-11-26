@@ -42813,7 +42813,7 @@ var WO = (function() {
     // Add "Add Section" button at the bottom
     container.insertAdjacentHTML('beforeend',
       '<div class="wo-add-section-btn-container">' +
-      '<button class="wo-add-section-btn" onclick="WO.addNewSection()">' +
+      '<button class="wo-add-section-btn" onclick="WO.addNewSection(this)">' +
       '<i class="fa-solid fa-plus mr-2"></i> Add New Section' +
       '</button>' +
       '</div>'
@@ -44484,35 +44484,50 @@ var WO = (function() {
   }
 
   // Add a new section to the service order
-  function addNewSection() {
-    window.customPrompt('Add Section', 'Enter a title for the new section:', 'New Section').then(function(title) {
-      if (!title || !title.trim()) return;
-
-      var container = $('woWorshipOrder');
-      if (!container) return;
-
-      // Use a timestamp-based ID (same as duplicateSection) so it's always a
-      // "custom" section and never clashes with wo-section-N template IDs.
-      var sectionId = 'wo-section-' + Date.now();
-
-      // Create new section
-      var newSection = {
-        title: title.trim(),
-        type: 'single'
-      };
-
-      var sectionHtml = createSectionHtml(newSection, 0, sectionId);
-      // Insert before the "Add Section" button (not at end of container)
-      var addBtn = container.querySelector('.wo-add-section-btn-container');
-      if (addBtn) {
-        addBtn.insertAdjacentHTML('beforebegin', sectionHtml);
-      } else {
-        container.insertAdjacentHTML('beforeend', sectionHtml);
-      }
-      updateSectionNumbers();
-      _captureCurrentLayout(); // persist layout immediately
-      showToast('Section added!', 'success');
+  // The same list the Liturgy Builder offers (_LBD_SEC_KINDS), so a section
+  // is added the same way and named the same way wherever you are. The
+  // Builder's own lbdAddSection cannot be reused here: it goes through
+  // _lbdChange, which must not run while the LCD schedule is in the page
+  // (gotcha 35). The section itself is shared either way -- both write
+  // sectionLayout, which is what the Builder reads.
+  function addNewSection(anchor) {
+    var at = anchor || document.querySelector('#lcdCompactRail .lcd-rail-add-section') ||
+             document.querySelector('.wo-add-section-btn');
+    _lbdOpenMenu(at, 'Add a section', _LBD_SEC_KINDS.map(function(k) {
+      return { label: k.label, icon: k.icon, run: function() { _lcdAskSection(k.title); } };
+    }));
+  }
+  function _lcdAskSection(title) {
+    if (title) { _lcdMakeSection(title); return; }
+    window.customPrompt('Add Section', 'Enter a title for the new section:', 'New Section').then(function(t) {
+      if (t && t.trim()) _lcdMakeSection(t.trim());
     });
+  }
+  function _lcdMakeSection(title) {
+    var container = $('woWorshipOrder');
+    if (!container) return;
+
+    // Use a timestamp-based ID (same as duplicateSection) so it's always a
+    // "custom" section and never clashes with wo-section-N template IDs.
+    var sectionId = 'wo-section-' + Date.now();
+
+    var sectionHtml = createSectionHtml({ title: title, type: 'single' }, 0, sectionId);
+    // Insert before the "Add Section" button (not at end of container)
+    var addBtn = container.querySelector('.wo-add-section-btn-container');
+    if (addBtn) {
+      addBtn.insertAdjacentHTML('beforebegin', sectionHtml);
+    } else {
+      container.insertAdjacentHTML('beforeend', sectionHtml);
+    }
+    updateSectionNumbers();
+    _captureCurrentLayout(); // the layout the Builder reads
+    // ...and SAVED. Without this the section lived in this page's memory
+    // only: it showed in the Builder for as long as the tab stayed open and
+    // was gone on the next load, which is not "added".
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindSectionRow(sectionId));
+    showToast('Section added', 'success');
   }
 
   // Format lyrics into slides for projection
@@ -94838,7 +94853,7 @@ var WO = (function() {
       var _existingHdr = document.getElementById('lcdScheduleHeader');
       root.insertBefore(rail, _existingHdr ? _existingHdr.nextSibling : root.firstChild);
     }
-    rail.innerHTML = '<button class="lcd-rail-add-section" onclick="WO.addNewSection()" title="Add a new section"><i class="fa-solid fa-plus"></i> Add New Section</button>' + railHtml;
+    rail.innerHTML = '<button class="lcd-rail-add-section" onclick="WO.addNewSection(this)" title="Add a new section"><i class="fa-solid fa-plus"></i> Add New Section</button>' + railHtml;
     // The rows were just replaced, so the selected one is a new node -- bring
     // it back into view (arrow-key stepping relies on this).
     _lcdScrollRailToSelected();
@@ -94846,6 +94861,15 @@ var WO = (function() {
     _lcdWireRailDrag(rail);
     _lcdWirePartDrag(rail);
     _lcdWireItemDrag(rail);
+    // The row a drag just landed on stays marked across the renders that
+    // follow a save: this render is what replaced the node the mark was on,
+    // so this render is what puts it back.
+    if (_lcdJustMoved && Date.now() < _lcdJustMoved.until) {
+      try {
+        var _jm = _lcdJustMoved.find();
+        if (_jm) _jm.classList.add('lcd-rail-just-moved');
+      } catch (e) {}
+    }
     _lcdWireSectionDrag(rail);
     _lcdWireLibraryDrop(rail);
     // If a change lands on the slide the operator currently has open -- e.g.
@@ -96432,6 +96456,12 @@ var WO = (function() {
     if (groupId && typeof renumberSlideBoxes === 'function') renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(function() {
+      var sel = dragged.getAttribute('data-slide-idx');
+      var rows = document.querySelectorAll('#lcdCompactRail .lcd-rail-slide-row');
+      for (var i = 0; i < rows.length; i++) if (_lcdRailRowMap[rows[i].id] === dragged) return rows[i];
+      return null;
+    });
     showToast('Slide reordered', 'success');
   }
   // Rebuild song.slides to match the new DOM order, preserving each
@@ -96584,8 +96614,8 @@ var WO = (function() {
     }
     if (sectionId) _lcdRestoreSectionBgs(sectionId, bgs);
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    _lcdRailHoldScroll();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindRunRow(key, dest));
     if (wordsMoved === 'mismatch') {
       showToast('Slides moved. The words were left as they are: this song is not written in the parts the rail shows.', 'info', { duration: 6000 });
     } else {
@@ -96651,13 +96681,94 @@ var WO = (function() {
   // than letting it snap back on the next load.
   var _lcdDragItem = null;
   var _lcdItemDropBelow = false;
+  // The heading starts the drag; the whole RAIL takes the drop. The operator
+  // (2026-11-27): "make it that they don't have to reach all the way to the
+  // subsection header to recognise the request" -- so anywhere inside a
+  // subsection latches on to that subsection, and which side it lands on is
+  // read from the subsection's WHOLE block, not from the row under the
+  // pointer. Delegated, because a slide row and a part badge already carry
+  // their own drag handlers and those bail while an item is the thing moving.
   function _lcdWireItemDrag(rail) {
     Array.from(rail.querySelectorAll('.lcd-rail-item-group[data-item-id]')).forEach(function(row) {
       row.addEventListener('dragstart', function(e) { _lcdItemDragStart(e, row); });
-      row.addEventListener('dragover', function(e) { _lcdItemDragOver(e, row); });
-      row.addEventListener('drop', function(e) { _lcdItemDrop(e, row); });
       row.addEventListener('dragend', _lcdItemDragEnd);
     });
+    if (rail.__lcdItemDrop) return;   // the rail outlives a render; bind once
+    rail.__lcdItemDrop = true;
+    rail.addEventListener('dragover', _lcdItemRailOver);
+    rail.addEventListener('drop', _lcdItemRailDrop);
+  }
+  // Which subsection a point in the rail belongs to: its heading, one of its
+  // part badges, or any of its slide rows.
+  function _lcdItemAtEl(el) {
+    if (!el || !el.closest) return null;
+    var head = el.closest('.lcd-rail-item-group[data-item-id]');
+    if (head) return _lcdItemOf(head);
+    var part = el.closest('.lcd-rail-part[data-run-item]');
+    if (part) return _lcdItemForBox(_lcdRailRowMap[part.id]);
+    var row = el.closest('.lcd-rail-slide-row');
+    if (row) return _lcdItemForBox(_lcdRailRowMap[row.id]);
+    return null;
+  }
+  function _lcdItemForBox(box) {
+    if (!box || !box.getAttribute) return null;
+    var songId = box.getAttribute('data-song-id') || '';
+    var litId = box.getAttribute('data-liturgy-id') || '';
+    if (!songId && !litId) return null;
+    // A reading has no handle (its place is the template's slot), so it is no
+    // drop target either.
+    if (box.getAttribute('data-source') === 'scripture') return null;
+    return { kind: songId ? 'song' : 'liturgy', id: songId || litId,
+             sec: box.getAttribute('data-section') || '' };
+  }
+  // The rail rows one subsection owns: its heading and everything under it up
+  // to the next heading. Used to decide which side of it a drop lands on, so
+  // the answer is the same wherever inside it the pointer is.
+  function _lcdItemBlockRows(it) {
+    var head = document.querySelector('.lcd-rail-item-group[data-item-id="' +
+      (window.CSS && CSS.escape ? CSS.escape(it.id) : it.id) + '"][data-item-sec="' +
+      (window.CSS && CSS.escape ? CSS.escape(it.sec) : it.sec) + '"]');
+    if (!head) return [];
+    var out = [head], el = head.nextElementSibling;
+    while (el && !el.classList.contains('lcd-rail-item-group') &&
+           !el.classList.contains('lcd-rail-scr-group') &&
+           !el.classList.contains('lcd-rail-ppt-group') &&
+           !el.classList.contains('lcd-rail-section-header') &&
+           !el.classList.contains('lcd-rail-addslide-row')) {
+      out.push(el);
+      el = el.nextElementSibling;
+    }
+    return out;
+  }
+  // Below the middle of the whole block, or above it. Pure, given the rect.
+  function _lcdItemSide(y, top, bottom) { return y > (top + bottom) / 2; }
+  function _lcdItemRailOver(e) {
+    if (!_lcdDragItem) return;
+    var to = _lcdItemAtEl(e.target);
+    if (!_lcdItemDropOk(_lcdDragItem, to)) return;
+    var rows = _lcdItemBlockRows(to);
+    if (!rows.length) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var top = rows[0].getBoundingClientRect().top;
+    var bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
+    _lcdItemDropBelow = _lcdItemSide(e.clientY, top, bottom);
+    _lcdClearDropMarkers();
+    // The marker goes on the block's own edge, so it shows where it will land
+    // rather than beside whatever row the pointer happens to be over.
+    (_lcdItemDropBelow ? rows[rows.length - 1] : rows[0])
+      .classList.add(_lcdItemDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+  function _lcdItemRailDrop(e) {
+    if (!_lcdDragItem) return;
+    var to = _lcdItemAtEl(e.target);
+    if (!_lcdItemDropOk(_lcdDragItem, to)) return;
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var from = _lcdDragItem, below = _lcdItemDropBelow;
+    _lcdItemDragEnd();
+    if (from.sec !== to.sec) { _lcdItemToSection(from, to.sec); return; }
+    _lcdItemReorder(from, to, below);
   }
   function _lcdItemOf(row) {
     if (!row || !row.getAttribute) return null;
@@ -96684,25 +96795,6 @@ var WO = (function() {
     if (from.id === to.id && from.sec === to.sec) return false;
     if (from.sec === to.sec) return from.kind === to.kind;
     return true; // another section: it lands last among its own kind there
-  }
-  function _lcdItemDragOver(e, row) {
-    var to = _lcdItemOf(row);
-    if (!_lcdItemDropOk(_lcdDragItem, to)) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    var rect = row.getBoundingClientRect();
-    _lcdItemDropBelow = (e.clientY - rect.top) > (rect.height / 2);
-    _lcdClearDropMarkers();
-    row.classList.add(_lcdItemDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
-  }
-  function _lcdItemDrop(e, row) {
-    if (e.preventDefault) e.preventDefault();
-    if (e.stopPropagation) e.stopPropagation();
-    var from = _lcdDragItem, to = _lcdItemOf(row), below = _lcdItemDropBelow;
-    _lcdItemDragEnd();
-    if (!_lcdItemDropOk(from, to)) return;
-    if (from.sec !== to.sec) { _lcdItemToSection(from, to.sec); return; }
-    _lcdItemReorder(from, to, below);
   }
   // A liturgy is known by two ids and they are NOT the same one: the DOM's
   // data-liturgy-id is the SOURCE id ("lit-1782130451636-..."), while the
@@ -96777,8 +96869,8 @@ var WO = (function() {
     if (from.kind === 'song') _lcdWriteSongOrder(container, from.sec);
     else _lcdWriteItemOrder(container, from.sec);
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    _lcdRailHoldScroll();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindItemRow(from.kind, from.id, from.sec));
     showToast(from.kind === 'song' ? 'Song moved' : 'Liturgy moved', 'success');
   }
   // songOrderSections put in the schedule's order for this section, with a
@@ -96856,8 +96948,8 @@ var WO = (function() {
     });
     if (typeof addSongToServiceSection === 'function') addSongToServiceSection(toSec, song, true, true);
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    _lcdRailHoldScroll();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindItemRow('song', from.id, toSec));
     showToast('Song moved to ' + _lcdSectionName(toSec), 'success');
   }
   function _lcdLiturgyToSection(from, toSec) {
@@ -96911,8 +97003,8 @@ var WO = (function() {
     // renumberSlideBoxes groups by the DOM's attribute, so the source id.
     if (typeof renumberSlideBoxes === 'function') renumberSlideBoxes(toSec, it.sourceId, 'liturgy');
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    _lcdRailHoldScroll();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindItemRow('liturgy', it.sourceId, toSec));
     showToast('Liturgy moved to ' + _lcdSectionName(toSec), 'success');
   }
   function _lcdSectionName(sectionId) {
@@ -96988,6 +97080,7 @@ var WO = (function() {
     if (typeof _captureCurrentLayout === 'function') _captureCurrentLayout();
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _lcdRailFocusOn(_lcdFindSectionRow(draggedId));
     showToast('Section moved', 'success');
   }
 
@@ -99550,6 +99643,73 @@ var WO = (function() {
     [0, 60, 150, 320, 700, 1100].forEach(function(ms) {
       setTimeout(function() { if (Math.abs(sc.scrollTop - top) > 1) sc.scrollTop = top; }, ms);
     });
+  }
+
+  // Keep the rail on what was just moved, at its NEW place.
+  //
+  // _lcdRailHoldScroll pins the scroll where it was, which is right for an
+  // edit that leaves everything where it stands and wrong for a move: the
+  // thing the operator was looking at is somewhere else now. `find` is run
+  // after the re-render -- and retried, because the render is not always
+  // synchronous -- and what it returns is brought into the middle of the rail
+  // and held there, because _lcdWatchSelectedRow would otherwise reveal the
+  // projecting slide instead.
+  var _lcdJustMoved = null;
+  function _lcdRailFocusOn(find) {
+    _lcdSkipRevealUntil = Date.now() + 2000;
+    _lcdJustMoved = { find: find, until: Date.now() + 2000 };
+    var tries = 0;
+    (function go() {
+      var el = null;
+      try { el = find(); } catch (e) { el = null; }
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ block: 'center' });
+        el.classList.add('lcd-rail-just-moved');
+        var sc = _scrollParentOf(el);
+        var top = sc ? sc.scrollTop : null;
+        // A save refreshes the rail about 120ms later and REPLACES these
+        // nodes, which takes both the scroll and the highlight with them. So
+        // each tick finds the row again rather than holding a reference.
+        [60, 160, 340, 700, 1100, 1700].forEach(function(ms) {
+          setTimeout(function() {
+            var now = null;
+            try { now = find(); } catch (e) { now = null; }
+            if (!now) return;
+            now.classList.add('lcd-rail-just-moved');
+            var p = _scrollParentOf(now);
+            if (p && top != null && Math.abs(p.scrollTop - top) > 1) p.scrollTop = top;
+          }, ms);
+        });
+        setTimeout(function() {
+          _lcdJustMoved = null;
+          var now = null;
+          try { now = find(); } catch (e) { now = null; }
+          if (now) now.classList.remove('lcd-rail-just-moved');
+        }, 2100);
+        return;
+      }
+      if (tries++ < 20) setTimeout(go, 50);
+    })();
+  }
+  function _lcdFindSectionRow(sectionId) {
+    return function() {
+      return document.querySelector('#lcdCompactRail .lcd-rail-section-header[data-section-id="' +
+        (window.CSS && CSS.escape ? CSS.escape(sectionId) : sectionId) + '"]');
+    };
+  }
+  function _lcdFindItemRow(kind, id, sec) {
+    return function() {
+      var esc = function(v) { return (window.CSS && CSS.escape) ? CSS.escape(v) : v; };
+      return document.querySelector('#lcdCompactRail .lcd-rail-item-group[data-item-id="' +
+        esc(id) + '"][data-item-sec="' + esc(sec) + '"]');
+    };
+  }
+  function _lcdFindRunRow(itemId, at) {
+    return function() {
+      var esc = function(v) { return (window.CSS && CSS.escape) ? CSS.escape(v) : v; };
+      var rows = document.querySelectorAll('#lcdCompactRail .lcd-rail-part[data-run-item="' + esc(itemId) + '"]');
+      return rows[at] || rows[rows.length - 1] || null;
+    };
   }
 
   function _lcdWatchSelectedRow() {
@@ -123236,6 +123396,14 @@ function filterLiturgyItems() {
   .lcd-rail-add-section:hover { background: rgba(193,153,63,0.26); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
   .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
+  /* Where a drag just landed: the rail is brought here and held, so the
+     operator keeps their place instead of being thrown to the live slide. */
+  .lcd-rail-just-moved { animation: lcdRailJustMoved 1.8s ease-out 1; }
+  @keyframes lcdRailJustMoved {
+    0%, 55% { box-shadow: 0 0 0 2px var(--lcd-gold-500, #c1993f) inset; }
+    100% { box-shadow: 0 0 0 2px rgba(193,153,63,0) inset; }
+  }
+  @media (prefers-reduced-motion: reduce) { .lcd-rail-just-moved { animation: none; } }
   .lcd-rail-item-group[draggable="true"] { cursor: grab; }
   .lcd-rail-item-group[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-part[draggable="true"] { cursor: grab; }
