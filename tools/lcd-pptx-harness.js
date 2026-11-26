@@ -206,8 +206,11 @@ check('removing a presentation takes its stored file with it, which nothing else
   /if \(_goneDoc && _gone && typeof deleteFromSupabase === 'function'\) \{/.test(fn('deleteBackground')) &&
   /var _p = _gone\.path \|\| _gone\.storagePath;/.test(fn('deleteBackground')) &&
   // The CALL, not just the path it would be given: without this the setup
-  // reads as a cleanup that never happens.
-  /if \(_p\) \{ try \{ deleteFromSupabase\(_p\); \}/.test(fn('deleteBackground')));
+  // reads as a cleanup that never happens. A deck stored by its content
+  // (gotcha 119) may be shared, and goes through lhcDeleteUnlessShared --
+  // tools/lcd-media-storage-harness.js covers that half.
+  /else if \(_p\) \{ try \{ deleteFromSupabase\(_p\); \}/.test(fn('deleteBackground')) &&
+  /return lhcDeleteUnlessShared\(_goneFile\);/.test(fn('deleteBackground')));
 // The guard is on _goneDoc: a picture's file is referenced by slides in saved
 // orders, so that one is left exactly where it is.
 check('...and a picture, whose file saved orders still point at, is left alone',

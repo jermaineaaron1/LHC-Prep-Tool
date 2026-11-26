@@ -6556,6 +6556,78 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/voice-lines-harness.js` and `tools/songbook-choir-pad-harness.js`
     (section 11) check it.
 
+119. **The LCD's media is stored once, by its content, and at projector
+    size.** From the operator (2026-11-26): Storage "will pile up quickly"
+    as videos, pictures and PowerPoints are added -- could they go outside
+    Supabase? A count that day (198 MB, 700 files) found most of it was the
+    app storing things AGAIN: 464 copies of about 31 pictures (61 MB, none
+    used) from one tray drop on 2026-11-25; the same deck five times; a
+    deck's pages once more for every order that used it; photographs at
+    camera size (7.7 MB the largest) for a 1920x1080 wall. Asked, the
+    operator chose to fix that first and keep Supabase.
+    - **A tray drop uploaded every waiting picture on every save.** The tray
+      keeps a picture as base64 and `saveBackgrounds()` uploads it -- and each
+      call started a NEW upload of every picture still waiting, and a drop is
+      a call per picture. `_bgMigrating` holds those on their way.
+    - **IndexedDB kept the stale copy.** The landing rewrote localStorage only,
+      so IndexedDB -- which `loadBackgrounds()` prefers -- still held the
+      base64 with no path, and every reload uploaded the picture again.
+      `_bgMigrated` takes the IndexedDB copy out once localStorage holds the
+      record (writes over it when localStorage is full); `_bgMergeLocal`
+      (pure) drops one at load; the shared index heals a device that still
+      holds one (`loadBackgroundsFromSupabase`, `_bgMigrated(..., true)`: not
+      shared again). A record deleted while its upload was out stays deleted.
+    - **`uploadToSupabase(file, folder, { once: true })`** stores the file as
+      `folder/c_<32 hex of its SHA-256>.<ext>` (`_lhcContentPath`,
+      `crypto.subtle`; `_lhcFileExt`, where jpeg is always jpg), `upsert:
+      false`, cached for a year. Storage refusing it as existing ("The
+      resource already exists", statusCode 409: `_lhcAlreadyStored`) is the
+      same file already there: the same address comes back, `existed: true`.
+      A browser that cannot hash (no `crypto.subtle` off https) uploads under
+      the old name. Only the LCD asks for it -- the Add Media window, a video
+      in a section, the tray's base64 going up, the Backgrounds Upload, a
+      deck or document imported into a section, a deck's pages, a document
+      put in the tray, the Songbook projection's two background uploads (the
+      harness counts nine). Every other caller (song documents, scans,
+      memories, plans...) deletes what it uploaded when its editor is
+      cancelled, and must keep a copy of its own.
+    - **A file stored by content may be SHARED** -- two tiles, an order's
+      `supabaseFiles`, the folder's tile for a deck an order imported. Nothing
+      deletes one directly: `lhcDeleteUnlessShared(path)` sends a `c_` path
+      (`_lhcIsOncePath`) through `_deleteUnreferencedUploads` (every table
+      read; kept when any read fails) and deletes an old-kind path at once.
+      `deleteBackground` asks only after the record has left `lhc_backgrounds`
+      (`_sbDeleteBackgroundFromSupabase` now returns its promise) and only
+      when no other tile holds the file (`_bgByPath`); `_onConverted` asks
+      too. Anything new that deletes an LCD file goes through it.
+    - **One tile a file**: the Backgrounds Upload (`_bgUploadOne`), a document
+      put in the tray, and the Songbook's `_sbAddToMediaTray` find the file
+      in the tray by its path (`_bgByPath`) and say it is already there. A
+      picture put in the tray twice is two tiles over one file: a slide may
+      already name either tile, so neither is merged away.
+    - **Pictures at projector size**: `lhcProjectorPicture(file)` scales by
+      `_lhcCoverScale` -- the smallest that still COVERS 1920x1080, since a
+      background is drawn to cover (a portrait photograph keeps its full
+      width), never up -- to JPEG at 0.85, or PNG when it has see-through
+      parts (`_lhcHasAlpha`), and keeps the result only when it is smaller.
+      A GIF, an SVG, a picture the browser cannot decode (HEIC on some), or
+      one within the size and under 600KB comes back as it went. Used by the
+      Backgrounds Upload BEFORE its 5MB limit (a 12MB phone photograph fits
+      once it is 1920 wide), the tray, a picture dropped on a slide, pictures
+      imported into a section (`addSlidesFromFiles` runs again on them,
+      `_sized`) and the Songbook projection's backgrounds. Measured in the
+      browser: a 4000x3000 photograph of 2.4MB went in as 1920x1440, 162KB.
+    - Not done, on purpose: files already stored keep their old names; the
+      464 unused copies stay until somebody says to delete them (a separate
+      yes); videos are not re-encoded; a deck's pages rendered in another
+      browser may differ byte for byte and be stored again. Moving the media
+      out of Supabase (Cloudflare R2 has no egress fees) was weighed and left
+      for when the 100 GB of the Pro plan is in sight.
+    `tools/lcd-media-storage-harness.js` checks it, running the upload
+    against a stand-in bucket, `saveBackgrounds` through five saves of three
+    waiting pictures, `_bgMergeLocal`, the delete guard and
+    `lhcProjectorPicture` with a stand-in canvas.
+
 ## Quick Commands for Claude Code
 
 ```bash
