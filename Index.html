@@ -13144,6 +13144,28 @@ window.lhcWhatsAppUrl = function(text) {
   return 'https://api.whatsapp.com/send?text=' + encodeURIComponent(text == null ? '' : String(text));
 };
 
+// ---- A read-back compared as JSON, whatever order its keys come in --------
+// (2026-11-27) A jsonb column does not keep an object's keys in the order
+// they were written: Postgres stores them shortest first, then by bytes, so
+// { role, ref } comes back as { ref, role }. A read-back compared with
+// JSON.stringify therefore called correct data wrong -- Convert refused every
+// document with readings ("the database did not keep its readings") AFTER it
+// had saved, so each try left one more Liturgy App File behind. This compares
+// values with every object's keys sorted; arrays keep their order, which jsonb
+// does keep. Keys holding undefined are left out, as JSON.stringify and jsonb
+// both leave them out. CLAUDE.md gotcha 120.
+window.lhcJsonCanon = function(v) {
+  if (Array.isArray(v)) return '[' + v.map(function(x) { return x === undefined || typeof x === 'function' ? 'null' : window.lhcJsonCanon(x); }).join(',') + ']';
+  if (v && typeof v === 'object') {
+    if (typeof v.toJSON === 'function') return window.lhcJsonCanon(v.toJSON());
+    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; }).sort()
+      .map(function(k) { return JSON.stringify(k) + ':' + window.lhcJsonCanon(v[k]); }).join(',') + '}';
+  }
+  var j = JSON.stringify(v);
+  return j === undefined ? 'null' : j;
+};
+window.lhcJsonSame = function(a, b) { return window.lhcJsonCanon(a) === window.lhcJsonCanon(b); };
+
 // ---- Where an editor's cursor starts: on its first character -------------
 // (2026-11-06) A box filled from script keeps its cursor at the END of what it
 // was given, and focusing it scrolls to that end: the Songbook's Overview
@@ -85708,7 +85730,8 @@ var WO = (function() {
       return sb.from('order_items').update({ slides: next }).eq('id', itemId).eq('order_id', orderId).select('slides');
     }).then(function(w) {
       if (w.error || !(w.data || []).length) throw new Error(w.error ? w.error.message : 'the change did not come back');
-      if (JSON.stringify(w.data[0].slides || []) !== JSON.stringify(next)) throw new Error('the database kept something else');
+      // jsonb gives a slide's keys back in its own order (lhcJsonSame).
+      if (!window.lhcJsonSame(w.data[0].slides || [], next)) throw new Error('the database kept something else');
       var at = new Date().toISOString();
       if (SBQ._noteOwnEdit) SBQ._noteOwnEdit(orderId, at);
       var done = function() { return { via: 'stored', before: was }; };
@@ -115095,14 +115118,19 @@ var LiturgyModule = (function() {
     // kind it already has writes over that one (same id, so an order that
     // loaded it still names it), as its review says.
     var same = _spFilesOf(cv.itemId).filter(function(r) { return (r.order_type || 'traditional') === cv.type && r.occasion_id === cv.occ; })[0];
+    // A save that landed but whose read-back then failed is written over by
+    // the next try, not joined by another row beside it (2026-11-27).
+    var sameId = (same && same.id) || cv.savedId || null;
     cv.step = 'saving'; _cvDraw();
-    (same ? sb.from('service_liturgies').update(row).eq('id', same.id).select() : sb.from('service_liturgies').insert(row).select()).then(function(r) {
+    (sameId ? sb.from('service_liturgies').update(row).eq('id', sameId).select() : sb.from('service_liturgies').insert(row).select()).then(function(r) {
       if (r.error || !(r.data || []).length) throw new Error(r.error ? r.error.message : 'it did not come back from the database');
       var saved = r.data[0];
-      // Read back, as next year's order will read it -- its readings too.
+      cv.savedId = saved.id;
+      // Read back, as next year's order will read it -- its readings too,
+      // compared whatever order jsonb gives their keys (lhcJsonSame).
       return sb.from('service_liturgies').select('id,title,year,occasion_id,data').eq('id', saved.id).then(function(r2) {
         if (r2.error || !(r2.data || []).length) throw new Error('the database did not keep it');
-        if (JSON.stringify(((r2.data[0].data || {}).readings) || []) !== JSON.stringify(reads)) throw new Error('the database did not keep its readings');
+        if (!window.lhcJsonSame(((r2.data[0].data || {}).readings) || [], reads)) throw new Error('the database did not keep its readings');
         return ensureOccYearFolder(saved.occasion_id, saved.year).catch(function() { return null; }).then(function(f) {
           // A document with no year goes into the year its file was given.
           if (f && f.id && !cv.yearFixed) { _spKeepFolder(saved.occasion_id, f); updateItem(cv.itemId, { occasionFolderId: f.id }); }
