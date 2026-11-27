@@ -6807,8 +6807,8 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-sundays-harness.js` checks it, running the page's own
     `lhcJsonSame` and the slides save with a read-back in another key order.
 
-121. **A part is dragged within its section by its grip; songs stay above
-    the rest.** From the operator (2026-11-27), on a screenshot of GATHERING's
+121. **A part is dragged by its grip, within its section or into another;
+    songs stay above the rest.** From the operator (2026-11-27), on a screenshot of GATHERING's
     parts: "allow the user to drag and drop the subsection within a section".
     Every song in a section and every other part (liturgy, prayer, text, a
     reading no template slot holds) carries a grip (`_lbdElGrip`, `data-grip="el"`,
@@ -6837,8 +6837,28 @@ the anon key -- verify as `postgres`, not as the app.
     nothing. On a phone the grip is pinned to the part's left edge
     (`.lbw--sm .lbw-el[data-drag]` padding 30px): a phone's parts wrap, and in
     the row it took a line of its own. The menus' Move up / Move down stay.
+    **And into another section** (the operator, the same day, circling a song
+    alone in Invocation and a prayer alone in Prayer of the Day: "allow to drag
+    and drop song items and prayers as well"). The part follows the finger into
+    whichever section it is over (`_lbdElSecIndex`, pure: the section holding
+    it, else the nearer across a gap), making room among that section's parts
+    of its kind; over a section's heading, a folded section, or one with
+    nothing of its kind, the heading lights (`is-drop`, `_lbdElMarkDrop`), the
+    held part dims where it stands (`is-away`) and it goes LAST of its kind
+    there. Only a section with parts of its kind opens room: room opened in
+    every empty section on the way pushed the page down under the finger,
+    onto the next heading. A song goes by the Songbook's Move to section
+    (`_lbdElSongAcross`: a medley together, a section that already sings it
+    refuses, then before the song it was let go above, `_woDropInSeq`); any
+    other part by `lbdMoveItemToSection`'s rules (`_lbdElItemAcross`: a
+    liturgy once a section, its id renamed for the section and the section
+    it left noted, a reading once a section, then before the part it was let
+    go above, or last). Each is one `_lbdChange` with an Undo toast; a part
+    alone in its section now lifts. While one is held every section's open
+    parts are a line (`.lbw-page.is-el-sorting`).
     `tools/builder-section-drag-harness.js` checks it, running the target, the
-    reorder and the song move with a medley.
+    reorder, the song move with a medley, the section picked and both moves
+    across.
 
 ## Quick Commands for Claude Code
 
