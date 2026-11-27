@@ -85,8 +85,10 @@ export async function GET(req: NextRequest) {
       if (/scope|insufficient/i.test(message) || reason === 'PERMISSION_DENIED') {
         return NextResponse.json(
           {
-            error: 'The server\'s Google credentials cannot read Slides. Re-consent ' +
-              'GOOGLE_REFRESH_TOKEN with https://www.googleapis.com/auth/presentations.readonly added.',
+            error: 'The server\'s Google credentials cannot read Slides. Mint a token with ' +
+              'https://www.googleapis.com/auth/presentations.readonly and set it as ' +
+              'GOOGLE_SLIDES_REFRESH_TOKEN. Do NOT re-consent GOOGLE_REFRESH_TOKEN: a consent ' +
+              'replaces the token it is minted into, and that one belongs to the calendar.',
           },
           { status: 403 }
         );

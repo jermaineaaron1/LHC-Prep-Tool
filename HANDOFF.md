@@ -1693,6 +1693,56 @@ pptx imports exactly as it does today — CloudConvert → PDF → pdf.js — an
 `ad5cd5f` those pages render as ordinary slide boxes. This is a fidelity
 upgrade, not a fix for something failing.
 
+#### 2026-11-27: the secret WAS rotated, and calendar sync had been down
+
+Probed live and found `/api/calendar-sync` failing with **`invalid_client`** --
+"The provided client secret is invalid". So the OAuth PUSH sync (duty events
+written into the calendar, invitations emailed) had been broken for some time.
+The ICS subscription feed is unaffected and was serving a valid `VCALENDAR`
+throughout: it uses no OAuth, so anyone subscribed never noticed.
+
+Worth keeping, because it is how the diagnosis went: the client had TWO
+enabled secrets, and Google accepts either. The refresh still failed, which
+proves Vercel held NEITHER -- so this was never "find the right old one", and
+Google no longer lets a secret be viewed anyway. The only move is to add a
+fresh one.
+
+Done, in this order:
+
+1. Deleted `****Q1Hp` (created 2026-08-16) -- the one the screenshot exposed,
+   and the slot had to be freed because Google caps a client at two secrets.
+   Safe to delete precisely because the probe had proved nothing was using it.
+2. Added a new secret, set `GOOGLE_CLIENT_SECRET` in Vercel, redeployed.
+   The error then changed to **`Bad Request`**, which is Google's unhelpful
+   `error_description` for `invalid_grant` -- the secret was accepted and the
+   REFRESH TOKEN was dead. Two completely different fixes, and the message is
+   what tells them apart.
+3. Re-consented `GOOGLE_REFRESH_TOKEN` through the OAuth Playground with
+   `https://www.googleapis.com/auth/calendar` (the scope is not documented
+   anywhere -- it is what `events.insert` / `patch` / `delete` on
+   `/calendars/{id}/events` needs). Probe then returned
+   `{"results":[{"action":"noop"}]}`, HTTP 200. **Calendar sync restored.**
+
+So the client secret is rotated and the exposed one is gone. The loose end
+below is CLOSED, except that the refresh token it mentions died on its own
+long ago.
+
+**Still outstanding:** `GOOGLE_SLIDES_REFRESH_TOKEN`, minted with `drive.file`
+AND `presentations.readonly`. `/api/slide-page-ids` now answers 403 with its
+own scope message, which is the healthy state: the credential works and Google
+refuses it for scope. Until it is set, every .pptx import falls back to
+CloudConvert, exactly as before -- nothing is broken while it waits.
+
+**The probe, for next time** (a 1999 cell exists in neither `roster` nor
+`calendar_sync_events`, so `syncCell` returns `noop` before any Google call or
+database write -- it exercises the credential and touches nothing):
+
+```
+curl -s -X POST https://lhc-prep-tool.vercel.app/api/calendar-sync \
+  -H "Content-Type: application/json" \
+  -d '{"cells":[{"roleId":"preacher","date":"Jan 1","month":0,"year":1999}]}'
+```
+
 #### Loose end: one refresh token was exposed and should be revoked
 
 A refresh token minted during this work (along with the client secret) appeared
