@@ -471,16 +471,25 @@ check('the block is the heading and everything under it to the next heading',
   /lcd-rail-item-group/.test(blockRows) && /lcd-rail-section-header/.test(blockRows) &&
   /nextElementSibling/.test(blockRows), blockRows);
 const over = fn('_lcdItemRailOver');
-check('the side is read from the block, not from the row under the pointer',
-  /rows\[0\]\.getBoundingClientRect\(\)\.top/.test(over) &&
-  /rows\[rows\.length - 1\]\.getBoundingClientRect\(\)\.bottom/.test(over), over);
-check('...and the marker is drawn on the block edge the drop will land at',
-  /\(_lcdItemDropBelow \? rows\[rows\.length - 1\] : rows\[0\]\)/.test(over), over);
+// (a2) Which side it lands on is the DIRECTION of the drag, not which half
+// of the target the pointer is in. Half-of-the-target made the operator aim
+// at an invisible midline that, in a tall subsection, sits down among the
+// slides with nothing marking it. _woDropInSeq has used direction for the
+// songbook drag all along; the two now agree.
+check('the side comes from the two positions, not from the pointer',
+  /_lcdItemSide\(_lcdItemRailAt\(_lcdDragItem\), _lcdItemRailAt\(to\)\)/.test(over), over);
+check('...and no pointer coordinate decides it any more',
+  !/_lcdItemSide\(e\.clientY/.test(over), over);
+// The marker is a LINE at a boundary, never a class on a slide row.
+check('the marker is an insertion line at the boundary',
+  /_lcdInsLineAt\(_lcdItemDropBelow \? bottom : top\)/.test(over), over);
+check('...and no row is given a drop class by the subsection drag',
+  !/classList\.add\('lcd-rail-drop/.test(over), over);
 if (P && P._lcdItemSide) {
-  check('above the middle of the block means before it', P._lcdItemSide(10, 0, 100) === false);
-  check('below it means after it', P._lcdItemSide(90, 0, 100) === true);
-  check('...measured on the block, so a row low in a tall block is still "before"',
-    P._lcdItemSide(40, 0, 100) === false);
+  check('dragged DOWN the list, it lands after its target', P._lcdItemSide(0, 2) === true);
+  check('dragged UP the list, it lands before its target', P._lcdItemSide(2, 0) === false);
+  check('onto itself, nothing moves', P._lcdItemSide(1, 1) === false);
+  check('an unknown position never guesses after', P._lcdItemSide(-1, 2) === false);
 }
 
 // (b) "I want the focus to remain at the sections that I have changed
@@ -541,6 +550,60 @@ check('it does NOT call the Builder\'s own adder, which needs _lbdChange',
   !/lbdAddSection\(/.test(make), make);
 check('both Add New Section buttons hand the menu something to hang off',
   (SRC.match(/WO\.addNewSection\(this\)/g) || []).length === 2);
+
+// ---------------------------------------------------------------------------
+// 11. The operator's third round (2026-11-27): "it still give the option to
+// latch on to any of the slides within".
+// ---------------------------------------------------------------------------
+section('11. One line at the boundary, and nothing else lights up');
+
+// THE CAUSE, and it was not the marker. _lcdSetupMediaDropZone stands down
+// while a rail reorder is in flight, but its guard NAMED the three drags that
+// existed when it was written. The subsection and part drags added later went
+// straight past it, so it painted its own dashed .lcd-drop-target on every
+// slide row the pointer crossed -- which is exactly "the option to latch on
+// to any of the slides".
+const dragging = fn('_lcdRailDragging');
+check('_lcdRailDragging names every rail drag, not three of them', !!dragging &&
+  ['_lcdDragRowId', '_lcdDragSectionId', '_lcdDragSongId', '_lcdDragItem', '_lcdDragRunId']
+    .every(v => dragging.indexOf(v) > 0), dragging);
+check('the media drop zone asks it rather than listing them again',
+  (SRC.match(/if \(_lcdRailDragging\(\)\) return;/g) || []).length === 2);
+// The list of drags appears ONCE, inside the predicate itself. Forbidding
+// the sequence outright would fail on that definition, so count instead.
+check('...and the list of drags is written in exactly one place',
+  (SRC.match(/_lcdDragRowId \|\| _lcdDragSectionId \|\| _lcdDragSongId/g) || []).length === 1 &&
+  dragging.indexOf('_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId') > 0, dragging);
+
+// THE MARKER. A reorder puts the subsection between two others, so what it
+// shows is a line at that boundary -- never a box on a slide, which read as
+// "drop it on me".
+const line = fn('_lcdInsLineAt');
+check('_lcdInsLineAt is in the source', !!line);
+// On <body> and fixed, so no ancestor of the rail can clip it or become its
+// containing block.
+check('the line is on <body>, so nothing can clip it',
+  /document\.body\.appendChild\(el\)/.test(line), line);
+check('...and spans the rail, wherever the rail is',
+  /rail\.getBoundingClientRect\(\)/.test(line) && /el\.style\.width = r\.width/.test(line), line);
+check('it is fixed and above the rail',
+  has(/\.lcd-rail-ins-line \{[^}]*position: fixed/) &&
+  has(/\.lcd-rail-ins-line \{[^}]*z-index: 4000/));
+check('...and takes no pointer events, or it would eat its own dragover',
+  has(/\.lcd-rail-ins-line \{[^}]*pointer-events: none/));
+check('the drag ending puts it away', /_lcdInsLineOff\(\);/.test(fn('_lcdItemDragEnd')));
+// Belt and braces: every path that clears the markers clears the line too, so
+// none can strand it across the screen.
+check('...and so does any marker clear, so it cannot be stranded',
+  /if \(!_lcdDragItem\) _lcdInsLineOff\(\);/.test(fn('_lcdClearDropMarkers')));
+
+const at = fn('_lcdItemRailAt');
+check('_lcdItemRailAt reads a subsection\'s place from the rail', !!at &&
+  /data-item-sec="/.test(at) && /data-item-id/.test(at), at);
+// `return -1;` appears TWICE in that function -- the early bail and the
+// tail -- so an unscoped match stayed true with the tail changed to 0.
+check('...and answers -1 rather than 0 when it is not there',
+  /\}\s*return -1;\s*\}\s*$/.test(at.trim() + ' '), at.slice(-160));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 if (EXPECT_BROKEN) {

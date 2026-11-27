@@ -93226,6 +93226,16 @@ var WO = (function() {
     else _lcdDropImageAsSlide(bg, t, sectionId);
   }
 
+  // Is a rail drag of ANY kind in flight? The media drop zone stands down
+  // while one is, or it paints its own highlights over the reorder's marker.
+  // It used to name the three drags that existed when it was written, so the
+  // subsection and part drags added later went straight past it and every
+  // slide row the pointer crossed lit up as a drop target.
+  function _lcdRailDragging() {
+    return !!(_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId ||
+              _lcdDragItem || _lcdDragRunId);
+  }
+
   function _lcdSetupMediaDropZone() {
     var container = document.getElementById('woWorshipOrder');
     if (!container || container._lcdDropWired) return;
@@ -93243,7 +93253,7 @@ var WO = (function() {
     container.addEventListener('dragover', function(e) {
       // A rail reorder or a Library song drag is in progress - don't hijack
       // dropEffect or paint media-style drop highlights over their markers.
-      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
+      if (_lcdRailDragging()) return;
       var t = targets(e);
       if (!t.railRow && !t.slideBox && !t.railSection && !t.sectionEl) return;
       e.preventDefault();
@@ -93254,7 +93264,7 @@ var WO = (function() {
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
-      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
+      if (_lcdRailDragging()) return;
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
@@ -96415,6 +96425,9 @@ var WO = (function() {
     document.querySelectorAll('.lcd-rail-drop-above, .lcd-rail-drop-below').forEach(function(el) {
       el.classList.remove('lcd-rail-drop-above', 'lcd-rail-drop-below');
     });
+    // Every path that clears the markers clears the line, so none can strand
+    // it across the screen after a drag that ended somewhere unexpected.
+    if (!_lcdDragItem) _lcdInsLineOff();
   }
   function lcdRailDragEnd() {
     _lcdDragRowId = null;
@@ -96721,6 +96734,19 @@ var WO = (function() {
     return { kind: songId ? 'song' : 'liturgy', id: songId || litId,
              sec: box.getAttribute('data-section') || '' };
   }
+  // Where a subsection stands among its section's draggable subsections, as
+  // the rail shows them. -1 when it is not there.
+  function _lcdItemRailAt(it) {
+    if (!it) return -1;
+    var esc = function(v) { return (window.CSS && CSS.escape) ? CSS.escape(v) : v; };
+    var all = Array.prototype.slice.call(document.querySelectorAll(
+      '#lcdCompactRail .lcd-rail-item-group[data-item-sec="' + esc(it.sec) + '"][data-item-id]'));
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getAttribute('data-item-id') === it.id) return i;
+    }
+    return -1;
+  }
+
   // The rail rows one subsection owns: its heading and everything under it up
   // to the next heading. Used to decide which side of it a drop lands on, so
   // the answer is the same wherever inside it the pointer is.
@@ -96740,8 +96766,19 @@ var WO = (function() {
     }
     return out;
   }
-  // Below the middle of the whole block, or above it. Pure, given the rect.
-  function _lcdItemSide(y, top, bottom) { return y > (top + bottom) / 2; }
+  // Does the dragged subsection land AFTER the one it is over? The answer is
+  // the direction of the drag, which needs no aim: dragged down it lands
+  // after, dragged up it lands before. Pure, over the two positions in the
+  // list, so the harness can run it.
+  //
+  // The half-of-the-target rule this replaces made the operator aim at an
+  // invisible midline that, in a tall subsection, sits somewhere down among
+  // the slides with nothing marking it. _woDropInSeq has used direction for
+  // the songbook's drag all along; the two now agree.
+  function _lcdItemSide(fromAt, toAt) {
+    if (fromAt < 0 || toAt < 0) return false;
+    return fromAt < toAt;
+  }
   function _lcdItemRailOver(e) {
     if (!_lcdDragItem) return;
     var to = _lcdItemAtEl(e.target);
@@ -96752,13 +96789,39 @@ var WO = (function() {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     var top = rows[0].getBoundingClientRect().top;
     var bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
-    _lcdItemDropBelow = _lcdItemSide(e.clientY, top, bottom);
+    _lcdItemDropBelow = _lcdItemSide(_lcdItemRailAt(_lcdDragItem), _lcdItemRailAt(to));
     _lcdClearDropMarkers();
-    // The marker goes on the block's own edge, so it shows where it will land
-    // rather than beside whatever row the pointer happens to be over.
-    (_lcdItemDropBelow ? rows[rows.length - 1] : rows[0])
-      .classList.add(_lcdItemDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+    // A LINE at the boundary it will land on, never a box on a slide: a
+    // reorder puts the subsection between two others, and that is what the
+    // operator should see. Before the target, the line sits at the top of its
+    // heading; after it, at the foot of its block -- which is the top of the
+    // next heading, so it reads the same either way.
+    _lcdInsLineAt(_lcdItemDropBelow ? bottom : top);
   }
+  // The insertion line. On <body> and position: fixed, so no ancestor of the
+  // rail can clip it or become its containing block; it exists only while a
+  // subsection is in flight.
+  function _lcdInsLineAt(y) {
+    var el = document.getElementById('lcdRailInsLine');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'lcdRailInsLine';
+      el.className = 'lcd-rail-ins-line';
+      document.body.appendChild(el);
+    }
+    var rail = document.getElementById('lcdCompactRail');
+    var r = rail ? rail.getBoundingClientRect() : null;
+    if (!r) return;
+    el.style.left = r.left + 'px';
+    el.style.width = r.width + 'px';
+    el.style.top = (y - 1) + 'px';
+    el.style.display = 'block';
+  }
+  function _lcdInsLineOff() {
+    var el = document.getElementById('lcdRailInsLine');
+    if (el) el.style.display = 'none';
+  }
+
   function _lcdItemRailDrop(e) {
     if (!_lcdDragItem) return;
     var to = _lcdItemAtEl(e.target);
@@ -96786,6 +96849,7 @@ var WO = (function() {
   }
   function _lcdItemDragEnd() {
     _lcdDragItem = null;
+    _lcdInsLineOff();
     _lcdClearDropMarkers();
   }
   // May this item be dropped on that one? Pure, and the one place the rule
@@ -123404,6 +123468,22 @@ function filterLiturgyItems() {
     100% { box-shadow: 0 0 0 2px rgba(193,153,63,0) inset; }
   }
   @media (prefers-reduced-motion: reduce) { .lcd-rail-just-moved { animation: none; } }
+  /* Where a dragged subsection will land: a line at the boundary, which is
+     what a reorder means. Never a box on a slide -- the slides are not the
+     thing being moved, and highlighting them read as "drop it on me". */
+  .lcd-rail-ins-line {
+    position: fixed; z-index: 4000; height: 3px; display: none;
+    background: var(--lcd-gold-500, #c1993f);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 8px rgba(193,153,63,.75);
+    border-radius: 2px; pointer-events: none;
+  }
+  .lcd-rail-ins-line::before,
+  .lcd-rail-ins-line::after {
+    content: ""; position: absolute; top: -3px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--lcd-gold-500, #c1993f);
+  }
+  .lcd-rail-ins-line::before { left: -3px; }
+  .lcd-rail-ins-line::after { right: -3px; }
   .lcd-rail-item-group[draggable="true"] { cursor: grab; }
   .lcd-rail-item-group[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-part[draggable="true"] { cursor: grab; }

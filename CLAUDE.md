@@ -6737,6 +6737,25 @@ the anon key -- verify as `postgres`, not as the app.
       pointer, or the answer would flip as the pointer crossed each slide;
       the marker is drawn on the block's own edge. A reading is still no
       target (`data-source="scripture"` -> null).
+    - **The marker is a LINE at the boundary, and the drag's DIRECTION picks
+      it** (the operator, 2026-11-27: "it still give the option to latch on
+      to any of the slides within"). Two causes, and the first is what
+      painted the slides: `_lcdSetupMediaDropZone` stands down while a rail
+      reorder is in flight, but its guard NAMED the three drags that existed
+      when it was written, so the subsection and part drags went past it and
+      it put its own dashed `.lcd-drop-target` on every slide row the
+      pointer crossed. `_lcdRailDragging()` is now the one predicate, so the
+      next drag added gets the guard for nothing. Second, the marker was a
+      class on a row -- the heading for "before", the block's LAST SLIDE ROW
+      for "after". A reorder puts the subsection BETWEEN two others, so it
+      draws one line there (`_lcdInsLineAt`: on `<body>`, fixed, so no
+      ancestor can clip it or become its containing block; `pointer-events:
+      none` or it would eat its own dragover). And which side is the
+      DIRECTION of the drag (`_lcdItemSide(fromAt, toAt)`), not which half
+      of the target the pointer is in: half-of-the-target made the operator
+      aim at an invisible midline that, in a tall subsection, sits down
+      among the slides with nothing marking it. `_woDropInSeq` has used
+      direction for the songbook's drag all along; the two now agree.
     - **After a move the rail stays on what moved** (the operator: "I want
       the focus to remain at the sections that I have changed positions").
       `_lcdRailHoldScroll` pins the scroll where it WAS, which is a
