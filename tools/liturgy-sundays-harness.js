@@ -54,6 +54,13 @@ const fn = n => { try { return extractFrom(SRC, new RegExp('^  function ' + n + 
 const blk = re => { const m = SRC.match(re); return m ? m[0] : ''; };
 
 let pass = 0, fail = 0;
+// The page's own read-back comparison (CLAUDE.md gotcha 120), built from its
+// source so the runs below use it rather than a stand-in.
+const jsonWin = (function() {
+  const m = SRC.replace(/\r\n/g, '\n').match(/\nwindow\.lhcJsonCanon = function\(v\) \{[^]*?\n\};\nwindow\.lhcJsonSame = [^\n]*/);
+  try { return m ? new Function('var window = {};\n' + m[0] + '\nreturn window;')() : {}; } catch (e) { return {}; }
+})();
+
 function check(label, ok, detail) {
   if (ok) { pass++; console.log('  PASS  ' + label); }
   else { fail++; console.log('  FAIL  ' + label + (detail ? '\n        ' + detail : '')); }
@@ -638,9 +645,23 @@ try {
     /\(p\.kind === 'reading' && !!role\)/.test(rd14) && /title: after \|\| _cvRefOf\(words\.slice\(0, 2\)\.join\(' '\)\) \|\| before\.trim\(\)/.test(sec14));
   check('...keeps them with the liturgy, READ BACK; and a document\'s second conversion of a kind writes over its first',
     /var reads = _cvReadings\(cv\.secs\);\s*if \(reads\.length\) data\.readings = reads;/.test(save14) &&
-    /throw new Error\('the database did not keep its readings'\)/.test(save14) &&
-    /\(same \? sb\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', same\.id\)\.select\(\) : sb\.from\('service_liturgies'\)\.insert\(row\)\.select\(\)\)/.test(save14) &&
+    /if \(!window\.lhcJsonSame\(\(\(r2\.data\[0\]\.data \|\| \{\}\)\.readings\) \|\| \[\], reads\)\) throw new Error\('the database did not keep its readings'\)/.test(save14) &&
+    /var sameId = \(same && same\.id\) \|\| cv\.savedId \|\| null;/.test(save14) &&
+    /\(sameId \? sb\.from\('service_liturgies'\)\.update\(row\)\.eq\('id', sameId\)\.select\(\) : sb\.from\('service_liturgies'\)\.insert\(row\)\.select\(\)\)/.test(save14) &&
     /This replaces its ' \+ _lfE\(_spTypeName\(cv\.type\)\)/.test(fn('_cvDraw')));
+  // From the operator (2026-11-27), a screenshot of "Could not convert it: the
+  // database did not keep its readings". jsonb gives { role, ref } back as
+  // { ref, role } -- so the readings WERE kept, and every try had already
+  // saved a file before saying it had not.
+  const same14 = jsonWin.lhcJsonSame;
+  check('readings jsonb gives back with their keys in its own order are the readings that were saved',
+    typeof same14 === 'function' &&
+    same14([{ ref: 'Isaiah 40:3-5', role: 'reading1' }, { ref: 'Mark 1:1-3', role: 'gospel' }], [{ role: 'reading1', ref: 'Isaiah 40:3-5' }, { role: 'gospel', ref: 'Mark 1:1-3' }]) &&
+    !same14([{ ref: 'Isaiah 40:3-5', role: 'reading1' }], [{ role: 'reading1', ref: 'Isaiah 40:1-11' }]) &&
+    !same14([{ ref: 'Mark 1:1-3', role: 'gospel' }, { ref: 'Isaiah 40:3-5', role: 'reading1' }], [{ role: 'reading1', ref: 'Isaiah 40:3-5' }, { role: 'gospel', ref: 'Mark 1:1-3' }]) &&
+    same14({ a: 1, b: undefined, c: [1, { y: 2, x: 1 }] }, { c: [1, { x: 1, y: 2 }], a: 1 }) && same14([], []) && !same14([], [{}]));
+  check('...and a try after a save that landed writes over that file, not one more beside it',
+    /cv\.savedId = saved\.id;/.test(save14));
   check('the review says what each reading is kept as', /'Kept as the ' \+ _cvRoleName\(p\.role\)/.test(fn('_cvDraw')) && /'No Bible reference found: left out'/.test(fn('_cvDraw')) &&
     !/The roster’s reading goes in instead/.test(fn('_cvDraw')));
   check('Use puts them on the Roster one slot at a time and reads them back before going on', /SBQ_READINGS\.setReference\(key, idx, diff\[i\]\.ref\)/.test(fn('_spPutReadings')) &&
@@ -751,7 +772,7 @@ try {
     } };
     let held = null, active = false, lcd = false, changed = 0;
     let saveSays = true;
-    const env = { SBQ: { _sb: () => sbFake, _noteOwnEdit: (id) => log.push('own ' + id) },
+    const env = { window: jsonWin, SBQ: { _sb: () => sbFake, _noteOwnEdit: (id) => log.push('own ' + id) },
       _lbdIsActive: () => active, _woLcdInPage: () => lcd, _soSaveSettled: () => { log.push('save now'); return Promise.resolve(saveSays); },
       _lbdChange: f => { changed++; return f() !== false; } };
     const keys = Object.keys(env);
@@ -763,6 +784,14 @@ try {
     check('not open here: the one row written, read back, the order\'s last_edited moved and noted as this device\'s own',
       res && res.via === 'stored' && rows.it1.slides.length === 2 && rows.it1.slides[0].background === 'b' && log.join() === 'write item it1,own o1,touch order o1' &&
       res.before[0].content === 'Old words', log.join());
+    // jsonb gives each slide's keys back in its own order: still the same slides.
+    const keysWritten = Object.keys(rows.it1.slides[0]).join();
+    readBack = JSON.parse(JSON.stringify(rows.it1.slides)).map(sl => { const o = {}; Object.keys(sl).reverse().forEach(k => { o[k] = sl[k]; }); return o; });
+    log.length = 0; res = null;
+    let err0 = null;
+    await L.set('o1', 'it1', ['New words', 'Second']).then(r => { res = r; }, e => { err0 = e; });
+    check('...slides read back with their keys in another order are the slides written',
+      Object.keys(readBack[0]).join() !== keysWritten && !err0 && res && res.via === 'stored', err0 && err0.message);
     readBack = [{ content: 'something else' }];
     let err = null;
     await L.set('o1', 'it1', ['Again']).catch(e => { err = e; });

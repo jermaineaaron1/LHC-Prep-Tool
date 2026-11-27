@@ -6785,6 +6785,28 @@ the anon key -- verify as `postgres`, not as the app.
     themselves rather than matching them -- including that a moved verse keeps
     every chord in the song.
 
+120. **A jsonb read-back is compared whatever order its keys come in.** From
+    the operator (2026-11-27), a screenshot of Convert to a Liturgy App File
+    ending in "Could not convert it: the database did not keep its
+    readings". It had kept them: Postgres's jsonb does not keep an object's
+    keys in the order they were written (shortest first, then by bytes), so
+    `{ role, ref }` came back `{ ref, role }` and a read-back compared with
+    `JSON.stringify` called it wrong. Every document with readings was
+    refused -- the first to have any was converted that morning -- and only
+    AFTER its row was saved, so each try left one more Liturgy App File (three
+    for one document). `window.lhcJsonSame(a, b)` (the first global script,
+    beside `lhcCaretToStart`; `lhcJsonCanon` sorts every object's keys,
+    leaves arrays in order -- jsonb keeps those -- and leaves out keys holding
+    undefined, as JSON.stringify and jsonb do) is the comparison for any
+    read-back of a jsonb value with objects in it: Convert's readings
+    (`cvSave`) and a part's slides written from a service's page
+    (`_woLibSetSlides`, which had the same flaw on a path the page reaches
+    only when the Builder does not hold the order). A list of strings
+    compares as it always did. And a try after a save that landed writes over
+    that row (`cv.savedId`) rather than adding another.
+    `tools/liturgy-sundays-harness.js` checks it, running the page's own
+    `lhcJsonSame` and the slides save with a read-back in another key order.
+
 ## Quick Commands for Claude Code
 
 ```bash

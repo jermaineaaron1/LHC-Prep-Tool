@@ -2855,6 +2855,15 @@ const CASES = [
     s => s.replace("        var score = _sbChoirBodyHtml(s, true, !wide);", "        var score = _sbChoirBodyHtml(s, false, !wide);")],
   ['songbook-step-harness.js', "a following song's microphones are not bound when the song in front shows words",
     s => s.replace("    if ((showScore || root.querySelector('.sbm-score--follow')) && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();", "    if (showScore && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();")],
+  // A read-back compared whatever order jsonb gives its keys (2026-11-27, gotcha 120).
+  ['liturgy-sundays-harness.js', 'a read-back is compared key order and all again',
+    s => s.replace("    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; }).sort()", "    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; })")],
+  ['liturgy-sundays-harness.js', 'Convert compares its readings as text again',
+    s => s.replace("        if (!window.lhcJsonSame(((r2.data[0].data || {}).readings) || [], reads)) throw", "        if (JSON.stringify(((r2.data[0].data || {}).readings) || []) !== JSON.stringify(reads)) throw")],
+  ['liturgy-sundays-harness.js', 'a retry after a save that landed adds another file',
+    s => s.replace("      cv.savedId = saved.id;", "")],
+  ['liturgy-sundays-harness.js', 'a part\'s slides are compared as text again',
+    s => s.replace("      if (!window.lhcJsonSame(w.data[0].slides || [], next)) throw", "      if (JSON.stringify(w.data[0].slides || []) !== JSON.stringify(next)) throw")],
   // The LCD's media in Storage (2026-11-26, gotcha 119).
   ['lcd-media-storage-harness.js', 'every save starts the waiting pictures uploading again',
     s => s.replace("bg.data.indexOf('data:') === 0 && !_bgMigrating[bg.id]) {", "bg.data.indexOf('data:') === 0) {")],
