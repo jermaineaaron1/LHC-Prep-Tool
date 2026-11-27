@@ -153,6 +153,27 @@ if (P) {
     down && down.map(b => b.label).join('|') === 'Chorus|Verse 2|Verse 1',
     down && JSON.stringify(down.map(b => b.label)));
 
+  // A blank line belongs to the block BEFORE it, so a block moved from the END
+  // of a song arrives carrying no separator and runs straight into what now
+  // follows, while the block left at the end keeps a trailing blank -- which
+  // the data audit reports as a fault in its own right. Found by running the
+  // real functions over a real song, not by reading them.
+  const lastMoved = P._lcdBlocksText(P._lcdMoveBlock(blocks, 2, 0));
+  check('a block moved from the end still has a blank line after it',
+    /Lift up your voice\n\n\[Verse 1\]/.test(lastMoved) &&
+    !/Lift up your voice\n\[Verse 1\]/.test(lastMoved),
+    JSON.stringify(lastMoved));
+  check('...and the song does not end in a blank line',
+    !/\n\s*$/.test(lastMoved), JSON.stringify(lastMoved.slice(-40)));
+  check('...and not one line of the song was lost',
+    lastMoved.split('\n').filter(Boolean).sort().join('|') ===
+    SONG.split('\n').filter(Boolean).sort().join('|'));
+  // Blank lines INSIDE a block split a verse across slides and are the song
+  // writer's. Normalising those would silently re-slice somebody's song.
+  const inner = P._lcdLyricBlocks(['[Verse 1]', 'a', '', 'b', '', '[Chorus]', 'c'].join('\n'));
+  check('a blank line inside a block is left exactly as it is',
+    /a\n\nb/.test(P._lcdBlocksText(inner)), JSON.stringify(P._lcdBlocksText(inner)));
+
   check('a move that goes nowhere answers null', P._lcdMoveBlock(blocks, 1, 1) === null);
   check('an index off the end answers null rather than guessing',
     P._lcdMoveBlock(blocks, 0, 9) === null && P._lcdMoveBlock(blocks, 9, 0) === null);
