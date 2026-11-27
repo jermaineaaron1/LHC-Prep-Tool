@@ -2886,6 +2886,13 @@ const CASES = [
     s => s.replace("    var onHead = !others.length || !!(hb && d.y >= hb.top && d.y <= hb.bottom);", "    var onHead = !body || !!(hb && d.y >= hb.top && d.y <= hb.bottom);")],
   ['builder-section-drag-harness.js', 'a finger past the last section, or in a gap, is held over the first section instead',
     s => s.replace("      if (dd < dist) { dist = dd; best = i; }", "")],
+  // Songs re-homed when a liturgy is loaded over them (2026-11-27, gotcha 51).
+  ['builder-load-liturgy-harness.js', 'Load re-homes songs only for Use from the Library again',
+    s => s.replace("      var sameTpl = more.special ? oldType === (more.fromType || 'traditional') : true;", "      var sameTpl = more.special ? oldType === (more.fromType || 'traditional') : true; if (!more.special) return;")],
+  ['builder-load-liturgy-harness.js', 'a song re-homed into a section that already sings it makes two copies there',
+    s => s.replace("          if (n && !ids[id] && sg.songId && songOrderSections.some(function(o) {", "          if (false && songOrderSections.some(function(o) {")],
+  ['builder-load-liturgy-harness.js', 'songs left in no section are not said in the toast',
+    s => s.replace("    var strandNote = stranded ?", "    var strandNote = false ?")],
   // A read-back compared whatever order jsonb gives its keys (2026-11-27, gotcha 120).
   ['liturgy-sundays-harness.js', 'a read-back is compared key order and all again',
     s => s.replace("    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; }).sort()", "    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; })")],

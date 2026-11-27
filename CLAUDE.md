@@ -1729,7 +1729,18 @@ the anon key -- verify as `postgres`, not as the app.
     and readings only when asked. The order then notes `serviceLiturgy =
     { fromOrder }` for a past service (no Save over: there is no saved row)
     or `{ id }` for a saved one. A read that lands after the window has
-    closed does not reopen it. In the window a past service's liturgist
+    closed does not reopen it. **The songs already in the order are never
+    deleted, and follow their sections** (the operator, 2026-11-27: "will
+    that erase my song ... How will the Liturgy builder know which part of
+    the liturgy my added song will be in?"): a song in a section the liturgy
+    still has (by id) stays; one whose section went goes to the section of
+    the same NAME, else the same KIND (`_svlSongSec`, numbering, case and
+    punctuation aside); one with no match -- or whose match already sings
+    that song (gotcha 55) -- waits in no section, at the foot of the page,
+    and the toast says how many. Use from the Liturgy Library always did
+    this; the Builder's Load kept a song only in a section of the same id
+    until then (it is always the same kind of service, so `sameTpl` is
+    true and there is no id map). In the window a past service's liturgist
     sits beside its name and the line under it (date, day, kind, counts) is
     2px larger, only its date bold (a saved liturgy's date is its year).
     `tools/builder-load-liturgy-harness.js` checks it. A preview's PARTS are

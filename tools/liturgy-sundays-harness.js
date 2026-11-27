@@ -1406,7 +1406,7 @@ try {
   console.log('\n25. Use comes back; the parts to add; sources; the blend\'s sources and order');
   check('Use puts the liturgy in through the Builder and comes straight back to This Year, once its readings are in; the window says so',
     /WO\.svlUseFromLibrary\(\{ id: f\.id,[\s\S]*?\}\) : null;\s*Promise\.race\(\[Promise\.resolve\(r\), new Promise\(function\(res\) \{ setTimeout\(res, 15000\); \}\)\]\)\.then\(function\(\) \{ llBackToLib\(\); \}\);/.test(fn('spUseGo')) &&
-    /return _lbdFillReadings\(\{ quiet: true \}\)\.then\(function\(n\) \{/.test(fn('_svlApply')) && /if \(readings\) \{ showToast\(said, 'success', _woUndoOpts\(\)\); return Promise\.resolve\(true\); \}/.test(fn('_svlApply')) &&
+    /return _lbdFillReadings\(\{ quiet: true \}\)\.then\(function\(n\) \{/.test(fn('_svlApply')) && /if \(readings\) \{ showToast\(said \+ strandNote, 'success', _woUndoOpts\(\)\); return Promise\.resolve\(true\); \}/.test(fn('_svlApply')) &&
     /Then you are back here, on This Year, with the liturgy in it to read and change\./.test(fn('_spUseStep4')) && !/The Liturgy Builder opens on it after/.test(fn('_spUseStep4')));
   check('...the parts to add: one list in a Traditional service\'s order, each opening in place to the words it brings; a tick keeps the window\'s place',
     /st\.extras\.slice\(\)\.sort\(function\(a, b\) \{ return a\.i - b\.i; \}\)/.test(fn('_spUseStep3')) && /LiturgyModule\.spUseOpen\(\+this\.dataset\.i, this\)/.test(fn('_spUseStep3')) &&

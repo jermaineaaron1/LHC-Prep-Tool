@@ -142,6 +142,71 @@ check('it replaces the sections and liturgy as one Undo, songs and readings only
   /var ok = _lbdChange\(function\(\) \{[\s\S]{0,900}?\n\s*currentOrderData\.sectionLayout = JSON\.parse\(JSON\.stringify\(d\.sectionLayout \|\| \[\]\)\);/.test(apply) &&
   /filter\(function\(it\) \{ return readings \|\| it\.itemType !== 'scripture'; \}\)/.test(apply) && /if \(songs\) \(d\.songs \|\| \[\]\)\.forEach/.test(apply) &&
   /if \(n && _lbdUndoStack\.length === mark \+ 1\) _lbdUndoStack\.splice\(mark, 1\);/.test(apply));
+// The songs already in the order, when a liturgy is loaded over them
+// (2026-11-27). From the operator: "what happens if I add songs for a
+// specific liturgy and then add the liturgy after ... How will the Liturgy
+// builder know which part of the liturgy my added song will be in?" Load
+// kept a song only in a section of the same id; it now re-homes by name,
+// then kind, as Use always did, and keeps every song.
+let rh = null, rhErr = '';
+try {
+  const toasts = [];
+  const order = {
+    id: 'o1', type: 'traditional',
+    sectionLayout: [
+      { id: 'wo-section-3', title: 'Praise & Worship', serviceSectionId: 'worship' },
+      { id: 'wo-section-17001', title: 'Song of Response', serviceSectionId: 'response' },
+      { id: 'wo-section-8', title: 'Offering', serviceSectionId: 'offering' },
+      { id: 'wo-section-9', title: 'Song of Response (choir)', serviceSectionId: '' },
+      { id: 'wo-section-20', title: 'Notices', serviceSectionId: '' }
+    ],
+    allItems: [{ id: 'A', itemType: 'song' }, { id: 'lit-old', itemType: 'liturgy', sectionId: 'wo-section-8' }],
+    template: {}
+  };
+  const songs = [
+    { id: 'A', songId: 'LA', title: 'A', serviceSections: ['wo-section-3'], sectionId: 'wo-section-3' },
+    { id: 'B', songId: 'L1', title: 'B', serviceSections: ['wo-section-17001'], sectionId: 'wo-section-17001' },
+    { id: 'C', songId: 'LC', title: 'C', serviceSections: ['wo-section-8'], sectionId: 'wo-section-8' },
+    { id: 'D', songId: 'LD', title: 'D', serviceSections: ['wo-section-20'], sectionId: 'wo-section-20' },
+    { id: 'F', songId: 'L1', title: 'F', serviceSections: ['wo-section-9'], sectionId: 'wo-section-9' },
+    { id: 'G', songId: 'LG', title: 'G', serviceSections: ['wo-section-17001'], sectionId: 'wo-section-17001' }
+  ];
+  const d = { sectionLayout: [
+      { id: 'wo-section-3', title: 'Praise & Worship', serviceSectionId: 'worship' },
+      { id: 'wo-section-9', title: 'Song of Response', serviceSectionId: 'response' },
+      { id: 'wo-section-11', title: 'Offertory', serviceSectionId: 'offering' }
+    ], items: [{ id: 'x', itemType: 'liturgy', sectionId: 'wo-section-11', sourceId: 'off' }], songs: [] };
+  const env = {
+    currentOrderData: order, currentOrderType: 'traditional', songOrderSections: songs, toasts: toasts,
+    orderStructures: { traditional: [] }
+  };
+  const body =
+    'var currentOrderData = env.currentOrderData, currentOrderType = env.currentOrderType, songOrderSections = env.songOrderSections, orderStructures = env.orderStructures;\n' +
+    'var _svlUse = "", _svlOpen = "", _lbdUndoStack = [], LiturgyModule;\n' +
+    'function _woSectionList() { return currentOrderData.sectionLayout.map(function(s) { return { id: s.id, title: s.title, serviceSectionId: s.serviceSectionId }; }); }\n' +
+    'function _svlUseSnap() { return {}; }\n' +
+    'function _lbdChange(f) { return f() !== false; }\n' +
+    'function _lbdPfx() { return "o1__"; } var _u = 0; function _lbdUid() { return String(++_u); }\n' +
+    'function _lbdLibSong() { return null; } function _woNewSongEntry() { return {}; }\n' +
+    'function _lbdSortSongsByService() {}\n' +
+    'function _svlSuppInto() { return { items: [], from: [] }; }\n' +
+    'function _lbdCloseSheet() {} function _woUndoOpts() { return {}; }\n' +
+    'function showToast(m) { env.toasts.push(m); }\n' +
+    'function _lbdFillReadings() { return Promise.resolve(0); }\n' +
+    fn('_svlSongSec') + '\n' + fn('_svlTradPlace') + '\n' + apply + '\nreturn _svlApply;';
+  const A = new Function('env', body)(env);
+  A(d, { kind: 'saved', id: 'svl1', title: 'Advent 2025' }, false, true, {});
+  rh = { songs, order, toasts };
+} catch (e) { rhErr = e.message; }
+const at = id => rh && (rh.songs.filter(x => x.id === id)[0] || {}).serviceSections;
+check('Load keeps every song: none deleted, the liturgy and readings replaced around them',
+  !!rh && rh.songs.length === 6 && rh.order.allItems.some(x => x.id === 'A') && !rh.order.allItems.some(x => x.id === 'lit-old'), rhErr);
+check('...a song in a section the liturgy still has stays in it', !!rh && JSON.stringify(at('A')) === '["wo-section-3"]', rh && JSON.stringify(at('A')));
+check('...one whose section went goes to the section of the same name, else the same kind',
+  !!rh && JSON.stringify(at('G')) === '["wo-section-9"]' && JSON.stringify(at('C')) === '["wo-section-11"]', rh && JSON.stringify(rh.songs.map(x => x.id + ':' + (x.serviceSections || []).join('+'))));
+check('...one with no match, or whose match already sings that song, waits in no section, and the toast says so',
+  !!rh && JSON.stringify(at('D')) === '[]' && JSON.stringify(at('B')) === '[]' && JSON.stringify(at('F')) === '["wo-section-9"]' &&
+  /2 of your songs had no matching section: they wait at the foot of the page/.test(rh.toasts[0] || ''), rh && rh.toasts[0]);
 check('the order notes where its liturgy came from: a saved one (Save over is offered) or a past service',
   /\? \{ fromOrder: x\.id, title: x\.title, occasion: x\.occasion, year: x\.year \}\r?\n\s*: \{ id: x\.id, title: x\.title, occasion: x\.occasion, year: x\.year \};/.test(apply) &&
   /isFrom = !!\(from && \(saved \? from\.id === x\.id : from\.fromOrder === x\.id\)\)/.test(fn('_svlCardHtml')));
