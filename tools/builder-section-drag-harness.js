@@ -121,7 +121,8 @@ run('the place and the numbers', () => {
 console.log('\n2. What picks a section up');
 run('pointer down', () => {
   const env = new Function('ctx', `
-    var _lbdPD = null, _LBD_HOLD_MS = 380;
+    var _lbdPD = null, _lbdED = null, _LBD_HOLD_MS = 380;
+    function _lbdElDown() {}
     var document = ctx.document;
     function setTimeout(f, ms) { ctx.timers.push(ms); return 1; }
     function _lbdHoldArm() {}
@@ -307,7 +308,7 @@ run('move to', () => {
 console.log('\n6. Wired in, and shown');
 const render = fn('lbdRender');
 check('a redraw waits while a section is dragged (the drop redraws)',
-  /if \(_lbdPD && _lbdPD\.on\) return;/.test(render));
+  /if \(\(_lbdPD && _lbdPD\.on\) \|\| \(_lbdED && _lbdED\.on\)\) return;/.test(render));
 check('every heading is bound for a finger after each draw', /_lbdApplyShell\(\);\r?\n\s*_lbdBindHeads\(host\);/.test(render) &&
   /addEventListener\('touchmove', _lbdHeadTouchMove, \{ passive: false \}\)/.test(fn('_lbdBindHeads')) &&
   /addEventListener\('touchend', _lbdHeadTouchEnd, \{ passive: false \}\)/.test(fn('_lbdBindHeads')));
@@ -329,6 +330,78 @@ check('the heading is picked up, not selected; its name still is', /\.lbw-page \
   /\.lbw-page \.lbw-h-title \{ -webkit-user-select: text; user-select: text; \}/.test(css));
 check('while sorting, the sections are their headings', /\.lbw-page\.is-sorting \.lbw-sec > \.lbw-margin, \.lbw-page\.is-sorting \.lbw-sec-body[^{]*\{ display: none; \}/.test(css));
 check('the one held shows where it will land', /\.lbw-page\.is-sorting \.lbw-sec\.is-dragging > \.lbw-h \{[^}]*dashed/.test(css));
+
+
+// ---------------------------------------------------------------------------
+// Parts dragged within their section (2026-11-27, gotcha 121). From the
+// operator, on a screenshot of GATHERING's parts: "allow the user to drag and
+// drop the subsection within a section". Songs move among the section's
+// songs, the other parts among themselves; a reading in a template slot keeps
+// its place.
+console.log('\nparts dragged within their section');
+try {
+  const T = new Function(fn('_lbdElDropTarget') + '\nreturn _lbdElDropTarget;')();
+  check('the part a dragged one takes the place of: moved down, the one it now follows; up, the one it now leads; not moved, none',
+    T(['a', 'b', 'c', 'd'], ['b', 'c', 'a', 'd'], 'a') === 'c' && T(['a', 'b', 'c', 'd'], ['a', 'd', 'b', 'c'], 'd') === 'b' &&
+    T(['a', 'b', 'c'], ['a', 'b', 'c'], 'b') === null && T(['a', 'b'], ['a', 'b'], 'x') === null);
+
+  const R = new Function(fn('_woWriteSeq') + '\n' + fn('_lbdElReorder') + '\nreturn _lbdElReorder;')();
+  const mk = (id, sec, so) => ({ id, sectionId: sec, sortOrder: so });
+  const all = [mk('s1', 'A', 0), mk('x', 'B', 1), mk('a', 'A', 2), mk('y', 'B', 3), mk('b', 'A', 4), mk('c', 'A', 5)];
+  const find = id => all.filter(x => x.id === id)[0] || null;
+  const out = R(all, ['a', 'b', 'c'], ['c', 'a', 'b'], find);
+  check('the other parts go in the order let go, in the places they held -- every other section\'s parts where they were',
+    out && out.map(x => x.id).join() === 's1,x,c,y,a,b', out && out.map(x => x.id).join());
+  check('...each place keeping its sortOrder, so the order saves as it shows',
+    find('c').sortOrder === 2 && find('a').sortOrder === 4 && find('b').sortOrder === 5 && find('x').sortOrder === 1);
+  check('...and a part that cannot be found changes nothing', R(all, ['a', 'zz'], ['zz', 'a'], find) === null);
+
+  // A song dropped in its section, a medley moving as one.
+  const songs = [{ id: 'm1' }, { id: 'm2' }, { id: 'p' }, { id: 'q' }, { id: 'other' }];
+  const secOf = { m1: 'S', m2: 'S', p: 'S', q: 'S', other: 'T' };
+  let changes = 0;
+  const S = new Function('songOrderSections', 'secOf', 'medleys', 'onChange',
+    'function _woSectionList() { return []; }\n' +
+    'function _woSongSectionIds(s) { return [secOf[s.id]]; }\n' +
+    'function _woMedleys() { return medleys; }\n' +
+    'function _lbdChange(f) { onChange(); return f() !== false; }\n' +
+    ['_woUnits', '_woFlatUnits', '_woDropInSeq', '_woWriteSeq', '_lbdElMoveSong'].map(fn).join('\n') + '\nreturn _lbdElMoveSong;')(
+    songs, secOf, [{ id: 'md', songs: ['m1', 'm2'] }], () => changes++);
+  const moved = S('S', 'q', 'm1');
+  check('a song moved up in its section, one Undo step; a medley in the way stays one',
+    moved === true && changes === 1 && songs.map(x => x.id).join() === 'q,m1,m2,p,other', songs.map(x => x.id).join());
+  const moved2 = S('S', 'm2', 'p');
+  check('...a song of a medley takes its medley with it',
+    moved2 === true && songs.map(x => x.id).join() === 'q,p,m1,m2,other', songs.map(x => x.id).join());
+  check('...and no target, no step', S('S', 'q', null) === false && changes === 2);
+
+  const songHtml = fn('_lbdSongHtml'), itemHtml = fn('_lbdItemHtml');
+  check('every song in a section, and every other part, carries a grip',
+    /data-song="' \+ _lbdEsc\(s\.id\) \+ '" data-drag="song">' \+ _lbdElGrip\(\)/.test(songHtml) &&
+    /var dragA = slotLabel \? '' : ' data-drag="item"', grip = slotLabel \? '' : _lbdElGrip\(\);/.test(itemHtml) &&
+    (itemHtml.match(/'"' \+ dragA \+ '>' \+ grip/g) || []).length === 3, itemHtml.slice(0, 200));
+  check('...but a reading a template slot holds: it keeps its slot\'s place', /slotLabel \? '' : _lbdElGrip\(\)/.test(itemHtml));
+  check('the grip starts a part\'s drag, never its section\'s',
+    /var eg = t\.closest\('\.lbw-page \[data-grip="el"\]'\);\s*if \(eg\) \{ _lbdElDown\(e, eg\); return; \}\s*var grip = t\.closest\('\[data-grip\], \.lbw-page \.lbw-h-num'\);/.test(fn('_lbdOnPointerDown')));
+  check('a part moves only among those of its kind in its own section',
+    /querySelectorAll\('\.lbw-el\[data-drag="' \+ kind \+ '"\]'\)/.test(fn('_lbdElGroup')) &&
+    /var rows = _lbdElGroup\(d\.body, d\.kind\), others = rows\.filter/.test(fn('_lbdElDragMove')));
+  check('the drop: songs through the medley-aware move, the rest reordered in allItems',
+    /moved = d\.kind === 'song' \? _lbdElMoveSong\(d\.sec, d\.id, _lbdElDropTarget\(d\.ids0, ids1, d\.id\)\) : _lbdElMoveItems\(d\.ids0, ids1\);/.test(fn('_lbdElEnd')) &&
+    /var out = _lbdElReorder\(all, ids0, ids1, _lbdItem\);/.test(fn('_lbdElMoveItems')));
+  check('nothing redraws under a part being dragged; Escape lets it go; its click is not a click; a double-tap on the grip opens nothing',
+    /if \(\(_lbdPD && _lbdPD\.on\) \|\| \(_lbdED && _lbdED\.on\)\) return;/.test(fn('lbdRender')) &&
+    /if \(e\.key === 'Escape' && _lbdED && _lbdED\.on\) \{ e\.preventDefault\(\); _lbdElEnd\(false\); return; \}/.test(fn('_lbdOnDocKey')) &&
+    /t\.closest\('\.lbw-nav, \.lbw-h, \.lbw-sec-body'\)/.test(fn('_lbdOnClick')) &&
+    /\.lbw-note, \.lbw-margin, \.lbw-grip'\)\) \{ _lbdTap = null; return false; \}/.test(fn('_lbdDoubleTap')));
+  check('a lone song, or a lone part, does not lift', /if \(d\.ids0\.length < 2\) \{ _lbdElEnd\(false\); return; \}/.test(fn('_lbdElMove')));
+  const css = SRC;
+  check('a finger on the grip drags (the grip is a .lbw-grip: touch-action none); on a phone it is pinned beside the part, 26 x 40',
+    /class="lbw-grip lbw-grip--el" data-grip="el"/.test(fn('_lbdElGrip')) &&
+    /\.lbw--sm \.lbw-grip--el \{ position: absolute; left: 0; top: 4px; width: 26px; height: 40px;/.test(css) &&
+    /\.lbw--sm \.lbw-el\[data-drag\] \{ padding-left: 30px; \}/.test(css));
+  check('while a part is held, the open ones are a line each', /\.lbw-sec-body\.is-el-sorting \.lbw-slides \{ display: none; \}/.test(css));
+} catch (e) { check('parts dragged within their section can be run', false, e.message); }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {

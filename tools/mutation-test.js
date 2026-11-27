@@ -2864,6 +2864,17 @@ const CASES = [
     s => s.replace("        var score = _sbChoirBodyHtml(s, true, !wide);", "        var score = _sbChoirBodyHtml(s, false, !wide);")],
   ['songbook-step-harness.js', "a following song's microphones are not bound when the song in front shows words",
     s => s.replace("    if ((showScore || root.querySelector('.sbm-score--follow')) && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();", "    if (showScore && typeof sbBindChoirRecorders === 'function') sbBindChoirRecorders();")],
+  // Parts dragged within their section (2026-11-27, gotcha 121).
+  ['builder-section-drag-harness.js', 'a part\'s grip drags its whole section instead',
+    s => s.replace("    if (eg) { _lbdElDown(e, eg); return; }", "")],
+  ['builder-section-drag-harness.js', 'a dragged song lands one place off',
+    s => s.replace("    return ids0[i1] || null;", "    return ids0[i1 - 1] || null;")],
+  ['builder-section-drag-harness.js', 'reordered parts keep the sortOrders of their old places, so they save in the old order',
+    s => s.replace("    newSeq.forEach(function(x, k) { if (sorts[k] !== undefined) x.sortOrder = sorts[k]; });", "")],
+  ['builder-section-drag-harness.js', 'a reading in a template slot can be dragged away from its slot',
+    s => s.replace("    var dragA = slotLabel ? '' : ' data-drag=\"item\"', grip = slotLabel ? '' : _lbdElGrip();", "    var dragA = ' data-drag=\"item\"', grip = _lbdElGrip();")],
+  ['builder-section-drag-harness.js', 'the page redraws under a part being dragged',
+    s => s.replace("    if ((_lbdPD && _lbdPD.on) || (_lbdED && _lbdED.on)) return;", "    if (_lbdPD && _lbdPD.on) return;")],
   // A read-back compared whatever order jsonb gives its keys (2026-11-27, gotcha 120).
   ['liturgy-sundays-harness.js', 'a read-back is compared key order and all again',
     s => s.replace("    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; }).sort()", "    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; })")],
