@@ -85798,14 +85798,14 @@ var WO = (function() {
   }
   function _svlApply(d, x, songs, readings, more) {
     more = more || {};
-    var added = 0, extrasIn = [], madeSpecial = false, addedIds = [], suppIn = null;
+    var added = 0, extrasIn = [], madeSpecial = false, addedIds = [], suppIn = null, rehomed = 0, stranded = 0;
     // What the order was, so Remove can put it back (gotcha 104). An order
     // Use made has nothing to go back to: Remove deletes it.
     var useRec = more.use || { made: false }, usePre = useRec.made ? null : _svlUseSnap();
     var ok = _lbdChange(function() {
-      // A Special service: the songs already in the order follow their
-      // sections into the liturgy's, and the order changes kind.
-      var oldList = more.special ? _woSectionList() : null, oldType = currentOrderType;
+      // The songs already in the order follow their sections into the
+      // liturgy's (below); a Special service also changes kind.
+      var oldList = _woSectionList(), oldType = currentOrderType;
       if (more.special && currentOrderData.type !== 'special') {
         currentOrderData.type = 'special'; currentOrderType = 'special'; madeSpecial = true;
       }
@@ -85828,19 +85828,36 @@ var WO = (function() {
         addedIds.push(entry.id);
         added++;
       });
-      if (more.special) {
-        var lay = currentOrderData.sectionLayout, map = more.map || {}, back = {};
-        Object.keys(map).forEach(function(k) { back[map[k]] = k; });
-        var sameTpl = oldType === (more.fromType || 'traditional');
-        var byId = {}; (oldList || []).forEach(function(s) { byId[s.id] = s; });
-        songOrderSections.forEach(function(sg) {
-          if (!sg) return;
-          var was = Array.isArray(sg.serviceSections) && sg.serviceSections.length ? sg.serviceSections : (sg.sectionId ? [sg.sectionId] : []);
-          if (!was.length || was.every(function(id) { return ids[id]; })) return;
-          var now = [];
-          was.forEach(function(id) { var n = ids[id] ? id : _svlSongSec(id, byId[id], sameTpl, map, lay); if (n && now.indexOf(n) === -1) now.push(n); });
-          sg.serviceSections = now; sg.sectionId = now[0] || '';
+      // Every song already in the order follows its section into the
+      // liturgy's: the same section where it is still there, else the one of
+      // the same name, else the same kind (_svlSongSec) -- for Use from the
+      // Liturgy Library and, since 2026-11-27, for the Builder's Load too,
+      // which kept a song only in a section of the same id and left the rest
+      // in no section (the operator: "how will the Liturgy builder know which
+      // part of the liturgy my added song will be in?"). Load is always the
+      // same kind of service, so its template ids are shared. A section
+      // already singing the song keeps its own copy (gotcha 55): this one
+      // waits in no section rather than make two. Nothing is deleted.
+      var lay = currentOrderData.sectionLayout, map = more.special ? (more.map || {}) : {}, back = {};
+      Object.keys(map).forEach(function(k) { back[map[k]] = k; });
+      var sameTpl = more.special ? oldType === (more.fromType || 'traditional') : true;
+      var byId = {}; oldList.forEach(function(sx) { byId[sx.id] = sx; });
+      songOrderSections.forEach(function(sg) {
+        if (!sg || addedIds.indexOf(sg.id) !== -1) return;
+        var was = Array.isArray(sg.serviceSections) && sg.serviceSections.length ? sg.serviceSections : (sg.sectionId ? [sg.sectionId] : []);
+        if (!was.length || was.every(function(id) { return ids[id]; })) return;
+        var now = [];
+        was.forEach(function(id) {
+          var n = ids[id] ? id : _svlSongSec(id, byId[id], sameTpl, map, lay);
+          if (n && !ids[id] && sg.songId && songOrderSections.some(function(o) {
+            return o && o !== sg && o.songId === sg.songId && ((o.serviceSections || []).indexOf(n) !== -1 || o.sectionId === n);
+          })) n = '';
+          if (n && now.indexOf(n) === -1) now.push(n);
         });
+        sg.serviceSections = now; sg.sectionId = now[0] || '';
+        if (now.length) rehomed++; else stranded++;
+      });
+      if (more.special) {
         // The Traditional parts chosen, each after the last section that comes
         // before it in a Traditional service, with its usual liturgy.
         var trad = orderStructures.traditional || [];
@@ -85870,7 +85887,7 @@ var WO = (function() {
           { id: function() { return 'wo-section-' + (t0s + (ns++)); }, src: function() { return 'lbd_' + _lbdUid(); }, pfx: _lbdPfx() });
         Array.prototype.push.apply(currentOrderData.allItems, suppIn.items);
       }
-      if (songs || more.special || suppIn) _lbdSortSongsByService();
+      if (songs || more.special || suppIn || rehomed) _lbdSortSongsByService();
       if (!currentOrderData.template) currentOrderData.template = {};
       currentOrderData.template.serviceNotes = d.serviceNotes || '';
       // Where its liturgy came from: a saved one (Save over is offered), or a past service.
@@ -85902,14 +85919,17 @@ var WO = (function() {
       (added ? ' and its ' + added + ' song' + (added === 1 ? '' : 's') : '') +
       (extrasIn.length ? ', with ' + extrasIn.join(', ') : '') +
       (suppIn && suppIn.from.length ? ', and parts of ' + suppIn.from.map(function(f) { return '“' + f.title + '”'; }).join(', ') : '') + (madeSpecial ? '. It is a Special service now' : '');
-    if (readings) { showToast(said, 'success', _woUndoOpts()); return Promise.resolve(true); }
+    // A song whose section has no match is kept, at the foot of the page.
+    var strandNote = stranded ? '. ' + stranded + ' of your songs had no matching section: ' + (stranded === 1 ? 'it waits' : 'they wait') +
+      ' at the foot of the page, under Songs not yet in a section' : '';
+    if (readings) { showToast(said + strandNote, 'success', _woUndoOpts()); return Promise.resolve(true); }
     // This date's readings from the roster go in as part of the same step:
     // one Undo takes the order back to before the liturgy came in. The
     // toast, and its Undo, wait for them.
     var mark = _lbdUndoStack.length;
     return _lbdFillReadings({ quiet: true }).then(function(n) {
       if (n && _lbdUndoStack.length === mark + 1) _lbdUndoStack.splice(mark, 1);
-      showToast(said + (n ? ', with this date’s readings' : ''), 'success', _woUndoOpts());
+      showToast(said + (n ? ', with this date’s readings' : '') + strandNote, 'success', _woUndoOpts());
       return true;
     });
   }
