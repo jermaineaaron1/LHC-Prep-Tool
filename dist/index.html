@@ -88063,14 +88063,22 @@ var WO = (function() {
     sec.classList.add('is-flash');
   }
 
-  // ── Dragging a part within its section ──────────────────────────────────
+  // ── Dragging a part, within its section or into another ─────────────────
   // From the operator (2026-11-27), on a screenshot of a section's parts:
-  // "allow the user to drag and drop the subsection within a section". A part
-  // is picked up by its grip -- the mouse or a finger: the grip is
-  // touch-action: none, so a finger on it drags and never scrolls -- and moves
-  // among the parts it can be ordered among: a section's SONGS among its songs,
-  // and its other parts (liturgy, prayers, text, readings no template slot
-  // holds) among themselves. Songs stay above the rest because every view
+  // "allow the user to drag and drop the subsection within a section", and the
+  // same day, circling a song alone in its section and a prayer alone in its:
+  // "allow to drag and drop song items and prayers as well" -- into another
+  // section. A part is picked up by its grip -- the mouse or a finger: the grip
+  // is touch-action: none, so a finger on it drags and never scrolls -- and
+  // moves among the parts it can be ordered among, in whichever section the
+  // finger is over: songs among songs, the other parts (liturgy, prayers,
+  // text, readings no template slot holds) among themselves. Over a section's
+  // HEADING -- the only way into a folded section, or one with nothing of its
+  // kind -- the heading lights and the part goes last of its kind there.
+  // Into another section it follows the Songbook's Move to section: a medley
+  // moves together, a section that already sings the song refuses it, a
+  // liturgy the section already has or a reading it already has are refused.
+  // Songs stay above the rest because every view
   // draws them so -- LCD Projection puts a section's songs in first and its
   // items after -- and the order is kept as two lists, songOrderSections and
   // allItems. A reading in a template slot keeps the slot's place and has no
@@ -88088,6 +88096,20 @@ var WO = (function() {
     var i0 = ids0.indexOf(id), i1 = ids1.indexOf(id);
     if (i0 < 0 || i1 < 0 || i0 === i1) return null;
     return ids0[i1] || null;
+  }
+
+  // Which section the finger is over (pure): the one whose span holds y, else
+  // the nearest -- the gap between two sections belongs to the closer one.
+  function _lbdElSecIndex(spans, y) {
+    if (!spans || !spans.length) return -1;
+    var best = 0, dist = Infinity;
+    for (var i = 0; i < spans.length; i++) {
+      var sp = spans[i];
+      if (y >= sp.top && y <= sp.bottom) return i;
+      var dd = y < sp.top ? sp.top - y : y - sp.bottom;
+      if (dd < dist) { dist = dd; best = i; }
+    }
+    return best;
   }
 
   // A section's parts put in the order let go (pure but for `find`): in the
@@ -88115,9 +88137,9 @@ var WO = (function() {
     if (!row || !body || !sec) return;
     e.preventDefault();
     var kind = row.getAttribute('data-drag');
-    _lbdED = { row: row, body: body, sec: sec.getAttribute('data-sec'), kind: kind, id: _lbdElIdOf(row),
+    _lbdED = { row: row, body: body, page: row.closest('.lbw-page'), sec: sec.getAttribute('data-sec'), kind: kind, id: _lbdElIdOf(row),
                ids0: _lbdElGroup(body, kind).map(_lbdElIdOf), touch: e.pointerType !== 'mouse',
-               x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false };
+               x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, dropSec: null, dropEl: null };
     document.addEventListener('pointermove', _lbdElMove);
     document.addEventListener('pointerup', _lbdElUp);
     document.addEventListener('pointercancel', _lbdElCancel);
@@ -88130,7 +88152,6 @@ var WO = (function() {
     d.y = e.clientY;
     if (!d.on) {
       if (Math.abs(d.y - d.y0) < 6 && Math.abs(d.x - d.x0) < 6) return;
-      if (d.ids0.length < 2) { _lbdElEnd(false); return; }   // nothing to move among
       _lbdElBegin();
     }
     e.preventDefault();
@@ -88142,7 +88163,7 @@ var WO = (function() {
     d.on = true;
     _lbdCloseMenu();
     d.row.classList.add('is-dragging');
-    d.body.classList.add('is-el-sorting');
+    if (d.page) d.page.classList.add('is-el-sorting');
     window.scrollBy(0, d.row.getBoundingClientRect().top - top0);
     var g = document.createElement('div');
     g.className = 'lbw-ghost';
@@ -88155,16 +88176,39 @@ var WO = (function() {
     d.timer = setInterval(_lbdElAutoScroll, 30);
   }
 
-  // The part held goes where the finger is, among the parts of its kind.
+  // The part held goes where the finger is: among the parts of its kind in
+  // the section the finger is over, or -- over a section's heading, a folded
+  // one, or one with nothing of its kind -- onto that section, lit, to go last
+  // of its kind there. Only a section that already has parts of its kind
+  // makes room as the finger passes: room opened in every empty section on
+  // the way pushed the page down under the finger, onto the next heading.
   function _lbdElDragMove() {
     var d = _lbdED;
     if (!d || !d.on) return;
     d.ghost.style.transform = 'translate(' + Math.round(d.x + 14) + 'px,' + Math.round(d.y - 16) + 'px)';
-    var rows = _lbdElGroup(d.body, d.kind), others = rows.filter(function(r) { return r !== d.row; });
-    if (!others.length) return;
+    var secs = d.page ? Array.prototype.slice.call(d.page.querySelectorAll('.lbw-sec[data-sec]')) : [];
+    var sec = secs[_lbdElSecIndex(secs.map(function(x) { var b = x.getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }), d.y)];
+    if (!sec) return;
+    var head = sec.querySelector('.lbw-h'), body = sec.querySelector('.lbw-sec-body');
+    var hb = head ? head.getBoundingClientRect() : null;
+    var rows = body ? _lbdElGroup(body, d.kind) : [], others = rows.filter(function(r) { return r !== d.row; });
+    var onHead = !others.length || !!(hb && d.y >= hb.top && d.y <= hb.bottom);
+    _lbdElMarkDrop(d, onHead ? sec : null);
+    d.row.classList.toggle('is-away', onHead);
+    if (onHead) { d.dropSec = sec.getAttribute('data-sec'); return; }
+    d.dropSec = null;
     var c = _lbdDropSlot(others.map(function(r) { var b = r.getBoundingClientRect(); return b.top + b.height / 2; }), d.y);
-    if (rows.indexOf(d.row) === c) return;
-    d.row.parentNode.insertBefore(d.row, others[c] || others[others.length - 1].nextSibling);
+    if (d.row.parentNode === body && rows.indexOf(d.row) === c) return;
+    body.insertBefore(d.row, others[c] || others[others.length - 1].nextSibling);
+    d.body = body;
+  }
+
+  // The section a part is held over by its heading, lit; one at a time.
+  function _lbdElMarkDrop(d, sec) {
+    if (d.dropEl === sec) return;
+    if (d.dropEl) d.dropEl.classList.remove('is-drop');
+    d.dropEl = sec || null;
+    if (sec) sec.classList.add('is-drop');
   }
 
   function _lbdElAutoScroll() {
@@ -88190,16 +88234,31 @@ var WO = (function() {
     if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
     document.documentElement.classList.remove('lbw-dragging');
     _lbdSuppressClick = Date.now();
+    _lbdElMarkDrop(d, null);
+    d.row.classList.remove('is-away');
+    var holder = d.body && d.body.closest('.lbw-sec[data-sec]');
+    var toSec = d.dropSec || (holder ? holder.getAttribute('data-sec') : d.sec);
     var ids1 = _lbdElGroup(d.body, d.kind).map(_lbdElIdOf);
     var y = d.row.getBoundingClientRect().top;
-    var moved = false;
+    var moved = false, id = d.id;
     if (drop) {
-      moved = d.kind === 'song' ? _lbdElMoveSong(d.sec, d.id, _lbdElDropTarget(d.ids0, ids1, d.id)) : _lbdElMoveItems(d.ids0, ids1);
+      if (toSec === d.sec) {
+        // Its own heading: last of its kind in its own section.
+        var order = d.dropSec ? d.ids0.filter(function(x) { return x !== d.id; }).concat([d.id]) : ids1;
+        moved = d.kind === 'song' ? _lbdElMoveSong(d.sec, d.id, _lbdElDropTarget(d.ids0, order, d.id)) : _lbdElMoveItems(d.ids0, order);
+      } else {
+        var there = d.dropSec ? [] : ids1, at = there.indexOf(d.id), rest = there.filter(function(x) { return x !== d.id; });
+        var res = d.kind === 'song'
+          ? _lbdElSongAcross(d.id, d.sec, toSec, at < 0 ? null : (rest[at] || null))
+          : _lbdElItemAcross(d.id, toSec, at < 0 ? null : (there[at + 1] || null));
+        moved = !!res;
+        if (res && res.id) id = res.id;
+      }
     }
     // Nothing changed: draw the page as it was (its open parts open again).
     if (!moved) lbdRender();
     var host = $('woLiturgyBuilder');
-    var nr = host && host.querySelector('.lbw-page .lbw-sec-body .lbw-el[' + (d.kind === 'song' ? 'data-song' : 'data-item') + '="' + _lbdCssId(d.id) + '"]');
+    var nr = host && host.querySelector('.lbw-page .lbw-sec-body .lbw-el[' + (d.kind === 'song' ? 'data-song' : 'data-item') + '="' + _lbdCssId(id) + '"]');
     if (!nr) return;
     // The page unfolds round the part let go, which stays under the finger.
     window.scrollBy(0, nr.getBoundingClientRect().top - y);
@@ -88221,6 +88280,77 @@ var WO = (function() {
       songOrderSections.length = 0;
       Array.prototype.push.apply(songOrderSections, out);
     });
+  }
+
+  // A song dropped into another section: the Songbook's Move to section -- its
+  // medley with it, refused where that section already sings it -- then put
+  // before the song it was dropped above there (toId), or last. One Undo step.
+  function _lbdElSongAcross(id, fromSec, toSec, toId) {
+    var s = _lbdSong(id);
+    if (!s || !toSec || fromSec === toSec) return null;
+    var list = _woSectionList();
+    var md = _woMedleyOf(s.id);
+    var members = (md ? md.medley.songs : [s.id]).map(function(x) { return _lbdSong(x); }).filter(Boolean);
+    if (!members.length) return null;
+    var title = _lbdSecTitle(toSec);
+    var clash = members.filter(function(m) { var c = _woSongCopyIn(m.songId, toSec, list); return c && c !== m; })[0];
+    if (clash) { showToast('“' + (clash.title || 'That song') + '” is already sung in ' + title + '.', 'info'); return null; }
+    var ok = _lbdChange(function() {
+      members.forEach(function(m) {
+        _woSongSectionIds(m, list).forEach(function(sid) { _lbdUnplaceSong(m, sid, list); });
+        songOrderSections.splice(songOrderSections.indexOf(m), 1);
+        songOrderSections.push(m);
+        _lbdPlaceSong(m, toSec, list);
+      });
+      _lbdSortSongsByService();
+      if (toId) {
+        var inSec = songOrderSections.filter(function(x) { return _woSongSectionIds(x, list).indexOf(toSec) !== -1; });
+        var next = _woDropInSeq(inSec, id, toId, _woMedleys());
+        if (next) {
+          var out = _woWriteSeq(songOrderSections, inSec, next);
+          songOrderSections.length = 0;
+          Array.prototype.push.apply(songOrderSections, out);
+        }
+      }
+    });
+    if (!ok) return null;
+    showToast((md ? 'The medley moved' : '“' + (s.title || 'The song') + '” moved') + ' to ' + title, 'success', { action: 'Undo', duration: 6000, onAction: lbdUndo });
+    return { id: id };
+  }
+
+  // Any other part dropped into another section: lbdMoveItemToSection's rules
+  // -- a liturgy once in a section, its id naming its section and the section
+  // it left noted as emptied of it, a reading once in a section -- then put
+  // before the part it was dropped above there (beforeId), or last. One Undo.
+  function _lbdElItemAcross(itemId, toSec, beforeId) {
+    var it = _lbdItem(itemId);
+    if (!it || !toSec || it.sectionId === toSec) return null;
+    var title = _lbdSecTitle(toSec), name = it.title || (it.itemType === 'content' ? 'the text' : 'this part');
+    if (it.itemType === 'liturgy' && _woSectionItems(toSec).some(function(x) { return x.itemType === 'liturgy' && x.sourceId === it.sourceId; })) {
+      showToast(title + ' already has “' + name + '”', 'info'); return null;
+    }
+    if (it.itemType === 'scripture' && _lbdReadingTaken(toSec, it.title)) {
+      showToast(title + ' already has ' + it.title, 'info'); return null;
+    }
+    var from = it.sectionId, oldKey = 'item:' + it.id;
+    var newId = it.itemType === 'liturgy' ? _lbdPfx() + 'liturgy_' + it.sourceId + '_' + toSec : it.id;
+    if (_lbdCurEl === oldKey) _lbdCurEl = '';
+    if (_lbdOpen[oldKey] && newId !== it.id) { delete _lbdOpen[oldKey]; _lbdOpen['item:' + newId] = true; }
+    var ok = _lbdChange(function() {
+      it.sectionId = toSec;
+      // A liturgy's id names its section (both collectors build it that way),
+      // so it moves with it; the stored row under the old id is pruned.
+      if (it.itemType === 'liturgy') { it.id = newId; _lbdNoteCleared(from, it.sourceId); }
+      var all = currentOrderData.allItems;
+      all.splice(all.indexOf(it), 1);
+      var before = beforeId ? _lbdItem(beforeId) : null;
+      var at = before ? all.indexOf(before) : -1;
+      if (at >= 0) all.splice(at, 0, it); else all.push(it);
+      _lbdClearClearedFor(toSec);
+    });
+    if (!ok) return null;
+    showToast('“' + name + '” moved to ' + title, 'success', { action: 'Undo', duration: 6000, onAction: lbdUndo });
+    return { id: newId };
   }
 
   // A section's other parts put in the order let go: one Undo step.
@@ -133623,9 +133753,11 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
 .lbw--sm .lbw-grip--el { position: absolute; left: 0; top: 4px; width: 26px; height: 40px; margin: 0; font-size: 14px; color: #8aa694; }
 .lbw-el.is-dragging { background: #fff; border: 2px dashed var(--lbw-green); }
 .lbw-el.is-dragging > :not(.lbw-grip) { opacity: 0.55; }
-/* While a part is held, the open ones are a line each. */
-.lbw-sec-body.is-el-sorting .lbw-slides { display: none; }
-.lbw-sec-body.is-el-sorting .lbw-el-main--row > .lbw-text { max-height: 1.6em; overflow: hidden; }
+/* While a part is held, the open ones are a line each, in every section; one
+   held over a section's heading (it will go there) dims where it stands. */
+.lbw-page.is-el-sorting .lbw-slides { display: none; }
+.lbw-page.is-el-sorting .lbw-el-main--row > .lbw-text { max-height: 1.6em; overflow: hidden; }
+.lbw-el.is-dragging.is-away { opacity: 0.4; }
 
 /* A grip: what a section is dragged by. */
 .lbw-grip {

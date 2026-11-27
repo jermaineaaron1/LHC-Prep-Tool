@@ -383,25 +383,113 @@ try {
   check('...but a reading a template slot holds: it keeps its slot\'s place', /slotLabel \? '' : _lbdElGrip\(\)/.test(itemHtml));
   check('the grip starts a part\'s drag, never its section\'s',
     /var eg = t\.closest\('\.lbw-page \[data-grip="el"\]'\);\s*if \(eg\) \{ _lbdElDown\(e, eg\); return; \}\s*var grip = t\.closest\('\[data-grip\], \.lbw-page \.lbw-h-num'\);/.test(fn('_lbdOnPointerDown')));
-  check('a part moves only among those of its kind in its own section',
+  check('a part moves among those of its kind, in whichever section the finger is over',
     /querySelectorAll\('\.lbw-el\[data-drag="' \+ kind \+ '"\]'\)/.test(fn('_lbdElGroup')) &&
-    /var rows = _lbdElGroup\(d\.body, d\.kind\), others = rows\.filter/.test(fn('_lbdElDragMove')));
-  check('the drop: songs through the medley-aware move, the rest reordered in allItems',
-    /moved = d\.kind === 'song' \? _lbdElMoveSong\(d\.sec, d\.id, _lbdElDropTarget\(d\.ids0, ids1, d\.id\)\) : _lbdElMoveItems\(d\.ids0, ids1\);/.test(fn('_lbdElEnd')) &&
+    /var sec = secs\[_lbdElSecIndex\(/.test(fn('_lbdElDragMove')) &&
+    /var rows = body \? _lbdElGroup\(body, d\.kind\) : \[\], others = rows\.filter/.test(fn('_lbdElDragMove')));
+  check('...a heading, a folded section or one with nothing of its kind is lit, and opens no room (the page does not shift under the finger)',
+    /var onHead = !others\.length \|\| !!\(hb && d\.y >= hb\.top && d\.y <= hb\.bottom\);/.test(fn('_lbdElDragMove')) &&
+    /if \(onHead\) \{ d\.dropSec = sec\.getAttribute\('data-sec'\); return; \}/.test(fn('_lbdElDragMove')));
+  check('the drop: within its section as before; into another, the songs\' or the parts\' own move across',
+    /moved = d\.kind === 'song' \? _lbdElMoveSong\(d\.sec, d\.id, _lbdElDropTarget\(d\.ids0, order, d\.id\)\) : _lbdElMoveItems\(d\.ids0, order\);/.test(fn('_lbdElEnd')) &&
+    /\? _lbdElSongAcross\(d\.id, d\.sec, toSec, at < 0 \? null : \(rest\[at\] \|\| null\)\)/.test(fn('_lbdElEnd')) &&
+    /: _lbdElItemAcross\(d\.id, toSec, at < 0 \? null : \(there\[at \+ 1\] \|\| null\)\);/.test(fn('_lbdElEnd')) &&
     /var out = _lbdElReorder\(all, ids0, ids1, _lbdItem\);/.test(fn('_lbdElMoveItems')));
   check('nothing redraws under a part being dragged; Escape lets it go; its click is not a click; a double-tap on the grip opens nothing',
     /if \(\(_lbdPD && _lbdPD\.on\) \|\| \(_lbdED && _lbdED\.on\)\) return;/.test(fn('lbdRender')) &&
     /if \(e\.key === 'Escape' && _lbdED && _lbdED\.on\) \{ e\.preventDefault\(\); _lbdElEnd\(false\); return; \}/.test(fn('_lbdOnDocKey')) &&
     /t\.closest\('\.lbw-nav, \.lbw-h, \.lbw-sec-body'\)/.test(fn('_lbdOnClick')) &&
     /\.lbw-note, \.lbw-margin, \.lbw-grip'\)\) \{ _lbdTap = null; return false; \}/.test(fn('_lbdDoubleTap')));
-  check('a lone song, or a lone part, does not lift', /if \(d\.ids0\.length < 2\) \{ _lbdElEnd\(false\); return; \}/.test(fn('_lbdElMove')));
+  check('a song or a part alone in its section lifts too: it can go to another', !/d\.ids0\.length < 2/.test(fn('_lbdElMove')));
   const css = SRC;
   check('a finger on the grip drags (the grip is a .lbw-grip: touch-action none); on a phone it is pinned beside the part, 26 x 40',
     /class="lbw-grip lbw-grip--el" data-grip="el"/.test(fn('_lbdElGrip')) &&
     /\.lbw--sm \.lbw-grip--el \{ position: absolute; left: 0; top: 4px; width: 26px; height: 40px;/.test(css) &&
     /\.lbw--sm \.lbw-el\[data-drag\] \{ padding-left: 30px; \}/.test(css));
-  check('while a part is held, the open ones are a line each', /\.lbw-sec-body\.is-el-sorting \.lbw-slides \{ display: none; \}/.test(css));
+  check('while a part is held, the open ones are a line each, in every section', /\.lbw-page\.is-el-sorting \.lbw-slides \{ display: none; \}/.test(css) &&
+    /if \(d\.page\) d\.page\.classList\.add\('is-el-sorting'\);/.test(fn('_lbdElBegin')));
 } catch (e) { check('parts dragged within their section can be run', false, e.message); }
+
+// ---------------------------------------------------------------------------
+// ...and into another section (2026-11-27). From the operator, circling a
+// song alone in Invocation and a prayer alone in Prayer of the Day: "allow
+// to drag and drop song items and prayers as well".
+console.log('\nparts dragged into another section');
+try {
+  const I = new Function(fn('_lbdElSecIndex') + '\nreturn _lbdElSecIndex;')();
+  const spans = [{ top: 0, bottom: 100 }, { top: 120, bottom: 300 }, { top: 310, bottom: 400 }];
+  check('the section the finger is over: the one holding it, else the nearer across a gap, the first above, the last below',
+    I(spans, 50) === 0 && I(spans, 200) === 1 && I(spans, 108) === 0 && I(spans, 115) === 1 && I(spans, -40) === 0 && I(spans, 900) === 2 && I([], 5) === -1);
+
+  // A song across, with the Songbook's rules: a medley together, a clash refused.
+  const secOf = { a: 'S1', b: 'S1', m1: 'S2', m2: 'S2', x: 'S3', dup: 'S3' };
+  const libOf = { a: 'L-a', b: 'L-b', m1: 'L-m1', m2: 'L-m2', x: 'L-x', dup: 'L-a' };
+  const mk = () => ['a', 'b', 'm1', 'm2', 'x', 'dup'].map(id => ({ id, songId: libOf[id], title: id }));
+  const toasts = [];
+  let changes = 0;
+  const songKit = (songs, medleys) => new Function('songOrderSections', 'secOf', 'medleys', 'log',
+    'var _woSongsTakenOutOfSections = {};\n' +
+    'function _woSectionList() { return [{ id: "S1" }, { id: "S2" }, { id: "S3" }]; }\n' +
+    'function _woSongSectionIds(s) { return secOf[s.id] ? [secOf[s.id]] : []; }\n' +
+    'function _lbdUnplaceSong(s, sec) { delete secOf[s.id]; }\n' +
+    'function _lbdPlaceSong(s, sec) { secOf[s.id] = sec; }\n' +
+    'function _lbdSortSongsByService() { var o = { S1: 0, S2: 1, S3: 2 }; var k = songOrderSections.map(function(s, i) { return { s: s, a: o[secOf[s.id]], i: i }; }); k.sort(function(p, q) { return p.a - q.a || p.i - q.i; }); songOrderSections.length = 0; k.forEach(function(e) { songOrderSections.push(e.s); }); }\n' +
+    'function _lbdSong(id) { return songOrderSections.filter(function(s) { return s.id === id; })[0] || null; }\n' +
+    'function _woMedleys() { return medleys; }\n' +
+    'function _woMedleyOf(id) { var m = medleys.filter(function(x) { return x.songs.indexOf(id) !== -1; })[0]; return m ? { medley: m, at: m.songs.indexOf(id), n: m.songs.length } : null; }\n' +
+    'function _woSongCopyIn(lib, sec) { return songOrderSections.filter(function(s) { return s.songId === lib && secOf[s.id] === sec; })[0] || null; }\n' +
+    'function _lbdSecTitle(id) { return id; }\n' +
+    'function showToast(m) { log.toasts.push(m); }\n' +
+    'function lbdUndo() {}\n' +
+    'function _lbdChange(f) { log.changes++; return f() !== false; }\n' +
+    ['_woUnits', '_woFlatUnits', '_woDropInSeq', '_woWriteSeq', '_lbdElSongAcross'].map(fn).join('\n') + '\nreturn _lbdElSongAcross;');
+  const log = { toasts, get changes() { return changes; }, set changes(v) { changes = v; } };
+  let songs = mk();
+  let A = songKit()(songs, secOf, [{ id: 'md', songs: ['m1', 'm2'] }], log);
+  let r = A('b', 'S1', 'S2', 'm1');
+  check('a song dropped into another section lands where it was let go -- above m1 here -- in one Undo step',
+    !!r && changes === 1 && secOf.b === 'S2' && songs.map(x => x.id).join() === 'a,b,m1,m2,x,dup', songs.map(x => x.id + ':' + secOf[x.id]).join());
+  r = A('m2', 'S2', 'S1', null);
+  check('...a song of a medley takes its medley with it, last in the section it goes to',
+    !!r && secOf.m1 === 'S1' && secOf.m2 === 'S1' && songs.map(x => x.id).join() === 'a,m1,m2,b,x,dup', songs.map(x => x.id + ':' + secOf[x.id]).join());
+  const c0 = changes;
+  r = A('a', 'S1', 'S3', null);
+  check('...and a section already singing that song refuses it, changing nothing', r === null && changes === c0 && secOf.a === 'S1' && /already sung in S3/.test(toasts[toasts.length - 1]), toasts.slice(-1)[0]);
+
+  // Any other part across, with lbdMoveItemToSection's rules.
+  const items = [
+    { id: 'o__liturgy_inv_S1', itemType: 'liturgy', sourceId: 'inv', sectionId: 'S1', title: 'Invocation' },
+    { id: 'o__liturgy_pod_S2', itemType: 'liturgy', sourceId: 'pod', sectionId: 'S2', title: 'Prayer of the Day' },
+    { id: 'o__liturgy_conf_S1', itemType: 'liturgy', sourceId: 'conf', sectionId: 'S1', title: 'Confession' },
+    { id: 'o__liturgy_pod_S3', itemType: 'liturgy', sourceId: 'pod', sectionId: 'S3', title: 'Prayer of the Day' },
+    { id: 't1', itemType: 'content', sectionId: 'S2', title: '' }
+  ];
+  const ilog = { toasts: [], noted: [], cleared: [], changes: 0 };
+  const B = new Function('currentOrderData', 'log',
+    'var _lbdCurEl = "", _lbdOpen = {};\n' +
+    'function _lbdItem(id) { var a = currentOrderData.allItems; for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i]; return null; }\n' +
+    'function _woSectionItems(sec) { return currentOrderData.allItems.filter(function(x) { return x.sectionId === sec; }); }\n' +
+    'function _lbdReadingTaken() { return false; }\n' +
+    'function _lbdSecTitle(id) { return id; }\n' +
+    'function _lbdPfx() { return "o__"; }\n' +
+    'function _lbdNoteCleared(sec, src) { log.noted.push(sec + ":" + src); }\n' +
+    'function _lbdClearClearedFor(sec) { log.cleared.push(sec); }\n' +
+    'function showToast(m) { log.toasts.push(m); }\n' +
+    'function lbdUndo() {}\n' +
+    'function _lbdChange(f) { log.changes++; return f() !== false; }\n' +
+    fn('_lbdElItemAcross') + '\nreturn _lbdElItemAcross;')({ allItems: items }, ilog);
+  const res = B('o__liturgy_pod_S2', 'S1', 'o__liturgy_conf_S1');
+  check('a prayer dropped into another section goes before the part it was let go above, its id naming its new section',
+    res && res.id === 'o__liturgy_pod_S1' && items.map(x => x.id).join() === 'o__liturgy_inv_S1,o__liturgy_pod_S1,o__liturgy_conf_S1,o__liturgy_pod_S3,t1' && ilog.changes === 1,
+    items.map(x => x.id).join());
+  check('...the section it left noted as emptied of it, the one it joined let go, one Undo step',
+    ilog.noted.join() === 'S2:pod' && ilog.cleared.join() === 'S1');
+  const tx = B('t1', 'S3', null);
+  check('...a part let go on a heading goes last of the section', tx && items[items.length - 1].id === 't1' && items[items.length - 1].sectionId === 'S3', items.map(x => x.id + ':' + x.sectionId).join());
+  const ch = ilog.changes;
+  check('...and a section that already has that liturgy refuses it, changing nothing',
+    B('o__liturgy_pod_S1', 'S3', null) === null && ilog.changes === ch && /S3 already has/.test(ilog.toasts[ilog.toasts.length - 1]));
+} catch (e) { check('parts dragged into another section can be run', false, e.message); }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (EXPECT_BROKEN) {

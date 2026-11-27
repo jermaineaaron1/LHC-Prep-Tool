@@ -2875,6 +2875,17 @@ const CASES = [
     s => s.replace("    var dragA = slotLabel ? '' : ' data-drag=\"item\"', grip = slotLabel ? '' : _lbdElGrip();", "    var dragA = ' data-drag=\"item\"', grip = _lbdElGrip();")],
   ['builder-section-drag-harness.js', 'the page redraws under a part being dragged',
     s => s.replace("    if ((_lbdPD && _lbdPD.on) || (_lbdED && _lbdED.on)) return;", "    if (_lbdPD && _lbdPD.on) return;")],
+  // Parts dragged into another section (2026-11-27, gotcha 121).
+  ['builder-section-drag-harness.js', 'a song dragged into another section lands last, not where it was let go',
+    s => s.replace("      if (toId) {\r\n        var inSec = songOrderSections.filter", "      if (false) {\r\n        var inSec = songOrderSections.filter")],
+  ['builder-section-drag-harness.js', 'a song is dragged into a section that already sings it',
+    s => s.replace("is already sung in ' + title + '.', 'info'); return null; }", "is already sung in ' + title + '.', 'info'); }")],
+  ['builder-section-drag-harness.js', 'a liturgy dragged to another section keeps an id naming the old one',
+    s => s.replace("      if (it.itemType === 'liturgy') { it.id = newId; _lbdNoteCleared(from, it.sourceId); }", "")],
+  ['builder-section-drag-harness.js', 'an empty section opens room as the finger passes, and the page shifts under it',
+    s => s.replace("    var onHead = !others.length || !!(hb && d.y >= hb.top && d.y <= hb.bottom);", "    var onHead = !body || !!(hb && d.y >= hb.top && d.y <= hb.bottom);")],
+  ['builder-section-drag-harness.js', 'a finger past the last section, or in a gap, is held over the first section instead',
+    s => s.replace("      if (dd < dist) { dist = dd; best = i; }", "")],
   // A read-back compared whatever order jsonb gives its keys (2026-11-27, gotcha 120).
   ['liturgy-sundays-harness.js', 'a read-back is compared key order and all again',
     s => s.replace("    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; }).sort()", "    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined && typeof v[k] !== 'function'; })")],
