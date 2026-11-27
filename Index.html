@@ -82880,8 +82880,8 @@ var WO = (function() {
   function lbdRender() {
     var host = $('woLiturgyBuilder');
     if (!host || !_lbdIsActive() || !currentOrderData) return;
-    // A section being dragged: the drop redraws (gotcha 85).
-    if (_lbdPD && _lbdPD.on) return;
+    // A section or a part being dragged: the drop redraws (gotchas 85, 121).
+    if ((_lbdPD && _lbdPD.on) || (_lbdED && _lbdED.on)) return;
     if (!_lbdPrefsRead) { _lbdPrefsRead = true; _lbdPrefs(); }
     _lbdBind(host);
     _lbdWatchLayout();
@@ -83273,6 +83273,11 @@ var WO = (function() {
     '</section>';
   }
 
+  // What a part is dragged by within its section (2026-11-27).
+  function _lbdElGrip() {
+    return '<span class="lbw-grip lbw-grip--el" data-grip="el" title="Drag to move it within this section" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>';
+  }
+
   function _lbdSongHtml(s, sec) {
     var meta = [];
     if (s.artist) meta.push(s.artist);
@@ -83285,7 +83290,7 @@ var WO = (function() {
     }
     var cur = _lbdCurSec === sec.id && _lbdCurEl === 'song:' + s.id;
     var md = _woMedleyOf(s.id);
-    return '<div class="lbw-el lbw-el--song' + (cur ? ' is-current' : '') + (md ? ' lbw-el--md' : '') + '" data-song="' + _lbdEsc(s.id) + '">' +
+    return '<div class="lbw-el lbw-el--song' + (cur ? ' is-current' : '') + (md ? ' lbw-el--md' : '') + '" data-song="' + _lbdEsc(s.id) + '" data-drag="song">' + _lbdElGrip() +
       '<div class="lbw-el-line">' +
         '<span class="lbw-kind">Song</span>' +
         (md ? '<span class="lbw-md" title="Sung straight into the next song: a medley">Medley ' + (md.at + 1) + '/' + md.n + '</span>' : '') +
@@ -83339,25 +83344,27 @@ var WO = (function() {
     var kind = _lbdKindOf(it, slotLabel);
     var prayer = t === 'liturgy' && kind === 'Prayer';
     var open0 = '<div class="lbw-el lbw-el--' + _lbdEsc(t) + (prayer ? ' lbw-el--prayer' : '') + (cur ? ' is-current' : '');
+    // A reading a template slot holds keeps the slot's place: no grip.
+    var dragA = slotLabel ? '' : ' data-drag="item"', grip = slotLabel ? '' : _lbdElGrip();
     var tools = '<span class="lbw-tools">' +
       (t === 'liturgy' || t === 'scripture' || t === 'content'
         ? '<button type="button" class="lbw-tb" data-act="el-allslides" title="All Slides: this part\'s slides as one text" aria-label="All Slides for ' + _lbdEsc(it.title || kind) + '"><i class="fa-solid fa-align-left"></i></button>' : '') +
       '<button type="button" class="lbw-tb" data-act="el-menu" title="Options" aria-label="Options for ' +
       _lbdEsc(it.title || kind) + '"><i class="fa-solid fa-ellipsis"></i></button></span>';
     if (t === 'content') {
-      return open0 + '" data-item="' + _lbdEsc(it.id) + '">' +
+      return open0 + '" data-item="' + _lbdEsc(it.id) + '"' + dragA + '>' + grip +
         '<div class="lbw-el-main lbw-el-main--row"><span class="lbw-kind">Text</span><div class="lbw-text"' + _lbdCE('content-text', ' role="textbox" aria-multiline="true" aria-label="Text slide" data-ph="Type the words for this slide"') + '>' +
           _lbdEsc((it.content && it.content.text) || '') + '</div></div>' + tools + '</div>';
     }
     if (t !== 'liturgy' && t !== 'scripture') {
-      return open0 + '" data-item="' + _lbdEsc(it.id) + '">' +
+      return open0 + '" data-item="' + _lbdEsc(it.id) + '"' + dragA + '>' + grip +
         '<div class="lbw-el-line"><span class="lbw-kind">' + kind + '</span><span class="lbw-el-title">' + _lbdEsc(it.title || kind) + '</span>' +
           '<span class="lbw-el-meta">set up in LCD Projection</span></div>' + tools + '</div>';
     }
     var slides = Array.isArray(it.slides) ? it.slides : [];
     var doc = _lbdView === 'document';
     var open = doc || !!_lbdOpen[key];
-    var h = open0 + (open ? ' is-open' : '') + '" data-item="' + _lbdEsc(it.id) + '"><div class="lbw-el-main">';
+    var h = open0 + (open ? ' is-open' : '') + '" data-item="' + _lbdEsc(it.id) + '"' + dragA + '>' + grip + '<div class="lbw-el-main">';
     if (!open) {
       var peek = '';
       if (t === 'liturgy') peek = slides.map(function(s) { return s && s.content; }).join(' ');
@@ -87354,7 +87361,7 @@ var WO = (function() {
   var _lbdTap = null;
   function _lbdDoubleTap(e, t) {
     var el = t.closest && t.closest('.lbw-el');
-    if (!el || t.closest('button, a, input, select, textarea, [data-field="slide"], [data-field="content-text"], .lbw-note, .lbw-margin')) { _lbdTap = null; return false; }
+    if (!el || t.closest('button, a, input, select, textarea, [data-field="slide"], [data-field="content-text"], .lbw-note, .lbw-margin, .lbw-grip')) { _lbdTap = null; return false; }
     var k = el.getAttribute('data-song') ? 'song:' + el.getAttribute('data-song') : (el.getAttribute('data-item') ? 'item:' + el.getAttribute('data-item') : '');
     if (!k) return false;
     var now = Date.now();
@@ -87415,7 +87422,7 @@ var WO = (function() {
     var t = e.target;
     if (!t.closest) return;
     // The click that ends a drag is not a click.
-    if (Date.now() - _lbdSuppressClick < 450 && t.closest('.lbw-nav, .lbw-h')) { e.preventDefault(); return; }
+    if (Date.now() - _lbdSuppressClick < 450 && t.closest('.lbw-nav, .lbw-h, .lbw-sec-body')) { e.preventDefault(); return; }
     var c = _lbdCtx(t);
     if (c.sec && !t.closest('.lbw-nav')) _lbdSetCur(c.sec, _lbdElKey(t, c));
     if (_lbdDoubleTap(e, t) || _lbdHeadDoubleTap(e, t)) return;
@@ -87863,7 +87870,9 @@ var WO = (function() {
     // (a mouse is held off by _lbdOnMouseDown); the click still comes.
     if (e.pointerType !== 'mouse' && t.closest('.lbw-fb, .lbw-kb-b, .lbw-rb, .lbw-seg-b, .lbw-mb, .lbw-add')) e.preventDefault();
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (_lbdPD) return;              // a second finger
+    if (_lbdPD || _lbdED) return;    // a second finger
+    var eg = t.closest('.lbw-page [data-grip="el"]');
+    if (eg) { _lbdElDown(e, eg); return; }
     var grip = t.closest('[data-grip], .lbw-page .lbw-h-num');
     var free = grip ? null : _lbdHeadFree(t);
     var row = !grip && !free && e.pointerType === 'mouse' ? t.closest('.lbw-nav-item') : null;
@@ -88054,6 +88063,179 @@ var WO = (function() {
     sec.classList.add('is-flash');
   }
 
+  // ── Dragging a part within its section ──────────────────────────────────
+  // From the operator (2026-11-27), on a screenshot of a section's parts:
+  // "allow the user to drag and drop the subsection within a section". A part
+  // is picked up by its grip -- the mouse or a finger: the grip is
+  // touch-action: none, so a finger on it drags and never scrolls -- and moves
+  // among the parts it can be ordered among: a section's SONGS among its songs,
+  // and its other parts (liturgy, prayers, text, readings no template slot
+  // holds) among themselves. Songs stay above the rest because every view
+  // draws them so -- LCD Projection puts a section's songs in first and its
+  // items after -- and the order is kept as two lists, songOrderSections and
+  // allItems. A reading in a template slot keeps the slot's place and has no
+  // grip. While one is held the open parts fold to a line (.is-el-sorting), the
+  // one held kept under the finger. The drop is one _lbdChange (one Undo); a
+  // song in a medley takes its medley with it (_woDropInSeq), and the page
+  // drawn after shows where it went; Escape, or a drop where it started,
+  // changes nothing. CLAUDE.md gotcha 121.
+  var _lbdED = null;
+
+  // The part the one dragged takes the place of (pure): ids0 the group's order
+  // when it was picked up, ids1 as it was let go. Moved down it lands after
+  // that part, moved up before it -- what _woDropInSeq takes. null: not moved.
+  function _lbdElDropTarget(ids0, ids1, id) {
+    var i0 = ids0.indexOf(id), i1 = ids1.indexOf(id);
+    if (i0 < 0 || i1 < 0 || i0 === i1) return null;
+    return ids0[i1] || null;
+  }
+
+  // A section's parts put in the order let go (pure but for `find`): in the
+  // places they held in allItems, each place keeping its sortOrder. null when
+  // a part cannot be found.
+  function _lbdElReorder(all, ids0, ids1, find) {
+    var oldSeq = ids0.map(find), newSeq = ids1.map(find);
+    if (oldSeq.length !== newSeq.length || oldSeq.concat(newSeq).some(function(x) { return !x; })) return null;
+    var sorts = oldSeq.map(function(x) { return x.sortOrder; });
+    var out = _woWriteSeq(all, oldSeq, newSeq);
+    newSeq.forEach(function(x, k) { if (sorts[k] !== undefined) x.sortOrder = sorts[k]; });
+    return out;
+  }
+
+  function _lbdElGroup(body, kind) {
+    return Array.prototype.slice.call(body.querySelectorAll('.lbw-el[data-drag="' + kind + '"]'));
+  }
+  function _lbdElIdOf(row) {
+    return row.getAttribute(row.getAttribute('data-drag') === 'song' ? 'data-song' : 'data-item');
+  }
+
+  function _lbdElDown(e, grip) {
+    var row = grip.closest('.lbw-el[data-drag]');
+    var body = row && row.closest('.lbw-sec-body'), sec = row && row.closest('.lbw-sec[data-sec]');
+    if (!row || !body || !sec) return;
+    e.preventDefault();
+    var kind = row.getAttribute('data-drag');
+    _lbdED = { row: row, body: body, sec: sec.getAttribute('data-sec'), kind: kind, id: _lbdElIdOf(row),
+               ids0: _lbdElGroup(body, kind).map(_lbdElIdOf), touch: e.pointerType !== 'mouse',
+               x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false };
+    document.addEventListener('pointermove', _lbdElMove);
+    document.addEventListener('pointerup', _lbdElUp);
+    document.addEventListener('pointercancel', _lbdElCancel);
+  }
+
+  function _lbdElMove(e) {
+    var d = _lbdED;
+    if (!d) return;
+    d.x = e.clientX;
+    d.y = e.clientY;
+    if (!d.on) {
+      if (Math.abs(d.y - d.y0) < 6 && Math.abs(d.x - d.x0) < 6) return;
+      if (d.ids0.length < 2) { _lbdElEnd(false); return; }   // nothing to move among
+      _lbdElBegin();
+    }
+    e.preventDefault();
+    _lbdElDragMove();
+  }
+
+  function _lbdElBegin() {
+    var d = _lbdED, top0 = d.row.getBoundingClientRect().top;
+    d.on = true;
+    _lbdCloseMenu();
+    d.row.classList.add('is-dragging');
+    d.body.classList.add('is-el-sorting');
+    window.scrollBy(0, d.row.getBoundingClientRect().top - top0);
+    var g = document.createElement('div');
+    g.className = 'lbw-ghost';
+    g.innerHTML = '<i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>';
+    var name = d.row.querySelector('.lbw-el-title') || d.row.querySelector('.lbw-text') || d.row.querySelector('.lbw-kind');
+    g.appendChild(document.createTextNode(name ? String(name.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : ''));
+    document.body.appendChild(g);
+    d.ghost = g;
+    document.documentElement.classList.add('lbw-dragging');
+    d.timer = setInterval(_lbdElAutoScroll, 30);
+  }
+
+  // The part held goes where the finger is, among the parts of its kind.
+  function _lbdElDragMove() {
+    var d = _lbdED;
+    if (!d || !d.on) return;
+    d.ghost.style.transform = 'translate(' + Math.round(d.x + 14) + 'px,' + Math.round(d.y - 16) + 'px)';
+    var rows = _lbdElGroup(d.body, d.kind), others = rows.filter(function(r) { return r !== d.row; });
+    if (!others.length) return;
+    var c = _lbdDropSlot(others.map(function(r) { var b = r.getBoundingClientRect(); return b.top + b.height / 2; }), d.y);
+    if (rows.indexOf(d.row) === c) return;
+    d.row.parentNode.insertBefore(d.row, others[c] || others[others.length - 1].nextSibling);
+  }
+
+  function _lbdElAutoScroll() {
+    var d = _lbdED;
+    if (!d || !d.on) return;
+    var vv = window.visualViewport, top = vv ? vv.offsetTop : 0, bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    var v = d.y < top + 120 ? -14 : d.y > bottom - 60 ? 14 : 0;
+    if (v) { window.scrollBy(0, v); _lbdElDragMove(); }
+  }
+
+  function _lbdElUp() { _lbdElEnd(true); }
+  function _lbdElCancel() { _lbdElEnd(false); }
+
+  // drop: put the part where it was let go; otherwise leave it where it was.
+  function _lbdElEnd(drop) {
+    var d = _lbdED;
+    _lbdED = null;
+    document.removeEventListener('pointermove', _lbdElMove);
+    document.removeEventListener('pointerup', _lbdElUp);
+    document.removeEventListener('pointercancel', _lbdElCancel);
+    if (!d || !d.on) return;
+    clearInterval(d.timer);
+    if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+    document.documentElement.classList.remove('lbw-dragging');
+    _lbdSuppressClick = Date.now();
+    var ids1 = _lbdElGroup(d.body, d.kind).map(_lbdElIdOf);
+    var y = d.row.getBoundingClientRect().top;
+    var moved = false;
+    if (drop) {
+      moved = d.kind === 'song' ? _lbdElMoveSong(d.sec, d.id, _lbdElDropTarget(d.ids0, ids1, d.id)) : _lbdElMoveItems(d.ids0, ids1);
+    }
+    // Nothing changed: draw the page as it was (its open parts open again).
+    if (!moved) lbdRender();
+    var host = $('woLiturgyBuilder');
+    var nr = host && host.querySelector('.lbw-page .lbw-sec-body .lbw-el[' + (d.kind === 'song' ? 'data-song' : 'data-item') + '="' + _lbdCssId(d.id) + '"]');
+    if (!nr) return;
+    // The page unfolds round the part let go, which stays under the finger.
+    window.scrollBy(0, nr.getBoundingClientRect().top - y);
+    if (!moved) return;
+    nr.classList.remove('is-flash');
+    void nr.offsetWidth;
+    nr.classList.add('is-flash');
+  }
+
+  // A song dropped on another's place in its section: one Undo step.
+  function _lbdElMoveSong(secId, id, toId) {
+    if (!toId) return false;
+    var list = _woSectionList();
+    var inSec = songOrderSections.filter(function(s) { return _woSongSectionIds(s, list).indexOf(secId) !== -1; });
+    var next = _woDropInSeq(inSec, id, toId, _woMedleys());
+    if (!next || next.map(function(s) { return s.id; }).join('\n') === inSec.map(function(s) { return s.id; }).join('\n')) return false;
+    return _lbdChange(function() {
+      var out = _woWriteSeq(songOrderSections, inSec, next);
+      songOrderSections.length = 0;
+      Array.prototype.push.apply(songOrderSections, out);
+    });
+  }
+
+  // A section's other parts put in the order let go: one Undo step.
+  function _lbdElMoveItems(ids0, ids1) {
+    if (ids0.join('\n') === ids1.join('\n')) return false;
+    if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return false;
+    return _lbdChange(function() {
+      var all = currentOrderData.allItems;
+      var out = _lbdElReorder(all, ids0, ids1, _lbdItem);
+      if (!out) return false;
+      all.length = 0;
+      Array.prototype.push.apply(all, out);
+    });
+  }
+
   // ── Dragging from the library ───────────────────────────────────────────
   var _lbdLibDrag = null;
 
@@ -88123,6 +88305,7 @@ var WO = (function() {
   // own undo of the typing.
   function _lbdOnDocKey(e) {
     if (e.key === 'Escape' && _lbdPD && _lbdPD.on) { e.preventDefault(); _lbdDragEnd(false); return; }
+    if (e.key === 'Escape' && _lbdED && _lbdED.on) { e.preventDefault(); _lbdElEnd(false); return; }
     // Escape closes a pane slid over the page (a menu or dialog closes first).
     if (e.key === 'Escape' && _lbdDrawer && _lbdIsActive() && !_lbdMenu && !_lbdSheetState) { _lbdCloseDrawer(); return; }
     if (!(e.ctrlKey || e.metaKey) || e.altKey || !_lbdIsActive()) return;
@@ -133427,6 +133610,22 @@ body.wo-lbd-on #worshipOrderView .wo-order-btn.active .wo-step-num { background:
   border: 1px solid #b9d6c1; border-radius: 9px; background: #fff; color: var(--lbw-green); font-size: 13.5px; font-weight: 700; cursor: pointer;
 }
 .lbw-nav-add:hover { background: #f0f8f2; }
+
+/* A part's grip (2026-11-27, gotcha 121): what a part is dragged by within
+   its section. Faint until the part is pointed at; plain on a touch screen,
+   which never points. */
+.lbw-grip--el { width: 18px; height: 26px; margin: 0 -4px 0 -6px; font-size: 11px; color: #c0ccc2; }
+.lbw-el:hover > .lbw-grip--el, .lbw-el.is-current > .lbw-grip--el { color: #6f8f78; }
+@media (hover: none) { .lbw-grip--el { color: #8aa694; } }
+/* A phone's parts wrap (their tools go under them), so the grip is pinned to
+   the part's left edge rather than taking a line of its own. */
+.lbw--sm .lbw-el[data-drag] { padding-left: 30px; }
+.lbw--sm .lbw-grip--el { position: absolute; left: 0; top: 4px; width: 26px; height: 40px; margin: 0; font-size: 14px; color: #8aa694; }
+.lbw-el.is-dragging { background: #fff; border: 2px dashed var(--lbw-green); }
+.lbw-el.is-dragging > :not(.lbw-grip) { opacity: 0.55; }
+/* While a part is held, the open ones are a line each. */
+.lbw-sec-body.is-el-sorting .lbw-slides { display: none; }
+.lbw-sec-body.is-el-sorting .lbw-el-main--row > .lbw-text { max-height: 1.6em; overflow: hidden; }
 
 /* A grip: what a section is dragged by. */
 .lbw-grip {

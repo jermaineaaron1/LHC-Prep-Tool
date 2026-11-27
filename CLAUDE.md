@@ -6807,6 +6807,39 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/liturgy-sundays-harness.js` checks it, running the page's own
     `lhcJsonSame` and the slides save with a read-back in another key order.
 
+121. **A part is dragged within its section by its grip; songs stay above
+    the rest.** From the operator (2026-11-27), on a screenshot of GATHERING's
+    parts: "allow the user to drag and drop the subsection within a section".
+    Every song in a section and every other part (liturgy, prayer, text, a
+    reading no template slot holds) carries a grip (`_lbdElGrip`, `data-grip="el"`,
+    the row `data-drag="song"` or `"item"`); `_lbdOnPointerDown` sends a grip
+    to `_lbdElDown` BEFORE the section drag looks at `[data-grip]`, or the grip
+    would pick up its whole section. A part moves only among those of its kind
+    in its own section (`_lbdElGroup`): a section's songs among its songs, the
+    rest among the rest. That is not a choice of this feature: LCD Projection
+    puts a section's songs in first and its items after (`openOrderInEditor`'s
+    Path 1 before Path 3), and the order is kept as two lists --
+    `songOrderSections` and `allItems` -- so a song between two liturgy parts
+    could not be stored or projected. Moving a song there would need one order
+    key across both lists, in the save, the LCD, the Songbook and the export.
+    A reading a template slot holds keeps the slot's place (`_lbdItemsHtml`
+    draws slot readings first whatever `allItems` says) and has no grip. While
+    one is held the open parts fold to a line (`.is-el-sorting`), the one held
+    kept under the finger (the grip is `touch-action: none`, so a finger drags
+    at once and never scrolls). The drop is one `_lbdChange`: songs through
+    `_woDropInSeq` (a medley moves as one) with `_lbdElDropTarget` (pure) naming
+    the song it takes the place of; the rest through `_lbdElReorder` (pure but
+    for its finder): the parts written back into the places they held in
+    `allItems`, each place keeping its `sortOrder`. Escape, a drop where it
+    started, or a lone part changes nothing; no redraw lands mid-drag
+    (`lbdRender` waits on `_lbdED`); the click a drag ends in is swallowed
+    (`_lbdSuppressClick` over `.lbw-sec-body`), and a double-tap on a grip opens
+    nothing. On a phone the grip is pinned to the part's left edge
+    (`.lbw--sm .lbw-el[data-drag]` padding 30px): a phone's parts wrap, and in
+    the row it took a line of its own. The menus' Move up / Move down stay.
+    `tools/builder-section-drag-harness.js` checks it, running the target, the
+    reorder and the song move with a medley.
+
 ## Quick Commands for Claude Code
 
 ```bash
