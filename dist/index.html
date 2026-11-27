@@ -93917,7 +93917,22 @@ var WO = (function() {
     return blocks;
   }
   function _lcdBlocksText(blocks) {
-    return (blocks || []).map(function(b) { return b.lines.join('\n'); }).join('\n');
+    var list = (blocks || []).map(function(b) { return (b.lines || []).slice(); });
+    // The separator belongs to the block BEFORE it, so a block moved from the
+    // end of the song arrives carrying none and runs straight into whatever
+    // now follows it -- while the block left at the end keeps a trailing
+    // blank line, which the data audit reports as a fault of its own. Put the
+    // boundaries right here, at the join; the blank lines INSIDE a block are
+    // the song writer's (they split a verse across slides) and are untouched.
+    for (var i = 0; i < list.length; i++) {
+      var lines = list[i];
+      if (i < list.length - 1) {
+        if (!lines.length || String(lines[lines.length - 1]).trim()) lines.push('');
+      } else {
+        while (lines.length && !String(lines[lines.length - 1]).trim()) lines.pop();
+      }
+    }
+    return list.map(function(lines) { return lines.join('\n'); }).join('\n');
   }
   // The k-th LABELLED block moved to the j-th labelled place. The preamble
   // never moves. Returns null when either index is out of range, so a caller

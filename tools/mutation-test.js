@@ -2122,6 +2122,15 @@ const CASES = [
     s => s.replace("      if (targetSectionId && targetSectionId !== moving.sec) _lcdItemToSection(moving, targetSectionId);", "")],
   ['lcd-rail-reorder-harness.js', 'the part badges stop being draggable at all',
     s => s.replace('<div class="lcd-rail-part" draggable="true" data-part="', '<div class="lcd-rail-part" data-part="')],
+  // ---- Found by npm run audit (2026-11-27) ----------------------------
+  ['lcd-rail-reorder-harness.js', 'a part moved from the end runs straight into the next one',
+    s => s.replace("      if (i < list.length - 1) {\r\n        if (!lines.length || String(lines[lines.length - 1]).trim()) lines.push('');\r\n      } else {",
+                   "      if (false) {\r\n      } else {")],
+  ['lcd-rail-reorder-harness.js', '...and the song is left ending in a blank line',
+    s => s.replace("        while (lines.length && !String(lines[lines.length - 1]).trim()) lines.pop();", "")],
+  ['lcd-rail-reorder-harness.js', 'the blank lines inside a verse are normalised away too',
+    s => s.replace("    var list = (blocks || []).map(function(b) { return (b.lines || []).slice(); });",
+                   "    var list = (blocks || []).map(function(b) { return (b.lines || []).filter(function(l) { return String(l).trim(); }); });")],
   // ---- Round three (2026-11-27): the slides stopped lighting up -------
   ['lcd-rail-reorder-harness.js', 'the media drop zone paints every slide the pointer crosses again',
     s => s.replace("  function _lcdRailDragging() {\r\n    return !!(_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId ||\r\n              _lcdDragItem || _lcdDragRunId);\r\n  }",
