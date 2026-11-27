@@ -6726,6 +6726,37 @@ the anon key -- verify as `postgres`, not as the app.
       them first, which is safe THERE and nowhere else: the count check has
       already established that every heading the song has comes from a marker
       in the words.
+    - **The whole subsection is the drop target, not its heading** (the
+      operator, 2026-11-27: "make it that they don't have to reach all the
+      way to the subsection header"). The heading starts the drag; the RAIL
+      takes the drop, delegated and bound once (`rail.__lcdItemDrop` -- the
+      rail outlives a render), so a part badge or any slide row resolves
+      through `_lcdItemAtEl` to the subsection that owns it. Which SIDE it
+      lands on is read from that subsection's whole block
+      (`_lcdItemBlockRows`, `_lcdItemSide`), never from the row under the
+      pointer, or the answer would flip as the pointer crossed each slide;
+      the marker is drawn on the block's own edge. A reading is still no
+      target (`data-source="scripture"` -> null).
+    - **After a move the rail stays on what moved** (the operator: "I want
+      the focus to remain at the sections that I have changed positions").
+      `_lcdRailHoldScroll` pins the scroll where it WAS, which is a
+      different thing -- the moved section is elsewhere now.
+      `_lcdRailFocusOn(find)` runs AFTER the redraw, brings the row to the
+      middle, and holds it against `_lcdWatchSelectedRow`, which otherwise
+      reveals the projecting slide. It retries (the render is not always
+      synchronous) and each tick FINDS THE ROW AGAIN: a save refreshes the
+      rail ~120ms later and replaces the nodes, so a held reference goes
+      stale. The `lcd-rail-just-moved` glow is re-applied by
+      `_lcdRenderCompactRail` itself, because that render is what replaced
+      the node the mark was on.
+    - **Add New Section offers the Builder's own kinds, and SAVES.** It
+      already reached the Builder in-session (both write `sectionLayout`),
+      but it never called `autoSaveOrder`, so a section added and then
+      reloaded was gone -- which is not "added". `addNewSection` now opens
+      `_LBD_SEC_KINDS` through `_lbdOpenMenu` and `_lcdMakeSection` saves,
+      redraws and focuses. It cannot call the Builder's own
+      `lbdAddSection`: that goes through `_lbdChange`, which must not run
+      while the schedule is in the page (gotcha 35).
     - Known limit, stated rather than discovered: a per-slide BACKGROUND does
       not travel with a moved part. Both the re-split and `_lcdRestoreSectionBgs`
       key a background by its place, so it stays with the position. Most songs
