@@ -21068,7 +21068,11 @@ async function _extractDocxText(file) {
 
 function _formatLyricsForSlides(rawText) {
   var CHORD_TOKEN = /^[A-G][#b]?(maj7?|min7?|m[0-9]?|M7?|dim7?|aug|sus[24]?|add9?|[0-9]+)?(\/[A-G][#b]?)?$/;
-  var SECTION_RE = /^(verse|chorus|bridge|pre-chorus|pre chorus|intro|outro|interlude|hook|vamp|tag|coda|refrain|turn|breakdown)\s*\d*[:\.]?\s*$/i;
+  // Sections are read by lhcSectionTag, the one reading the editor and the
+  // outline use. This path had its own, which already took a colon and already
+  // wrote "[Verse 1]" -- it simply pre-dated the other. Its extra words moved
+  // into the shared list, so nothing it used to recognise is lost, and its
+  // spelling is now the app's ("Pre-Chorus", not "Pre-chorus").
 
   function isChordLine(line) {
     var tokens = line.trim().split(/\s+/).filter(Boolean);
@@ -21078,10 +21082,7 @@ function _formatLyricsForSlides(rawText) {
   }
 
   function toSectionHeader(line) {
-    var m = line.trim().match(/^(verse|chorus|bridge|pre-?chorus|intro|outro|interlude|hook|vamp|tag|coda|refrain|turn|breakdown)\s*(\d*)/i);
-    if (!m) return null;
-    var label = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
-    return '[' + label + (m[2] ? ' ' + m[2] : '') + ']';
+    return lhcSectionTag(line);
   }
 
   var lines = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -21599,9 +21600,7 @@ function renderRichEditor(text) {
 
   // Check if line is a section header without brackets (e.g., "Verse 1", "Chorus", "Bridge")
   function isSectionHeaderNoBrackets(line) {
-    var trimmed = line.trim().toLowerCase();
-    // Match patterns like "verse", "verse 1", "chorus", "pre-chorus", "bridge", "ending", "outro"
-    return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(line.trim());
+    return !!lhcSectionTag(line);
   }
 
   var lines = text.split('\n');
@@ -21610,17 +21609,13 @@ function renderRichEditor(text) {
   lines.forEach(function(line, idx) {
     var trimmed = line.trim();
 
-    // Check for section header [Verse], [Chorus], etc. (with brackets)
-    var headerMatch = trimmed.match(/^\[(.+)\]$/);
-    if (headerMatch) {
-      var sectionType = getSectionType(headerMatch[1]);
-      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(trimmed) + '</div>';
-    }
-    // Check for section header without brackets (e.g., "Verse 1", "Chorus")
-    // Display with brackets so they look consistent with [bracket] style headers
-    else if (isSectionHeaderNoBrackets(trimmed)) {
-      var sectionType = getSectionType(trimmed);
-      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">[' + esc(trimmed) + ']</div>';
+    // One reading of what a marker is, and the tag drawn is the tag the save
+    // will write -- "Verse :" shows as [Verse], so nothing changes shape under
+    // the operator when they press Save.
+    var tag = lhcSectionTag(trimmed);
+    if (tag) {
+      var sectionType = getSectionType(tag.slice(1, -1));
+      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(tag) + '</div>';
     }
     else if (isChordLine(line)) {
       // Keep chord line simple to preserve exact spacing
@@ -21642,9 +21637,12 @@ function _lyricsParseSections(text) {
   var lines = String(text || '').split('\n');
   var out = [], cur = null;
   lines.forEach(function(line, i) {
-    var m = line.match(/^\s*\[([^\]]+)\]\s*$/);
-    if (m) {
-      cur = { name: m[1].trim(), line: i, lines: 0 };
+    // Through the shared reading, so an outline appears the moment somebody
+    // types "Verse:" -- which is what the operator was looking at when it
+    // still said "Add a section marker like [Verse 1]".
+    var tag = (typeof lhcSectionTag === 'function') ? lhcSectionTag(line) : null;
+    if (tag) {
+      cur = { name: tag.slice(1, -1), line: i, lines: 0 };
       out.push(cur);
     } else if (cur && line.trim()) {
       cur.lines++;
@@ -21964,7 +21962,7 @@ function updateLyricsLivePreview() {
 
   // Check if line is a section header without brackets
   function isSectionHeaderNoBrackets(line) {
-    return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(line.trim());
+    return !!lhcSectionTag(line);
   }
 
   // The LCD's own splitter decides where a slide ends, so this preview and
@@ -22886,6 +22884,50 @@ var CHORD_TOKEN_RE = /^[A-G][#b]?(?:(?:m(?:aj|in|M)?|M(?:aj)?|dim|aug|sus|add|do
 // that reading a chord and MOVING a chord can never disagree: detection
 // alone would turn "F♯m" from a chord nobody could adjust into one that
 // adjusts wrongly, since transposeChord reads its root as plain F.
+// The sections people actually type. A section marker is the only line in a
+// song that names a part rather than being sung, so the list is closed: any
+// other single word is a lyric.
+var _LHC_SECTION_NAMES = {
+  verse: 'Verse', chorus: 'Chorus', bridge: 'Bridge', prechorus: 'Pre-Chorus',
+  ending: 'Ending', outro: 'Outro', intro: 'Intro', tag: 'Tag',
+  interlude: 'Interlude', refrain: 'Refrain', coda: 'Coda', vamp: 'Vamp',
+  // From the document importer, which read these before this did.
+  hook: 'Hook', turn: 'Turn', breakdown: 'Breakdown'
+};
+
+// Is this line a section marker, and what is it called? Returns the marker in
+// the ONE form the rest of the app reads -- "[Verse 1]" -- or null.
+//
+// "[Verse 1]" as before, and the bare forms people type: "Verse", "Verse 1",
+// "Verse:", "Verse :", "VERSE 2 :". The colon has to END the line, because
+// "Chorus: Holy holy" is somebody singing, not a heading.
+function lhcSectionTag(line) {
+  var t = String(line == null ? '' : line).trim();
+  if (!t) return null;
+  var br = t.match(/^\[([^\]]+)\]$/);
+  if (br) return '[' + br[1].trim() + ']';
+  var m = t.match(/^([A-Za-z]+(?:[ -]?[A-Za-z]+)?)[ \t]*(\d*)[ \t]*[:.]?[ \t]*$/);
+  if (!m) return null;
+  var word = _LHC_SECTION_NAMES[m[1].toLowerCase().replace(/[ -]/g, '')];
+  if (!word) return null;
+  return '[' + word + (m[2] ? ' ' + m[2] : '') + ']';
+}
+window.lhcSectionTag = lhcSectionTag;
+
+// Every bare or colon-ended marker in a text rewritten as "[Verse 1]". Run as
+// the words are SAVED, so what is stored is the marker the outline, the slide
+// splitter, the Songbook and print already understand. Pure: text in, text out,
+// and a line that is not a marker is handed back exactly as it was typed --
+// its spacing is the chord grid (gotcha 38).
+function lhcNormaliseSectionTags(text) {
+  var src = String(text == null ? '' : text);
+  var nl = src.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  return src.split(/\r\n|\n/).map(function(line) {
+    return lhcSectionTag(line) || line;
+  }).join(nl);
+}
+window.lhcNormaliseSectionTags = lhcNormaliseSectionTags;
+
 function lhcChordAscii(text) {
   return String(text == null ? '' : text).replace(/\u266f/g, '#').replace(/\u266d/g, 'b');
 }
@@ -23186,7 +23228,13 @@ function closeLyricsEditor() {
 
 function saveLyricsEditor() {
   var textarea = document.getElementById('lyricsEditorTextarea');
-  var lyrics = textarea.value;
+  // "Verse :" is written out as "[Verse]" here, the one place both ways out of
+  // this editor pass through -- the song form's and the Songbook's. Everything
+  // that reads a song looks for the brackets, so this is the whole of making
+  // the tag stick, and it quietly mends a song stored with the colon form the
+  // next time anyone saves it.
+  var lyrics = lhcNormaliseSectionTags(textarea.value);
+  textarea.value = lyrics;
   // The Songbook borrows this editor for one of its songs, and the words go
   // back to that song and are saved there, not staged in the song form.
   // Nothing ever passed them on: Save Lyrics closed the editor and the edit

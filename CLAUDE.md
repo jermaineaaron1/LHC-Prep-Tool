@@ -6933,6 +6933,45 @@ the anon key -- verify as `postgres`, not as the app.
     `_removePptNow` / `deleteContent` / `removeVideo` themselves -- including
     that a no-op removal notes nothing.
 
+123. **A section typed with a colon is a section, and is SAVED as one.**
+    The operator, 2026-11-28, circling "Verse:" in the Lyrics & Chords
+    editor while the outline still read "Add a section marker like
+    `[Verse 1]`": a section written "Verse :" or "Verse:" should be
+    remembered too, in the `[Verse]` form.
+    - The editor already drew a bare "Verse 1" as a tag, but its regex
+      ended at the digits, so a trailing colon made it an ordinary lyric
+      line -- and nothing ever rewrote what was STORED. Everything
+      downstream looks for brackets: `_lyricsParseSections` (the
+      outline), `parseLyricsIntoSlides`, the Songbook's headers, print.
+    - So there is one reading, `lhcSectionTag(line)` (global, pure),
+      returning the marker in the one form the rest of the app reads or
+      null: `[Verse 1]` as before, plus "Verse", "Verse 1", "Verse:",
+      "Verse :", "VERSE 2 :", "Pre Chorus". **The colon (or full stop)
+      must END the line** -- "Chorus: Holy holy" is somebody singing, not
+      a heading -- and the word list is closed (`_LHC_SECTION_NAMES`), so
+      any other single word stays a lyric. The spelling it returns is the
+      app's: "Pre-Chorus", however it was typed.
+    - `lhcNormaliseSectionTags(text)` (pure) rewrites every marker in a
+      text and hands back every other line EXACTLY as typed -- a chord
+      row's spacing is the grid it is read by (gotcha 38). It runs in
+      `saveLyricsEditor`, the one place both ways out of this editor pass
+      through (the song form's and the Songbook's), which is the whole of
+      making the tag stick and quietly mends a song stored with the colon
+      form the next time anyone saves it.
+    - The document importer (`_formatLyricsForSlides`) was a THIRD
+      reading: it already took a colon and already wrote `[Verse 1]`, it
+      simply pre-dated the editor's. Folded in -- its wider words (hook,
+      turn, breakdown) moved into the shared list so nothing it
+      recognised is lost.
+    - **A dozen other readers of the same word list are NOT folded in**
+      (the songbook, the LCD, print, the share). They all understand
+      brackets, and the save gives them brackets, so the colon form only
+      ever has to be understood in the editor. Unifying them would change
+      how already-stored songs split into slides, which is not something
+      to do silently.
+    `tools/lyrics-editor-harness.js` checks it, running `lhcSectionTag`
+    and `lhcNormaliseSectionTags` rather than matching their source.
+
 ## Quick Commands for Claude Code
 
 ```bash
