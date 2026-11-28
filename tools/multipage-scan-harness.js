@@ -106,12 +106,32 @@ function makeEnv(opts) {
   const uploaded = [];
   const deleted = [];
 
+  // _asPdfThumb draws the first page to a canvas. Enough of one to run it:
+  // the point of the test is the caption and the page count, not the pixels.
+  const canvas = () => ({
+    width: 0, height: 0,
+    getContext: () => ({ fillStyle: '', fillRect() {} }),
+    toDataURL: () => 'data:image/jpeg;base64,THUMB',
+  });
+
   const el = () => ({
     textContent: '', innerHTML: '', disabled: false, value: '',
     // Real elements always have a style object; a stub without one turns
     // `el.style.display = ...` into a TypeError that looks like a product bug.
     style: {},
-    classList: { toggle() {}, add() {}, remove() {} },
+    // Tracked, not ignored: whether the tray is on screen is a real
+    // assertion -- "the file was taken back out" is only true if the tray
+    // went with it -- and a no-op classList can only ever be asserted on
+    // by proxy.
+    classList: (() => {
+      const set = new Set();
+      return {
+        toggle(c, on) { if (on === undefined) { set.has(c) ? set.delete(c) : set.add(c); } else if (on) set.add(c); else set.delete(c); },
+        add(c) { set.add(c); },
+        remove(c) { set.delete(c); },
+        contains(c) { return set.has(c); },
+      };
+    })(),
     click() { clicked.push(this._id); },
   });
   const nodes = {};
@@ -120,6 +140,8 @@ function makeEnv(opts) {
       if (!nodes[id]) { nodes[id] = el(); nodes[id]._id = id; }
       return nodes[id];
     },
+    createElement(tag) { return tag === 'canvas' ? canvas() : el(); },
+    head: { appendChild() {} },
   };
 
   const win = {
@@ -128,6 +150,27 @@ function makeEnv(opts) {
       revokeObjectURL() {},
     },
   };
+
+  // A stand-in pdf.js. _asPdfLib takes window.pdfjsLib when it is there, so
+  // setting it here runs the REAL _asReadPdf against a document of a known
+  // length -- which is the whole question a PDF raises for this tray.
+  if (opts.pdfPages) {
+    win.pdfjsLib = {
+      GlobalWorkerOptions: { workerSrc: '' },
+      getDocument: () => ({
+        promise: Promise.resolve({
+          numPages: opts.pdfPages,
+          getPage: () => Promise.resolve({
+            getViewport: ({ scale }) => ({ width: 100 * scale, height: 140 * scale }),
+            render: () => ({ promise: Promise.resolve() }),
+          }),
+        }),
+      }),
+    };
+  }
+  if (opts.pdfBroken) {
+    win.pdfjsLib = { GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.reject(new Error('bad pdf')) }) };
+  }
 
   const env = {
     document: doc,
@@ -150,7 +193,19 @@ function makeEnv(opts) {
         () => res({ url: 'https://store/p' + (i + 1) + '.jpg', path: 'song-scans/p' + (i + 1) + '.jpg' }), delay));
     },
     deleteFromSupabase: p => deleted.push(p),
-    Image: function () { this.src = ''; },
+    // An Image that never fires either handler leaves _asDownscale pending
+    // for ever, and a test whose subject never runs passes for the wrong
+    // reason -- the upload-budget test did exactly that, asserting "nothing
+    // uploaded" about a scan that had not started. It fires onerror, which
+    // is the real behaviour for a format the browser cannot decode (HEIC,
+    // mostly) and resolves with the file untouched.
+    Image: function () {
+      const self = this;
+      Object.defineProperty(this, 'src', {
+        set() { setTimeout(() => { if (self.onerror) self.onerror(); }, 0); },
+        get() { return ''; },
+      });
+    },
     fetch: (url, init) => {
       posted.push({ url, body: JSON.parse(init.body) });
       return Promise.resolve({
@@ -168,6 +223,13 @@ function makeEnv(opts) {
 }
 
 const file = n => ({ name: 'page' + n + '.jpg' });
+const pdfFile = (name, size) => ({
+  name: name || 'hymn.pdf',
+  type: 'application/pdf',
+  size: size || 40000,
+  arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+});
+const sizedImage = (n, size) => ({ name: 'page' + n + '.jpg', type: 'image/jpeg', size });
 
 // ---- page order ----------------------------------------------------------
 console.log('page order survives parallel uploads');
@@ -380,8 +442,19 @@ async function rest() {
   // and would have failed on the first real four-page scan.
   console.log('\npages are shrunk before they are sent, and the cap sits under the ceiling');
   check('a long-edge limit exists', /var AS_MAX_EDGE = \d+;/.test(raw), true);
-  check('  and downscaling runs before the upload',
-    /_asDownscale\(f\)\.then\(function\(small\) \{\s*[\r\n]+\s*return uploadToSupabase\(small, 'song-scans'\);/.test(raw), true);
+  // Every page is downscaled and the set WEIGHED before one byte goes up,
+  // so a set that is too big is refused here instead of 14MB later by the
+  // server, which can only answer with a number. Matched as a statement, not
+  // as a phrase a comment might also contain.
+  check('  and downscaling runs before any upload',
+    /Promise\.all\(pages\.map\(function\(f\) \{ return _asDownscale\(f\); \}\)\)\.then\(function\(smalls\)/.test(raw), true);
+  check('  with an upload budget to weigh them against',
+    /var AS_MAX_UPLOAD_BYTES = \d+ \* 1024 \* 1024;/.test(raw), true);
+  check('  that leaves room under the server\'s own 14MB',
+    (() => {
+      const m = raw.match(/var AS_MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024;/);
+      return !!m && Number(m[1]) < 14;
+    })(), true);
   check('  PDFs and already-small files are left alone',
     /if \(!\/\^image\\\/\/\.test\(file\.type \|\| ''\) \|\| file\.size <= AS_SKIP_RESIZE_UNDER\)/.test(raw), true);
   check('  and a re-encode that grew the file is discarded',
@@ -748,6 +821,100 @@ async function rest() {
     // would be worse than whatever the browser makes of it.
     check('  an image that will not decode falls back to the frame',
       /img\.onerror = function\(\) \{/.test(fn), true);
+  }
+
+  // ---- a PDF is a file, and several pages ---------------------------------
+  //
+  // The scan has accepted .pdf since it was built -- the picker allowed it,
+  // the route's MIME table had it -- and nothing anywhere said so, which is
+  // why it had to be asked for. What it did NOT do was survive contact with
+  // the tray: a PDF blob in an <img> draws the browser's broken-image icon,
+  // so the one visible sign that the file had been taken was a torn page.
+  //
+  // The thing to hold on to here: a PDF is ONE file and N pages. The server
+  // counts files (it reads that many urls); the person counts pages. Every
+  // check below is one or the other being counted wrongly.
+  console.log('\na PDF is one file and several pages');
+  {
+    const e = makeEnv({ pdfPages: 3 });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [pdfFile('hymn.pdf')] });
+
+    // Before pdf.js has answered: no picture yet, and it must not be an
+    // <img> pointed at the PDF -- that is the broken-page icon.
+    const early = e.nodes.asptPages.innerHTML;
+    check('a PDF gets no blob <img> while it is being opened',
+      /<img/.test(early), false);
+    check('  it gets a PDF tile instead', /aspt-page-file/.test(early), true);
+    check('  captioned as a file, not as a page', /PDF/.test(early), true);
+
+    await new Promise(r => setTimeout(r, 30));
+    const late = e.nodes.asptPages.innerHTML;
+    check('once opened, the caption spans its pages', /Pages 1\u2013?3|Pages 1.3/.test(late), true);
+    check('  and the thumbnail is the rendered first page',
+      /<img src="data:image\/jpeg/.test(late), true);
+    check('  the three pages are still ONE file', e.nodes.asptPages.innerHTML.split('aspt-page-del').length - 1, 1);
+    check('  and the button counts pages, not files',
+      /3 pages/.test(e.nodes.asptGoBtn.textContent), true);
+  }
+
+  {
+    // A PDF followed by a photograph: the photo is page 4, not page 2. Page
+    // numbers that restart at the file boundary are how somebody ends up
+    // reordering pages that were never out of order.
+    const e = makeEnv({ pdfPages: 3 });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [pdfFile('hymn.pdf')] });
+    await new Promise(r => setTimeout(r, 30));
+    e.win.asHandleScanFile({ files: [file(2)] });
+    const html = e.nodes.asptPages.innerHTML;
+    check('a photo after a 3 page PDF is page 4', /Page 4/.test(html), true);
+    check('  and nothing is called page 2', /Page 2/.test(html), false);
+  }
+
+  {
+    // Only knowable once the document is open, so it is taken back OUT
+    // rather than refused at the picker -- and the message says the number,
+    // because "too many" leaves somebody guessing what would be few enough.
+    const e = makeEnv({ pdfPages: 40 });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [pdfFile('hymnal.pdf')] });
+    await new Promise(r => setTimeout(r, 30));
+    check('a 40 page PDF is a hymnal, not a song, and is refused',
+      e.toasts.some(t => /40 pages/.test(t.m)), true);
+    check('  and the tray goes with it, rather than sitting there empty',
+      e.nodes.asPageTray.classList.contains('show'), false);
+  }
+
+  {
+    // pdf.js unreachable, or a file it cannot open. The scan itself does not
+    // need pdf.js -- the model reads the PDF, not the thumbnail -- so the
+    // file must stay scannable with no picture, never be thrown away.
+    const e = makeEnv({ pdfBroken: true });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [pdfFile('hymn.pdf')] });
+    await new Promise(r => setTimeout(r, 30));
+    check('a PDF pdf.js cannot open is still scannable',
+      /aspt-page-file/.test(e.nodes.asptPages.innerHTML), true);
+    e.win.asRunScan();
+    await new Promise(r => setTimeout(r, 40));
+    check('  and pressing Read still sends it', e.uploaded.length, 1);
+  }
+
+  {
+    // The budget, refused in the browser. Uploading 14MB up a church's
+    // broadband to be turned away at the far end is the behaviour this
+    // replaces, and the server can only answer with a byte count.
+    const e = makeEnv({});
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [sizedImage(1, 9 * 1024 * 1024), sizedImage(2, 9 * 1024 * 1024)] });
+    e.win.asRunScan();
+    await new Promise(r => setTimeout(r, 40));
+    check('18MB of pages never leaves the browser', e.uploaded.length, 0);
+    check('  and says what is wrong in megabytes', e.toasts.some(t => /18\.0MB/.test(t.m)), true);
+    check('  the pages stay in the tray to take one out of',
+      /aspt-page-del/.test(e.nodes.asptPages.innerHTML), true);
+    check('  and no empty Add Song form opens over them', e.opened.length, 0);
   }
 
   // ---- the route ---------------------------------------------------------

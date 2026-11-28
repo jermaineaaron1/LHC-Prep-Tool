@@ -6999,6 +6999,77 @@ the anon key -- verify as `postgres`, not as the app.
       redundant CODE, and the answer was to delete it rather than write a
       check for a difference nothing could show.
 
+125. **A PDF was always scannable and nothing said so; what broke was the
+    tray around it.** From the operator (2026-11-28), attaching a hymn PDF:
+    "I've got some PDFs that I want add a song with ... title, composer and
+    the chords and lyrics all laid out." The picker had accepted `.pdf` since
+    multi-page scanning was built and `MIME_TYPES` in the route carried
+    `application/pdf`, so the reading itself already worked -- it had simply
+    never been named anywhere a person looks.
+    - **The read is good, and that was MEASURED rather than assumed.** The
+      live route on an engraved 7x10 hymn ("Thou Didst Leave Thy Throne",
+      39KB, one page, four verses stacked under one staff) came back in 3.7s
+      with the title, both credits (TEXT: Emily E. S. Elliott / MUSIC:
+      Timothy R. Matthews), key D, 4/4, the John 1:11 epigraph, four
+      `[Verse n]` sections and 25 chord lines. Ground truth for the chords
+      came from the PDF's own text layer through pdf.js -- the chord symbols
+      are in their own font (`Esus` identifies it), the minor-`m` and the
+      sharps in another whose ToUnicode maps the sharp glyph to "m", and the
+      two `#` at x=54 and x=60 on every system are the key signature, not
+      chord accidentals. Reassembled by position the page prints D, A7, Bm,
+      F#; A, D, A, D, C#; F#m, Esus, A, Esus, A; D, Asus7, /G, D/F#, D/A A,
+      D -- and the model returned every one of those correctly, `/G`
+      included, which is a real convention (keep the chord, move the bass)
+      and not the misread it looks like. Do not "fix" chords on a hunch;
+      read the text layer.
+    - **`<img src="blob:...pdf">` draws the broken-image icon.** Measured:
+      `naturalWidth` 0. The one visible sign a PDF had been taken was a torn
+      page with "Page 1" under it. The first page is rendered with pdf.js --
+      already on the page -- and that is the thumbnail, on white, because a
+      PDF page is transparent where nothing is drawn.
+    - **A PDF is ONE file and N pages, and both counts are load-bearing.**
+      The server reads `urls`, so its `MAX_PAGES = 4` is a FILE limit and a
+      ten page PDF passes it. The person counts pages. So `_asPageCount()`
+      drives every word the tray says ("Read these 3 pages", "Pages 1-3",
+      and a photo after a 3 page PDF is page 4), while `AS_MAX_PAGES` still
+      limits files. `AS_MAX_PDF_PAGES` (12) is the separate question of when
+      a PDF stops being a song -- a hymnal sent whole comes back as one
+      confident, wrong song -- and it can only be asked once the document is
+      open, so the file is taken back OUT with its page count named.
+    - **The count first, the picture after.** Measured on that hymn with the
+      pane visible (so nothing was throttled): `getDocument` 200ms, `render`
+      3000ms, `toBlob` 1000ms. Four seconds of a tile reading "PDF..." looks
+      like a thumbnail that failed, so the tray is drawn twice -- the page
+      count at ~200ms (569ms end to end), the picture at ~3.4s. The cost is
+      building the embedded fonts, NOT fetching the pdf.js worker, which was
+      the first guess and was wrong; warming the worker bought ~1s of the 5.
+      `toDataURL` replaces `toBlob` (synchronous, and a 151x216 JPEG is
+      ~20KB), which drops that last second and leaves a PDF thumbnail with
+      no object URL to leak.
+    - **The byte budget is refused in the browser.** `AS_MAX_UPLOAD_BYTES`
+      (13MB) sits under the server's 14MB (gotcha: base64 adds a third
+      against a 20MB request ceiling), and every page is downscaled and the
+      set weighed BEFORE one byte goes up -- a PDF cannot be downscaled, so
+      it is the one that reaches the cap. Too big is not a failed read but a
+      set that needs a page taking out, so the tray comes back with its
+      pages rather than emptying into a blank Add Song form.
+    - **`window.asRemovePage(i)`, not bare.** A browser makes
+      `window.foo = ...` a global so a bare call resolves; a harness running
+      the block in `new Function` does not, and the refusal silently became
+      a caught ReferenceError. Saying which object it is on costs nothing
+      and makes it testable.
+    - The PDF is kept as the song's document either way, which is the other
+      half of what was asked: `__scanUrls` becomes an attachment named
+      "<title> - scanned sheet", so the chord sheet opens from the song.
+    `tools/multipage-scan-harness.js` checks it (17 of its checks fail on
+    pre-change source), with six mutation cases: a PDF given a blob `<img>`,
+    pages counted as files, the hymnal ceiling removed, the budget ignored,
+    an oversized set emptying the tray, and the thumbnail never arriving.
+    Its `Image` stub now fires `onerror` -- one that settled neither handler
+    left `_asDownscale` pending for ever, and the upload-budget test passed
+    by asserting "nothing uploaded" about a scan that had never started.
+
+
 ## Quick Commands for Claude Code
 
 ```bash
