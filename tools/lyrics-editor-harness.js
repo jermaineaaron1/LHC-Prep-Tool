@@ -25,6 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { makeDocument, El } = require('./minidom.js');
 
 const args = process.argv.slice(2);
 const EXPECT_BROKEN = args.includes('--expect-broken');
@@ -269,6 +270,95 @@ check('the save is what makes it stick',
   /lhcNormaliseSectionTags\(textarea\.value\)/.test(saveEd), true);
 check('  and the pad is left holding what was saved',
   /textarea\.value = lyrics;/.test(saveEd), true);
+
+console.log('\nthe editor opens holding the song\'s words');
+// A mutation that removed "textarea.value = lyrics" from openLyricsEditor
+// went uncaught: the editor would open EMPTY on a song that has words, and
+// the next Save would write that emptiness over the song. Run, not matched.
+// The six things it calls are stubbed -- each is checked where it lives --
+// but every assignment in the function itself is the real one.
+const openEditor = (function () {
+  const body = topFn('openLyricsEditor');
+  const make = new Function('document', 'songData', 'stubs', [
+    'var currentLyricsMode, currentSlideIndex, originalLyrics,',
+    '    currentTransposeSemitones, lyricsHistory, lyricsHistoryIndex;',
+    'var _lyricsRenderOutline = stubs.outline, _lyricsSetEditorState = stubs.state,',
+    '    renderRichEditor = stubs.render, lhcCaretToStart = stubs.caret,',
+    '    updateLyricsLivePreview = stubs.preview, renderLyricsEditorDocs = stubs.docs;',
+    body,
+    'return function (mode) {',
+    '  openLyricsEditor(mode);',
+    '  return { mode: currentLyricsMode, slide: currentSlideIndex,',
+    '           original: originalLyrics, steps: currentTransposeSemitones,',
+    '           history: lyricsHistory, historyIndex: lyricsHistoryIndex };',
+    '};'
+  ].join('\n'));
+
+  return function (lyrics, opts) {
+    opts = opts || {};
+    const doc = makeDocument();
+    const seen = { outline: null, rendered: null, caretOn: null, focused: false, docsFor: null };
+    function el(id, tag) {
+      const n = new El(tag || 'div', '');
+      n.setAttribute('id', id);
+      n.value = '';
+      n.focus = function () { seen.focused = true; };
+      doc.root.appendChild(n);
+      return n;
+    }
+    const modal = el('lyricsEditorModal');
+    if (opts.wasSongbook) modal.classList.add('lyrics-editor-modal--sb');
+    const ta = el('lyricsEditorTextarea', 'textarea');
+    const rich = el('lyricsRichEditor');
+    const key = el('transposeKey', 'select');
+    key.value = 'F#';                         // left over from the song before
+    const titleEl = el('lyricsEditorSongTitle');
+    const src = el('newSongTitle', 'input');
+    src.value = '  Angels (Glory to God)  ';
+
+    const stubs = {
+      outline: function (t) { seen.outline = t; },
+      state: function () {},
+      render: function (t) { seen.rendered = t; },
+      caret: function (n) { seen.caretOn = n; },
+      preview: function () {},
+      docs: function (m) { seen.docsFor = m; }
+    };
+    const data = { new: Object.prototype.hasOwnProperty.call(opts, 'noLyrics') ? {} : { lyrics: lyrics } };
+    const state = make(doc, data, stubs)('new');
+    return { state: state, seen: seen, ta: ta, rich: rich, key: key,
+             modal: modal, title: titleEl };
+  };
+})();
+
+const WORDS = '[Verse]\nD        C2\nYou make me want to be like You';
+const op = openEditor(WORDS);
+
+check('the textarea is handed the song\'s words', op.ta.value, WORDS);
+check('  and the pad is drawn from the same words', op.seen.rendered, WORDS);
+check('  and so is the outline', op.seen.outline, WORDS);
+// Undo must start from what is on screen, or one press restores another song.
+check('undo starts from those words', op.state.history, [WORDS]);
+check('  at the first step', op.state.historyIndex, 0);
+// Without the reset, opening song B after transposing song A moves B's
+// chords from A's baseline.
+check('the transposition starts again', op.state.steps, 0);
+check('  with no baseline from the song before', op.state.original, '');
+check('  and the key picker cleared', op.key.value, '');
+check('the slide preview starts at the first slide', op.state.slide, 0);
+// gotcha 63: an editor opens on the FIRST character, not the last.
+check('the cursor goes to the start', op.seen.caretOn === op.rich, true);
+check('the song\'s name is shown, trimmed', op.title.textContent, 'Angels (Glory to God)');
+check('the docs panel is told which song', op.seen.docsFor, 'new');
+// gotcha 90: the look is the Songbook's, the hiding is not.
+check('it takes the sheet look', op.modal.classList.contains('lyrics-editor-modal--sheet'), true);
+const reopened = openEditor(WORDS, { wasSongbook: true });
+check('  and drops the Songbook\'s hiding when it is reused',
+  reopened.modal.classList.contains('lyrics-editor-modal--sb'), false);
+// A new song has no words at all; it must open empty, not "undefined".
+const blank = openEditor(null, { noLyrics: true });
+check('a song with no words opens empty', blank.ta.value, '');
+check('  and undo starts from empty', blank.state.history, ['']);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

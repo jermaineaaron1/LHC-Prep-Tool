@@ -814,6 +814,37 @@ const CASES = [
     s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !line.trim() || !/^[A-G]/.test(line.trim());')],
   ['live-projection-harness.js', 'with no detector the words are dropped instead of kept',
     s => s.replace("    if (typeof isChordLineGlobal !== 'function') return lines.join('\\n');", '')],
+  // The gap itself: the editor opens EMPTY on a song that has words, and
+  // the next Save writes that emptiness over the song.
+  ['lyrics-editor-harness.js', 'the editor opens without the song’s words',
+    s => s.replace("  var lyrics = songData[mode].lyrics || '';\r\n\r\n  textarea.value = lyrics;",
+                   "  var lyrics = songData[mode].lyrics || '';")],
+  ['lyrics-editor-harness.js', 'a song with no words opens as the word undefined',
+    s => s.replace("  var lyrics = songData[mode].lyrics || '';\r\n\r\n  textarea.value",
+                   "  var lyrics = songData[mode].lyrics;\r\n\r\n  textarea.value")],
+  // Undo must start from what is on screen, or one press restores another song.
+  ['lyrics-editor-harness.js', 'undo starts from somewhere other than the words',
+    s => s.replace('  lyricsHistory = [lyrics];', "  lyricsHistory = [''];")],
+  // Without the reset, opening song B after transposing song A moves B's
+  // chords from A's baseline.
+  ['lyrics-editor-harness.js', 'the transposition carries over from the song before',
+    s => s.replace("  currentSlideIndex = 0;\r\n  originalLyrics = '';\r\n  currentTransposeSemitones = 0;",
+                   '  currentSlideIndex = 1;')],
+  ['lyrics-editor-harness.js', 'the key picker keeps the last song’s key',
+    s => s.replace("  if (transposeSelect) transposeSelect.value = '';", '')],
+  // gotcha 63: an editor opens on the FIRST character, not the last.
+  ['lyrics-editor-harness.js', 'the cursor is left at the end of the song',
+    s => s.replace('    renderRichEditor(lyrics);\r\n    richEditor.focus();\r\n    lhcCaretToStart(richEditor);',
+                   '    renderRichEditor(lyrics);\r\n    richEditor.focus();')],
+  ['lyrics-editor-harness.js', 'the pad is drawn from something other than the words',
+    s => s.replace('    renderRichEditor(lyrics);\r\n    richEditor.focus();',
+                   "    renderRichEditor('');\r\n    richEditor.focus();")],
+  ['lyrics-editor-harness.js', 'the outline is built from something else',
+    s => s.replace('  _lyricsRenderOutline(lyrics);', "  _lyricsRenderOutline('');")],
+  ['lyrics-editor-harness.js', 'the docs panel is told the wrong song',
+    s => s.replace('  renderLyricsEditorDocs(mode);', "  renderLyricsEditorDocs('edit');")],
+  ['lyrics-editor-harness.js', 'the song name keeps the spaces around it',
+    s => s.replace("(src && src.value.trim()) || ''", "(src && src.value) || ''")],
   // The operator's own report: "Verse:" was not remembered as a section.
   ['lyrics-editor-harness.js', 'a colon makes it an ordinary lyric again',
     s => s.replace("  var m = t.match(/^([A-Za-z]+(?:[ -]?[A-Za-z]+)?)[ \\t]*(\\d*)[ \\t]*[:.]?[ \\t]*$/);",
