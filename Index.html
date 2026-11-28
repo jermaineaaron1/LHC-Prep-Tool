@@ -8264,8 +8264,8 @@
                            height. Ids and handlers unchanged. -->
                       <span class="lcd-fmt-group">
                         <span class="wo-align-group" title="Text alignment on projection">
-                          <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                          <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                          <button class="wo-align-btn active" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                          <button class="wo-align-btn" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
                           <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
                         </span>
                         <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
@@ -21289,7 +21289,11 @@ async function _extractDocxText(file) {
 
 function _formatLyricsForSlides(rawText) {
   var CHORD_TOKEN = /^[A-G][#b]?(maj7?|min7?|m[0-9]?|M7?|dim7?|aug|sus[24]?|add9?|[0-9]+)?(\/[A-G][#b]?)?$/;
-  var SECTION_RE = /^(verse|chorus|bridge|pre-chorus|pre chorus|intro|outro|interlude|hook|vamp|tag|coda|refrain|turn|breakdown)\s*\d*[:\.]?\s*$/i;
+  // Sections are read by lhcSectionTag, the one reading the editor and the
+  // outline use. This path had its own, which already took a colon and already
+  // wrote "[Verse 1]" -- it simply pre-dated the other. Its extra words moved
+  // into the shared list, so nothing it used to recognise is lost, and its
+  // spelling is now the app's ("Pre-Chorus", not "Pre-chorus").
 
   function isChordLine(line) {
     var tokens = line.trim().split(/\s+/).filter(Boolean);
@@ -21299,10 +21303,7 @@ function _formatLyricsForSlides(rawText) {
   }
 
   function toSectionHeader(line) {
-    var m = line.trim().match(/^(verse|chorus|bridge|pre-?chorus|intro|outro|interlude|hook|vamp|tag|coda|refrain|turn|breakdown)\s*(\d*)/i);
-    if (!m) return null;
-    var label = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
-    return '[' + label + (m[2] ? ' ' + m[2] : '') + ']';
+    return lhcSectionTag(line);
   }
 
   var lines = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -21820,9 +21821,7 @@ function renderRichEditor(text) {
 
   // Check if line is a section header without brackets (e.g., "Verse 1", "Chorus", "Bridge")
   function isSectionHeaderNoBrackets(line) {
-    var trimmed = line.trim().toLowerCase();
-    // Match patterns like "verse", "verse 1", "chorus", "pre-chorus", "bridge", "ending", "outro"
-    return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(line.trim());
+    return !!lhcSectionTag(line);
   }
 
   var lines = text.split('\n');
@@ -21831,17 +21830,13 @@ function renderRichEditor(text) {
   lines.forEach(function(line, idx) {
     var trimmed = line.trim();
 
-    // Check for section header [Verse], [Chorus], etc. (with brackets)
-    var headerMatch = trimmed.match(/^\[(.+)\]$/);
-    if (headerMatch) {
-      var sectionType = getSectionType(headerMatch[1]);
-      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(trimmed) + '</div>';
-    }
-    // Check for section header without brackets (e.g., "Verse 1", "Chorus")
-    // Display with brackets so they look consistent with [bracket] style headers
-    else if (isSectionHeaderNoBrackets(trimmed)) {
-      var sectionType = getSectionType(trimmed);
-      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">[' + esc(trimmed) + ']</div>';
+    // One reading of what a marker is, and the tag drawn is the tag the save
+    // will write -- "Verse :" shows as [Verse], so nothing changes shape under
+    // the operator when they press Save.
+    var tag = lhcSectionTag(trimmed);
+    if (tag) {
+      var sectionType = getSectionType(tag.slice(1, -1));
+      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(tag) + '</div>';
     }
     else if (isChordLine(line)) {
       // Keep chord line simple to preserve exact spacing
@@ -21863,9 +21858,12 @@ function _lyricsParseSections(text) {
   var lines = String(text || '').split('\n');
   var out = [], cur = null;
   lines.forEach(function(line, i) {
-    var m = line.match(/^\s*\[([^\]]+)\]\s*$/);
-    if (m) {
-      cur = { name: m[1].trim(), line: i, lines: 0 };
+    // Through the shared reading, so an outline appears the moment somebody
+    // types "Verse:" -- which is what the operator was looking at when it
+    // still said "Add a section marker like [Verse 1]".
+    var tag = (typeof lhcSectionTag === 'function') ? lhcSectionTag(line) : null;
+    if (tag) {
+      cur = { name: tag.slice(1, -1), line: i, lines: 0 };
       out.push(cur);
     } else if (cur && line.trim()) {
       cur.lines++;
@@ -22185,7 +22183,7 @@ function updateLyricsLivePreview() {
 
   // Check if line is a section header without brackets
   function isSectionHeaderNoBrackets(line) {
-    return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(line.trim());
+    return !!lhcSectionTag(line);
   }
 
   // The LCD's own splitter decides where a slide ends, so this preview and
@@ -23107,6 +23105,50 @@ var CHORD_TOKEN_RE = /^[A-G][#b]?(?:(?:m(?:aj|in|M)?|M(?:aj)?|dim|aug|sus|add|do
 // that reading a chord and MOVING a chord can never disagree: detection
 // alone would turn "F♯m" from a chord nobody could adjust into one that
 // adjusts wrongly, since transposeChord reads its root as plain F.
+// The sections people actually type. A section marker is the only line in a
+// song that names a part rather than being sung, so the list is closed: any
+// other single word is a lyric.
+var _LHC_SECTION_NAMES = {
+  verse: 'Verse', chorus: 'Chorus', bridge: 'Bridge', prechorus: 'Pre-Chorus',
+  ending: 'Ending', outro: 'Outro', intro: 'Intro', tag: 'Tag',
+  interlude: 'Interlude', refrain: 'Refrain', coda: 'Coda', vamp: 'Vamp',
+  // From the document importer, which read these before this did.
+  hook: 'Hook', turn: 'Turn', breakdown: 'Breakdown'
+};
+
+// Is this line a section marker, and what is it called? Returns the marker in
+// the ONE form the rest of the app reads -- "[Verse 1]" -- or null.
+//
+// "[Verse 1]" as before, and the bare forms people type: "Verse", "Verse 1",
+// "Verse:", "Verse :", "VERSE 2 :". The colon has to END the line, because
+// "Chorus: Holy holy" is somebody singing, not a heading.
+function lhcSectionTag(line) {
+  var t = String(line == null ? '' : line).trim();
+  if (!t) return null;
+  var br = t.match(/^\[([^\]]+)\]$/);
+  if (br) return '[' + br[1].trim() + ']';
+  var m = t.match(/^([A-Za-z]+(?:[ -]?[A-Za-z]+)?)[ \t]*(\d*)[ \t]*[:.]?[ \t]*$/);
+  if (!m) return null;
+  var word = _LHC_SECTION_NAMES[m[1].toLowerCase().replace(/[ -]/g, '')];
+  if (!word) return null;
+  return '[' + word + (m[2] ? ' ' + m[2] : '') + ']';
+}
+window.lhcSectionTag = lhcSectionTag;
+
+// Every bare or colon-ended marker in a text rewritten as "[Verse 1]". Run as
+// the words are SAVED, so what is stored is the marker the outline, the slide
+// splitter, the Songbook and print already understand. Pure: text in, text out,
+// and a line that is not a marker is handed back exactly as it was typed --
+// its spacing is the chord grid (gotcha 38).
+function lhcNormaliseSectionTags(text) {
+  var src = String(text == null ? '' : text);
+  var nl = src.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  return src.split(/\r\n|\n/).map(function(line) {
+    return lhcSectionTag(line) || line;
+  }).join(nl);
+}
+window.lhcNormaliseSectionTags = lhcNormaliseSectionTags;
+
 function lhcChordAscii(text) {
   return String(text == null ? '' : text).replace(/\u266f/g, '#').replace(/\u266d/g, 'b');
 }
@@ -23407,7 +23449,13 @@ function closeLyricsEditor() {
 
 function saveLyricsEditor() {
   var textarea = document.getElementById('lyricsEditorTextarea');
-  var lyrics = textarea.value;
+  // "Verse :" is written out as "[Verse]" here, the one place both ways out of
+  // this editor pass through -- the song form's and the Songbook's. Everything
+  // that reads a song looks for the brackets, so this is the whole of making
+  // the tag stick, and it quietly mends a song stored with the colon form the
+  // next time anyone saves it.
+  var lyrics = lhcNormaliseSectionTags(textarea.value);
+  textarea.value = lyrics;
   // The Songbook borrows this editor for one of its songs, and the words go
   // back to that song and are saved there, not staged in the song form.
   // Nothing ever passed them on: Save Lyrics closed the editor and the edit
@@ -32368,6 +32416,21 @@ var SBQ = {
     return out;
   },
 
+  // May a stored row of this kind be pruned when the payload carries none
+  // of them? Only on the caller's word. A whole kind missing is the shape of
+  // a collection that came back short, not of an edit, and pruning on it
+  // deletes work nobody touched -- so the default is to KEEP.
+  //
+  //   clearAll        the caller states the order is genuinely empty, which
+  //                   is a stronger claim than any per-kind permission
+  //   kindsInPayload  this kind is still represented, so nothing is missing
+  //   mayClear        the operator removed one of these (_woNoteRemoved)
+  _mayClearKind: function(itemType, kindsInPayload, mayClear, clearAll) {
+    if (clearAll) return true;
+    if (kindsInPayload && kindsInPayload[itemType]) return true;
+    return !!(mayClear && mayClear[itemType]);
+  },
+
   _rowFingerprint: function(row) {
     var s = JSON.stringify([
       row.item_type || '', row.section_id || '',
@@ -32825,7 +32888,7 @@ var SBQ = {
             var _kindProtected = {};
             (er.data || []).forEach(function(x) {
               if (keep[x.id]) return;
-              if (!_clearAll && !_kindsInPayload[x.item_type] && !_mayClear[x.item_type]) {
+              if (!SBQ._mayClearKind(x.item_type, _kindsInPayload, _mayClear, _clearAll)) {
                 _kindProtected[x.item_type] = (_kindProtected[x.item_type] || 0) + 1;
                 return;
               }
@@ -38152,6 +38215,20 @@ var WO = (function() {
   // asked for that; losing every item of a type any other way is a collection
   // failure, not an edit. Reset once the save that carries it succeeds.
   var _woUserClearedTypes = {};
+
+  // The one way that flag is ever set. Nothing about a payload tells a
+  // deliberate removal apart from a collection that came back short, so
+  // every path that takes an item off the page has to say which KIND went
+  // -- before it saves, since a landed save clears the note again.
+  //
+  // It matters only for the last item of its kind: with any other still in
+  // the payload the kind is present and the guard never fires, which is why
+  // six paths could omit it and look perfectly fine until a service had just
+  // one deck, one song or one reading. The 29 Nov deck was removed, saved,
+  // and back on the next refresh, every time.
+  function _woNoteRemoved(itemType) {
+    if (itemType) _woUserClearedTypes[itemType] = true;
+  }
 
   // Songs the operator has taken out of a section, by order-entry id.
   //
@@ -46206,7 +46283,7 @@ var WO = (function() {
     if (!container) return;
 
     var videoContainer = container.querySelector('.wo-video-container');
-    if (videoContainer) videoContainer.remove();
+    if (videoContainer) { videoContainer.remove(); _woNoteRemoved('video'); }
 
     // Add back placeholder if empty
     if (!container.querySelector('.wo-content-box') && !container.querySelector('.wo-slides-container') && !container.querySelector('.wo-video-container')) {
@@ -46215,6 +46292,9 @@ var WO = (function() {
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
+    // Nothing here saved either, so a removed video lived until the next
+    // save from somewhere else -- which then kept the stored row anyway.
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
     showToast('Video removed', 'success');
   }
 
@@ -48776,7 +48856,10 @@ var WO = (function() {
     if (typeof _lcdPushUndo === 'function' && !silent) _lcdPushUndo();
     // The stored slides go too. Removing only the element left the data behind,
     // so the next render put the whole presentation straight back.
-    delete currentSermonSlides[sectionId];
+    if (data) {
+      delete currentSermonSlides[sectionId];
+      _woNoteRemoved('slides');
+    }
     if (containerId) removeSlideContainer(containerId);
     else {
       var w = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
@@ -50008,7 +50091,7 @@ var WO = (function() {
       clearContent();
       var contentEl = document.createElement('div');
       contentEl.className = 'wo-preview-content';
-      contentEl.style.textAlign = data.align || 'center';
+      contentEl.style.textAlign = data.align || 'left';
       if (typeof _applyBarrierToEl === 'function') _applyBarrierToEl(contentEl, data.barrier);
       contentEl.innerHTML = '<div class="wo-preview-inner">' + data.text + '</div>';
       box.appendChild(contentEl);
@@ -50090,7 +50173,7 @@ var WO = (function() {
       // out 3374px wide in a 1728px safe zone, 823px of it clipped off the
       // left and the rest off the right -- the word simply gone from the wall.
       // The old shrink-to-fit hid this by making the whole slide smaller.
-      '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
+      '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: left; }' +
       // A presentation slide gets a layer of its OWN, outside
       // .projection-content and so outside the safe-zone barrier.
       //
@@ -50285,7 +50368,7 @@ var WO = (function() {
       '    style += "color:" + (s.color || "#ffffff") + ";";' +
       '    style += "font-weight:" + (s.bold ? "bold" : "normal") + ";";' +
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
-      '    style += "text-align:" + (data.align || window._projAlign || "center") + ";";' +
+      '    style += "text-align:" + (data.align || window._projAlign || "left") + ";";' +
       '    content.innerHTML = "<div class=\\"projection-text\\" style=\\"" + style + "\\">" + data.text + "</div>";' +
       '    if (data.barrier) { _applyBarrierToContent(data.barrier); }' +
       '    if (bgEl) bgEl.style.display = "block";' +
@@ -50497,6 +50580,11 @@ var WO = (function() {
     }
     // If no more presentation containers remain, show the attach row again
     _restoreAttachRowIfEmpty(sectionId);
+    // Its own remove button reaches this directly, and nothing here saved,
+    // so a presentation taken out this way was not written at all. The save
+    // is debounced, so _removePptNow calling in as well costs nothing.
+    _woNoteRemoved('slides');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   // Re-show the ppt-attach-row (and optional empty placeholder) when all
@@ -50739,7 +50827,7 @@ var WO = (function() {
   function deleteContent(deleteBtn) {
     _lcdPushUndo();
     var box = deleteBtn.closest('.wo-content-box');
-    if (box) box.remove();
+    if (box) { box.remove(); _woNoteRemoved('content'); }
     autoSaveOrder();
   }
 
@@ -92052,7 +92140,12 @@ var WO = (function() {
   var selectedSlideBox = null;
   var editingSlideBox = null;
   var currentSectionVideoId = null; // Track which section's video is playing
-  var _currentSlideAlign = 'center'; // Projection text alignment: 'left'|'center'|'right'
+  // Projection text alignment: 'left'|'center'|'right'. LEFT by default,
+  // which the operator asked for after seeing the wall centred with the
+  // Align left button sitting unpressed. Projection-wide, never per slide,
+  // and not persisted: whatever a service sets lasts until the page
+  // reloads, and then it is this again.
+  var _currentSlideAlign = 'left';
   // 4-sided safe-zone barrier config (% from each edge).  global is the default; sections/slides
   // can override per-scope.  _getActiveBarrier(box) resolves the correct level.
   // Load barrier config from localStorage (persists across page reloads)
@@ -92533,6 +92626,10 @@ var WO = (function() {
   // its last slide is deleted.
   function _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source) {
     var container = box.closest('.wo-content-boxes');
+    // Deleting the last slide of an item removes the ITEM, so this is a
+    // removal of its kind and has to be noted as one -- the rail's own trash
+    // button reaches it, and on a service with one song that song came back.
+    _woNoteRemoved(source === 'scripture' ? 'scripture' : (isLiturgy ? 'liturgy' : 'song'));
     if (!container) { box.remove(); return; }
     if (source === 'scripture') {
       var grp = box.closest('.wo-scripture-slides-group');
@@ -104254,6 +104351,10 @@ var WO = (function() {
       '</div>';
     banner.insertAdjacentHTML('afterend', placeholderHtml);
     banner.remove();
+    // Its callers in the follow-the-Roster path already note and save; the
+    // banner button is the one that reaches this on its own.
+    _woNoteRemoved('scripture');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   init();
@@ -124620,7 +124721,7 @@ function filterLiturgyItems() {
   .wo-fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: none; align-items: center; justify-content: center; z-index: 10000; font-family: Georgia, serif; font-size: 2.8rem; line-height: 1.6; padding: 60px 100px; overflow: hidden; }
   .wo-fullscreen-overlay.show { display: flex; }
   .wofs-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
-  .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
+  .wo-fullscreen-content { position: relative; z-index: 1; text-align: left; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
   .wofs-inner { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); line-height: 1.6; }
   .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 8; opacity: 0; transition: color .2s, opacity .3s; }
   .wo-fullscreen-overlay:hover .wo-close-fullscreen { opacity: 1; }

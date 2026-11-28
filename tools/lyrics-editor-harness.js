@@ -25,6 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { makeDocument, El } = require('./minidom.js');
 
 const args = process.argv.slice(2);
 const EXPECT_BROKEN = args.includes('--expect-broken');
@@ -189,6 +190,175 @@ check('the preview screen can hold a long word without clipping it',
   /\.lyr-preview-screen \.wo-preview-inner \{[^}]*max-width: 100%/.test(SRC), true);
 check('  and wraps it rather than running off the edge',
   /\.lyr-preview-screen \.wo-preview-inner \{[^}]*overflow-wrap: break-word/.test(SRC), true);
+
+console.log('\na section typed with a colon is a section');
+// The operator circled "Verse:" in the editor while the outline still read
+// "Add a section marker like [Verse 1]". The old test ended at the digits, so
+// a trailing colon made it an ordinary lyric line and nothing was remembered.
+const namesLine = lines.findIndex(l => /^var _LHC_SECTION_NAMES = /.test(l));
+check('the list of section names is at the top level', namesLine >= 0, true);
+let namesSrc = '', depth = 0;
+for (let k = namesLine; k < lines.length; k++) {
+  namesSrc += lines[k].replace(/\r$/, '') + '\n';
+  for (const ch of lines[k]) { if (ch === '{') depth++; else if (ch === '}') depth--; }
+  if (depth === 0 && namesSrc.trim()) break;
+}
+const sec = new Function('window', [
+  namesSrc, topFn('lhcSectionTag'), topFn('lhcNormaliseSectionTags'),
+  'return { tag: lhcSectionTag, norm: lhcNormaliseSectionTags };'
+].join('\n'))({});
+
+// The two forms the operator wrote, and the ones beside them.
+check('"Verse:" is a section', sec.tag('Verse:'), '[Verse]');
+check('"Verse :" is the same section', sec.tag('Verse :'), '[Verse]');
+check('a number is kept', sec.tag('VERSE 2 :'), '[Verse 2]');
+check('a bare name still works', sec.tag('Verse 1'), '[Verse 1]');
+check('brackets are left alone', sec.tag('[Verse 1]'), '[Verse 1]');
+check('  and tidied', sec.tag('[ Chorus ]'), '[Chorus]');
+check('the spelling is the app\'s own', sec.tag('prechorus 2:'), '[Pre-Chorus 2]');
+check('  however it is written', sec.tag('Pre Chorus'), '[Pre-Chorus]');
+
+console.log('\nand everything else is still sung');
+// The colon has to END the line, or a sung line is swallowed.
+check('"Chorus: Holy holy" is a lyric', sec.tag('Chorus: Holy holy'), null);
+check('a line of words is a lyric', sec.tag('You make me want to be like You'), null);
+check('  even a short one', sec.tag('Jesus'), null);
+check('  and two words that are not a section', sec.tag('Holy Spirit'), null);
+check('a chord row is not a section', sec.tag('D        C2'), null);
+// The choir score's own labels belong to another reading (gotcha 67).
+check('a choir part label is not a section', sec.tag('Melody:'), null);
+check('  nor a speaker', sec.tag('All:'), null);
+check('nothing at all is not a section', sec.tag(''), null);
+check('  nor null', sec.tag(null), null);
+
+console.log('\nthe words are rewritten only where a tag is');
+check('a whole text is normalised',
+  sec.norm('Verse :\nD        C2\nYou make me want\n\nchorus:\nI am not ashamed'),
+  '[Verse]\nD        C2\nYou make me want\n\n[Chorus]\nI am not ashamed');
+// A chord row's spacing IS the grid it is read by (gotcha 38).
+// Indented, because that is the shape a chord row has -- the chords sit
+// over the words. A row with nothing to trim proves nothing about trimming.
+check('a chord row keeps its spacing exactly',
+  sec.norm('    D        C2  '), '    D        C2  ');
+check('blank lines are kept', sec.norm('a\n\nb'), 'a\n\nb');
+check('CRLF text stays CRLF', sec.norm('Verse:\r\nwords'), '[Verse]\r\nwords');
+check('nothing at all does not throw', sec.norm(null), '');
+
+console.log('\nand the editor keeps the tag');
+// Drawn as it will be SAVED, so nothing changes shape under the operator.
+const padRender = SRC.slice(SRC.indexOf('function renderRichEditor'));
+check('the pad draws the normalised tag',
+  /var tag = lhcSectionTag\(trimmed\);/.test(padRender), true);
+// Scoped to THIS editor and the importer, which is what was unified. A dozen
+// other readers of the same word list live elsewhere in the file (the
+// songbook, the LCD, print) and are NOT folded in: they all understand
+// brackets, and the save below gives them brackets, so the colon form only
+// ever has to be understood here.
+check('  and the editor keeps no word list of its own',
+  /function isSectionHeaderNoBrackets\(line\) \{\s*return !!lhcSectionTag\(line\);\s*\}/.test(SRC), true);
+check('  both copies of it', (SRC.match(/return !!lhcSectionTag\(line\);/g) || []).length, 2);
+check('the document importer reads sections the same way',
+  /function toSectionHeader\(line\) \{\s*return lhcSectionTag\(line\);\s*\}/.test(SRC), true);
+check('  and its extra words were kept, not dropped',
+  /hook: 'Hook', turn: 'Turn', breakdown: 'Breakdown'/.test(SRC), true);
+const outline = topFn('_lyricsParseSections');
+check('the outline counts them, so it appears as you type',
+  /lhcSectionTag\(line\)/.test(outline), true);
+// The one place both ways out of this editor pass through.
+const saveEd = topFn('saveLyricsEditor');
+check('the save is what makes it stick',
+  /lhcNormaliseSectionTags\(textarea\.value\)/.test(saveEd), true);
+check('  and the pad is left holding what was saved',
+  /textarea\.value = lyrics;/.test(saveEd), true);
+
+console.log('\nthe editor opens holding the song\'s words');
+// A mutation that removed "textarea.value = lyrics" from openLyricsEditor
+// went uncaught: the editor would open EMPTY on a song that has words, and
+// the next Save would write that emptiness over the song. Run, not matched.
+// The six things it calls are stubbed -- each is checked where it lives --
+// but every assignment in the function itself is the real one.
+const openEditor = (function () {
+  const body = topFn('openLyricsEditor');
+  const make = new Function('document', 'songData', 'stubs', [
+    'var currentLyricsMode, currentSlideIndex, originalLyrics,',
+    '    currentTransposeSemitones, lyricsHistory, lyricsHistoryIndex;',
+    'var _lyricsRenderOutline = stubs.outline, _lyricsSetEditorState = stubs.state,',
+    '    renderRichEditor = stubs.render, lhcCaretToStart = stubs.caret,',
+    '    updateLyricsLivePreview = stubs.preview, renderLyricsEditorDocs = stubs.docs;',
+    body,
+    'return function (mode) {',
+    '  openLyricsEditor(mode);',
+    '  return { mode: currentLyricsMode, slide: currentSlideIndex,',
+    '           original: originalLyrics, steps: currentTransposeSemitones,',
+    '           history: lyricsHistory, historyIndex: lyricsHistoryIndex };',
+    '};'
+  ].join('\n'));
+
+  return function (lyrics, opts) {
+    opts = opts || {};
+    const doc = makeDocument();
+    const seen = { outline: null, rendered: null, caretOn: null, focused: false, docsFor: null };
+    function el(id, tag) {
+      const n = new El(tag || 'div', '');
+      n.setAttribute('id', id);
+      n.value = '';
+      n.focus = function () { seen.focused = true; };
+      doc.root.appendChild(n);
+      return n;
+    }
+    const modal = el('lyricsEditorModal');
+    if (opts.wasSongbook) modal.classList.add('lyrics-editor-modal--sb');
+    const ta = el('lyricsEditorTextarea', 'textarea');
+    const rich = el('lyricsRichEditor');
+    const key = el('transposeKey', 'select');
+    key.value = 'F#';                         // left over from the song before
+    const titleEl = el('lyricsEditorSongTitle');
+    const src = el('newSongTitle', 'input');
+    src.value = '  Angels (Glory to God)  ';
+
+    const stubs = {
+      outline: function (t) { seen.outline = t; },
+      state: function () {},
+      render: function (t) { seen.rendered = t; },
+      caret: function (n) { seen.caretOn = n; },
+      preview: function () {},
+      docs: function (m) { seen.docsFor = m; }
+    };
+    const data = { new: Object.prototype.hasOwnProperty.call(opts, 'noLyrics') ? {} : { lyrics: lyrics } };
+    const state = make(doc, data, stubs)('new');
+    return { state: state, seen: seen, ta: ta, rich: rich, key: key,
+             modal: modal, title: titleEl };
+  };
+})();
+
+const WORDS = '[Verse]\nD        C2\nYou make me want to be like You';
+const op = openEditor(WORDS);
+
+check('the textarea is handed the song\'s words', op.ta.value, WORDS);
+check('  and the pad is drawn from the same words', op.seen.rendered, WORDS);
+check('  and so is the outline', op.seen.outline, WORDS);
+// Undo must start from what is on screen, or one press restores another song.
+check('undo starts from those words', op.state.history, [WORDS]);
+check('  at the first step', op.state.historyIndex, 0);
+// Without the reset, opening song B after transposing song A moves B's
+// chords from A's baseline.
+check('the transposition starts again', op.state.steps, 0);
+check('  with no baseline from the song before', op.state.original, '');
+check('  and the key picker cleared', op.key.value, '');
+check('the slide preview starts at the first slide', op.state.slide, 0);
+// gotcha 63: an editor opens on the FIRST character, not the last.
+check('the cursor goes to the start', op.seen.caretOn === op.rich, true);
+check('the song\'s name is shown, trimmed', op.title.textContent, 'Angels (Glory to God)');
+check('the docs panel is told which song', op.seen.docsFor, 'new');
+// gotcha 90: the look is the Songbook's, the hiding is not.
+check('it takes the sheet look', op.modal.classList.contains('lyrics-editor-modal--sheet'), true);
+const reopened = openEditor(WORDS, { wasSongbook: true });
+check('  and drops the Songbook\'s hiding when it is reused',
+  reopened.modal.classList.contains('lyrics-editor-modal--sb'), false);
+// A new song has no words at all; it must open empty, not "undefined".
+const blank = openEditor(null, { noLyrics: true });
+check('a song with no words opens empty', blank.ta.value, '');
+check('  and undo starts from empty', blank.state.history, ['']);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));

@@ -6871,7 +6871,135 @@ the anon key -- verify as `postgres`, not as the app.
     reorder, the song move with a medley, the section picked and both moves
     across.
 
-122. **A PDF was always scannable and nothing said so; what broke was the
+122. **An item removed from an order stays removed only if the removal says
+    which KIND went -- and the projected words start LEFT.** From the operator
+    (2026-11-28): "Deleting the slides in 29 Nov doesn't stick, it comes back
+    after refreshing", and "By default, the alignment should be set to left for
+    all slides".
+    - **The prune is right and the removals were wrong.** `SBQ.saveOrder` is
+      upsert-then-prune, and the prune refuses to delete a stored row whose
+      whole `item_type` is missing from the payload: a kind vanishing is the
+      shape of a collection that came back short, not of an edit, and pruning
+      on it destroys work nobody touched. So the ONLY thing that can authorise
+      clearing a kind is the removal path saying so -- `_woUserClearedTypes`,
+      whose comment has always read "set by the remove buttons themselves".
+      Six of them did not set it.
+    - **It shows only for the LAST item of its kind**, which is why they all
+      looked fine. With any other still in the payload the kind is present and
+      the guard never fires. The live 29 Nov order carries exactly one `slides`
+      row and one `song`. Measured in the browser before the fix: removing the
+      deck emptied 28 pages and one banner off the page and produced a payload
+      of 26 items with no `slides` and `allowClearTypes` of `{}` -- so the row
+      was kept and the deck was back on the next refresh, every time. After:
+      the same probe gives `allowClearTypes: { slides: true }`.
+    - `_woNoteRemoved(itemType)` is now the one way that flag is set, called by
+      `_removePptNow` (slides), `removeSlideContainer` (slides),
+      `deleteContent` (content), `removeVideo` (video),
+      `removeScriptureKeepSlot` (scripture) and `_lcdRemoveWholeGroup`
+      (song / liturgy / scripture -- deleting the last slide of an item removes
+      the ITEM, which the rail's own trash button reaches). Before the note
+      landed, the save's clock ran out: it is cleared by a save that succeeds,
+      so the note goes in before `autoSaveOrder()`, never after.
+    - **Note only a removal that happened.** Found by probe, not by reading:
+      `_removePptNow` for a section with no deck still noted `slides`, which
+      hands the prune permission to clear a kind nobody touched -- the guard's
+      own hazard, inverted. Each note now sits inside the test that something
+      was there (`if (data)`, `if (box)`, `if (videoContainer)`).
+    - **Three of them saved nothing at all**: `removeSlideContainer`,
+      `removeVideo` and `removeScriptureKeepSlot` had no `autoSaveOrder()`, so
+      the removal lived until some other edit happened to save -- which then
+      kept the stored row anyway. `autoSaveOrder` is debounced, so a second
+      caller costs nothing.
+    - **The deck's stored `section_id` can be stale**: that order's row says
+      `wo-section-doc9` while the deck renders in `wo-section-doc25`, because
+      Use / blend rename an order's sections (gotcha 104). The collector walks
+      the DOM, so it still saves; but a probe aimed at the stored id removes
+      nothing, which looks exactly like the bug.
+    - The prune's per-kind decision is `SBQ._mayClearKind(itemType,
+      kindsInPayload, mayClear, clearAll)`, pure and lifted out of the inline
+      test so the rule that decides whether a row lives can be RUN.
+    - **The projected words are left-aligned by default.** Alignment is one
+      projection-wide setting (`_currentSlideAlign`) kept nowhere, so the
+      default is the whole of it. Changed in six places that each had their own
+      copy of `center`: the variable, the Program preview's `data.align ||`
+      fallback, the projector document's `.projection-text` stylesheet, the
+      projector's `window._projAlign ||` last resort, `.wo-fullscreen-content`
+      (the presenter overlay, before its first barrier style), and which Align
+      button starts pressed. Left means what the Align left button already
+      meant: the words are left-aligned inside a block still centred in the
+      safe zone by the flex row, not pinned to its left edge.
+    `tools/item-removal-persists-harness.js` checks it, running
+    `_mayClearKind`, `_woNoteRemoved`, `_lcdRemoveWholeGroup`'s kind choice and
+    `_removePptNow` / `deleteContent` / `removeVideo` themselves -- including
+    that a no-op removal notes nothing.
+
+123. **A section typed with a colon is a section, and is SAVED as one.**
+    The operator, 2026-11-28, circling "Verse:" in the Lyrics & Chords
+    editor while the outline still read "Add a section marker like
+    `[Verse 1]`": a section written "Verse :" or "Verse:" should be
+    remembered too, in the `[Verse]` form.
+    - The editor already drew a bare "Verse 1" as a tag, but its regex
+      ended at the digits, so a trailing colon made it an ordinary lyric
+      line -- and nothing ever rewrote what was STORED. Everything
+      downstream looks for brackets: `_lyricsParseSections` (the
+      outline), `parseLyricsIntoSlides`, the Songbook's headers, print.
+    - So there is one reading, `lhcSectionTag(line)` (global, pure),
+      returning the marker in the one form the rest of the app reads or
+      null: `[Verse 1]` as before, plus "Verse", "Verse 1", "Verse:",
+      "Verse :", "VERSE 2 :", "Pre Chorus". **The colon (or full stop)
+      must END the line** -- "Chorus: Holy holy" is somebody singing, not
+      a heading -- and the word list is closed (`_LHC_SECTION_NAMES`), so
+      any other single word stays a lyric. The spelling it returns is the
+      app's: "Pre-Chorus", however it was typed.
+    - `lhcNormaliseSectionTags(text)` (pure) rewrites every marker in a
+      text and hands back every other line EXACTLY as typed -- a chord
+      row's spacing is the grid it is read by (gotcha 38). It runs in
+      `saveLyricsEditor`, the one place both ways out of this editor pass
+      through (the song form's and the Songbook's), which is the whole of
+      making the tag stick and quietly mends a song stored with the colon
+      form the next time anyone saves it.
+    - The document importer (`_formatLyricsForSlides`) was a THIRD
+      reading: it already took a colon and already wrote `[Verse 1]`, it
+      simply pre-dated the editor's. Folded in -- its wider words (hook,
+      turn, breakdown) moved into the shared list so nothing it
+      recognised is lost.
+    - **A dozen other readers of the same word list are NOT folded in**
+      (the songbook, the LCD, print, the share). They all understand
+      brackets, and the save gives them brackets, so the colon form only
+      ever has to be understood in the editor. Unifying them would change
+      how already-stored songs split into slides, which is not something
+      to do silently.
+    `tools/lyrics-editor-harness.js` checks it, running `lhcSectionTag`
+    and `lhcNormaliseSectionTags` rather than matching their source.
+
+124. **A mutation whose target is not unique breaks the wrong place, and
+    passes.** `tools/mutation-test.js` applies each case with
+    `String.replace`, which takes the FIRST occurrence. In a 113,000-line
+    file an innocuous-looking line is rarely unique: `textarea.value =
+    lyrics;` appears three times, `currentSlideIndex = 0;` four,
+    `renderRichEditor(lyrics);` twice. A case aimed at one of them lands
+    somewhere else entirely, the named harness still passes, and it is
+    reported as MISSED -- which reads as "the check is weak" when the
+    check was never run against the change it describes.
+    - Measured twice in two days: a case meant for `saveLyricsEditor`
+      broke `openLyricsEditor` instead, and the gap it exposed (nothing
+      checked that the editor opens holding the song's words) was real
+      but invisible from the report.
+    - So anchor every case to its own context -- the line before it, or
+      the whole three-line run -- and when a case is reported MISSED,
+      check it HIT what it meant to before assuming the harness is at
+      fault. `tools/` has no helper for this on purpose: a probe that
+      counts a candidate anchor's occurrences before the case is written
+      takes one line of Python.
+    - The other half of the same trap: a case that cannot be caught
+      because the behaviour it describes does not exist. One normalised a
+      chord row that had no indentation to lose, and another took a
+      second normalisation out of `transposeLine` that `transposeChord`
+      already does. The first needed a better example; the second was
+      redundant CODE, and the answer was to delete it rather than write a
+      check for a difference nothing could show.
+
+125. **A PDF was always scannable and nothing said so; what broke was the
     tray around it.** From the operator (2026-11-28), attaching a hymn PDF:
     "I've got some PDFs that I want add a song with ... title, composer and
     the chords and lyrics all laid out." The picker had accepted `.pdf` since
@@ -6940,6 +7068,7 @@ the anon key -- verify as `postgres`, not as the app.
     Its `Image` stub now fires `onerror` -- one that settled neither handler
     left `_asDownscale` pending for ever, and the upload-budget test passed
     by asserting "nothing uploaded" about a scan that had never started.
+
 
 ## Quick Commands for Claude Code
 
