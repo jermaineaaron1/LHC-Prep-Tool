@@ -6972,6 +6972,33 @@ the anon key -- verify as `postgres`, not as the app.
     `tools/lyrics-editor-harness.js` checks it, running `lhcSectionTag`
     and `lhcNormaliseSectionTags` rather than matching their source.
 
+124. **A mutation whose target is not unique breaks the wrong place, and
+    passes.** `tools/mutation-test.js` applies each case with
+    `String.replace`, which takes the FIRST occurrence. In a 113,000-line
+    file an innocuous-looking line is rarely unique: `textarea.value =
+    lyrics;` appears three times, `currentSlideIndex = 0;` four,
+    `renderRichEditor(lyrics);` twice. A case aimed at one of them lands
+    somewhere else entirely, the named harness still passes, and it is
+    reported as MISSED -- which reads as "the check is weak" when the
+    check was never run against the change it describes.
+    - Measured twice in two days: a case meant for `saveLyricsEditor`
+      broke `openLyricsEditor` instead, and the gap it exposed (nothing
+      checked that the editor opens holding the song's words) was real
+      but invisible from the report.
+    - So anchor every case to its own context -- the line before it, or
+      the whole three-line run -- and when a case is reported MISSED,
+      check it HIT what it meant to before assuming the harness is at
+      fault. `tools/` has no helper for this on purpose: a probe that
+      counts a candidate anchor's occurrences before the case is written
+      takes one line of Python.
+    - The other half of the same trap: a case that cannot be caught
+      because the behaviour it describes does not exist. One normalised a
+      chord row that had no indentation to lose, and another took a
+      second normalisation out of `transposeLine` that `transposeChord`
+      already does. The first needed a better example; the second was
+      redundant CODE, and the answer was to delete it rather than write a
+      check for a difference nothing could show.
+
 ## Quick Commands for Claude Code
 
 ```bash
