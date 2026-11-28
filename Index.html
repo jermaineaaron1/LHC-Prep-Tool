@@ -8264,8 +8264,8 @@
                            height. Ids and handlers unchanged. -->
                       <span class="lcd-fmt-group">
                         <span class="wo-align-group" title="Text alignment on projection">
-                          <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                          <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                          <button class="wo-align-btn active" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                          <button class="wo-align-btn" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
                           <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
                         </span>
                         <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
@@ -32147,6 +32147,21 @@ var SBQ = {
     return out;
   },
 
+  // May a stored row of this kind be pruned when the payload carries none
+  // of them? Only on the caller's word. A whole kind missing is the shape of
+  // a collection that came back short, not of an edit, and pruning on it
+  // deletes work nobody touched -- so the default is to KEEP.
+  //
+  //   clearAll        the caller states the order is genuinely empty, which
+  //                   is a stronger claim than any per-kind permission
+  //   kindsInPayload  this kind is still represented, so nothing is missing
+  //   mayClear        the operator removed one of these (_woNoteRemoved)
+  _mayClearKind: function(itemType, kindsInPayload, mayClear, clearAll) {
+    if (clearAll) return true;
+    if (kindsInPayload && kindsInPayload[itemType]) return true;
+    return !!(mayClear && mayClear[itemType]);
+  },
+
   _rowFingerprint: function(row) {
     var s = JSON.stringify([
       row.item_type || '', row.section_id || '',
@@ -32604,7 +32619,7 @@ var SBQ = {
             var _kindProtected = {};
             (er.data || []).forEach(function(x) {
               if (keep[x.id]) return;
-              if (!_clearAll && !_kindsInPayload[x.item_type] && !_mayClear[x.item_type]) {
+              if (!SBQ._mayClearKind(x.item_type, _kindsInPayload, _mayClear, _clearAll)) {
                 _kindProtected[x.item_type] = (_kindProtected[x.item_type] || 0) + 1;
                 return;
               }
@@ -37931,6 +37946,20 @@ var WO = (function() {
   // asked for that; losing every item of a type any other way is a collection
   // failure, not an edit. Reset once the save that carries it succeeds.
   var _woUserClearedTypes = {};
+
+  // The one way that flag is ever set. Nothing about a payload tells a
+  // deliberate removal apart from a collection that came back short, so
+  // every path that takes an item off the page has to say which KIND went
+  // -- before it saves, since a landed save clears the note again.
+  //
+  // It matters only for the last item of its kind: with any other still in
+  // the payload the kind is present and the guard never fires, which is why
+  // six paths could omit it and look perfectly fine until a service had just
+  // one deck, one song or one reading. The 29 Nov deck was removed, saved,
+  // and back on the next refresh, every time.
+  function _woNoteRemoved(itemType) {
+    if (itemType) _woUserClearedTypes[itemType] = true;
+  }
 
   // Songs the operator has taken out of a section, by order-entry id.
   //
@@ -45985,7 +46014,7 @@ var WO = (function() {
     if (!container) return;
 
     var videoContainer = container.querySelector('.wo-video-container');
-    if (videoContainer) videoContainer.remove();
+    if (videoContainer) { videoContainer.remove(); _woNoteRemoved('video'); }
 
     // Add back placeholder if empty
     if (!container.querySelector('.wo-content-box') && !container.querySelector('.wo-slides-container') && !container.querySelector('.wo-video-container')) {
@@ -45994,6 +46023,9 @@ var WO = (function() {
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
+    // Nothing here saved either, so a removed video lived until the next
+    // save from somewhere else -- which then kept the stored row anyway.
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
     showToast('Video removed', 'success');
   }
 
@@ -48555,7 +48587,10 @@ var WO = (function() {
     if (typeof _lcdPushUndo === 'function' && !silent) _lcdPushUndo();
     // The stored slides go too. Removing only the element left the data behind,
     // so the next render put the whole presentation straight back.
-    delete currentSermonSlides[sectionId];
+    if (data) {
+      delete currentSermonSlides[sectionId];
+      _woNoteRemoved('slides');
+    }
     if (containerId) removeSlideContainer(containerId);
     else {
       var w = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
@@ -49787,7 +49822,7 @@ var WO = (function() {
       clearContent();
       var contentEl = document.createElement('div');
       contentEl.className = 'wo-preview-content';
-      contentEl.style.textAlign = data.align || 'center';
+      contentEl.style.textAlign = data.align || 'left';
       if (typeof _applyBarrierToEl === 'function') _applyBarrierToEl(contentEl, data.barrier);
       contentEl.innerHTML = '<div class="wo-preview-inner">' + data.text + '</div>';
       box.appendChild(contentEl);
@@ -49869,7 +49904,7 @@ var WO = (function() {
       // out 3374px wide in a 1728px safe zone, 823px of it clipped off the
       // left and the rest off the right -- the word simply gone from the wall.
       // The old shrink-to-fit hid this by making the whole slide smaller.
-      '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
+      '.projection-text { font-size: 6.5vw; line-height: 1.6; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: left; }' +
       // A presentation slide gets a layer of its OWN, outside
       // .projection-content and so outside the safe-zone barrier.
       //
@@ -50064,7 +50099,7 @@ var WO = (function() {
       '    style += "color:" + (s.color || "#ffffff") + ";";' +
       '    style += "font-weight:" + (s.bold ? "bold" : "normal") + ";";' +
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
-      '    style += "text-align:" + (data.align || window._projAlign || "center") + ";";' +
+      '    style += "text-align:" + (data.align || window._projAlign || "left") + ";";' +
       '    content.innerHTML = "<div class=\\"projection-text\\" style=\\"" + style + "\\">" + data.text + "</div>";' +
       '    if (data.barrier) { _applyBarrierToContent(data.barrier); }' +
       '    if (bgEl) bgEl.style.display = "block";' +
@@ -50276,6 +50311,11 @@ var WO = (function() {
     }
     // If no more presentation containers remain, show the attach row again
     _restoreAttachRowIfEmpty(sectionId);
+    // Its own remove button reaches this directly, and nothing here saved,
+    // so a presentation taken out this way was not written at all. The save
+    // is debounced, so _removePptNow calling in as well costs nothing.
+    _woNoteRemoved('slides');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   // Re-show the ppt-attach-row (and optional empty placeholder) when all
@@ -50518,7 +50558,7 @@ var WO = (function() {
   function deleteContent(deleteBtn) {
     _lcdPushUndo();
     var box = deleteBtn.closest('.wo-content-box');
-    if (box) box.remove();
+    if (box) { box.remove(); _woNoteRemoved('content'); }
     autoSaveOrder();
   }
 
@@ -91831,7 +91871,12 @@ var WO = (function() {
   var selectedSlideBox = null;
   var editingSlideBox = null;
   var currentSectionVideoId = null; // Track which section's video is playing
-  var _currentSlideAlign = 'center'; // Projection text alignment: 'left'|'center'|'right'
+  // Projection text alignment: 'left'|'center'|'right'. LEFT by default,
+  // which the operator asked for after seeing the wall centred with the
+  // Align left button sitting unpressed. Projection-wide, never per slide,
+  // and not persisted: whatever a service sets lasts until the page
+  // reloads, and then it is this again.
+  var _currentSlideAlign = 'left';
   // 4-sided safe-zone barrier config (% from each edge).  global is the default; sections/slides
   // can override per-scope.  _getActiveBarrier(box) resolves the correct level.
   // Load barrier config from localStorage (persists across page reloads)
@@ -92312,6 +92357,10 @@ var WO = (function() {
   // its last slide is deleted.
   function _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source) {
     var container = box.closest('.wo-content-boxes');
+    // Deleting the last slide of an item removes the ITEM, so this is a
+    // removal of its kind and has to be noted as one -- the rail's own trash
+    // button reaches it, and on a service with one song that song came back.
+    _woNoteRemoved(source === 'scripture' ? 'scripture' : (isLiturgy ? 'liturgy' : 'song'));
     if (!container) { box.remove(); return; }
     if (source === 'scripture') {
       var grp = box.closest('.wo-scripture-slides-group');
@@ -104033,6 +104082,10 @@ var WO = (function() {
       '</div>';
     banner.insertAdjacentHTML('afterend', placeholderHtml);
     banner.remove();
+    // Its callers in the follow-the-Roster path already note and save; the
+    // banner button is the one that reaches this on its own.
+    _woNoteRemoved('scripture');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   init();
@@ -124399,7 +124452,7 @@ function filterLiturgyItems() {
   .wo-fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: none; align-items: center; justify-content: center; z-index: 10000; font-family: Georgia, serif; font-size: 2.8rem; line-height: 1.6; padding: 60px 100px; overflow: hidden; }
   .wo-fullscreen-overlay.show { display: flex; }
   .wofs-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
-  .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
+  .wo-fullscreen-content { position: relative; z-index: 1; text-align: left; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
   .wofs-inner { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: break-word; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); line-height: 1.6; }
   .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 8; opacity: 0; transition: color .2s, opacity .3s; }
   .wo-fullscreen-overlay:hover .wo-close-fullscreen { opacity: 1; }

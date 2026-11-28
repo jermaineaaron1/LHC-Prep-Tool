@@ -6871,6 +6871,68 @@ the anon key -- verify as `postgres`, not as the app.
     reorder, the song move with a medley, the section picked and both moves
     across.
 
+122. **An item removed from an order stays removed only if the removal says
+    which KIND went -- and the projected words start LEFT.** From the operator
+    (2026-11-28): "Deleting the slides in 29 Nov doesn't stick, it comes back
+    after refreshing", and "By default, the alignment should be set to left for
+    all slides".
+    - **The prune is right and the removals were wrong.** `SBQ.saveOrder` is
+      upsert-then-prune, and the prune refuses to delete a stored row whose
+      whole `item_type` is missing from the payload: a kind vanishing is the
+      shape of a collection that came back short, not of an edit, and pruning
+      on it destroys work nobody touched. So the ONLY thing that can authorise
+      clearing a kind is the removal path saying so -- `_woUserClearedTypes`,
+      whose comment has always read "set by the remove buttons themselves".
+      Six of them did not set it.
+    - **It shows only for the LAST item of its kind**, which is why they all
+      looked fine. With any other still in the payload the kind is present and
+      the guard never fires. The live 29 Nov order carries exactly one `slides`
+      row and one `song`. Measured in the browser before the fix: removing the
+      deck emptied 28 pages and one banner off the page and produced a payload
+      of 26 items with no `slides` and `allowClearTypes` of `{}` -- so the row
+      was kept and the deck was back on the next refresh, every time. After:
+      the same probe gives `allowClearTypes: { slides: true }`.
+    - `_woNoteRemoved(itemType)` is now the one way that flag is set, called by
+      `_removePptNow` (slides), `removeSlideContainer` (slides),
+      `deleteContent` (content), `removeVideo` (video),
+      `removeScriptureKeepSlot` (scripture) and `_lcdRemoveWholeGroup`
+      (song / liturgy / scripture -- deleting the last slide of an item removes
+      the ITEM, which the rail's own trash button reaches). Before the note
+      landed, the save's clock ran out: it is cleared by a save that succeeds,
+      so the note goes in before `autoSaveOrder()`, never after.
+    - **Note only a removal that happened.** Found by probe, not by reading:
+      `_removePptNow` for a section with no deck still noted `slides`, which
+      hands the prune permission to clear a kind nobody touched -- the guard's
+      own hazard, inverted. Each note now sits inside the test that something
+      was there (`if (data)`, `if (box)`, `if (videoContainer)`).
+    - **Three of them saved nothing at all**: `removeSlideContainer`,
+      `removeVideo` and `removeScriptureKeepSlot` had no `autoSaveOrder()`, so
+      the removal lived until some other edit happened to save -- which then
+      kept the stored row anyway. `autoSaveOrder` is debounced, so a second
+      caller costs nothing.
+    - **The deck's stored `section_id` can be stale**: that order's row says
+      `wo-section-doc9` while the deck renders in `wo-section-doc25`, because
+      Use / blend rename an order's sections (gotcha 104). The collector walks
+      the DOM, so it still saves; but a probe aimed at the stored id removes
+      nothing, which looks exactly like the bug.
+    - The prune's per-kind decision is `SBQ._mayClearKind(itemType,
+      kindsInPayload, mayClear, clearAll)`, pure and lifted out of the inline
+      test so the rule that decides whether a row lives can be RUN.
+    - **The projected words are left-aligned by default.** Alignment is one
+      projection-wide setting (`_currentSlideAlign`) kept nowhere, so the
+      default is the whole of it. Changed in six places that each had their own
+      copy of `center`: the variable, the Program preview's `data.align ||`
+      fallback, the projector document's `.projection-text` stylesheet, the
+      projector's `window._projAlign ||` last resort, `.wo-fullscreen-content`
+      (the presenter overlay, before its first barrier style), and which Align
+      button starts pressed. Left means what the Align left button already
+      meant: the words are left-aligned inside a block still centred in the
+      safe zone by the flex row, not pinned to its left edge.
+    `tools/item-removal-persists-harness.js` checks it, running
+    `_mayClearKind`, `_woNoteRemoved`, `_lcdRemoveWholeGroup`'s kind choice and
+    `_removePptNow` / `deleteContent` / `removeVideo` themselves -- including
+    that a no-op removal notes nothing.
+
 ## Quick Commands for Claude Code
 
 ```bash
