@@ -1462,9 +1462,49 @@ const CASES = [
   ['multipage-scan-harness.js', 'a failed attach to an existing song leaves its uploads',
     s => s.replace('// Nothing will reference these -- the attach never happened.' + CLEANUP,
                    '// Nothing will reference these -- the attach never happened.')],
+  // The downscale/upload chain was restructured when PDFs arrived: every page
+  // is now shrunk AND the set weighed before one byte goes up, so this case
+  // went stale -- it applied to nothing, and reported neither catch nor miss.
+  // A stale case is worse than a missing one: the count still says 1000.
   ['multipage-scan-harness.js', 'full-size photographs are uploaded unshrunk',
-    s => s.replace("    return _asDownscale(f).then(function(small) {\r\n      return uploadToSupabase(small, 'song-scans');\r\n    }).then(function(res) {",
-                   "    return uploadToSupabase(f, 'song-scans').then(function(res) {")],
+    s => s.replace('Promise.all(pages.map(function(f) { return _asDownscale(f); })).then(function(smalls) {',
+                   'Promise.all(pages.map(function(f) { return Promise.resolve(f); })).then(function(smalls) {')],
+
+  // ---- a PDF in the scan tray -------------------------------------------
+  // Each of these is a shape the tray had before PDFs were handled, and each
+  // one looks like working software from the outside.
+
+  // The original fault: a PDF blob in an <img> draws the broken-image icon,
+  // so the only sign the file had been taken was a torn page.
+  ['multipage-scan-harness.js', 'a PDF is given a blob <img> it cannot draw',
+    s => s.replace("    _asThumbs.push(pdf ? '' : URL.createObjectURL(f));",
+                   '    _asThumbs.push(URL.createObjectURL(f));')],
+
+  // One PDF is one file and several pages. Counting files says "Read this
+  // page" over a three page hymn, and nobody finds out until the scan.
+  ['multipage-scan-harness.js', 'pages are counted as files',
+    s => s.replace('    return n + ((m && m.pages) || 1);', '    return n + 1;')],
+
+  // Without the ceiling a 300 page hymnal goes to the model, which answers
+  // confidently with one wrong song.
+  ['multipage-scan-harness.js', 'a hymnal-sized PDF is read as one song',
+    s => s.replace('    if (pages > AS_MAX_PDF_PAGES) {', '    if (false) {')],
+
+  // The budget, refused in the browser. Without it the upload goes up and
+  // the server answers with a byte count nobody can act on.
+  ['multipage-scan-harness.js', 'oversized pages are uploaded anyway',
+    s => s.replace('    if (total > AS_MAX_UPLOAD_BYTES) {', '    if (false) {')],
+
+  // Too big is not a failed read: it is a set that needs one page taking
+  // out. Emptying the tray means picking all four again.
+  ['multipage-scan-harness.js', 'an oversized set empties the tray',
+    s => s.replace('    if (err && err.__asKeepPages) {', '    if (false) {')],
+
+  // The count at 200ms and the picture whenever it is ready. Losing the
+  // second stage leaves a tile that never shows the page.
+  ['multipage-scan-harness.js', 'the PDF thumbnail never arrives',
+    s => s.replace('    return _asPdfThumb(pdf);  // the picture, which takes seconds',
+                   '    return null;')],
   // The route's own checks are not mutated here: this tool swaps Index.html
   // only, and multipage-scan-harness reads route.ts straight off disk. Those
   // assertions still bite on a real change to the route -- they were proved
