@@ -814,6 +814,46 @@ const CASES = [
     s => s.replace('      return !line.trim() || !isChordLineGlobal(line);', '      return !line.trim() || !/^[A-G]/.test(line.trim());')],
   ['live-projection-harness.js', 'with no detector the words are dropped instead of kept',
     s => s.replace("    if (typeof isChordLineGlobal !== 'function') return lines.join('\\n');", '')],
+  // The operator's own report: "Verse:" was not remembered as a section.
+  ['lyrics-editor-harness.js', 'a colon makes it an ordinary lyric again',
+    s => s.replace("  var m = t.match(/^([A-Za-z]+(?:[ -]?[A-Za-z]+)?)[ \\t]*(\\d*)[ \\t]*[:.]?[ \\t]*$/);",
+                   "  var m = t.match(/^([A-Za-z]+(?:[ -]?[A-Za-z]+)?)[ \\t]*(\\d*)[ \\t]*$/);")],
+  // The colon has to END the line or a sung line is swallowed.
+  ['lyrics-editor-harness.js', 'a line that merely starts with Chorus: is eaten',
+    s => s.replace("[ \\t]*[:.]?[ \\t]*$/);", "[ \\t]*[:.]?/);")],
+  ['lyrics-editor-harness.js', 'the section name is not spelled the app\u2019s way',
+    s => s.replace("  return '[' + word + (m[2] ? ' ' + m[2] : '') + ']';",
+                   "  return '[' + m[1] + (m[2] ? ' ' + m[2] : '') + ']';")],
+  ['lyrics-editor-harness.js', 'the number on a section is dropped',
+    s => s.replace("  return '[' + word + (m[2] ? ' ' + m[2] : '') + ']';", "  return '[' + word + ']';")],
+  ['lyrics-editor-harness.js', 'any single word becomes a section',
+    s => s.replace("  if (!word) return null;", "  var word = word || m[1];")],
+  // Without the rewrite on save nothing is remembered: every reader of a
+  // stored song looks for brackets.
+  ['lyrics-editor-harness.js', 'the save no longer writes the tag out',
+    s => s.replace('  var lyrics = lhcNormaliseSectionTags(textarea.value);', '  var lyrics = textarea.value;')],
+  ['lyrics-editor-harness.js', 'the pad is left showing something else',
+    s => s.replace('  var lyrics = lhcNormaliseSectionTags(textarea.value);\r\n  textarea.value = lyrics;',
+                   '  var lyrics = lhcNormaliseSectionTags(textarea.value);')],
+  ['lyrics-editor-harness.js', 'the outline goes back to brackets only',
+    s => s.replace("    var tag = (typeof lhcSectionTag === 'function') ? lhcSectionTag(line) : null;",
+                   "    var tag = /^\\s*\\[([^\\]]+)\\]\\s*$/.test(line) ? line.trim() : null;")],
+  ['lyrics-editor-harness.js', 'the pad draws the raw line instead of the tag',
+    s => s.replace('    var tag = lhcSectionTag(trimmed);', '    var tag = /^\\[.+\\]$/.test(trimmed) ? trimmed : null;')],
+  // A chord row's spacing IS the grid it is read by (gotcha 38).
+  ['lyrics-editor-harness.js', 'every line is trimmed on the way out',
+    s => s.replace('    return lhcSectionTag(line) || line;', '    return lhcSectionTag(line) || line.trim();')],
+  ['lyrics-editor-harness.js', 'CRLF words come back as LF',
+    s => s.replace("  var nl = src.indexOf('\\r\\n') >= 0 ? '\\r\\n' : '\\n';", "  var nl = '\\n';")],
+  // The editor's two old detectors, and the importer's own reader.
+  ['lyrics-editor-harness.js', 'the editor keeps a word list of its own again',
+    s => s.replace('    return !!lhcSectionTag(line);',
+                   '    return /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\\s*\\d*)?$/i.test(line.trim());')],
+  ['lyrics-editor-harness.js', 'the importer reads sections its own way again',
+    s => s.replace('    return lhcSectionTag(line);\r\n  }',
+                   "    var m = line.trim().match(/^(verse|chorus|bridge)\\s*(\\d*)/i);\r\n    return m ? '[' + m[1] + ']' : null;\r\n  }")],
+  ['lyrics-editor-harness.js', 'the importer\u2019s extra words are lost in the move',
+    s => s.replace("  hook: 'Hook', turn: 'Turn', breakdown: 'Breakdown'\r\n", '')],
   // The operator's own report: a chord written with the MUSIC SHARP SIGN
   // was not recognised at all.
   ['lyrics-editor-harness.js', 'the sharp sign is not read as a sharp',

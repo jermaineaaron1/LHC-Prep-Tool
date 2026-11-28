@@ -190,6 +190,86 @@ check('the preview screen can hold a long word without clipping it',
 check('  and wraps it rather than running off the edge',
   /\.lyr-preview-screen \.wo-preview-inner \{[^}]*overflow-wrap: break-word/.test(SRC), true);
 
+console.log('\na section typed with a colon is a section');
+// The operator circled "Verse:" in the editor while the outline still read
+// "Add a section marker like [Verse 1]". The old test ended at the digits, so
+// a trailing colon made it an ordinary lyric line and nothing was remembered.
+const namesLine = lines.findIndex(l => /^var _LHC_SECTION_NAMES = /.test(l));
+check('the list of section names is at the top level', namesLine >= 0, true);
+let namesSrc = '', depth = 0;
+for (let k = namesLine; k < lines.length; k++) {
+  namesSrc += lines[k].replace(/\r$/, '') + '\n';
+  for (const ch of lines[k]) { if (ch === '{') depth++; else if (ch === '}') depth--; }
+  if (depth === 0 && namesSrc.trim()) break;
+}
+const sec = new Function('window', [
+  namesSrc, topFn('lhcSectionTag'), topFn('lhcNormaliseSectionTags'),
+  'return { tag: lhcSectionTag, norm: lhcNormaliseSectionTags };'
+].join('\n'))({});
+
+// The two forms the operator wrote, and the ones beside them.
+check('"Verse:" is a section', sec.tag('Verse:'), '[Verse]');
+check('"Verse :" is the same section', sec.tag('Verse :'), '[Verse]');
+check('a number is kept', sec.tag('VERSE 2 :'), '[Verse 2]');
+check('a bare name still works', sec.tag('Verse 1'), '[Verse 1]');
+check('brackets are left alone', sec.tag('[Verse 1]'), '[Verse 1]');
+check('  and tidied', sec.tag('[ Chorus ]'), '[Chorus]');
+check('the spelling is the app\'s own', sec.tag('prechorus 2:'), '[Pre-Chorus 2]');
+check('  however it is written', sec.tag('Pre Chorus'), '[Pre-Chorus]');
+
+console.log('\nand everything else is still sung');
+// The colon has to END the line, or a sung line is swallowed.
+check('"Chorus: Holy holy" is a lyric', sec.tag('Chorus: Holy holy'), null);
+check('a line of words is a lyric', sec.tag('You make me want to be like You'), null);
+check('  even a short one', sec.tag('Jesus'), null);
+check('  and two words that are not a section', sec.tag('Holy Spirit'), null);
+check('a chord row is not a section', sec.tag('D        C2'), null);
+// The choir score's own labels belong to another reading (gotcha 67).
+check('a choir part label is not a section', sec.tag('Melody:'), null);
+check('  nor a speaker', sec.tag('All:'), null);
+check('nothing at all is not a section', sec.tag(''), null);
+check('  nor null', sec.tag(null), null);
+
+console.log('\nthe words are rewritten only where a tag is');
+check('a whole text is normalised',
+  sec.norm('Verse :\nD        C2\nYou make me want\n\nchorus:\nI am not ashamed'),
+  '[Verse]\nD        C2\nYou make me want\n\n[Chorus]\nI am not ashamed');
+// A chord row's spacing IS the grid it is read by (gotcha 38).
+// Indented, because that is the shape a chord row has -- the chords sit
+// over the words. A row with nothing to trim proves nothing about trimming.
+check('a chord row keeps its spacing exactly',
+  sec.norm('    D        C2  '), '    D        C2  ');
+check('blank lines are kept', sec.norm('a\n\nb'), 'a\n\nb');
+check('CRLF text stays CRLF', sec.norm('Verse:\r\nwords'), '[Verse]\r\nwords');
+check('nothing at all does not throw', sec.norm(null), '');
+
+console.log('\nand the editor keeps the tag');
+// Drawn as it will be SAVED, so nothing changes shape under the operator.
+const padRender = SRC.slice(SRC.indexOf('function renderRichEditor'));
+check('the pad draws the normalised tag',
+  /var tag = lhcSectionTag\(trimmed\);/.test(padRender), true);
+// Scoped to THIS editor and the importer, which is what was unified. A dozen
+// other readers of the same word list live elsewhere in the file (the
+// songbook, the LCD, print) and are NOT folded in: they all understand
+// brackets, and the save below gives them brackets, so the colon form only
+// ever has to be understood here.
+check('  and the editor keeps no word list of its own',
+  /function isSectionHeaderNoBrackets\(line\) \{\s*return !!lhcSectionTag\(line\);\s*\}/.test(SRC), true);
+check('  both copies of it', (SRC.match(/return !!lhcSectionTag\(line\);/g) || []).length, 2);
+check('the document importer reads sections the same way',
+  /function toSectionHeader\(line\) \{\s*return lhcSectionTag\(line\);\s*\}/.test(SRC), true);
+check('  and its extra words were kept, not dropped',
+  /hook: 'Hook', turn: 'Turn', breakdown: 'Breakdown'/.test(SRC), true);
+const outline = topFn('_lyricsParseSections');
+check('the outline counts them, so it appears as you type',
+  /lhcSectionTag\(line\)/.test(outline), true);
+// The one place both ways out of this editor pass through.
+const saveEd = topFn('saveLyricsEditor');
+check('the save is what makes it stick',
+  /lhcNormaliseSectionTags\(textarea\.value\)/.test(saveEd), true);
+check('  and the pad is left holding what was saved',
+  /textarea\.value = lyrics;/.test(saveEd), true);
+
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(58));
 console.log(passed + '/' + results.length + ' checks passed');
